@@ -3,30 +3,20 @@ select
   u.report_month,
   c.entity,
 
-  sum(
-    case
-      when c.section = 'Income' then coalesce(c.current_period,0)
-      else 0
-    end
-  ) as income,
+  sum(case when c.section = 'Income' then coalesce(c.current_period, 0) else 0 end) as current_income,
+
+  sum(case when c.section = 'Expense' then coalesce(c.current_period, 0) else 0 end) as current_expense,
 
   sum(
     case
-      when c.section = 'Expense' then coalesce(c.current_period,0)
+      when c.section = 'Income' then coalesce(c.current_period, 0)
+      when c.section = 'Expense' then -coalesce(c.current_period, 0)
       else 0
     end
-  ) as expense,
+  ) as current_net
 
-  sum(
-    case
-      when c.section = 'Income' then coalesce(c.current_period,0)
-      when c.section = 'Expense' then -coalesce(c.current_period,0)
-      else 0
-    end
-  ) as net
-
-from pnl_classified_rows c
-join v_latest_pnl_uploads u
+from public.pnl_classified_rows c
+join public.pnl_uploads u
   on c.upload_id = u.id
 
 group by
