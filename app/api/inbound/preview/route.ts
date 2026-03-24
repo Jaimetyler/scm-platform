@@ -17,7 +17,7 @@ export async function GET() {
         mark: item.row.mark,
         status: item.status,
         candidateCount: item.candidateCount,
-        matchedOrderId: item.matched?.orderId ?? null,
+        matchedOrderId: item.matchedOrderId ?? null,
         reason: item.reason,
         parsedBlnum: item.parsedBlnum ?? null,
         proposed: item.proposed ?? null,
