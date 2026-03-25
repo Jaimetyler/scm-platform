@@ -77,22 +77,29 @@ export default function Home() {
           gap: 20,
         }}
       >
-        <Link href="/pnl" style={cardStyle}>
-          <div style={cardTitle}>Profit &amp; Loss</div>
-          <div style={cardDesc}>
-            Financial reporting, trends, and entity breakdowns
-          </div>
-        </Link>
+        <Link href="/pnl" style={cardStyleLocked}>
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={cardTitle}>Profit &amp; Loss</div>
+
+    <div style={lockStyle}>🔒</div>
+  </div>
+
+  <div style={cardDesc}>
+    Financial reporting, trends, and entity breakdowns
+  </div>
+
+  <div style={lockedTagStyle}>Auth Required</div>
+</Link>
 
         <Link href="/inbound" style={cardStylePrimary}>
-          <div style={cardTitle}>Inbound Processor</div>
+          <div style={cardTitle}>Inbound Cotton Processor</div>
           <div style={cardDesc}>
             Upload and process check-in sheets into the system
           </div>
         </Link>
 
         <Link href="/inbound/history" style={cardStyle}>
-          <div style={cardTitle}>Inbound History</div>
+          <div style={cardTitle}>Inbound Cotton History</div>
           <div style={cardDesc}>Review inbound cotton records</div>
         </Link>
       </div>
@@ -130,4 +137,22 @@ const cardDesc: React.CSSProperties = {
   fontSize: 14,
   color: "#94a3b8",
   lineHeight: 1.5,
+};
+const cardStyleLocked: React.CSSProperties = {
+  ...cardStyle,
+  opacity: 0.85,
+  border: "1px solid rgba(148,163,184,0.22)",
+};
+
+const lockStyle: React.CSSProperties = {
+  fontSize: 18,
+  opacity: 0.8,
+};
+
+const lockedTagStyle: React.CSSProperties = {
+  marginTop: 14,
+  fontSize: 11,
+  color: "#fbbf24",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
 };
