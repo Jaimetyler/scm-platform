@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get("start_date");
     const endDate = searchParams.get("end_date");
     const customer = searchParams.get("customer");
+    const terminal = searchParams.get("terminal");
+    const status = searchParams.get("status");
 
     let query = sb
       .from("inbound_results")
@@ -40,6 +42,14 @@ export async function GET(req: NextRequest) {
       query = query.eq("shipper", customer);
     }
 
+    if (terminal) {
+      query = query.eq("terminal", terminal);
+    }
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+
     const { data, error } = await query;
 
     if (error) {
@@ -49,7 +59,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // separate customer list query so dropdown is always populated
     const { data: customerRows, error: customerError } = await sb
       .from("inbound_results")
       .select("shipper")
@@ -119,6 +128,8 @@ export async function GET(req: NextRequest) {
         startDate,
         endDate,
         customer,
+        terminal,
+        status,
       },
       summary: {
         totalRows,

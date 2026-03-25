@@ -1,37 +1,133 @@
+"use client";
+
 import Link from "next/link";
+
+const LOGO_SRC = "/scm-logo.png";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-8">
-      <div className="text-center max-w-xl w-full">
-        <h1 className="text-3xl font-semibold mb-6">SCM Platform</h1>
-
-        <div className="flex flex-col gap-3">
-          {/* P&L */}
-          <Link
-            href="/pnl"
-            className="inline-block rounded-xl border border-neutral-700 px-4 py-3 hover:border-neutral-500"
-          >
-            Open P&amp;L Dashboard
-          </Link>
-
-          {/* Inbound Processor */}
-          <Link
-            href="/inbound"
-            className="inline-block rounded-xl border border-blue-700 px-4 py-3 hover:border-blue-500"
-          >
-            Process Check-In Sheet
-          </Link>
-
-          {/* Inbound History */}
-          <Link
-            href="/inbound/history"
-            className="inline-block rounded-xl border border-neutral-700 px-4 py-3 hover:border-neutral-500"
-          >
-            View Inbound History
-          </Link>
+    <main style={{ maxWidth: 1320, margin: "0 auto" }}>
+      {/* TOP PILL ONLY */}
+      <div style={{ marginBottom: 28 }}>
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "5px 12px",
+            borderRadius: 999,
+            border: "1px solid rgba(34,211,238,0.22)",
+            background: "rgba(34,211,238,0.08)",
+            color: "#67e8f9",
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+          }}
+        >
+          SCM PLATFORM
         </div>
+      </div>
+
+      {/* HERO / LOGO SECTION */}
+      <section
+        style={{
+          marginBottom: 30,
+          borderRadius: 28,
+          padding: "36px 28px 42px",
+          maxWidth: 1160,
+          marginLeft: "auto",
+          marginRight: "auto",
+          background:
+            "linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(99,102,241,0.08) 100%)",
+          border: "1px solid rgba(99,102,241,0.18)",
+          boxShadow: "0 18px 50px rgba(0,0,0,0.28)",
+          textAlign: "center",
+        }}
+      >
+        <img
+          src={LOGO_SRC}
+          alt="SCM Logo"
+          style={{
+            height: 110,
+            width: "auto",
+            maxWidth: "100%",
+            display: "block",
+            margin: "0 auto 28px",
+            opacity: 0.98,
+          }}
+        />
+
+        <div
+          style={{
+            fontSize: 30,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color: "#e5e7eb",
+          }}
+        >
+          Internal Operations
+        </div>
+      </section>
+
+      {/* NAV CARDS */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: 20,
+        }}
+      >
+        <Link href="/pnl" style={cardStyle}>
+          <div style={cardTitle}>Profit &amp; Loss</div>
+          <div style={cardDesc}>
+            Financial reporting, trends, and entity breakdowns
+          </div>
+        </Link>
+
+        <Link href="/inbound" style={cardStylePrimary}>
+          <div style={cardTitle}>Inbound Processor</div>
+          <div style={cardDesc}>
+            Upload and process check-in sheets into the system
+          </div>
+        </Link>
+
+        <Link href="/inbound/history" style={cardStyle}>
+          <div style={cardTitle}>Inbound History</div>
+          <div style={cardDesc}>Review inbound cotton records</div>
+        </Link>
       </div>
     </main>
   );
 }
+
+const cardStyle: React.CSSProperties = {
+  borderRadius: 22,
+  padding: "26px 26px 28px",
+  background: "rgba(15,23,42,0.58)",
+  border: "1px solid rgba(148,163,184,0.14)",
+  textDecoration: "none",
+  color: "#e5e7eb",
+  display: "block",
+  minHeight: 120,
+  boxShadow: "0 12px 30px rgba(0,0,0,0.22)",
+};
+
+const cardStylePrimary: React.CSSProperties = {
+  ...cardStyle,
+  border: "1px solid rgba(99,102,241,0.32)",
+  background:
+    "linear-gradient(135deg, rgba(79,70,229,0.16) 0%, rgba(59,130,246,0.10) 100%)",
+};
+
+const cardTitle: React.CSSProperties = {
+  fontSize: 24,
+  fontWeight: 700,
+  marginBottom: 12,
+  letterSpacing: "-0.02em",
+};
+
+const cardDesc: React.CSSProperties = {
+  fontSize: 14,
+  color: "#94a3b8",
+  lineHeight: 1.5,
+};

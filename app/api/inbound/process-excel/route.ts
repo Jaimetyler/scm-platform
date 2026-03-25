@@ -5,7 +5,12 @@ import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 
 export const runtime = "nodejs";
 
+type Terminal = "SAV" | "HOU";
+type EquipmentType = "V" | "F";
+
 type ParsedRow = InboundExcelRow & {
+  terminal: Terminal;
+  equipmentType?: EquipmentType;
   __rowNum?: number;
   __sheetName?: string;
 };
@@ -39,6 +44,8 @@ type ProcessResult = {
   id: string | null;
   rowNum: number | null;
   sheetName: string | null;
+  terminal: Terminal;
+  equipmentType: EquipmentType | null;
   mark: string;
   status: ProcessResultStatus;
   ok: boolean;
@@ -53,6 +60,8 @@ type ProcessResult = {
     balesUnloaded: number | null;
     location: string;
     sourceSheet: string;
+    terminal: Terminal;
+    equipmentType: EquipmentType | null;
   };
   response: unknown;
 };
@@ -125,6 +134,23 @@ function normalizeNullableNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeCustomerKey(value: unknown): string {
+  return String(value ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .trim();
+}
+
+function normalizeEquipmentType(value: unknown): EquipmentType | undefined {
+  const normalized = String(value ?? "").trim().toUpperCase();
+
+  if (!normalized) return undefined;
+  if (normalized === "V" || normalized === "VAN") return "V";
+  if (normalized === "F" || normalized === "FLAT" || normalized === "FLATBED") return "F";
+
+  return undefined;
+}
+
 function getFirstMatchingValue(
   row: Record<string, unknown>,
   candidates: string[]
@@ -138,7 +164,7 @@ function getFirstMatchingValue(
   return undefined;
 }
 
-function mapWorkbookRowToInboundRow(
+function mapSavannahWorkbookRowToInboundRow(
   row: Record<string, unknown>,
   rowNum: number,
   sheetName: string
@@ -214,9 +240,82 @@ function mapWorkbookRowToInboundRow(
     balesUnloaded,
     location,
     sourceSheet: sheetName,
+    terminal: "SAV",
+    equipmentType: undefined,
     __rowNum: rowNum,
     __sheetName: sheetName,
   };
+}
+
+function mapHoustonWorkbookRowToInboundRow(
+  row: Record<string, unknown>,
+  rowNum: number,
+  sheetName: string
+): ParsedRow | null {
+  const receivedDate = normalizeDate(
+    getFirstMatchingValue(row, ["date", "received date", "delivery date"])
+  );
+
+  const mark = normalizeString(
+    getFirstMatchingValue(row, ["mark", "refno", "reference", "reference no"])
+  ).toUpperCase();
+
+  const shipper = normalizeString(
+    getFirstMatchingValue(row, ["customer", "shipper", "consignor"])
+  ).toUpperCase();
+
+  const balesRaw = getFirstMatchingValue(row, [
+    "bales",
+    "total bales",
+    "bale count",
+    "bol count",
+  ]);
+
+  const location = normalizeString(
+    getFirstMatchingValue(row, ["location", "bin", "slot", "yard location"])
+  ).toUpperCase();
+
+  const equipmentType = normalizeEquipmentType(
+    getFirstMatchingValue(row, ["vanflat", "van flat", "vanflatbed"])
+  );
+
+  const balesUnloaded = normalizeNullableNumber(balesRaw);
+  const bolBC =
+    balesRaw === null || balesRaw === undefined || String(balesRaw).trim() === ""
+      ? ""
+      : String(balesRaw).trim();
+
+  const hasEnoughData =
+    receivedDate || mark || shipper || bolBC || balesUnloaded !== null || location;
+
+  if (!hasEnoughData) return null;
+
+  return {
+    receivedDate,
+    mark,
+    shipper,
+    bolBC,
+    balesUnloaded,
+    location,
+    sourceSheet: sheetName,
+    terminal: "HOU",
+    equipmentType,
+    __rowNum: rowNum,
+    __sheetName: sheetName,
+  };
+}
+
+function mapWorkbookRowToInboundRow(
+  row: Record<string, unknown>,
+  rowNum: number,
+  sheetName: string,
+  terminal: Terminal
+): ParsedRow | null {
+  if (terminal === "HOU") {
+    return mapHoustonWorkbookRowToInboundRow(row, rowNum, sheetName);
+  }
+
+  return mapSavannahWorkbookRowToInboundRow(row, rowNum, sheetName);
 }
 
 function getMatchedOrderId(data: unknown): string {
@@ -327,9 +426,10 @@ function buildUniqueKey(row: ParsedRow) {
     (row.bolBC && !Number.isNaN(Number(row.bolBC)) ? Number(row.bolBC) : null);
 
   return [
+    row.terminal || "",
     row.receivedDate || "",
     row.mark || "",
-    row.shipper || "",
+    normalizeCustomerKey(row.shipper || ""),
     baleCount ?? "",
   ].join("|");
 }
@@ -362,6 +462,8 @@ async function saveInboundResult(
       bale_count: baleCount,
       location: row.location || null,
       source_sheet: row.sourceSheet || row.__sheetName || null,
+      terminal: row.terminal,
+      equipment_type: row.equipmentType ?? null,
       matched_order_id: classified.matchedOrderId || null,
       status: classified.status,
       reason: classified.message || null,
@@ -448,6 +550,8 @@ async function processOneRow(
         balesUnloaded: row.balesUnloaded,
         location: row.location,
         sourceSheet: row.sourceSheet,
+        terminal: row.terminal,
+        equipmentType: row.equipmentType ?? null,
       },
     }),
     cache: "no-store",
@@ -469,6 +573,8 @@ async function processOneRow(
     id: savedId,
     rowNum: row.__rowNum ?? null,
     sheetName: row.__sheetName ?? null,
+    terminal: row.terminal,
+    equipmentType: row.equipmentType ?? null,
     mark: row.mark,
     status: classified.status,
     ok: classified.ok,
@@ -483,6 +589,8 @@ async function processOneRow(
       balesUnloaded: row.balesUnloaded,
       location: row.location,
       sourceSheet: row.sourceSheet,
+      terminal: row.terminal,
+      equipmentType: row.equipmentType ?? null,
     },
     response: parsed,
   };
@@ -492,6 +600,8 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file");
+    const terminalRaw = String(formData.get("terminal") ?? "SAV").toUpperCase();
+    const terminal: Terminal = terminalRaw === "HOU" ? "HOU" : "SAV";
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -518,7 +628,7 @@ export async function POST(req: NextRequest) {
       });
 
       rows.forEach((row, index) => {
-        const mapped = mapWorkbookRowToInboundRow(row, index + 2, sheetName);
+        const mapped = mapWorkbookRowToInboundRow(row, index + 2, sheetName, terminal);
         if (mapped) parsedRows.push(mapped);
       });
     }
@@ -530,6 +640,7 @@ export async function POST(req: NextRequest) {
           error: "No usable rows found in workbook",
           fileName: file.name,
           sheetNames: workbook.SheetNames,
+          terminal,
         },
         { status: 400 }
       );
@@ -553,7 +664,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: failedCount === 0 && needsReviewCount === 0,
       mode: "live",
-      routeVersion: "2026-03-24-process-excel-v4",
+      routeVersion: "2026-03-25-process-excel-v6",
+      terminal,
       fileName: file.name,
       totalRows: parsedRows.length,
       processedCount,
