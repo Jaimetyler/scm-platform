@@ -279,10 +279,30 @@ export async function GET(req: NextRequest) {
       0
     );
 
-    const matchedRows = enrichedRows.filter((r) => r.outcome === "matched");
+    // SCM Trucked = anything that is NOT outside carrier, failed, needs review, or unknown
+    const scmTruckedRows = enrichedRows.filter(
+      (r) =>
+        r.outcome !== "outside_carrier" &&
+        r.outcome !== "failed" &&
+        r.outcome !== "needs_review" &&
+        r.outcome !== "unknown"
+    );
+
     const outsideCarrierRows = enrichedRows.filter(
       (r) => r.outcome === "outside_carrier"
     );
+
+    const classifiedTotal = scmTruckedRows.length + outsideCarrierRows.length;
+
+    const scmTruckedPct =
+      classifiedTotal > 0
+        ? Number(((scmTruckedRows.length / classifiedTotal) * 100).toFixed(1))
+        : 0;
+
+    const outsideCarrierPct =
+      classifiedTotal > 0
+        ? Number(((outsideCarrierRows.length / classifiedTotal) * 100).toFixed(1))
+        : 0;
 
     let vanRows = 0;
     let flatRows = 0;
@@ -324,9 +344,12 @@ export async function GET(req: NextRequest) {
       customers,
       summary: {
         totalRows,
-        matchedTotal: matchedRows.length,
+        scmTruckedTotal: scmTruckedRows.length,
         outsideCarrierTotal: outsideCarrierRows.length,
         totalBales,
+        scmTruckedPct,
+        outsideCarrierPct,
+        classifiedTotal,
         equipmentSummary,
       },
       rows: enrichedRows.slice(0, 2000),

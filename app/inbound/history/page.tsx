@@ -40,9 +40,14 @@ type HistoryResponse = {
   ok: boolean;
   summary?: {
     totalRows: number;
-    matchedTotal: number;
+    matchedTotal?: number;
+    matchedPct?: number;
+    scmTruckedTotal?: number;
+    scmTruckedPct?: number;
     outsideCarrierTotal: number;
+    outsideCarrierPct?: number;
     totalBales: number;
+    classifiedTotal?: number;
     equipmentSummary: EquipmentSummary;
   };
   customers?: string[];
@@ -561,6 +566,11 @@ export default function InboundHistoryPage() {
     );
   }
 
+  const scmTruckedTotal =
+    summary?.scmTruckedTotal ?? summary?.matchedTotal ?? 0;
+  const scmTruckedPct =
+    summary?.scmTruckedPct ?? summary?.matchedPct ?? 0;
+
   return (
     <main style={{ maxWidth: 1560, margin: "0 auto" }}>
       <PlatformPageHeader
@@ -698,14 +708,16 @@ export default function InboundHistoryPage() {
         >
           <StatCard label="Total Rows" value={summary?.totalRows ?? 0} />
           <StatCard
-            label="Processed"
-            value={summary?.matchedTotal ?? 0}
+            label="SCM Trucked"
+            value={scmTruckedTotal}
             tone="success"
+            subtext={`${scmTruckedPct}% of classified`}
           />
           <StatCard
             label="Outside Carrier"
             value={summary?.outsideCarrierTotal ?? 0}
             tone="warning"
+            subtext={`${summary?.outsideCarrierPct ?? 0}% of classified`}
           />
           <StatCard
             label="Total Bales"
