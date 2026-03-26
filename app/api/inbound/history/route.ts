@@ -1,147 +1,335 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { resolveCustomer } from "@/lib/mcleod/inbound/resolveCustomer";
 
 function getSupabase() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
-  if (!url || !key) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+function cleanText(value: string | null | undefined) {
+  return String(value ?? "").trim();
+}
+
+function deriveDisposition(row: {
+  disposition?: string | null;
+  status?: string | null;
+  matched_order_id?: string | null;
+}) {
+  if (row.disposition === "outside_carrier") return "outside_carrier";
+  if (row.disposition === "confirmed_match") return "confirmed_match";
+  if (row.status === "failed" && !row.matched_order_id) return "outside_carrier";
+  return row.disposition ?? "unresolved";
+}
+
+function getCanonicalCustomer(rawShipper: string) {
+  const resolved = resolveCustomer(rawShipper);
+  let canonical = cleanText(resolved.canonicalCustomer);
+
+  if (!canonical || canonical === rawShipper.toUpperCase()) {
+    const upper = rawShipper.toUpperCase();
+
+    if (
+      upper.includes("BUNGE") ||
+      upper.includes("GLENCORE") ||
+      upper.includes("VITERRA")
+    ) {
+      canonical = "BUNGE";
+    } else if (upper.includes("OLAM") || upper.includes("BRIGHTFIELD")) {
+      canonical = "OLAM";
+    } else if (
+      (upper.includes("ED") && upper.includes("F")) ||
+      upper.includes("EFDM") ||
+      upper.includes("EDFM")
+    ) {
+      canonical = "ED&F MAN";
+    } else if (upper.includes("STAPL")) {
+      canonical = "STAPL";
+    } else if (upper.includes("TOYO")) {
+      canonical = "TOYO";
+    } else if (upper.includes("COFCO") || upper.includes("NOBLE")) {
+      canonical = "COFCO";
+    } else if (upper.includes("ALLEN") || upper.includes("LDC")) {
+      canonical = "LDC";
+    }
   }
 
-  return createClient(url, key);
+  if (!canonical) {
+    canonical = rawShipper.toUpperCase();
+  }
+
+  return canonical;
 }
+
+function getOutcome(row: {
+  status?: string | null;
+  reason?: string | null;
+  disposition?: string | null;
+  derivedDisposition?: string | null;
+  matched_order_id?: string | null;
+}) {
+  const status = String(row.status ?? "").toLowerCase();
+  const reason = String(row.reason ?? "").toLowerCase();
+  const disposition = String(
+    row.derivedDisposition ?? row.disposition ?? ""
+  ).toLowerCase();
+
+  if (status === "skipped" && reason.includes("delivered")) {
+    return "already_delivered";
+  }
+
+  if (disposition === "confirmed_match" || status === "processed") {
+    return "matched";
+  }
+
+  if (disposition === "outside_carrier") {
+    return "outside_carrier";
+  }
+
+  if (status === "needs_review") {
+    return "needs_review";
+  }
+
+  if (status === "failed") {
+    return "failed";
+  }
+
+  if (status === "skipped") {
+    return "skipped";
+  }
+
+  return "unknown";
+}
+
+function normalizeEquipmentType(value: string | null | undefined) {
+  const raw = cleanText(value).toUpperCase();
+
+  if (!raw) return "";
+
+  if (
+    raw === "V" ||
+    raw === "VAN" ||
+    raw === "VNS" ||
+    raw.includes("VAN")
+  ) {
+    return "V";
+  }
+
+  if (
+    raw === "F" ||
+    raw === "FB" ||
+    raw === "FLT" ||
+    raw === "FLAT" ||
+    raw === "FLATBED" ||
+    raw.includes("FLAT")
+  ) {
+    return "F";
+  }
+
+  return raw;
+}
+
+type InboundHistoryRow = {
+  id: string;
+  received_date: string | null;
+  mark: string | null;
+  shipper: string | null;
+  bale_count: number | null;
+  location: string | null;
+  source_sheet: string | null;
+  terminal: string | null;
+  equipment_type: string | null;
+  matched_order_id: string | null;
+  status: string | null;
+  reason: string | null;
+  disposition: string | null;
+  seen_count: number | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+};
+
+type EnrichedRow = InboundHistoryRow & {
+  canonical_customer: string;
+  derivedDisposition: string;
+  outcome: string;
+  normalized_equipment_type: string;
+};
+
+type CustomerGroup = {
+  canonical: string;
+  aliases: Set<string>;
+};
 
 export async function GET(req: NextRequest) {
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);
 
-    const startDate = searchParams.get("start_date");
-    const endDate = searchParams.get("end_date");
-    const customer = searchParams.get("customer");
-    const terminal = searchParams.get("terminal");
-    const status = searchParams.get("status");
+    const startDate = cleanText(searchParams.get("start_date"));
+    const endDate = cleanText(searchParams.get("end_date"));
+    const customer = cleanText(searchParams.get("customer"));
+    const terminal = cleanText(searchParams.get("terminal"));
+    const search = cleanText(searchParams.get("search"));
 
-    let query = sb
-      .from("inbound_results")
-      .select("*")
-      .order("received_date", { ascending: false })
-      .order("mark", { ascending: true })
-      .limit(5000);
-
-    if (startDate) {
-      query = query.gte("received_date", startDate);
-    }
-
-    if (endDate) {
-      query = query.lte("received_date", endDate);
-    }
-
-    if (customer) {
-      query = query.eq("shipper", customer);
-    }
-
-    if (terminal) {
-      query = query.eq("terminal", terminal);
-    }
-
-    if (status) {
-      query = query.eq("status", status);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return NextResponse.json(
-        { ok: false, error: error.message },
-        { status: 500 }
-      );
-    }
-
-    const { data: customerRows, error: customerError } = await sb
+    const { data: shipperRows, error: shipperError } = await sb
       .from("inbound_results")
       .select("shipper")
       .not("shipper", "is", null)
       .limit(5000);
 
-    if (customerError) {
+    if (shipperError) {
       return NextResponse.json(
-        { ok: false, error: customerError.message },
+        { ok: false, error: shipperError.message },
         { status: 500 }
       );
     }
 
-    const rows = (data ?? []).map((row) => {
-      const derivedDisposition =
-        row.disposition === "outside_carrier"
-          ? "outside_carrier"
-          : row.disposition === "confirmed_match"
-          ? "confirmed_match"
-          : row.status === "failed" && !row.matched_order_id
-          ? "outside_carrier"
-          : row.disposition ?? "unresolved";
+    const customerGroups = new Map<string, CustomerGroup>();
 
-      return {
-        ...row,
-        derivedDisposition,
-      };
-    });
+    for (const row of shipperRows ?? []) {
+      const rawShipper = cleanText(row.shipper);
+      if (!rawShipper) continue;
 
-    const totalRows = rows.length;
+      const canonical = getCanonicalCustomer(rawShipper);
 
-    const matchedRows = rows.filter(
-      (r) => r.derivedDisposition === "confirmed_match"
-    );
-    const outsideCarrierRows = rows.filter(
-      (r) => r.derivedDisposition === "outside_carrier"
-    );
-    const unresolvedRows = rows.filter(
-      (r) =>
-        r.derivedDisposition !== "confirmed_match" &&
-        r.derivedDisposition !== "outside_carrier"
+      if (!customerGroups.has(canonical)) {
+        customerGroups.set(canonical, {
+          canonical,
+          aliases: new Set<string>(),
+        });
+      }
+
+      customerGroups.get(canonical)!.aliases.add(rawShipper);
+    }
+
+    const customers = Array.from(customerGroups.keys()).sort((a, b) =>
+      a.localeCompare(b)
     );
 
-    const classifiedTotal = matchedRows.length + outsideCarrierRows.length;
+    const selectedAliases =
+      customer && customerGroups.has(customer)
+        ? Array.from(customerGroups.get(customer)!.aliases)
+        : [];
 
-    const matchedPct =
-      classifiedTotal > 0
-        ? Number(((matchedRows.length / classifiedTotal) * 100).toFixed(1))
-        : 0;
+    let baseQuery = sb.from("inbound_results").select("*", { count: "exact" });
 
-    const outsideCarrierPct =
-      classifiedTotal > 0
-        ? Number(((outsideCarrierRows.length / classifiedTotal) * 100).toFixed(1))
-        : 0;
+    if (startDate) {
+      baseQuery = baseQuery.gte("received_date", startDate);
+    }
 
-    const customers = Array.from(
-      new Set(
-        (customerRows ?? [])
-          .map((r) => String(r.shipper ?? "").trim())
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b));
+    if (endDate) {
+      baseQuery = baseQuery.lte("received_date", endDate);
+    }
+
+    if (customer && selectedAliases.length > 0) {
+      baseQuery = baseQuery.in("shipper", selectedAliases);
+    }
+
+    if (terminal) {
+      baseQuery = baseQuery.eq("terminal", terminal);
+    }
+
+    if (search) {
+      const escaped = search.replace(/[%_]/g, "");
+      baseQuery = baseQuery.or(
+        `mark.ilike.%${escaped}%,matched_order_id.ilike.%${escaped}%`
+      );
+    }
+
+    const { data: rawRows, error: rawRowsError, count } = await baseQuery
+      .order("received_date", { ascending: false })
+      .order("mark", { ascending: true })
+      .limit(5000);
+
+    if (rawRowsError) {
+      return NextResponse.json(
+        { ok: false, error: rawRowsError.message },
+        { status: 500 }
+      );
+    }
+
+    const enrichedRows: EnrichedRow[] = ((rawRows ?? []) as InboundHistoryRow[]).map(
+      (row) => {
+        const rawShipper = cleanText(row.shipper);
+        const derivedDisposition = deriveDisposition(row);
+        const canonical_customer = rawShipper
+          ? getCanonicalCustomer(rawShipper)
+          : "";
+        const outcomeValue = getOutcome({
+          ...row,
+          derivedDisposition,
+        });
+
+        return {
+          ...row,
+          canonical_customer,
+          derivedDisposition,
+          outcome: outcomeValue,
+          normalized_equipment_type: normalizeEquipmentType(row.equipment_type),
+        };
+      }
+    );
+
+    const totalRows = typeof count === "number" ? count : enrichedRows.length;
+
+    const totalBales = enrichedRows.reduce(
+      (sum, row) => sum + Number(row.bale_count ?? 0),
+      0
+    );
+
+    const matchedRows = enrichedRows.filter((r) => r.outcome === "matched");
+    const outsideCarrierRows = enrichedRows.filter(
+      (r) => r.outcome === "outside_carrier"
+    );
+
+    let vanRows = 0;
+    let flatRows = 0;
+    let vanBales = 0;
+    let flatBales = 0;
+
+    for (const row of enrichedRows) {
+      const eq = row.normalized_equipment_type;
+      const bales = Number(row.bale_count ?? 0);
+
+      if (eq === "V") {
+        vanRows += 1;
+        vanBales += bales;
+      } else if (eq === "F") {
+        flatRows += 1;
+        flatBales += bales;
+      }
+    }
+
+    const totalEquipmentRows = vanRows + flatRows;
+
+    const equipmentSummary = {
+      vanRows,
+      flatRows,
+      vanBales,
+      flatBales,
+      vanPct:
+        totalEquipmentRows > 0
+          ? Math.round((vanRows / totalEquipmentRows) * 100)
+          : 0,
+      flatPct:
+        totalEquipmentRows > 0
+          ? Math.round((flatRows / totalEquipmentRows) * 100)
+          : 0,
+    };
 
     return NextResponse.json({
       ok: true,
-      filters: {
-        startDate,
-        endDate,
-        customer,
-        terminal,
-        status,
-      },
+      customers,
       summary: {
         totalRows,
         matchedTotal: matchedRows.length,
         outsideCarrierTotal: outsideCarrierRows.length,
-        unresolvedTotal: unresolvedRows.length,
-        classifiedTotal,
-        matchedPct,
-        outsideCarrierPct,
+        totalBales,
+        equipmentSummary,
       },
-      customers,
-      rows,
+      rows: enrichedRows.slice(0, 2000),
     });
   } catch (error) {
     return NextResponse.json(
