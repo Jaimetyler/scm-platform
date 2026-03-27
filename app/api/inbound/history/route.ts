@@ -131,6 +131,67 @@ function normalizeEquipmentType(value: string | null | undefined) {
   return raw;
 }
 
+function normalizePage(value: string | null) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.floor(n);
+}
+
+function normalizePageSize(value: string | null) {
+  const allowed = new Set([25, 50, 100, 200]);
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 50;
+  const size = Math.floor(n);
+  return allowed.has(size) ? size : 50;
+}
+
+type SortField =
+  | "received_date"
+  | "mark"
+  | "shipper"
+  | "bale_count"
+  | "location"
+  | "source_sheet"
+  | "terminal"
+  | "equipment_type"
+  | "matched_order_id"
+  | "status"
+  | "disposition"
+  | "seen_count"
+  | "first_seen_at"
+  | "last_seen_at"
+  | "created_at";
+
+function normalizeSortField(value: string | null): SortField {
+  const allowed: SortField[] = [
+    "received_date",
+    "mark",
+    "shipper",
+    "bale_count",
+    "location",
+    "source_sheet",
+    "terminal",
+    "equipment_type",
+    "matched_order_id",
+    "status",
+    "disposition",
+    "seen_count",
+    "first_seen_at",
+    "last_seen_at",
+    "created_at",
+  ];
+
+  if (value && allowed.includes(value as SortField)) {
+    return value as SortField;
+  }
+
+  return "received_date";
+}
+
+function normalizeSortDir(value: string | null) {
+  return value === "asc" ? "asc" : "desc";
+}
+
 type InboundHistoryRow = {
   id: string;
   received_date: string | null;
@@ -148,6 +209,7 @@ type InboundHistoryRow = {
   seen_count: number | null;
   first_seen_at: string | null;
   last_seen_at: string | null;
+  created_at?: string | null;
 };
 
 type EnrichedRow = InboundHistoryRow & {
@@ -162,6 +224,47 @@ type CustomerGroup = {
   aliases: Set<string>;
 };
 
+function applySharedFilters(
+  query: any,
+  args: {
+    startDate: string;
+    endDate: string;
+    customer: string;
+    terminal: string;
+    search: string;
+    selectedAliases: string[];
+  }
+) {
+  const { startDate, endDate, customer, terminal, search, selectedAliases } = args;
+
+  let nextQuery = query;
+
+  if (startDate) {
+    nextQuery = nextQuery.gte("received_date", startDate);
+  }
+
+  if (endDate) {
+    nextQuery = nextQuery.lte("received_date", endDate);
+  }
+
+  if (customer && selectedAliases.length > 0) {
+    nextQuery = nextQuery.in("shipper", selectedAliases);
+  }
+
+  if (terminal) {
+    nextQuery = nextQuery.eq("terminal", terminal);
+  }
+
+  if (search) {
+    const escaped = search.replace(/[%_]/g, "");
+    nextQuery = nextQuery.or(
+      `mark.ilike.%${escaped}%,matched_order_id.ilike.%${escaped}%`
+    );
+  }
+
+  return nextQuery;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sb = getSupabase();
@@ -172,6 +275,14 @@ export async function GET(req: NextRequest) {
     const customer = cleanText(searchParams.get("customer"));
     const terminal = cleanText(searchParams.get("terminal"));
     const search = cleanText(searchParams.get("search"));
+
+    const page = normalizePage(searchParams.get("page"));
+    const pageSize = normalizePageSize(searchParams.get("pageSize"));
+    const sortBy = normalizeSortField(searchParams.get("sortBy"));
+    const sortDir = normalizeSortDir(searchParams.get("sortDir"));
+    const ascending = sortDir === "asc";
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
 
     const { data: shipperRows, error: shipperError } = await sb
       .from("inbound_results")
@@ -189,7 +300,7 @@ export async function GET(req: NextRequest) {
     const customerGroups = new Map<string, CustomerGroup>();
 
     for (const row of shipperRows ?? []) {
-      const rawShipper = cleanText(row.shipper);
+      const rawShipper = cleanText((row as { shipper?: string | null }).shipper);
       if (!rawShipper) continue;
 
       const canonical = getCanonicalCustomer(rawShipper);
@@ -213,44 +324,34 @@ export async function GET(req: NextRequest) {
         ? Array.from(customerGroups.get(customer)!.aliases)
         : [];
 
-    let baseQuery = sb.from("inbound_results").select("*", { count: "exact" });
+    const summaryBaseQuery = applySharedFilters(
+      sb.from("inbound_results").select("*", { count: "exact" }),
+      {
+        startDate,
+        endDate,
+        customer,
+        terminal,
+        search,
+        selectedAliases,
+      }
+    );
 
-    if (startDate) {
-      baseQuery = baseQuery.gte("received_date", startDate);
-    }
-
-    if (endDate) {
-      baseQuery = baseQuery.lte("received_date", endDate);
-    }
-
-    if (customer && selectedAliases.length > 0) {
-      baseQuery = baseQuery.in("shipper", selectedAliases);
-    }
-
-    if (terminal) {
-      baseQuery = baseQuery.eq("terminal", terminal);
-    }
-
-    if (search) {
-      const escaped = search.replace(/[%_]/g, "");
-      baseQuery = baseQuery.or(
-        `mark.ilike.%${escaped}%,matched_order_id.ilike.%${escaped}%`
-      );
-    }
-
-    const { data: rawRows, error: rawRowsError, count } = await baseQuery
+    const {
+      data: summaryRawRows,
+      error: summaryError,
+      count,
+    } = await summaryBaseQuery
       .order("received_date", { ascending: false })
-      .order("mark", { ascending: true })
-      .limit(5000);
+      .order("mark", { ascending: true });
 
-    if (rawRowsError) {
+    if (summaryError) {
       return NextResponse.json(
-        { ok: false, error: rawRowsError.message },
+        { ok: false, error: summaryError.message },
         { status: 500 }
       );
     }
 
-    const enrichedRows: EnrichedRow[] = ((rawRows ?? []) as InboundHistoryRow[]).map(
+    const allEnrichedRows: EnrichedRow[] = ((summaryRawRows ?? []) as InboundHistoryRow[]).map(
       (row) => {
         const rawShipper = cleanText(row.shipper);
         const derivedDisposition = deriveDisposition(row);
@@ -272,15 +373,14 @@ export async function GET(req: NextRequest) {
       }
     );
 
-    const totalRows = typeof count === "number" ? count : enrichedRows.length;
+    const totalRows = typeof count === "number" ? count : allEnrichedRows.length;
 
-    const totalBales = enrichedRows.reduce(
+    const totalBales = allEnrichedRows.reduce(
       (sum, row) => sum + Number(row.bale_count ?? 0),
       0
     );
 
-    // SCM Trucked = anything that is NOT outside carrier, failed, needs review, or unknown
-    const scmTruckedRows = enrichedRows.filter(
+    const scmTruckedRows = allEnrichedRows.filter(
       (r) =>
         r.outcome !== "outside_carrier" &&
         r.outcome !== "failed" &&
@@ -288,7 +388,7 @@ export async function GET(req: NextRequest) {
         r.outcome !== "unknown"
     );
 
-    const outsideCarrierRows = enrichedRows.filter(
+    const outsideCarrierRows = allEnrichedRows.filter(
       (r) => r.outcome === "outside_carrier"
     );
 
@@ -309,7 +409,7 @@ export async function GET(req: NextRequest) {
     let vanBales = 0;
     let flatBales = 0;
 
-    for (const row of enrichedRows) {
+    for (const row of allEnrichedRows) {
       const eq = row.normalized_equipment_type;
       const bales = Number(row.bale_count ?? 0);
 
@@ -339,6 +439,54 @@ export async function GET(req: NextRequest) {
           : 0,
     };
 
+    const pagedBaseQuery = applySharedFilters(
+      sb.from("inbound_results").select("*"),
+      {
+        startDate,
+        endDate,
+        customer,
+        terminal,
+        search,
+        selectedAliases,
+      }
+    );
+
+    const { data: pagedRawRows, error: pagedError } = await pagedBaseQuery
+      .order(sortBy, { ascending })
+      .order("mark", { ascending: true })
+      .range(from, to);
+
+    if (pagedError) {
+      return NextResponse.json(
+        { ok: false, error: pagedError.message },
+        { status: 500 }
+      );
+    }
+
+    const pagedRows: EnrichedRow[] = ((pagedRawRows ?? []) as InboundHistoryRow[]).map(
+      (row) => {
+        const rawShipper = cleanText(row.shipper);
+        const derivedDisposition = deriveDisposition(row);
+        const canonical_customer = rawShipper
+          ? getCanonicalCustomer(rawShipper)
+          : "";
+        const outcomeValue = getOutcome({
+          ...row,
+          derivedDisposition,
+        });
+
+        return {
+          ...row,
+          canonical_customer,
+          derivedDisposition,
+          outcome: outcomeValue,
+          normalized_equipment_type: normalizeEquipmentType(row.equipment_type),
+        };
+      }
+    );
+
+    const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
+
     return NextResponse.json({
       ok: true,
       customers,
@@ -352,7 +500,19 @@ export async function GET(req: NextRequest) {
         classifiedTotal,
         equipmentSummary,
       },
-      rows: enrichedRows.slice(0, 2000),
+      pagination: {
+        page,
+        pageSize,
+        pageCount,
+        totalRows,
+        hasPrevPage: page > 1,
+        hasNextPage: page < pageCount,
+      },
+      sort: {
+        sortBy,
+        sortDir,
+      },
+      rows: pagedRows,
     });
   } catch (error) {
     return NextResponse.json(

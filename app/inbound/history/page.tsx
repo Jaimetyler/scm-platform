@@ -52,6 +52,18 @@ type HistoryResponse = {
   };
   customers?: string[];
   rows?: HistoryRow[];
+  pagination?: {
+    page: number;
+    pageSize: number;
+    pageCount: number;
+    totalRows: number;
+    hasPrevPage: boolean;
+    hasNextPage: boolean;
+  };
+  sort?: {
+    sortBy: SortKey;
+    sortDir: SortDirection;
+  };
   error?: string;
 };
 
@@ -68,9 +80,34 @@ type SortKey =
   | "bale_count"
   | "location"
   | "matched_order_id"
-  | "outcome";
+  | "status"
+  | "disposition"
+  | "seen_count"
+  | "first_seen_at"
+  | "last_seen_at"
+  | "created_at";
 
 type SortDirection = "asc" | "desc";
+
+type PaginationState = {
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  totalRows: number;
+  hasPrevPage: boolean;
+  hasNextPage: boolean;
+};
+
+const DEFAULT_PAGINATION: PaginationState = {
+  page: 1,
+  pageSize: 50,
+  pageCount: 1,
+  totalRows: 0,
+  hasPrevPage: false,
+  hasNextPage: false,
+};
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
 
 function StatCard(props: {
   label: string;
@@ -315,31 +352,6 @@ function EquipmentMixCard({ summary }: { summary: EquipmentSummary | undefined }
   );
 }
 
-function compareValues(a: unknown, b: unknown, direction: SortDirection) {
-  const dir = direction === "asc" ? 1 : -1;
-
-  const aVal = a ?? "";
-  const bVal = b ?? "";
-
-  const aDate = typeof aVal === "string" ? Date.parse(aVal) : NaN;
-  const bDate = typeof bVal === "string" ? Date.parse(bVal) : NaN;
-  const bothDates = !Number.isNaN(aDate) && !Number.isNaN(bDate);
-
-  if (bothDates) {
-    return (aDate - bDate) * dir;
-  }
-
-  const aNum = typeof aVal === "number" ? aVal : Number(aVal);
-  const bNum = typeof bVal === "number" ? bVal : Number(bVal);
-  const bothNums = !Number.isNaN(aNum) && !Number.isNaN(bNum);
-
-  if (bothNums) {
-    return (aNum - bNum) * dir;
-  }
-
-  return String(aVal).localeCompare(String(bVal)) * dir;
-}
-
 function useIsMobile(breakpoint = 900) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -444,9 +456,14 @@ export default function InboundHistoryPage() {
   const [sortKey, setSortKey] = useState<SortKey>("received_date");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(50);
+  const [pagination, setPagination] = useState<PaginationState>(DEFAULT_PAGINATION);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search.trim());
+      setPage(1);
     }, 350);
 
     return () => clearTimeout(timer);
@@ -457,7 +474,11 @@ export default function InboundHistoryPage() {
     nextEndDate = endDate,
     nextCustomer = customer,
     nextTerminal = terminal,
-    nextSearch = debouncedSearch
+    nextSearch = debouncedSearch,
+    nextPage = page,
+    nextPageSize = pageSize,
+    nextSortKey = sortKey,
+    nextSortDirection = sortDirection
   ) {
     try {
       setLoading(true);
@@ -470,6 +491,11 @@ export default function InboundHistoryPage() {
       if (nextTerminal) params.set("terminal", nextTerminal);
       if (nextSearch) params.set("search", nextSearch);
 
+      params.set("page", String(nextPage));
+      params.set("pageSize", String(nextPageSize));
+      params.set("sortBy", nextSortKey);
+      params.set("sortDir", nextSortDirection);
+
       const url = `/api/inbound/history?${params.toString()}`;
       const res = await fetch(url, { cache: "no-store" });
       const data = (await res.json()) as HistoryResponse;
@@ -481,6 +507,7 @@ export default function InboundHistoryPage() {
       setRows(data.rows ?? []);
       setSummary(data.summary ?? null);
       setCustomers(data.customers ?? []);
+      setPagination(data.pagination ?? DEFAULT_PAGINATION);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Failed to load history");
     } finally {
@@ -489,9 +516,19 @@ export default function InboundHistoryPage() {
   }
 
   useEffect(() => {
-    loadData();
+    loadData(
+      startDate,
+      endDate,
+      customer,
+      terminal,
+      debouncedSearch,
+      page,
+      pageSize,
+      sortKey,
+      sortDirection
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  }, [debouncedSearch, page, pageSize, sortKey, sortDirection]);
 
   const displayRows = useMemo<DisplayHistoryRow[]>(() => {
     return rows.map((row) => ({
@@ -503,21 +540,17 @@ export default function InboundHistoryPage() {
   function handleSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      setPage(1);
       return;
     }
 
     setSortKey(nextKey);
     setSortDirection("asc");
+    setPage(1);
   }
 
-  const sortedRows = useMemo(() => {
-    const copy = [...displayRows];
-    copy.sort((a, b) => compareValues(a[sortKey], b[sortKey], sortDirection));
-    return copy;
-  }, [displayRows, sortKey, sortDirection]);
-
   function exportToExcel() {
-    const exportRows = sortedRows.map((row) => ({
+    const exportRows = displayRows.map((row) => ({
       "Received Date": row.received_date ?? "",
       Mark: row.mark ?? "",
       Shipper: row.shipper ?? "",
@@ -538,7 +571,10 @@ export default function InboundHistoryPage() {
     XLSX.utils.book_append_sheet(workbook, worksheet, "Inbound History");
 
     const fileSuffix = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(workbook, `inbound-history-${fileSuffix}.xlsx`);
+    XLSX.writeFile(
+      workbook,
+      `inbound-history-page-${pagination.page}-${fileSuffix}.xlsx`
+    );
   }
 
   function renderSortableHeader(label: string, key: SortKey) {
@@ -571,6 +607,16 @@ export default function InboundHistoryPage() {
   const scmTruckedPct =
     summary?.scmTruckedPct ?? summary?.matchedPct ?? 0;
 
+  const currentStart =
+    pagination.totalRows === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
+  const currentEnd =
+    pagination.totalRows === 0
+      ? 0
+      : Math.min(
+          pagination.page * pagination.pageSize,
+          pagination.totalRows
+        );
+
   return (
     <main style={{ maxWidth: 1560, margin: "0 auto" }}>
       <PlatformPageHeader
@@ -595,7 +641,7 @@ export default function InboundHistoryPage() {
             </Link>
 
             <button onClick={exportToExcel} style={primaryButtonStyle}>
-              Export to Excel
+              Export Current Page
             </button>
           </div>
         }
@@ -673,7 +719,18 @@ export default function InboundHistoryPage() {
           <button
             type="button"
             onClick={() => {
-              loadData(startDate, endDate, customer, terminal, debouncedSearch);
+              setPage(1);
+              loadData(
+                startDate,
+                endDate,
+                customer,
+                terminal,
+                debouncedSearch,
+                1,
+                pageSize,
+                sortKey,
+                sortDirection
+              );
             }}
             style={primaryButtonStyle}
           >
@@ -688,8 +745,14 @@ export default function InboundHistoryPage() {
               setCustomer("");
               setTerminal("");
               setSearch("");
+              setDebouncedSearch("");
+              setSortKey("received_date");
+              setSortDirection("desc");
+              setPage(1);
+              setPageSize(50);
               setRows([]);
-              loadData("", "", "", "", "");
+              setPagination(DEFAULT_PAGINATION);
+              loadData("", "", "", "", "", 1, 50, "received_date", "desc");
             }}
             style={secondaryButtonStyle}
           >
@@ -749,18 +812,113 @@ export default function InboundHistoryPage() {
             Detailed History
           </h2>
 
-          <div style={{ color: "#94a3b8", fontSize: 13 }}>
-            {sortedRows.length} row{sortedRows.length === 1 ? "" : "s"}
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+              color: "#94a3b8",
+              fontSize: 13,
+            }}
+          >
+            <span>
+              Showing {currentStart}-{currentEnd} of {pagination.totalRows}
+            </span>
+            <span>
+              Page {pagination.page} of {pagination.pageCount}
+            </span>
           </div>
         </div>
 
+            <div
+  style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 16,
+    flexWrap: "wrap",
+  }}
+>
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      color: "#94a3b8",
+      fontSize: 13,
+    }}
+  >
+    <span>
+      {displayRows.length} row{displayRows.length === 1 ? "" : "s"} on this page
+    </span>
+
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+      }}
+    >
+      <span style={{ fontSize: 12, color: "#94a3b8" }}>Page size</span>
+      <select
+        value={pageSize}
+        onChange={(e) => {
+          const nextPageSize = Number(e.target.value);
+          setPageSize(nextPageSize);
+          setPage(1);
+        }}
+        style={smallSelectStyle}
+      >
+        {PAGE_SIZE_OPTIONS.map((size) => (
+          <option key={size} value={size}>
+            {size}
+          </option>
+        ))}
+      </select>
+    </div>
+  </div>
+
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+    <button
+      type="button"
+      onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+      disabled={!pagination.hasPrevPage || loading}
+      style={{
+        ...secondaryButtonStyle,
+        opacity: !pagination.hasPrevPage || loading ? 0.5 : 1,
+        cursor: !pagination.hasPrevPage || loading ? "not-allowed" : "pointer",
+      }}
+    >
+      ← Previous
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        setPage((prev) => Math.min(pagination.pageCount, prev + 1))
+      }
+      disabled={!pagination.hasNextPage || loading}
+      style={{
+        ...secondaryButtonStyle,
+        opacity: !pagination.hasNextPage || loading ? 0.5 : 1,
+        cursor: !pagination.hasNextPage || loading ? "not-allowed" : "pointer",
+      }}
+    >
+      Next →
+    </button>
+  </div>
+</div>
+
         {isMobile ? (
           <div style={{ display: "grid", gap: 14 }}>
-            {sortedRows.map((row) => (
+            {displayRows.map((row) => (
               <MobileHistoryCard key={row.id} row={row} />
             ))}
 
-            {sortedRows.length === 0 ? (
+            {displayRows.length === 0 ? (
               <div
                 style={{
                   padding: "28px 18px",
@@ -803,14 +961,12 @@ export default function InboundHistoryPage() {
                   <th style={thStyle}>{renderSortableHeader("Equip", "equipment_type")}</th>
                   <th style={thStyle}>{renderSortableHeader("Bales", "bale_count")}</th>
                   <th style={thStyle}>{renderSortableHeader("Location", "location")}</th>
-                  <th style={thStyle}>{renderSortableHeader("Outcome", "outcome")}</th>
-                  <th style={thStyle}>
-                    {renderSortableHeader("Matched Order", "matched_order_id")}
-                  </th>
+                  <th style={thStyle}>{renderSortableHeader("Matched Order", "matched_order_id")}</th>
+                  <th style={thStyle}>{renderSortableHeader("Status", "status")}</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedRows.map((row) => (
+                {displayRows.map((row) => (
                   <tr key={row.id} style={trStyle}>
                     <td style={tdStyle}>{row.received_date || "-"}</td>
                     <td style={tdStyle}>{row.mark || "-"}</td>
@@ -819,14 +975,14 @@ export default function InboundHistoryPage() {
                     <td style={tdStyle}>{row.equipment_type || "-"}</td>
                     <td style={tdStyle}>{row.bale_count ?? "-"}</td>
                     <td style={tdStyle}>{row.location || "-"}</td>
+                    <td style={tdStyle}>{row.matched_order_id || "-"}</td>
                     <td style={tdStyle}>
                       <OutcomePill value={row.outcome} />
                     </td>
-                    <td style={tdStyle}>{row.matched_order_id || "-"}</td>
                   </tr>
                 ))}
 
-                {sortedRows.length === 0 ? (
+                {displayRows.length === 0 ? (
                   <tr>
                     <td
                       colSpan={9}
@@ -851,6 +1007,17 @@ export default function InboundHistoryPage() {
   );
 }
 
+const smallSelectStyle: React.CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 10,
+  border: "1px solid rgba(148,163,184,0.18)",
+  background: "rgba(15,23,42,0.72)",
+  color: "#cbd5e1",
+  fontSize: 12,
+  fontWeight: 700,
+  minHeight: 34,
+  width: "auto",
+};
 const labelStyle: React.CSSProperties = {
   marginBottom: 7,
   color: "#cbd5e1",
