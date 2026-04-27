@@ -78,18 +78,23 @@ export default function Home() {
         }}
       >
         <Link href="/pnl" style={cardStyleLocked}>
-  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-    <div style={cardTitle}>Profit &amp; Loss</div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div style={cardTitle}>Profit &amp; Loss</div>
+            <div style={lockStyle}>🔒</div>
+          </div>
 
-    <div style={lockStyle}>🔒</div>
-  </div>
+          <div style={cardDesc}>
+            Financial reporting, trends, and entity breakdowns
+          </div>
 
-  <div style={cardDesc}>
-    Financial reporting, trends, and entity breakdowns
-  </div>
-
-  <div style={lockedTagStyle}>Auth Required</div>
-</Link>
+          <div style={lockedTagStyle}>Auth Required</div>
+        </Link>
 
         <Link href="/inbound" style={cardStylePrimary}>
           <div style={cardTitle}>Inbound Cotton Processor</div>
@@ -101,6 +106,18 @@ export default function Home() {
         <Link href="/inbound/history" style={cardStyle}>
           <div style={cardTitle}>Inbound Cotton History</div>
           <div style={cardDesc}>Review inbound cotton records</div>
+        </Link>
+
+        <Link href="/late-fees" style={cardStyle}>
+          <div style={cardTitle}>Late Fees</div>
+          <div style={cardDesc}>Review late fee candidates and totals</div>
+        </Link>
+
+        <Link href="/order-charges" style={cardStylePrimary}>
+          <div style={cardTitle}>Billing Upload</div>
+          <div style={cardDesc}>
+            Upload billing details and apply charges to McLeod orders
+          </div>
         </Link>
       </div>
     </main>
@@ -138,6 +155,7 @@ const cardDesc: React.CSSProperties = {
   color: "#94a3b8",
   lineHeight: 1.5,
 };
+
 const cardStyleLocked: React.CSSProperties = {
   ...cardStyle,
   opacity: 0.85,

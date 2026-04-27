@@ -1,0 +1,1088 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
+import PlatformPanel from "@/components/platform/PlatformPanel";
+import { getCheckinSite } from "@/lib/inbound/checkin/sites";
+import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
+
+type CheckinRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  last_saved_at: string;
+  terminal: string;
+  site_code: string;
+  site_name: string;
+  sub_location: string;
+  received_date: string | null;
+  mark: string | null;
+  shipper: string | null;
+  bol_bc: number | null;
+  bale_count: number | null;
+  warehouse_location: string | null;
+  equipment_type: "V" | "F" | null;
+  verified: boolean;
+  comment_1: string | null;
+  comment_2: string | null;
+  draft_status: "draft" | "ready" | "processed";
+  processed_at: string | null;
+};
+
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+type RowUiState = {
+  saveState: SaveState;
+  message: string;
+};
+
+type ColumnKey =
+  | "received_date"
+  | "mark"
+  | "shipper"
+  | "bol_bc"
+  | "bale_count"
+  | "warehouse_location"
+  | "equipment_type"
+  | "sub_location"
+  | "verified"
+  | "comment_1"
+  | "comment_2";
+
+const COLUMN_ORDER: ColumnKey[] = [
+  "received_date",
+  "mark",
+  "shipper",
+  "bol_bc",
+  "bale_count",
+  "warehouse_location",
+  "equipment_type",
+  "sub_location",
+  "verified",
+  "comment_1",
+  "comment_2",
+];
+
+function createEmptyUiState(): RowUiState {
+  return { saveState: "idle", message: "" };
+}
+
+function normalizeCustomerOption(value: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+const CHECKIN_CUSTOMERS = Array.from(
+  new Set(
+    CUSTOMER_XREF.map((item) =>
+      normalizeCustomerOption(
+        (item as { canonicalCustomer?: string | null }).canonicalCustomer
+      )
+    ).filter(Boolean)
+  )
+).sort((a, b) => a.localeCompare(b));
+
+function rowTone(row: CheckinRow): React.CSSProperties {
+  if (row.draft_status === "processed") {
+    return { background: "rgba(59,130,246,0.03)" };
+  }
+
+  if (row.draft_status === "ready") {
+    return { background: "rgba(16,185,129,0.03)" };
+  }
+
+  return {};
+}
+
+function rowDotStyle(row: CheckinRow): React.CSSProperties {
+  return {
+    width: 10,
+    height: 10,
+    borderRadius: "50%",
+    margin: "0 auto",
+    background:
+      row.draft_status === "processed"
+        ? "#3b82f6"
+        : row.draft_status === "ready"
+        ? "#10b981"
+        : "#64748b",
+    boxShadow:
+      row.draft_status === "processed"
+        ? "0 0 0 3px rgba(59,130,246,0.14)"
+        : row.draft_status === "ready"
+        ? "0 0 0 3px rgba(16,185,129,0.14)"
+        : "0 0 0 3px rgba(100,116,139,0.12)",
+  };
+}
+
+export default function SiteCheckinPage() {
+  const params = useParams<{ terminal: string; siteCode: string }>();
+
+  const terminalSlug = String(params?.terminal ?? "");
+  const siteCode = String(params?.siteCode ?? "");
+
+  const site = useMemo(
+    () => getCheckinSite(terminalSlug, siteCode),
+    [terminalSlug, siteCode]
+  );
+
+  const [rows, setRows] = useState<CheckinRow[]>([]);
+  const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
+  const [loading, setLoading] = useState(true);
+  const [addingRow, setAddingRow] = useState(false);
+  const [bootstrappedTodayRows, setBootstrappedTodayRows] = useState(false);
+
+  const saveTimersRef = useRef<Record<string, number>>({});
+  const cellRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  function makeCellKey(rowIndex: number, column: ColumnKey) {
+    return `${rowIndex}:${column}`;
+  }
+
+  function registerCellRef(
+    rowIndex: number,
+    column: ColumnKey,
+    el: HTMLElement | null
+  ) {
+    cellRefs.current[makeCellKey(rowIndex, column)] = el;
+  }
+
+  function focusCell(rowIndex: number, column: ColumnKey) {
+    const el = cellRefs.current[makeCellKey(rowIndex, column)];
+    el?.focus();
+  }
+
+  function handleGridKeyDown(
+    e: React.KeyboardEvent<HTMLElement>,
+    rowIndex: number,
+    column: ColumnKey
+  ) {
+    const colIndex = COLUMN_ORDER.indexOf(column);
+    if (colIndex === -1) return;
+
+    const isTextarea = column === "comment_1" || column === "comment_2";
+
+    if (isTextarea && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const nextCol = COLUMN_ORDER[colIndex + 1];
+      if (nextCol) {
+        focusCell(rowIndex, nextCol);
+      } else if (rows[rowIndex + 1]) {
+        focusCell(rowIndex + 1, COLUMN_ORDER[0]);
+      }
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        const prevCol = COLUMN_ORDER[colIndex - 1];
+        if (prevCol) {
+          focusCell(rowIndex, prevCol);
+        } else if (rows[rowIndex - 1]) {
+          focusCell(rowIndex - 1, COLUMN_ORDER[COLUMN_ORDER.length - 1]);
+        }
+      } else {
+        const nextCol = COLUMN_ORDER[colIndex + 1];
+        if (nextCol) {
+          focusCell(rowIndex, nextCol);
+        } else if (rows[rowIndex + 1]) {
+          focusCell(rowIndex + 1, COLUMN_ORDER[0]);
+        }
+      }
+      return;
+    }
+
+    if (e.key === "ArrowRight") {
+      if (isTextarea) return;
+      e.preventDefault();
+      const nextCol = COLUMN_ORDER[colIndex + 1];
+      if (nextCol) focusCell(rowIndex, nextCol);
+      return;
+    }
+
+    if (e.key === "ArrowLeft") {
+      if (isTextarea) return;
+      e.preventDefault();
+      const prevCol = COLUMN_ORDER[colIndex - 1];
+      if (prevCol) focusCell(rowIndex, prevCol);
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (rows[rowIndex + 1]) {
+        focusCell(rowIndex + 1, column);
+      }
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (rows[rowIndex - 1]) {
+        focusCell(rowIndex - 1, column);
+      }
+    }
+  }
+
+  async function loadRows() {
+    if (!site) return;
+
+    try {
+      setLoading(true);
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const params = new URLSearchParams({
+        terminal: site.terminal,
+        siteCode: site.siteCode,
+        date: today,
+      });
+
+      const res = await fetch(`/api/inbound/checkin/rows?${params.toString()}`, {
+        cache: "no-store",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load check-in rows");
+      }
+
+      const nextRows = (data.rows ?? []) as CheckinRow[];
+      setRows(nextRows);
+
+      const nextUi: Record<string, RowUiState> = {};
+      for (const row of nextRows) {
+        nextUi[row.id] = createEmptyUiState();
+      }
+      setRowUi(nextUi);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to load check-in rows");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setBootstrappedTodayRows(false);
+    void loadRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site?.terminal, site?.siteCode]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!site) return;
+    if (rows.length > 0) return;
+    if (bootstrappedTodayRows) return;
+
+    setBootstrappedTodayRows(true);
+    void addRows(25);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, site?.terminal, site?.siteCode, rows.length, bootstrappedTodayRows]);
+
+  function setRowUiState(id: string, state: Partial<RowUiState>) {
+    setRowUi((prev) => ({
+      ...prev,
+      [id]: {
+        ...(prev[id] ?? createEmptyUiState()),
+        ...state,
+      },
+    }));
+  }
+
+  function applyRowUpdate(
+    id: string,
+    updater: (row: CheckinRow) => CheckinRow
+  ): CheckinRow | null {
+    let updatedRow: CheckinRow | null = null;
+
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        updatedRow = updater(row);
+        return updatedRow;
+      })
+    );
+
+    return updatedRow;
+  }
+
+  async function saveRowSnapshot(row: CheckinRow) {
+    if (!row || row.draft_status === "processed") return;
+
+    setRowUiState(row.id, { saveState: "saving", message: "" });
+
+    try {
+      const res = await fetch(`/api/inbound/checkin/rows/${row.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          terminal: row.terminal,
+          siteCode: row.site_code,
+          siteName: row.site_name,
+          subLocation: row.sub_location,
+          receivedDate: row.received_date,
+          mark: row.mark,
+          shipper: row.shipper,
+          bolBC: row.bol_bc,
+          baleCount: row.bale_count,
+          warehouseLocation: row.warehouse_location,
+          equipmentType: row.equipment_type,
+          verified: row.verified,
+          comment1: row.comment_1,
+          comment2: row.comment_2,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to save row");
+      }
+
+      const savedRow = data.row as CheckinRow;
+      setRows((prev) => prev.map((item) => (item.id === row.id ? savedRow : item)));
+      setRowUiState(row.id, { saveState: "saved", message: "" });
+    } catch (error) {
+      setRowUiState(row.id, {
+        saveState: "error",
+        message: error instanceof Error ? error.message : "Save failed",
+      });
+    }
+  }
+
+  function queueSaveRow(row: CheckinRow) {
+    const existing = saveTimersRef.current[row.id];
+    if (existing) {
+      window.clearTimeout(existing);
+    }
+
+    saveTimersRef.current[row.id] = window.setTimeout(() => {
+      void saveRowSnapshot(row);
+    }, 400);
+  }
+
+  async function addRows(count: number) {
+    if (!site) return;
+
+    try {
+      setAddingRow(true);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const defaultEquipment = site.terminal === "SAV" ? "V" : null;
+
+      const requests = Array.from({ length: count }, () =>
+        fetch("/api/inbound/checkin/rows", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            terminal: site.terminal,
+            siteCode: site.siteCode,
+            siteName: site.siteName,
+            subLocation: site.subLocations[0] ?? "MAIN",
+            receivedDate: today,
+            equipmentType: defaultEquipment,
+          }),
+        }).then(async (res) => {
+          const data = await res.json();
+
+          if (!res.ok || !data.ok) {
+            throw new Error(data.error || "Failed to add row");
+          }
+
+          return data.row as CheckinRow;
+        })
+      );
+
+      const newRows = await Promise.all(requests);
+
+      setRows((prev) => [...newRows, ...prev]);
+      setRowUi((prev) => {
+        const next = { ...prev };
+        for (const row of newRows) {
+          next[row.id] = createEmptyUiState();
+        }
+        return next;
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to add rows");
+    } finally {
+      setAddingRow(false);
+    }
+  }
+
+  async function deleteRow(id: string) {
+    const ok = window.confirm("Delete this check-in row?");
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/inbound/checkin/rows/${id}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to delete row");
+      }
+
+      setRows((prev) => prev.filter((row) => row.id !== id));
+      setRowUi((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to delete row");
+    }
+  }
+
+  async function handleCopyTable() {
+    if (!rows.length) {
+      alert("No rows to copy");
+      return;
+    }
+
+    const sanitizeCell = (value: unknown) =>
+      String(value ?? "")
+        .replace(/\r?\n|\r/g, " ")
+        .replace(/\t/g, " ")
+        .trim();
+
+    const headers = [
+      "Received Date",
+      "Mark",
+      "Customer",
+      "BOL B/C",
+      "Bales",
+      "Warehouse Location",
+      "Equipment",
+      "Sub-Location",
+      "Verified",
+      "Comment 1",
+      "Comment 2",
+      "Status",
+    ];
+
+    const lines = [
+      headers.join("\t"),
+      ...rows.map((row) =>
+        [
+          sanitizeCell(row.received_date),
+          sanitizeCell(row.mark),
+          sanitizeCell(row.shipper),
+          sanitizeCell(row.bol_bc),
+          sanitizeCell(row.bale_count),
+          sanitizeCell(row.warehouse_location),
+          sanitizeCell(row.equipment_type),
+          sanitizeCell(row.sub_location),
+          row.verified ? "YES" : "NO",
+          sanitizeCell(row.comment_1),
+          sanitizeCell(row.comment_2),
+          sanitizeCell(row.draft_status),
+        ].join("\t")
+      ),
+    ];
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      alert(`Copied ${rows.length} row${rows.length === 1 ? "" : "s"} to clipboard`);
+    } catch {
+      alert("Failed to copy table");
+    }
+  }
+
+  const readyCount = rows.filter((row) => row.draft_status === "ready").length;
+  const processedCount = rows.filter((row) => row.draft_status === "processed").length;
+  const draftCount = rows.filter((row) => row.draft_status === "draft").length;
+
+  if (!site) {
+    return (
+      <main style={{ maxWidth: "100%", padding: "0 16px" }}>
+        <PlatformPageHeader
+          title="Check-In Site Not Found"
+          subtitle="That site route does not match the configured check-in locations."
+          actions={
+            <Link href="/inbound/checkin" style={linkButtonStyle}>
+              Back to Check-In Sites
+            </Link>
+          }
+        />
+      </main>
+    );
+  }
+
+  return (
+    <main style={{ maxWidth: "100%", padding: "0 16px" }}>
+      <PlatformPageHeader
+        title={`${site.siteName} Check-In`}
+        subtitle="Rows auto-save while you work. A row becomes Ready only when all required fields are filled and Verified is checked."
+        actions={
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Link href="/inbound/checkin" style={linkButtonStyle}>
+              ← All Check-In Sites
+            </Link>
+
+            <Link href="/inbound/history" style={linkButtonStyle}>
+              View History
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => void handleCopyTable()}
+              style={linkButtonStyle}
+            >
+              Copy Table
+            </button>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => void addRows(5)}
+                style={primaryButtonStyle}
+                disabled={addingRow}
+              >
+                {addingRow ? "Adding..." : "+ 5 Rows"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void addRows(10)}
+                style={primaryButtonStyle}
+                disabled={addingRow}
+              >
+                {addingRow ? "Adding..." : "+ 10 Rows"}
+              </button>
+            </div>
+          </div>
+        }
+      />
+
+      <PlatformPanel>
+        <div style={statsGridStyle}>
+          <StatCard label="Draft" value={draftCount} />
+          <StatCard label="Ready" value={readyCount} tone="success" />
+          <StatCard label="Processed" value={processedCount} tone="info" />
+          <StatCard label="Sub-Locations" value={site.subLocations.join(", ")} />
+        </div>
+      </PlatformPanel>
+
+      <PlatformPanel>
+        <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
+          <table style={{ width: "100%", minWidth: 1620, borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={rowNumberHeaderStyle}>#</th>
+                <th style={thStyle}>Received Date *</th>
+                <th style={thStyle}>Mark *</th>
+                <th style={thStyle}>Customer *</th>
+                <th style={thStyle}>BOL B/C</th>
+                <th style={thStyle}>Bales *</th>
+                <th style={thStyle}>Warehouse Location *</th>
+                <th style={thStyle}>Equipment *</th>
+                <th style={thStyle}>Sub-Location *</th>
+                <th style={thStyle}>Verified *</th>
+                <th style={thStyle}>Comment 1</th>
+                <th style={thStyle}>Comment 2</th>
+                <th style={thStyle}>Actions</th>
+                <th style={statusDotHeaderStyle}></th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row, index) => {
+                const ui = rowUi[row.id] ?? createEmptyUiState();
+
+                return (
+                  <tr key={row.id} style={rowTone(row)}>
+                    <td style={rowNumberCellStyle}>{index + 1}</td>
+
+                    <td style={tdStyle}>
+                      <input
+                        type="date"
+                        value={row.received_date ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value || null;
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            received_date: value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "received_date")}
+                        ref={(el) => registerCellRef(index, "received_date", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <input
+                        type="text"
+                        value={row.mark ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value.toUpperCase();
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            mark: value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "mark")}
+                        ref={(el) => registerCellRef(index, "mark", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <input
+                        list="customer-list"
+                        value={row.shipper ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value.toUpperCase();
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            shipper: value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "shipper")}
+                        ref={(el) => registerCellRef(index, "shipper", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                        placeholder="Start typing customer..."
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={row.bol_bc?.toString() ?? ""}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "");
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            bol_bc: digits ? Number(digits) : null,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "bol_bc")}
+                        ref={(el) => registerCellRef(index, "bol_bc", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={row.bale_count?.toString() ?? ""}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "");
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            bale_count: digits ? Number(digits) : null,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "bale_count")}
+                        ref={(el) => registerCellRef(index, "bale_count", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <input
+                        type="text"
+                        value={row.warehouse_location ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value.toUpperCase();
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            warehouse_location: value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "warehouse_location")}
+                        ref={(el) => registerCellRef(index, "warehouse_location", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <select
+                        value={row.equipment_type ?? (row.terminal === "SAV" ? "V" : "")}
+                        onChange={(e) => {
+                          const value = e.target.value || null;
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            equipment_type: value as "V" | "F" | null,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "equipment_type")}
+                        ref={(el) => registerCellRef(index, "equipment_type", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      >
+                        <option value="">Select</option>
+                        <option value="V">V</option>
+                        <option value="F">F</option>
+                      </select>
+                    </td>
+
+                    <td style={tdStyle}>
+                      <select
+                        value={row.sub_location ?? "MAIN"}
+                        onChange={(e) => {
+                          const value = e.target.value || "MAIN";
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            sub_location: value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "sub_location")}
+                        ref={(el) => registerCellRef(index, "sub_location", el)}
+                        style={cellInputStyle}
+                        disabled={row.draft_status === "processed"}
+                      >
+                        {site.subLocations.map((sub) => (
+                          <option key={sub} value={sub}>
+                            {sub}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td style={tdStyle}>
+                      <label style={checkboxWrapStyle}>
+                        <input
+                          type="checkbox"
+                          checked={row.verified}
+                          onChange={(e) => {
+                            const value = e.target.checked;
+                            const updated = applyRowUpdate(row.id, (current) => ({
+                              ...current,
+                              verified: value,
+                            }));
+                            if (updated) queueSaveRow(updated);
+                          }}
+                          onKeyDown={(e) => handleGridKeyDown(e, index, "verified")}
+                          ref={(el) => registerCellRef(index, "verified", el)}
+                          disabled={row.draft_status === "processed"}
+                        />
+                        <span>Verified</span>
+                      </label>
+                    </td>
+
+                    <td style={tdStyle}>
+                      <textarea
+                        value={row.comment_1 ?? ""}
+                        onChange={(e) => {
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            comment_1: e.target.value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "comment_1")}
+                        ref={(el) => registerCellRef(index, "comment_1", el)}
+                        style={cellTextareaStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <textarea
+                        value={row.comment_2 ?? ""}
+                        onChange={(e) => {
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            comment_2: e.target.value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "comment_2")}
+                        ref={(el) => registerCellRef(index, "comment_2", el)}
+                        style={cellTextareaStyle}
+                        disabled={row.draft_status === "processed"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <button
+                        type="button"
+                        onClick={() => void deleteRow(row.id)}
+                        style={deleteButtonStyle}
+                      >
+                        Delete
+                      </button>
+                    </td>
+
+                    <td style={statusDotCellStyle}>
+                      <div title={row.draft_status} style={rowDotStyle(row)} />
+                      {ui.saveState === "error" ? (
+                        <div title={ui.message || "Save failed"} style={errorDotStyle} />
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={14} style={emptyStateStyle}>
+                    {loading
+                      ? "Loading rows..."
+                      : "No rows yet. Add rows to start the site check-in sheet."}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+
+          <datalist id="customer-list">
+            {CHECKIN_CUSTOMERS.map((customer) => (
+              <option key={customer} value={customer} />
+            ))}
+          </datalist>
+        </div>
+      </PlatformPanel>
+    </main>
+  );
+}
+
+function StatCard(props: {
+  label: string;
+  value: number | string;
+  tone?: "default" | "success" | "info";
+}) {
+  const { label, value, tone = "default" } = props;
+
+  const tones: Record<string, React.CSSProperties> = {
+    default: {
+      background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
+      border: "1px solid #1f2937",
+      color: "#f8fafc",
+    },
+    success: {
+      background:
+        "linear-gradient(180deg, rgba(6,95,70,0.22) 0%, rgba(6,78,59,0.3) 100%)",
+      border: "1px solid rgba(16,185,129,0.35)",
+      color: "#d1fae5",
+    },
+    info: {
+      background:
+        "linear-gradient(180deg, rgba(30,64,175,0.22) 0%, rgba(30,58,138,0.3) 100%)",
+      border: "1px solid rgba(96,165,250,0.35)",
+      color: "#dbeafe",
+    },
+  };
+
+  return (
+    <div style={{ ...statCardStyle, ...tones[tone] }}>
+      <div style={statLabelStyle}>{label}</div>
+      <div style={statValueStyle}>{value}</div>
+    </div>
+  );
+}
+
+const statsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 14,
+};
+
+const statCardStyle: React.CSSProperties = {
+  borderRadius: 18,
+  padding: 18,
+  boxShadow: "0 10px 24px rgba(0,0,0,0.2)",
+};
+
+const statLabelStyle: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.8,
+  marginBottom: 10,
+};
+
+const statValueStyle: React.CSSProperties = {
+  fontSize: 30,
+  fontWeight: 900,
+  lineHeight: 1,
+  wordBreak: "break-word",
+};
+
+const rowNumberHeaderStyle: React.CSSProperties = {
+  width: 50,
+  minWidth: 50,
+  textAlign: "center",
+  padding: "8px 6px",
+  color: "#94a3b8",
+  fontSize: 11,
+  whiteSpace: "nowrap",
+  borderBottom: "1px solid rgba(148,163,184,0.16)",
+  background: "rgba(15,23,42,0.96)",
+  position: "sticky",
+  top: 0,
+  zIndex: 3,
+};
+
+const rowNumberCellStyle: React.CSSProperties = {
+  width: 40,
+  minWidth: 40,
+  textAlign: "center",
+  padding: "6px 4px",
+  borderBottom: "1px solid rgba(148,163,184,0.08)",
+  verticalAlign: "middle",
+  color: "#94a3b8",
+  fontWeight: 700,
+  fontSize: 12,
+};
+
+const statusDotHeaderStyle: React.CSSProperties = {
+  width: 26,
+  minWidth: 26,
+  padding: "8px 6px",
+  borderBottom: "1px solid rgba(148,163,184,0.16)",
+  background: "rgba(15,23,42,0.96)",
+  position: "sticky",
+  top: 0,
+  zIndex: 3,
+};
+
+const statusDotCellStyle: React.CSSProperties = {
+  width: 26,
+  minWidth: 26,
+  padding: "8px 6px",
+  borderBottom: "1px solid rgba(148,163,184,0.08)",
+  verticalAlign: "middle",
+  position: "relative",
+};
+
+const errorDotStyle: React.CSSProperties = {
+  position: "absolute",
+  right: 4,
+  top: 6,
+  width: 6,
+  height: 6,
+  borderRadius: "50%",
+  background: "#ef4444",
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "8px 10px",
+  color: "#94a3b8",
+  fontSize: 11,
+  whiteSpace: "nowrap",
+  borderBottom: "1px solid rgba(148,163,184,0.16)",
+  background: "rgba(15,23,42,0.96)",
+  position: "sticky",
+  top: 0,
+  zIndex: 2,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  borderBottom: "1px solid rgba(148,163,184,0.08)",
+  verticalAlign: "top",
+  color: "#e5e7eb",
+};
+
+const cellInputStyle: React.CSSProperties = {
+  width: "100%",
+  minWidth: 90,
+  padding: "6px 8px",
+  borderRadius: 8,
+  border: "1px solid rgba(148,163,184,0.18)",
+  background: "rgba(15,23,42,0.82)",
+  color: "#e2e8f0",
+  fontSize: 12,
+};
+
+const cellTextareaStyle: React.CSSProperties = {
+  width: "100%",
+  minWidth: 120,
+  minHeight: 48,
+  padding: "6px 8px",
+  borderRadius: 8,
+  border: "1px solid rgba(148,163,184,0.18)",
+  background: "rgba(15,23,42,0.82)",
+  color: "#e2e8f0",
+  fontSize: 12,
+  resize: "vertical",
+};
+
+const checkboxWrapStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  color: "#e2e8f0",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const emptyStateStyle: React.CSSProperties = {
+  padding: "30px 16px",
+  textAlign: "center",
+  color: "#94a3b8",
+};
+
+const primaryButtonStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(99,102,241,0.42)",
+  background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+  color: "#ffffff",
+  cursor: "pointer",
+  fontWeight: 800,
+  textDecoration: "none",
+  minHeight: 46,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  boxShadow: "0 8px 22px rgba(79,70,229,0.28)",
+};
+
+const linkButtonStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(148,163,184,0.22)",
+  background: "rgba(15,23,42,0.84)",
+  color: "#e2e8f0",
+  cursor: "pointer",
+  fontWeight: 800,
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 46,
+};
+
+const deleteButtonStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(239,68,68,0.25)",
+  background: "rgba(127,29,29,0.26)",
+  color: "#fecaca",
+  cursor: "pointer",
+  fontWeight: 800,
+};

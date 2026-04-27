@@ -1,0 +1,2022 @@
+[
+  {
+    "mcleod_code": "WIREDOAL",
+    "description": "5-Lock Gin (7-3:00PM) CLOSED FRI",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 75,
+    "fee_type": "PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ALBEEDNC",
+    "description": "Albemarle Cotton NO GRACE $450",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 450,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ASSOATAL",
+    "description": "Associated Growers Warehouse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BCTGMOGA",
+    "description": "Bct Gin 7:30-3:00 FRI7:30-11:30AM",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 2.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BOSTBOGA",
+    "description": "Boston Gin 8-4 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BOSTTHGA",
+    "description": "Boston Gin 8-4 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BOSTMAGA",
+    "description": "Bostwick Gin Whse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BULLBRG1",
+    "description": "Bulloch Gin 7:30-3:00PM.",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_DAY",
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 3
+  },
+  {
+    "mcleod_code": "BURKJAFL",
+    "description": "Burkehead Gin Company 8-4",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CAMECASC",
+    "description": "Cameron Cotton And Seed 8-4M-T",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 2.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CANDMEGA",
+    "description": "Candler Gin And Whse(8-4:00)",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CLOVDOGA",
+    "description": "Clover Leaf Whse (7-3:00pm)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 2.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COASPANC",
+    "description": "Coastal Carolina Gin",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COFFSTGA",
+    "description": "Coffee Co / Tillman + Deal AG",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COFFDOG1",
+    "description": "Coffee Co. Gin (Bassford) M-F 8-3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COFFENAL",
+    "description": "Coffee Gin Co (7:00-2:00pm)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLLWAG2",
+    "description": "Collins Bonded Whse 7-330",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLLWAG1",
+    "description": "Collins Warehouse 8:-3:30pm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COTTNEAL",
+    "description": "Cotton Growers Co-op(Al)(7:00am-3:3",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COTTLEA1",
+    "description": "Cotton Producers #2",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COTTTUAL",
+    "description": "Cotton Producers(Towncreek)(7:00am",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COTTHONC",
+    "description": "Cotton Services Inc.",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COVIANAL",
+    "description": "Covington Gin 7-4 FCFS",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTSTGA",
+    "description": "Crop Production Services 8-3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CULLNOS1",
+    "description": "Culler Holstein Warehouse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "DAVIHONC",
+    "description": "Davis Cotton Gin",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "DECABAGA",
+    "description": "Decatur Gin Co 8-4 M-th 2daygrace",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 5.7,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "DIXONAG2",
+    "description": "Dixon Gin FCFS 8-4",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 3
+  },
+  {
+    "mcleod_code": "DOERDOGA",
+    "description": "Doerun Gin Comp 8-4 M-F",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "DOOLBUGA",
+    "description": "Dooley County Gin LLC 830-330",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 100,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "EARLBLGA",
+    "description": "Early Co Gin (8-3:00PM)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 1
+  },
+  {
+    "mcleod_code": "EDENEDNC",
+    "description": "Edenton Bonded Warehosue",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 200,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "FLAT",
+    "early_loading_fee_amount": 150
+  },
+  {
+    "mcleod_code": "FARMWAG1",
+    "description": "Farmers Gin (Wadley) (8-4:00PM)",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMMOGA",
+    "description": "Farmers Gin And Peanut 7-3M-TH. clsd Fri",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMSENC",
+    "description": "Farmers Peanut Bonded Whse",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FOURMEGA",
+    "description": "Four Corners 7-3:30",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FULLECAL",
+    "description": "Fuller Warehouse til4:oopm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FUNSMOG3",
+    "description": "Funston Gin/ MOULTRIE WHSE 8-3",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 5
+  },
+  {
+    "mcleod_code": "GOLDJAFL",
+    "description": "Golden Gin And Whse (M-Thu 8-4/Fri 8-12)",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 5.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GROWMEGA",
+    "description": "Growers Gin (Metter) 8-4:30",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 3.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GTUSPOFL",
+    "description": "GT USA 8-4fcfs **TWIC REQ***",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HARVLANC",
+    "description": "Harvey Gin & Cotton",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 125,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HARVKINC",
+    "description": "Harvey Price Cotton Whse (Kinston)",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 125,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HEARHAGA",
+    "description": "Heart Of Ga Peanut & Gin Co.",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HENRHEAL",
+    "description": "Henry County Gin 7-230 FCFS",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HILLHIAL",
+    "description": "Hillsboro Gin (CLOSED ON FRI) 2:30",
+    "late_load_grace_days": 1,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HOKERANC",
+    "description": "Hoke Cotton Warehouse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2.66,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HOLTDEAL",
+    "description": "Holtville Gin",
+    "late_load_grace_days": 7,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HUMPHASC",
+    "description": "Humphery Coker Seed 7 - 4:00 pm",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "155GLASC",
+    "description": "Humphrey Coker m-th 7-3. fri 7-12noon",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SHUMHASC",
+    "description": "Humphrey Coker Whs",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "IRWIOMG2",
+    "description": "IRWIN CO #4CHERRY",
+    "late_load_grace_days": 2,
+    "avoidable_fee": true,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "IRWITIGA",
+    "description": "Irwin County  (Tifton) 8-3:30",
+    "late_load_grace_days": 2,
+    "avoidable_fee": true,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "IRWILEGA",
+    "description": "Irwin County (LENOX)",
+    "late_load_grace_days": 2,
+    "avoidable_fee": true,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "IRWIOMGA",
+    "description": "Irwin County (Omega) 8-3:30",
+    "late_load_grace_days": 2,
+    "avoidable_fee": true,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "JONETRNC",
+    "description": "Jones County 8-3:OOPM",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MADHSEAL",
+    "description": "M.A.D.H Gin, Inc. M-F 8-4 FCFS",
+    "late_load_grace_days": 7,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MCCACOGA",
+    "description": "McCay Bonded Whse 8pm-3pm",
+    "late_load_grace_days": 1,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MCCLALGA",
+    "description": "McCleskey Bonded (Albany) 730-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MCCLBRGA",
+    "description": "McCleskey Cotton Bronwood 8-4",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MCWOSYGA",
+    "description": "Mcworth Cotton Whse 7-3:00PM",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 50,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MIDDSTSC",
+    "description": "Middling Cotton Co 7-3fcfs",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MIDVMIGA",
+    "description": "Midville Whse (7-3:00pm)",
+    "late_load_grace_days": 7,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MILLCOGA",
+    "description": "Miller County Gin 7-4 M-Th",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_amount": 4
+  },
+  {
+    "mcleod_code": "MOBLDOG3",
+    "description": "Mobley Gin #4 doerun) 8-4",
+    "late_load_grace_days": 7,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOBLDOGA",
+    "description": "Mobley Gin #5 (doerun) 8-4",
+    "late_load_grace_days": 7,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOBLDOG1",
+    "description": "Mobley Gin #6 doerun (8-4)",
+    "late_load_grace_days": 7,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOULMOGA",
+    "description": "Moultrie Warehouse   1daygr",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 5
+  },
+  {
+    "mcleod_code": "MUNDMIGA",
+    "description": "Mundy Inc (Millen) 8-330",
+    "late_load_grace_days": 1,
+    "avoidable_fee": true,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "NORMNOGA",
+    "description": "Norman Park Gin 8-3",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "NUTRSTGA",
+    "description": "Nutrien Ag Solutions",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "OSCEOCGA",
+    "description": "Osceola Cotton Co M-THURS 8-3",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 50,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "OSCEOCG1",
+    "description": "Osceola Cotton Co. #2 8-3 M-Thur",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 50,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "OSCEOCG2",
+    "description": "Osceola Gin",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 50,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PEOPSHG4",
+    "description": "Peoples Warehouse #1 8-3 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PEOPSHG2",
+    "description": "Peoples Warehouse #3 8-3 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PEOPSHG3",
+    "description": "Peoples Warehouse #4 8-3 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PEOPSHGA",
+    "description": "People's Warehouse #5-8 (Cuthbert) 8-3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PEOPSHG1",
+    "description": "People's Warehouse #7 8-3 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PINEPEGA",
+    "description": "Pinecliff Peanut 7-3 M-F",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 50,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PINEPEG1",
+    "description": "Pinecliff Planters Cotton #1M-F 7-3",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 50,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PITTBENC",
+    "description": "Pitt County Gin  (8-4:00PM)",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 125,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLANPIGA",
+    "description": "Planters Whse (Pinehurst)",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLANVIGA",
+    "description": "Planters Whse 8-3",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAZCEAL",
+    "description": "Plaza Warehouse7-3 no grace, call by 1pm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PRODMUNC",
+    "description": "Producers Bnd Whs Mur 8-4",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "QUALDUNC",
+    "description": "Quality Bonded Whse 8-12 1-4",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "RIVEMIGA",
+    "description": "Riverside Gin 8-4M-Th 8-11Fr",
+    "late_load_grace_days": 7,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ROANEVNC",
+    "description": "Roanoke Tar Cotton Whse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ROANWINC",
+    "description": "Roanoke Tar Cotton Whse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ROCHWRG2",
+    "description": "Roche Manufacturing (Wrightsville) #1",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 75,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ROCHDUGA",
+    "description": "Roche Manufacturing 8-4",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 75,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ROSERONC",
+    "description": "Rosemary Bonded m-th 8-4 fr 8-12p",
+    "late_load_grace_days": 2,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ROYSSHNC",
+    "description": "Royster Pm Whse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SCONSYGA",
+    "description": "Sconyers Gin (8-4)(7-1130 on fri)",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SCRESYGA",
+    "description": "Screven Gin #2 8-4",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 100,
+    "fee_type": "PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SCRUFLAL",
+    "description": "Scruggs & Vaiden Whse 7-3 NOREEF",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SERVCOAL",
+    "description": "Servico  (7-3:00PM) 1day",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 2.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 6
+  },
+  {
+    "mcleod_code": "SOUTENGA",
+    "description": "South Central Gin 8-3:30 M-F",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTHAG1",
+    "description": "South Georgia Cotton (GIN) 8-3:30",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 75,
+    "fee_type": "PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTHAGA",
+    "description": "South Georgia Whse M-F 8-3:30",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 75,
+    "fee_type": "PER_DAY",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTSUGA",
+    "description": "Southeastern Gin (8 -4)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOWEHAAL",
+    "description": "Sowega Cotton Gin M-T 7-3 F 7-12",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOWECLGA",
+    "description": "Sowega Cotton m-th 8-3 fri 8-12",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SUMTAMGA",
+    "description": "Sumter County Producers 9-3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SUNSARGA",
+    "description": "Sunshine Whse *CLOSED FRI* 8-3:30PM",
+    "late_load_grace_days": 1,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TAYLTAA1",
+    "description": "Taylor Gin(M-TH) 8-2pm Fri 8-12pm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "THESPEGA",
+    "description": "The Southern Gin  8-3:30",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TRICUNG2",
+    "description": "Trico #2  -NO GRACE $250 FEE",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 250,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TRICPEGA",
+    "description": "Trico Gin (Perry)  -NO GRACE $250 FEE",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 250,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TRICUNG1",
+    "description": "Trico Gin (UNADILLA)  -NO GRACE $250 FEE",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 250,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TRICELGA",
+    "description": "Trico Gin(Elko) -NO GRACE $250 FEE",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 250,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TRICUNG3",
+    "description": "Trico Whse -NO GRACE $250 FEE",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 250,
+    "fee_type": "FLAT",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TRICDOGA",
+    "description": "Tri-County Gin (Douglas)(8-4:00p",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "UNIOCOGA",
+    "description": "Union Compress 8-3 m-f",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "UNITLYSC",
+    "description": "United Bonded Whse (Lynchburg) 8-3",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NONE",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "VIENVIGA",
+    "description": "Vienna Cotton Co  7:30- 3:00",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "WESTVIGA",
+    "description": "West Bonded Whse (Lilly)7-3:30",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 75,
+    "fee_type": "PER_DAY",
+    "early_loading_fee_type": "NOT_ALLOWED",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ABERABTX",
+    "description": "Abernathy Warehouse(LUBBOCK)M-F",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CITYABTX",
+    "description": "City Gin Cotton Warehouse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.75,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "AMARAMTX",
+    "description": "Amarillo Cotton WHSE 8-2:00p",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "AMARAMT2",
+    "description": "Amarillo Warehouse Company FCFS(7-3)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "AMARAMT3",
+    "description": "Amarillo Cotton Whse #3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "AMARAMT4",
+    "description": "Amarillo Cotton Whse #4  (8-2)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BALLBATX",
+    "description": "Ballinger Compress Co 8-3:00PM",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BIGSBITX",
+    "description": "Big Spring Plant#  ***DUPLICATE***",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BROWBRTX",
+    "description": "Brownfield Comp 8-4:30PM",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TAYLBRTX",
+    "description": "Taylor Comp #2 (Bryan) 8-3:30",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PPFGCOTX",
+    "description": "PPF Gin and Warehouse",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 3.75,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFCOT1",
+    "description": "Gulf Compress #2",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFCOT2",
+    "description": "Gulf Compress #1",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SUNCDETX",
+    "description": "Suncot Warehouse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PPFGCOTX",
+    "description": "PPF Gin and Warehouse",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 3.75,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "UNITELTX",
+    "description": "United Ag Co-op 7-4:00pm VF",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 1.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FORTFOTX",
+    "description": "Fort Worth Commodity Warehouse",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOODGAT1",
+    "description": "Moody Compress #1 8-3pm out Van only",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOODGAT2",
+    "description": "Moody Compress #2 8-3PM outbound",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOODGAT4",
+    "description": "Moody Compress #3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "MOODGAT3",
+    "description": "Moody Compress #4",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 4,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTGATX",
+    "description": "Southern Compress & warehouse 8-4",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTGATX",
+    "description": "Southern Compress & warehouse 8-4",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SOUTGATX",
+    "description": "Southern Compress & warehouse 8-4",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GLASGATX",
+    "description": "Glasscock County Co-Op Cotton Warehouses",
+    "late_load_grace_days": 5,
+    "avoidable_fee": false,
+    "amount": 1.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "INTEGRTX",
+    "description": "International Cotton Depot #5 7-3",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HARLHATX",
+    "description": "Harlingen Compress 8-3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": true,
+    "amount": 0,
+    "fee_type": "NONE",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CARGHATX",
+    "description": "Cargill Cotton (Haslet) 7:30am - 3:30pm",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HOUSHOTX",
+    "description": "Houston Commodity Whse 7:30",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 3.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "LAMELATX",
+    "description": "Lamesa Compress 8-4pm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLETX",
+    "description": "Farmers #11 Levelland  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "LOCKLOTX",
+    "description": "Lockney Warehouse 8-12pm & 1-4 VF",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUT2",
+    "description": "Farmers #3 Lubbock  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUT3",
+    "description": "Farmers #4 Lubbock  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUT4",
+    "description": "Farmers #5 Lubbock  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUT5",
+    "description": "Farmers Coop #8 (Lubbock)",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUTX",
+    "description": "Farmers # 1 Lubbock  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "LOVCLUTX",
+    "description": "Lov Cot Lubbock M-F 7-3:15pm",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "LOVCLUTX",
+    "description": "Lov Cot Lubbock M-F 7-3:15pm",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "LUBBLUTX",
+    "description": "Lubbock Compress Lubbock M-F 8-5",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAILUTX",
+    "description": "Plains Cotton Co-op",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIMCTX",
+    "description": "Colimar International 8-5 by appt VF",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIMITX",
+    "description": "Colimar International 8-5 VF",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIMCTX",
+    "description": "Colimar International 8-5 by appt VF",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "ODONODTX",
+    "description": "O'Donnell Warehouse",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PANHPATX",
+    "description": "Panhandle Compress 8-4:00PM",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUT6",
+    "description": "Farmers #7 Plainview  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMLUT6",
+    "description": "Farmers #7 Plainview  7-4pm",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "HALEPLTX",
+    "description": "Hale County Compress 8-4",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 6.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PANHPLTX",
+    "description": "Panhandle Comp - Plainview 8-3",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFPOTX",
+    "description": "Gulf Compress #4",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PANHPOTX",
+    "description": "Panhandle (Post)  M-F 8-4:30",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "POSTPOTX",
+    "description": "Posttex Warehouse ***DUPLICATE***",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PANHQUTX",
+    "description": "Panhandle (Quanah) M-F 8am-3pm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "OASILONM",
+    "description": "Oasis Warehouse LLC (7-3)",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "RALLRATX",
+    "description": "Ralls Compress 8-4:00PM",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFRATX",
+    "description": "Gulf Compress #5",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFRAT6",
+    "description": "Gulf Compress #6",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFRAT1",
+    "description": "Gulf Compress #7",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PPFGRETX",
+    "description": "PPF Gin & Warehouse",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 3.75,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAIRUTX",
+    "description": "Plains Cotton Co-op",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "RULERUTX",
+    "description": "Rule Compress (8 - 3:30)",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BALLSATX",
+    "description": "Ballinger Compress Co 8-3:00PM",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SEAGSETX",
+    "description": "Seagraves Compress (m-f 8-3:30 only",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "SEBASETX",
+    "description": "Sebastian Cotton Warehouse 730-430 FCFS",
+    "late_load_grace_days": 1,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "OASISETX",
+    "description": "Oasis Gin Inc.  8-3:30PM",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "BALLSNTX",
+    "description": "Ballinger Cotton Whse #3  8-3:",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 3,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMSTTX",
+    "description": "Farmers Comp #9 (STANTON) 0730-1630",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "CENTSUTX",
+    "description": "Central Compress (Sudan) 8-4:00PM",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "GULFSWTX",
+    "description": "Gulf Compress #8",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAISWTX",
+    "description": "Plains Cotton Co-op m-f 8-12 /1-3pm",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TAHOTATX",
+    "description": "Tahoke Whse  8-4:30pm",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TAYLTAT1",
+    "description": "Taylor Compress (8-3:15PM)",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TAYLTATX",
+    "description": "Taylor Compress #3  8-4pm",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "VALLTOTX",
+    "description": "Valley Gin Company (Closed Friday)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.11,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PANHTUTX",
+    "description": "Tulia Cotton Warehouse #1 (8-2)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "TULITUTX",
+    "description": "Tulia Cotton Warehouse #2 (8-2)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "VERNVETX",
+    "description": "Vernon Compress Company 8-4 VF",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 2,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIWET2",
+    "description": "Colimar Logistics #2",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIWET3",
+    "description": "Colimar Int'l",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIWETX",
+    "description": "Colimar Int'l",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "COLIWET1",
+    "description": "Colimar",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 5,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAIALOK",
+    "description": "",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "FARMCLTX",
+    "description": "",
+    "late_load_grace_days": 2,
+    "avoidable_fee": false,
+    "amount": 0.25,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  }
+]
