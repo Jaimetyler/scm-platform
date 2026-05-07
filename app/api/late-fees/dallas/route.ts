@@ -32,12 +32,15 @@ type McleodStop = {
 type LateFeeRow = {
   orderId: string;
   customerId: string;
+  revenueCode: string;
   blnum: string;
   mark: string | null;
   bales: number;
   movementStatus: string;
   brokerageStatus: string;
+  docCutoffDate: string | null;
   lastFreeDate: string | null;
+  feeStartDate: string | null;
   anchorDateUsed: "doc_cutoff_date" | "so_sched_arrive_late" | "so_sched_arrive_early" | "none";
   rawDaysLate: number;
   graceDays: number;
@@ -66,9 +69,7 @@ const EXCLUDED_BROKERAGE_STATUSES = new Set([
 
 function getBaseUrl() {
   const baseUrl = process.env.MCLEOD_BASE_URL;
-  if (!baseUrl) {
-    throw new Error("Missing MCLEOD_BASE_URL");
-  }
+  if (!baseUrl) throw new Error("Missing MCLEOD_BASE_URL");
   return baseUrl.replace(/\/+$/, "");
 }
 
@@ -88,14 +89,12 @@ function getToken() {
 }
 
 async function mcleodFetch(path: string) {
-  const baseUrl = getBaseUrl();
-  const token = getToken();
+  const url = `${getBaseUrl()}${path}`;
 
-  const url = `${baseUrl}${path}`;
   const res = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${getToken()}`,
       Accept: "application/json",
     },
     cache: "no-store",
@@ -202,8 +201,7 @@ function normalizeDateInput(value: string | null | undefined): Date | null {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
-function formatDateOnly(value: string | null | undefined): string | null {
-  const dt = normalizeDateInput(value);
+function formatDateFromDate(dt: Date | null): string | null {
   if (!dt) return null;
 
   const y = dt.getFullYear();
@@ -211,6 +209,17 @@ function formatDateOnly(value: string | null | undefined): string | null {
   const d = String(dt.getDate()).padStart(2, "0");
 
   return `${y}-${m}-${d}`;
+}
+
+function formatDateOnly(value: string | null | undefined): string | null {
+  return formatDateFromDate(normalizeDateInput(value));
+}
+
+function addDays(date: Date | null, days: number): Date | null {
+  if (!date) return null;
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
 }
 
 function startOfDay(d: Date) {
@@ -285,8 +294,30 @@ function shouldKeepOrder(order: McleodOrderSummary): boolean {
 }
 
 async function getCandidateOrders(limit: number): Promise<McleodOrderSummary[]> {
-  const raw = await mcleodFetch(`/orders?limit=${limit}`);
-  return asArray<McleodOrderSummary>(raw);
+  const filters = [`revenue_code_id eq "DAVIS"`];
+
+  const paths = [
+    `/orders/search?filters=${encodeURIComponent(filters.join(" and "))}&limit=${limit}`,
+    `/orders/search?filter=${encodeURIComponent(filters.join(" and "))}&limit=${limit}`,
+    `/orders/search?revenue_code_id=${encodeURIComponent("DAVIS")}&limit=${limit}`,
+    `/orders?revenue_code_id=${encodeURIComponent("DAVIS")}&limit=${limit}`,
+    `/orders?limit=${limit}`,
+  ];
+
+  for (const path of paths) {
+    try {
+      const raw = await mcleodFetch(path);
+      const rows = asArray<McleodOrderSummary>(raw);
+
+      if (rows.length > 0) {
+        return rows;
+      }
+    } catch {
+      // Try next McLeod query format.
+    }
+  }
+
+  return [];
 }
 
 async function hydrateOrder(orderId: string): Promise<McleodOrderSummary | null> {
@@ -311,10 +342,13 @@ export async function GET(req: Request) {
     const includeZeroLate = searchParams.get("includeZeroLate") === "1";
     const includeNoPolicy = searchParams.get("includeNoPolicy") === "1";
     const debug = searchParams.get("debug") === "1";
+    const testOrderId = searchParams.get("orderId");
 
     const policyMap = getPolicyMap();
 
-    const baseOrders = await getCandidateOrders(limit);
+    const baseOrders = testOrderId
+      ? ([await hydrateOrder(testOrderId)].filter(Boolean) as McleodOrderSummary[])
+      : await getCandidateOrders(limit);
 
     const likelyDallas = baseOrders.filter((o) => {
       const revenueCode = safeString(o.revenue_code_id).toUpperCase();
@@ -336,6 +370,7 @@ export async function GET(req: Request) {
 
     const mappedRows = filtered.map((order) => {
       const orderId = getOrderId(order);
+      const revenueCode = safeString(order.revenue_code_id).toUpperCase();
       const blnum = safeString(order.blnum);
       const bales = parseBales(blnum);
       const so = getSoStop(order);
@@ -351,28 +386,44 @@ export async function GET(req: Request) {
         ? policyMap.get(locationId)
         : undefined;
 
-      const graceDays = Number(policy?.late_load_grace_days ?? 0);
+      /**
+       * DAVIS rule:
+       * doc_cutoff_date is already the last free day.
+       * Do NOT subtract policy grace days when doc_cutoff_date is used.
+       */
+      const graceDays =
+        revenueCode === "DAVIS" && anchor.source === "doc_cutoff_date"
+          ? 0
+          : Number(policy?.late_load_grace_days ?? 0);
+
       const effectiveDaysLate = Math.max(0, rawDaysLate - graceDays);
       const lateFee = round2(calculateLateFee(policy, bales, effectiveDaysLate));
 
-      const lastFreeDate =
+      const lastFreeAnchorDate =
         anchor.source === "doc_cutoff_date"
-          ? formatDateOnly(order.doc_cutoff_date)
+          ? normalizeDateInput(order.doc_cutoff_date)
           : anchor.source === "so_sched_arrive_late"
-            ? formatDateOnly(so?.sched_arrive_late ?? null)
+            ? normalizeDateInput(so?.sched_arrive_late ?? null)
             : anchor.source === "so_sched_arrive_early"
-              ? formatDateOnly(so?.sched_arrive_early ?? null)
+              ? normalizeDateInput(so?.sched_arrive_early ?? null)
               : null;
+
+      const lastFreeDate = formatDateFromDate(lastFreeAnchorDate);
+      const feeStartDate =
+        effectiveDaysLate > 0 ? formatDateFromDate(addDays(lastFreeAnchorDate, 1)) : null;
 
       const row: LateFeeRow = {
         orderId,
         customerId: safeString(order.customer_id),
+        revenueCode,
         blnum,
         mark: parseMark(blnum),
         bales,
         movementStatus: getMovementStatus(order),
         brokerageStatus: getBrokerageStatus(order),
+        docCutoffDate: formatDateOnly(order.doc_cutoff_date),
         lastFreeDate,
+        feeStartDate,
         anchorDateUsed: anchor.source,
         rawDaysLate,
         graceDays,
@@ -447,7 +498,9 @@ export async function GET(req: Request) {
         notes: [
           "This route calculates current late fee exposure for Dallas.",
           "Policies are matched by SO.location_id.",
-          "Grace days are subtracted from raw late days before fee calculation.",
+          "For DAVIS, doc_cutoff_date is treated as the last free day.",
+          "Grace days are NOT subtracted when doc_cutoff_date is used.",
+          "Grace days are only used when fallback SO scheduled dates are used.",
           "Billed orders are excluded when bill_date is present.",
           "By default, rows without a matching policy are excluded.",
         ],
@@ -461,9 +514,12 @@ export async function GET(req: Request) {
       ...(debug
         ? {
             debug: {
+              mode: testOrderId ? "single_order_test" : "candidate_search",
+              testedOrderId: testOrderId,
               fetchedOrderSummaries: baseOrders.length,
               likelyDallasSummaries: likelyDallas.length,
               hydratedAndKept: filtered.length,
+              mappedRowsBeforeFinalFilters: mappedRows.length,
               policyMatchedCount,
               policyMissingCount,
               includedRows: rows.length,

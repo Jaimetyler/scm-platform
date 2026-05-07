@@ -154,15 +154,27 @@ function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60_000);
 }
 
-function buildEventTimes() {
-  const now = new Date();
+function buildEventTimes(baseDateInput?: string | null) {
+  let deliveryBaseDate: Date;
 
-  // round up to the next minute so we don't send odd seconds
-  now.setSeconds(0, 0);
+  if (baseDateInput) {
+    deliveryBaseDate = new Date(baseDateInput);
+  } else {
+    deliveryBaseDate = new Date();
+  }
 
-  const pickupArrival = now;
+  // Delivery date = check-in sheet date
+  deliveryBaseDate.setHours(8, 0, 0, 0);
+
+  // Pickup date = day before check-in sheet date
+  const pickupBaseDate = new Date(deliveryBaseDate);
+  pickupBaseDate.setDate(pickupBaseDate.getDate() - 1);
+  pickupBaseDate.setHours(8, 0, 0, 0);
+
+  const pickupArrival = pickupBaseDate;
   const pickupDeparture = addMinutes(pickupArrival, 5);
-  const deliveryArrival = addMinutes(pickupDeparture, 60);
+
+  const deliveryArrival = deliveryBaseDate;
   const deliveryDeparture = addMinutes(deliveryArrival, 5);
 
   return {
@@ -246,7 +258,14 @@ export async function POST(req: NextRequest) {
 
     const pickupHas = hasActuals(pickup);
     const deliveryHas = hasActuals(delivery);
-    const times = buildEventTimes();
+   
+
+const baseDate =
+  row.received_date ||
+  row.date ||
+  null;
+
+const times = buildEventTimes(baseDate);
 
     const payload = {
       __type: "orders",
