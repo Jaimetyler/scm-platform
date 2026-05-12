@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 const ALLOWED_REVENUE_CODES_BY_TERMINAL: Record<string, string[]> = {
   SAV: ["LOCAL"],
   DAL: ["DLOCA"],
-  HOU: ["MAIN"],
+  HOU: ["HLOCA"],
 };
 
 const supabase = createClient(
@@ -92,7 +92,9 @@ function extractRows(res: any): any[] {
 
 async function findOrderCandidates(blnum: string, terminal: string) {
   try {
-    const allowed = ALLOWED_REVENUE_CODES_BY_TERMINAL[normalize(terminal)] || [];
+    const terminalKey = normalize(terminal);
+    const allowed = ALLOWED_REVENUE_CODES_BY_TERMINAL[terminalKey] || [];
+    const allCandidates: any[] = [];
 
     const paths = [
       `/orders/search?blnum=${encodeURIComponent(blnum)}`,
@@ -103,26 +105,37 @@ async function findOrderCandidates(blnum: string, terminal: string) {
       const search = await mcleodRequest(path);
       const rows = extractRows(search).filter((r: any) => r?.id);
 
-      if (rows.length > 0) {
-        return rows
-          .map((r: any) => ({
-            id: r.id,
-            revenue_code_id:
-              r.revenue_code_id ||
-              r.revenueCodeId ||
-              r.revenue_code ||
-              r.revenueCode ||
-              "unknown",
-            status: r.status || r.movement_status || undefined,
-          }))
-          .filter((r: any) => {
-            const code = normalize(r.revenue_code_id);
-            return r.id && code !== "UNKNOWN" && allowed.includes(code);
-          });
+      for (const r of rows) {
+        const revenueCode =
+          r.revenue_code_id ||
+          r.revenueCodeId ||
+          r.revenue_code ||
+          r.revenueCode ||
+          "unknown";
+
+        const code = normalize(revenueCode);
+
+        allCandidates.push({
+          id: r.id,
+          revenue_code_id: revenueCode,
+          status: r.status || r.movement_status || undefined,
+          source_path: path,
+          allowed_match: allowed.includes(code),
+        });
       }
     }
 
-    return [];
+    return allCandidates
+      .filter((r) => {
+        const code = normalize(r.revenue_code_id);
+        return r.id && code !== "UNKNOWN" && allowed.includes(code);
+      })
+      .map((r) => ({
+        id: r.id,
+        revenue_code_id: r.revenue_code_id,
+        status: r.status,
+        source_path: r.source_path,
+      }));
   } catch (err: any) {
     return [{ id: null, revenue_code_id: "lookup_failed", error: err.message }];
   }
