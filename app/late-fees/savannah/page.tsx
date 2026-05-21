@@ -12,8 +12,6 @@ export default function SavannahLateFeesPage() {
   );
 }
 
-
-
 type LateFeeRow = {
   orderId: string;
 
@@ -74,6 +72,12 @@ function OfficeLateFeesPage({
   const [note, setNote] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  const [sortKey, setSortKey] =
+    useState<keyof LateFeeRow>("lateFee");
+
+  const [sortDir, setSortDir] =
+    useState<"asc" | "desc">("desc");
+
   useEffect(() => {
     let active = true;
 
@@ -83,8 +87,8 @@ function OfficeLateFeesPage({
         setError(null);
 
         const res = await fetch(apiPath, {
-  cache: "no-store",
-});
+          cache: "no-store",
+        });
 
         const data = (await res.json()) as ApiResponse;
 
@@ -114,30 +118,62 @@ function OfficeLateFeesPage({
     };
   }, [apiPath]);
 
+  function handleSort(key: keyof LateFeeRow) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
+
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    if (!q) return rows;
+    let filtered = rows;
 
-    return rows.filter((row) =>
-      [
-        row.orderId,
-        row.blnum,
-        row.customerId,
-        row.mark ?? "",
-        row.policyCode ?? "",
-        row.puLocationId ?? "",
-        row.puCity ?? "",
-        row.puState ?? "",
-        row.soLocationId ?? "",
-        row.soCity ?? "",
-        row.soState ?? "",
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [rows, search]);
+    if (q) {
+      filtered = rows.filter((row) =>
+        [
+          row.orderId,
+          row.blnum,
+          row.customerId,
+          row.mark ?? "",
+          row.policyCode ?? "",
+          row.puLocationId ?? "",
+          row.puCity ?? "",
+          row.puState ?? "",
+          row.soLocationId ?? "",
+          row.soCity ?? "",
+          row.soState ?? "",
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+
+    return [...filtered].sort((a, b) => {
+      const aVal = a[sortKey];
+      const bVal = b[sortKey];
+
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+
+      if (
+        typeof aVal === "number" &&
+        typeof bVal === "number"
+      ) {
+        return sortDir === "asc"
+          ? aVal - bVal
+          : bVal - aVal;
+      }
+
+      return sortDir === "asc"
+        ? String(aVal).localeCompare(String(bVal))
+        : String(bVal).localeCompare(String(aVal));
+    });
+  }, [rows, search, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     return filteredRows.reduce(
@@ -145,6 +181,7 @@ function OfficeLateFeesPage({
         acc.loads += 1;
         acc.bales += row.bales;
         acc.exposure += row.lateFee;
+
         return acc;
       },
       {
@@ -189,9 +226,7 @@ function OfficeLateFeesPage({
         >
           SCM Platform
         </div>
-
-      
-            </div>
+      </div>
 
       <div style={{ marginBottom: 20 }}>
         <h1
@@ -213,24 +248,25 @@ function OfficeLateFeesPage({
           Current late-fee exposure on active loads.
         </p>
       </div>
-    <div style={{ marginBottom: 20, paddingTop: 8 }}>
-  <Link
-    href="/late-fees/savannah/import"
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 10,
-      padding: "10px 14px",
-      background: "#2563eb",
-      color: "#fff",
-      fontWeight: 700,
-      textDecoration: "none",
-    }}
-  >
-    Import FlowLogix CSV
-  </Link>
-</div>
+
+      <div style={{ marginBottom: 20, paddingTop: 8 }}>
+        <Link
+          href="/late-fees/savannah/import"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 10,
+            padding: "10px 14px",
+            background: "#2563eb",
+            color: "#fff",
+            fontWeight: 700,
+            textDecoration: "none",
+          }}
+        >
+          Import FlowLogix CSV
+        </Link>
+      </div>
 
       {note ? (
         <div
@@ -331,24 +367,27 @@ function OfficeLateFeesPage({
                   }}
                 >
                   {[
-                    "Order",
-                    "Mark",
-                    "Customer",
-                    "PU",
-                    "PU City",
-                    "SO",
-                    "SO City",
-                    "Bales",
-                    "Move",
-                    "Brokerage",
-                    "OG Date",
-                    "Grace",
-                    "Late",
-                    "Rate",
-                    "Fee",
-                  ].map((head) => (
+                    ["Order", "orderId"],
+                    ["Mark", "mark"],
+                    ["Customer", "customerId"],
+                    ["PU", "puLocationId"],
+                    ["PU City", "puCity"],
+                    ["SO", "soLocationId"],
+                    ["SO City", "soCity"],
+                    ["Bales", "bales"],
+                    ["Move", "movementStatus"],
+                    ["Brokerage", "brokerageStatus"],
+                    ["OG Date", "docCutoffDate"],
+                    ["Grace", "graceDays"],
+                    ["Late", "effectiveDaysLate"],
+                    ["Rate", "policyAmount"],
+                    ["Fee", "lateFee"],
+                  ].map(([head, key]) => (
                     <th
                       key={head}
+                      onClick={() =>
+                        handleSort(key as keyof LateFeeRow)
+                      }
                       style={{
                         textAlign: "left",
                         padding: "12px 14px",
@@ -357,9 +396,16 @@ function OfficeLateFeesPage({
                         borderBottom:
                           "1px solid rgba(148,163,184,0.14)",
                         whiteSpace: "nowrap",
+                        cursor: "pointer",
+                        userSelect: "none",
                       }}
                     >
-                      {head}
+                      {head}{" "}
+                      {sortKey === key
+                        ? sortDir === "asc"
+                          ? "▲"
+                          : "▼"
+                        : ""}
                     </th>
                   ))}
                 </tr>
