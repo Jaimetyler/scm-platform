@@ -32,30 +32,6 @@ function getToken() {
   return token;
 }
 
-function parseCsv(text: string): Record<string, string>[] {
-  const lines = text
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .filter((line) => line.trim());
-
-  if (lines.length < 2) return [];
-
-  const headers = splitCsvLine(lines[0]).map((h) =>
-    h.trim().replace(/^"|"$/g, "")
-  );
-
-  return lines.slice(1).map((line) => {
-    const values = splitCsvLine(line);
-    const row: Record<string, string> = {};
-
-    headers.forEach((header, i) => {
-      row[header] = values[i]?.trim().replace(/^"|"$/g, "") ?? "";
-    });
-
-    return row;
-  });
-}
-
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = "";
@@ -89,6 +65,30 @@ function splitCsvLine(line: string): string[] {
   return out;
 }
 
+function parseCsv(text: string): Record<string, string>[] {
+  const lines = text
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .filter((line) => line.trim());
+
+  if (lines.length < 2) return [];
+
+  const headers = splitCsvLine(lines[0]).map((h) =>
+    h.trim().replace(/^"|"$/g, "")
+  );
+
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    const row: Record<string, string> = {};
+
+    headers.forEach((header, i) => {
+      row[header] = values[i]?.trim().replace(/^"|"$/g, "") ?? "";
+    });
+
+    return row;
+  });
+}
+
 async function mcleodGet(path: string) {
   const res = await fetch(`${getBaseUrl()}${path}`, {
     method: "GET",
@@ -119,6 +119,7 @@ async function hydrateOrder(orderId: string): Promise<McleodOrderSummary | null>
 
 function getStop(order: McleodOrderSummary, stopType: "PU" | "SO") {
   const stops = Array.isArray(order.stops) ? order.stops : [];
+
   return (
     stops.find((s) => safeString(s.stop_type).toUpperCase() === stopType) ??
     null
@@ -273,6 +274,35 @@ export async function POST(req: Request) {
       }
     }
 
+    const latestOrderIdSet = new Set(orderIds);
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("late_fee_order_snapshots")
+      .select("order_id")
+      .eq("office", "Savannah");
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    const staleOrderIds = (existingRows ?? [])
+      .map((r) => safeString(r.order_id))
+      .filter((id) => id && !latestOrderIdSet.has(id));
+
+    for (let i = 0; i < staleOrderIds.length; i += 100) {
+      const chunk = staleOrderIds.slice(i, i + 100);
+
+      const { error: deleteError } = await supabase
+        .from("late_fee_order_snapshots")
+        .delete()
+        .eq("office", "Savannah")
+        .in("order_id", chunk);
+
+      if (deleteError) {
+        throw new Error(deleteError.message);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       fileName: file.name,
@@ -280,6 +310,7 @@ export async function POST(req: Request) {
       orderIds: orderIds.length,
       saved: results.filter((r) => r.ok).length,
       failed: results.filter((r) => !r.ok).length,
+      staleRemoved: staleOrderIds.length,
       results,
     });
   } catch (error) {
