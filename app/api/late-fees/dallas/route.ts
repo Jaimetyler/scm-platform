@@ -1,61 +1,33 @@
 import { NextResponse } from "next/server";
-import { calculateLateFee, getPolicyMap, type LateFeePolicy } from "@/lib/lateFeePolicies";
+import { createClient } from "@supabase/supabase-js";
+import {
+  calculateLateFee,
+  getPolicyMap,
+  type LateFeePolicy,
+} from "@/lib/lateFeePolicies";
+import type {
+  LateFeeRow,
+  McleodOrderSummary,
+  McleodStop,
+} from "@/lib/late-fees/types";
+import {
+  getBrokerageStatus,
+  getMovementStatus,
+  getOrderId,
+  getStop,
+} from "@/lib/late-fees/orderHelpers";
+import { officeConfigs } from "@/lib/late-fees/officeConfigs";
+import {
+  buildKeepDebug,
+  mapOrderToLateFeeRow as sharedMapOrderToLateFeeRow,
+  shouldKeepOrder as sharedShouldKeepOrder,
+} from "@/lib/late-fees/engine";
 
-type McleodOrderSummary = {
-  id?: string | number;
-  order_id?: string | number;
-  blnum?: string | null;
-  revenue_code_id?: string | null;
-  customer_id?: string | null;
-  doc_cutoff_date?: string | null;
-  bol_received?: string | null;
-  bol_recv_date?: string | null;
-  bill_date?: string | null;
-  movement?: {
-    status?: string | null;
-    brokerage_status?: string | null;
-  } | null;
-  stops?: McleodStop[] | null;
-};
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type McleodStop = {
-  stop_type?: string | null;
-  location_id?: string | number | null;
-  sched_arrive_early?: string | null;
-  sched_arrive_late?: string | null;
-  actual_arrival?: string | null;
-  actual_departure?: string | null;
-  city_name?: string | null;
-  state?: string | null;
-};
 
-type LateFeeRow = {
-  orderId: string;
-  customerId: string;
-  revenueCode: string;
-  blnum: string;
-  mark: string | null;
-  bales: number;
-  movementStatus: string;
-  brokerageStatus: string;
-  docCutoffDate: string | null;
-  lastFreeDate: string | null;
-  feeStartDate: string | null;
-  anchorDateUsed: "doc_cutoff_date" | "so_sched_arrive_late" | "so_sched_arrive_early" | "none";
-  rawDaysLate: number;
-  graceDays: number;
-  effectiveDaysLate: number;
-  lateFee: number;
-  policyCode: string | null;
-  policyType: string | null;
-  avoidableFee: boolean | null;
-  policyAmount: number | null;
-  soLocationId: string | null;
-  soCity: string | null;
-  soState: string | null;
-};
-
-const DEFAULT_LIMIT = 250;
+const DEFAULT_LIMIT = 500;
 
 const EXCLUDED_MOVEMENT_STATUSES = new Set(["D", "V", "P"]);
 const EXCLUDED_BROKERAGE_STATUSES = new Set([
@@ -66,6 +38,11 @@ const EXCLUDED_BROKERAGE_STATUSES = new Set([
   "DISPATCH",
   "COVERED",
 ]);
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 function getBaseUrl() {
   const baseUrl = process.env.MCLEOD_BASE_URL;
@@ -102,7 +79,9 @@ async function mcleodFetch(path: string) {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`McLeod request failed: ${res.status} ${res.statusText} :: ${text}`);
+    throw new Error(
+      `McLeod request failed: ${res.status} ${res.statusText} :: ${text}`
+    );
   }
 
   if (res.status === 204) return [];
@@ -125,17 +104,9 @@ function safeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getOrderId(order: McleodOrderSummary): string {
-  return String(order.order_id ?? order.id ?? "").trim();
-}
 
-function getMovementStatus(order: McleodOrderSummary): string {
-  return String(order.movement?.status ?? "").trim().toUpperCase();
-}
 
-function getBrokerageStatus(order: McleodOrderSummary): string {
-  return String(order.movement?.brokerage_status ?? "").trim().toUpperCase();
-}
+
 
 function parseBales(blnumRaw: string | null | undefined): number {
   const blnum = safeString(blnumRaw);
@@ -176,6 +147,22 @@ function normalizeDateInput(value: string | null | undefined): Date | null {
 
   const direct = new Date(raw);
   if (!Number.isNaN(direct.getTime())) return direct;
+
+  const mcleodMatch = raw.match(
+    /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})$/
+  );
+
+  if (mcleodMatch) {
+    const year = Number(mcleodMatch[1]);
+    const month = Number(mcleodMatch[2]) - 1;
+    const day = Number(mcleodMatch[3]);
+    const hour = Number(mcleodMatch[4]);
+    const minute = Number(mcleodMatch[5]);
+    const second = Number(mcleodMatch[6]);
+
+    const dt = new Date(year, month, day, hour, minute, second, 0);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
 
   const match = raw.match(
     /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(AM|PM))?$/i
@@ -242,10 +229,6 @@ function round2(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-function getSoStop(order: McleodOrderSummary): McleodStop | null {
-  const stops = asArray<McleodStop>(order.stops);
-  return stops.find((s) => safeString(s.stop_type).toUpperCase() === "SO") ?? null;
-}
 
 function getAnchorDate(order: McleodOrderSummary): {
   date: Date | null;
@@ -256,7 +239,7 @@ function getAnchorDate(order: McleodOrderSummary): {
     return { date: cutoff, source: "doc_cutoff_date" };
   }
 
-  const so = getSoStop(order);
+  const so = getStop(order, "SO");
 
   const late = normalizeDateInput(so?.sched_arrive_late ?? null);
   if (late) {
@@ -271,53 +254,51 @@ function getAnchorDate(order: McleodOrderSummary): {
   return { date: null, source: "none" };
 }
 
-function shouldKeepOrder(order: McleodOrderSummary): boolean {
+function getKeepReason(order: McleodOrderSummary): {
+  keep: boolean;
+  reason: string;
+} {
   const revenueCode = safeString(order.revenue_code_id).toUpperCase();
-  if (revenueCode !== "DAVIS") return false;
-
-  const movementStatus = getMovementStatus(order);
-  if (EXCLUDED_MOVEMENT_STATUSES.has(movementStatus)) return false;
-
-  const brokerageStatus = getBrokerageStatus(order);
-  if (EXCLUDED_BROKERAGE_STATUSES.has(brokerageStatus)) return false;
-
-  const billDate = safeString(order.bill_date);
-  if (billDate) return false;
-
-  const blnum = safeString(order.blnum);
-  if (!blnum) return false;
-
-  const bales = parseBales(blnum);
-  if (!bales || bales <= 0) return false;
-
-  return true;
-}
-
-async function getCandidateOrders(limit: number): Promise<McleodOrderSummary[]> {
-  const filters = [`revenue_code_id eq "DAVIS"`];
-
-  const paths = [
-    `/orders/search?filters=${encodeURIComponent(filters.join(" and "))}&limit=${limit}`,
-    `/orders/search?filter=${encodeURIComponent(filters.join(" and "))}&limit=${limit}`,
-    `/orders/search?revenue_code_id=${encodeURIComponent("DAVIS")}&limit=${limit}`,
-    `/orders?revenue_code_id=${encodeURIComponent("DAVIS")}&limit=${limit}`,
-    `/orders?limit=${limit}`,
-  ];
-
-  for (const path of paths) {
-    try {
-      const raw = await mcleodFetch(path);
-      const rows = asArray<McleodOrderSummary>(raw);
-
-      if (rows.length > 0) {
-        return rows;
-      }
-    } catch {
-      // Try next McLeod query format.
-    }
+  if (revenueCode !== "DAVIS") {
+    return {
+      keep: false,
+      reason: `revenue_code_id was ${revenueCode || "blank"}`,
+    };
   }
 
-  return [];
+  const movementStatus = getMovementStatus(order);
+  if (movementStatus && EXCLUDED_MOVEMENT_STATUSES.has(movementStatus)) {
+    return { keep: false, reason: `excluded movement status ${movementStatus}` };
+  }
+
+  const brokerageStatus = getBrokerageStatus(order);
+  if (brokerageStatus && EXCLUDED_BROKERAGE_STATUSES.has(brokerageStatus)) {
+    return {
+      keep: false,
+      reason: `excluded brokerage status ${brokerageStatus}`,
+    };
+  }
+
+  const billDate = safeString(order.bill_date);
+  if (billDate) {
+    return { keep: false, reason: `bill_date present ${billDate}` };
+  }
+
+  const blnum = safeString(order.blnum);
+  if (!blnum) {
+    return { keep: false, reason: "missing blnum" };
+  }
+
+  const bales = parseBales(blnum);
+  if (!bales || bales <= 0) {
+    return { keep: false, reason: `could not parse bales from ${blnum}` };
+  }
+
+  return { keep: true, reason: "kept" };
+}
+
+function shouldKeepOrder(order: McleodOrderSummary): boolean {
+  return getKeepReason(order).keep;
 }
 
 async function hydrateOrder(orderId: string): Promise<McleodOrderSummary | null> {
@@ -334,115 +315,162 @@ async function hydrateOrder(orderId: string): Promise<McleodOrderSummary | null>
   }
 }
 
+async function getCandidateOrdersFromSnapshots(
+  limit: number
+): Promise<McleodOrderSummary[]> {
+  const { data, error } = await supabase
+    .from("late_fee_order_snapshots")
+    .select("raw_order")
+    .eq("office", "Dallas")
+    .eq("revenue_code_id", "DAVIS")
+    .order("synced_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? [])
+    .map((row) => row.raw_order)
+    .filter(Boolean) as McleodOrderSummary[];
+}
+
+function getPolicyLocationId(order: McleodOrderSummary): string | null {
+  const revenueCode = safeString(order.revenue_code_id).toUpperCase();
+
+  const policyStop =
+    revenueCode === "DAVIS" ? getStop(order, "PU") : getStop(order, "SO");
+
+  if (policyStop?.location_id === undefined || policyStop?.location_id === null) {
+    return null;
+  }
+
+  return String(policyStop.location_id).trim();
+}
+
+function mapOrderToLateFeeRow(order: McleodOrderSummary) {
+  const policyMap = getPolicyMap();
+
+  const orderId = getOrderId(order);
+  const revenueCode = safeString(order.revenue_code_id).toUpperCase();
+  const blnum = safeString(order.blnum);
+  const bales = parseBales(blnum);
+
+  const pu = getStop(order, "PU");
+  const so = getStop(order, "SO");
+
+  const anchor = getAnchorDate(order);
+  const rawDaysLate = diffDaysLate(anchor.date);
+
+  const policyLocationId = getPolicyLocationId(order);
+
+  const policy: LateFeePolicy | undefined = policyLocationId
+    ? policyMap.get(policyLocationId)
+    : undefined;
+
+  const graceDays =
+    revenueCode === "DAVIS" && anchor.source === "doc_cutoff_date"
+      ? 0
+      : Number(policy?.late_load_grace_days ?? 0);
+
+  const effectiveDaysLate = Math.max(0, rawDaysLate - graceDays);
+  const lateFee = round2(calculateLateFee(policy, bales, effectiveDaysLate));
+
+  const lastFreeAnchorDate =
+    anchor.source === "doc_cutoff_date"
+      ? normalizeDateInput(order.doc_cutoff_date)
+      : anchor.source === "so_sched_arrive_late"
+        ? normalizeDateInput(so?.sched_arrive_late ?? null)
+        : anchor.source === "so_sched_arrive_early"
+          ? normalizeDateInput(so?.sched_arrive_early ?? null)
+          : null;
+
+  const lastFreeDate = formatDateFromDate(lastFreeAnchorDate);
+  const feeStartDate =
+    effectiveDaysLate > 0
+      ? formatDateFromDate(addDays(lastFreeAnchorDate, 1))
+      : null;
+
+  const row: LateFeeRow = {
+    orderId,
+    customerId: safeString(order.customer_id),
+    revenueCode,
+    blnum,
+    mark: parseMark(blnum),
+    bales,
+    movementStatus: getMovementStatus(order),
+    brokerageStatus: getBrokerageStatus(order),
+    orderStatus: safeString(order.status).toUpperCase(),
+    docCutoffDate: formatDateOnly(order.doc_cutoff_date),
+    lastFreeDate,
+    feeStartDate,
+    anchorDateUsed: anchor.source,
+    rawDaysLate,
+    graceDays,
+    effectiveDaysLate,
+    lateFee,
+    policyCode: policyLocationId,
+    policyType: policy?.fee_type ?? null,
+    avoidableFee:
+      typeof policy?.avoidable_fee === "boolean" ? policy.avoidable_fee : null,
+    policyAmount: typeof policy?.amount === "number" ? policy.amount : null,
+    puLocationId:
+      pu?.location_id !== undefined && pu?.location_id !== null
+        ? String(pu.location_id).trim()
+        : null,
+    puCity: safeString(pu?.city_name),
+    puState: safeString(pu?.state),
+    soLocationId:
+      so?.location_id !== undefined && so?.location_id !== null
+        ? String(so.location_id).trim()
+        : null,
+    soCity: safeString(so?.city_name),
+    soState: safeString(so?.state),
+  };
+
+  return {
+    row,
+    hasPolicy: !!policy,
+  };
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const limit = Number.parseInt(searchParams.get("limit") ?? "", 10) || DEFAULT_LIMIT;
+    const limit =
+      Number.parseInt(searchParams.get("limit") ?? "", 10) || DEFAULT_LIMIT;
     const includeZeroLate = searchParams.get("includeZeroLate") === "1";
     const includeNoPolicy = searchParams.get("includeNoPolicy") === "1";
     const debug = searchParams.get("debug") === "1";
     const testOrderId = searchParams.get("orderId");
-
-    const policyMap = getPolicyMap();
+    const config = officeConfigs.dallas;
 
     const baseOrders = testOrderId
       ? ([await hydrateOrder(testOrderId)].filter(Boolean) as McleodOrderSummary[])
-      : await getCandidateOrders(limit);
+      : await getCandidateOrdersFromSnapshots(limit);
 
     const likelyDallas = baseOrders.filter((o) => {
       const revenueCode = safeString(o.revenue_code_id).toUpperCase();
       return revenueCode === "DAVIS";
     });
 
-    const detailed = await Promise.all(
-      likelyDallas.map(async (o) => {
-        const orderId = getOrderId(o);
-        if (!orderId) return null;
-        const full = await hydrateOrder(orderId);
-        return full ?? o;
-      })
-    );
+    const detailed = testOrderId
+      ? await Promise.all(
+          likelyDallas.map(async (o) => {
+            const orderId = getOrderId(o);
+            if (!orderId) return null;
+            const full = await hydrateOrder(orderId);
+            return full ?? o;
+          })
+        )
+      : likelyDallas;
 
     const filtered = detailed
       .filter((o): o is McleodOrderSummary => !!o)
-      .filter(shouldKeepOrder);
+      .filter((order) => sharedShouldKeepOrder(order, config));
 
-    const mappedRows = filtered.map((order) => {
-      const orderId = getOrderId(order);
-      const revenueCode = safeString(order.revenue_code_id).toUpperCase();
-      const blnum = safeString(order.blnum);
-      const bales = parseBales(blnum);
-      const so = getSoStop(order);
-      const anchor = getAnchorDate(order);
-      const rawDaysLate = diffDaysLate(anchor.date);
-
-      const locationId =
-        so?.location_id !== undefined && so?.location_id !== null
-          ? String(so.location_id).trim()
-          : null;
-
-      const policy: LateFeePolicy | undefined = locationId
-        ? policyMap.get(locationId)
-        : undefined;
-
-      /**
-       * DAVIS rule:
-       * doc_cutoff_date is already the last free day.
-       * Do NOT subtract policy grace days when doc_cutoff_date is used.
-       */
-      const graceDays =
-        revenueCode === "DAVIS" && anchor.source === "doc_cutoff_date"
-          ? 0
-          : Number(policy?.late_load_grace_days ?? 0);
-
-      const effectiveDaysLate = Math.max(0, rawDaysLate - graceDays);
-      const lateFee = round2(calculateLateFee(policy, bales, effectiveDaysLate));
-
-      const lastFreeAnchorDate =
-        anchor.source === "doc_cutoff_date"
-          ? normalizeDateInput(order.doc_cutoff_date)
-          : anchor.source === "so_sched_arrive_late"
-            ? normalizeDateInput(so?.sched_arrive_late ?? null)
-            : anchor.source === "so_sched_arrive_early"
-              ? normalizeDateInput(so?.sched_arrive_early ?? null)
-              : null;
-
-      const lastFreeDate = formatDateFromDate(lastFreeAnchorDate);
-      const feeStartDate =
-        effectiveDaysLate > 0 ? formatDateFromDate(addDays(lastFreeAnchorDate, 1)) : null;
-
-      const row: LateFeeRow = {
-        orderId,
-        customerId: safeString(order.customer_id),
-        revenueCode,
-        blnum,
-        mark: parseMark(blnum),
-        bales,
-        movementStatus: getMovementStatus(order),
-        brokerageStatus: getBrokerageStatus(order),
-        docCutoffDate: formatDateOnly(order.doc_cutoff_date),
-        lastFreeDate,
-        feeStartDate,
-        anchorDateUsed: anchor.source,
-        rawDaysLate,
-        graceDays,
-        effectiveDaysLate,
-        lateFee,
-        policyCode: locationId,
-        policyType: policy?.fee_type ?? null,
-        avoidableFee: typeof policy?.avoidable_fee === "boolean" ? policy.avoidable_fee : null,
-        policyAmount: typeof policy?.amount === "number" ? policy.amount : null,
-        soLocationId: locationId,
-        soCity: safeString(so?.city_name),
-        soState: safeString(so?.state),
-      };
-
-      return {
-        row,
-        hasPolicy: !!policy,
-      };
-    });
+    const mappedRows = filtered.map((order) =>
+  sharedMapOrderToLateFeeRow(order, config)
+);
 
     const rows = mappedRows
       .filter(({ row, hasPolicy }) => {
@@ -477,15 +505,20 @@ export async function GET(req: Request) {
     );
 
     const avgEffectiveDaysLate =
-      totals.orders > 0 ? round2(totals.totalEffectiveDaysLate / totals.orders) : 0;
+      totals.orders > 0
+        ? round2(totals.totalEffectiveDaysLate / totals.orders)
+        : 0;
 
     const policyMatchedCount = mappedRows.filter((x) => x.hasPolicy).length;
     const policyMissingCount = mappedRows.length - policyMatchedCount;
 
+    const keepDebug = buildKeepDebug(likelyDallas, config);
+
     return NextResponse.json({
       ok: true,
       office: "Dallas",
-      matchingKey: "SO.location_id => policy.mcleod_code",
+      source: testOrderId ? "live_mcleod_order" : "supabase_snapshots",
+      matchingKey: "DAVIS uses PU.location_id => policy.mcleod_code",
       assumptions: {
         revenueCode: "DAVIS",
         excludedMovementStatuses: Array.from(EXCLUDED_MOVEMENT_STATUSES),
@@ -495,9 +528,12 @@ export async function GET(req: Request) {
           "SO stop sched_arrive_late",
           "SO stop sched_arrive_early",
         ],
+        policyMatching: "For DAVIS, policies are matched by PU.location_id.",
         notes: [
           "This route calculates current late fee exposure for Dallas.",
-          "Policies are matched by SO.location_id.",
+          "Default source is Supabase late_fee_order_snapshots.",
+          "Use ?orderId=ORDERID to test one live McLeod order.",
+          "For DAVIS, policies are matched by pickup warehouse/gin/compress.",
           "For DAVIS, doc_cutoff_date is treated as the last free day.",
           "Grace days are NOT subtracted when doc_cutoff_date is used.",
           "Grace days are only used when fallback SO scheduled dates are used.",
@@ -514,7 +550,7 @@ export async function GET(req: Request) {
       ...(debug
         ? {
             debug: {
-              mode: testOrderId ? "single_order_test" : "candidate_search",
+              mode: testOrderId ? "single_order_test" : "snapshot_source",
               testedOrderId: testOrderId,
               fetchedOrderSummaries: baseOrders.length,
               likelyDallasSummaries: likelyDallas.length,
@@ -523,6 +559,7 @@ export async function GET(req: Request) {
               policyMatchedCount,
               policyMissingCount,
               includedRows: rows.length,
+              keepDebug,
             },
           }
         : {}),

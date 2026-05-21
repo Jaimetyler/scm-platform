@@ -7,16 +7,31 @@ type LateFeeRow = {
   orderId: string;
   blnum: string;
   customerId: string | null;
-  locationId: string | null;
-  cityName: string | null;
-  state: string | null;
-  deliveryDate: string | null;
-  baleCount: number | null;
-  movementStatus: string | null;
-  brokerageStatus: string | null;
+
+  policyCode: string | null;
+
+  puLocationId: string | null;
+  puCity: string | null;
+  puState: string | null;
+
+  soLocationId: string | null;
+  soCity: string | null;
+  soState: string | null;
+
+  docCutoffDate: string | null;
+  feeStartDate: string | null;
+
+  bales: number;
+
+  movementStatus: string;
+  brokerageStatus: string;
+
   rawDaysLate: number;
-  daysLate: number;
-  ratePerBale: number;
+  effectiveDaysLate: number;
+
+  policyType: string | null;
+  policyAmount: number | null;
+
   lateFee: number;
 };
 
@@ -87,13 +102,17 @@ function OfficeLateFeesPage({
 
     return rows.filter((row) =>
       [
-        row.orderId,
-        row.blnum,
-        row.customerId ?? "",
-        row.locationId ?? "",
-        row.cityName ?? "",
-        row.state ?? "",
-      ]
+  row.orderId,
+  row.blnum,
+  row.customerId ?? "",
+  row.policyCode ?? "",
+  row.puLocationId ?? "",
+  row.puCity ?? "",
+  row.puState ?? "",
+  row.soLocationId ?? "",
+  row.soCity ?? "",
+  row.soState ?? "",
+]
         .join(" ")
         .toLowerCase()
         .includes(q)
@@ -104,7 +123,7 @@ function OfficeLateFeesPage({
     return filteredRows.reduce(
       (acc, row) => {
         acc.loads += 1;
-        acc.bales += row.baleCount ?? 0;
+        acc.bales += row.bales ?? 0;
         acc.exposure += row.lateFee ?? 0;
         return acc;
       },
@@ -220,20 +239,21 @@ function OfficeLateFeesPage({
               <thead>
                 <tr style={{ background: "rgba(30,41,59,0.9)" }}>
                   {[
-                    "Order",
-                    "BL",
-                    "Customer",
-                    "Location",
-                    "City",
-                    "State",
-                    "Delivery",
-                    "Bales",
-                    "Move",
-                    "Brokerage",
-                    "Days Late",
-                    "Rate",
-                    "Late Fee",
-                  ].map((head) => (
+  "Order",
+  "BL",
+  "Customer",
+  "PU",
+  "SO",
+  "Cutoff",
+  "Fee Start",
+  "Bales",
+  "Move",
+  "Brokerage",
+  "Days Late",
+  "Policy",
+  "Rate",
+  "Late Fee",
+].map((head) => (
                     <th
                       key={head}
                       style={{
@@ -256,21 +276,40 @@ function OfficeLateFeesPage({
                     <Cell>{row.orderId}</Cell>
                     <Cell>{row.blnum}</Cell>
                     <Cell>{row.customerId ?? ""}</Cell>
-                    <Cell>{row.locationId ?? ""}</Cell>
-                    <Cell>{row.cityName ?? ""}</Cell>
-                    <Cell>{row.state ?? ""}</Cell>
-                    <Cell>{row.deliveryDate ?? ""}</Cell>
-                    <Cell>{row.baleCount ?? ""}</Cell>
+                   <Cell>
+  {[row.puLocationId, row.puCity, row.puState]
+    .filter(Boolean)
+    .join(" • ")}
+</Cell>
+
+<Cell>
+  {[row.soLocationId, row.soCity, row.soState]
+    .filter(Boolean)
+    .join(" • ")}
+</Cell>
+
+<Cell>{row.docCutoffDate ?? ""}</Cell>
+
+<Cell>{row.feeStartDate ?? ""}</Cell>
+
+<Cell>{row.bales ?? ""}</Cell>
                     <Cell>{row.movementStatus ?? ""}</Cell>
                     <Cell>{row.brokerageStatus ?? ""}</Cell>
-                    <Cell>{row.daysLate}</Cell>
-                    <Cell>${row.ratePerBale.toFixed(2)}</Cell>
+                    <Cell>{row.effectiveDaysLate}</Cell>
+
+<Cell>
+  {[row.policyType, row.policyCode]
+    .filter(Boolean)
+    .join(" • ")}
+</Cell>
+
+<Cell>${Number(row.policyAmount ?? 0).toFixed(2)}</Cell>
                     <Cell>${row.lateFee.toFixed(2)}</Cell>
                   </tr>
                 ))}
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={13} style={{ padding: 18, color: "#94a3b8" }}>
+                    <td colSpan={14} style={{ padding: 18, color: "#94a3b8" }}>
                       No late-fee rows yet.
                     </td>
                   </tr>

@@ -1934,7 +1934,7 @@
     "description": "Tulia Cotton Warehouse #1 (8-2)",
     "late_load_grace_days": 0,
     "avoidable_fee": false,
-    "amount": 5,
+    "amount": 0.5,
     "fee_type": "PER_BALE_PER_DAY",
     "early_loading_fee_type": "",
     "early_loading_fee_amount": 0

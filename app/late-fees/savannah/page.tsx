@@ -4,24 +4,51 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 export default function SavannahLateFeesPage() {
-  return <OfficeLateFeesPage officeTitle="Savannah Office" apiPath="/api/late-fees/savannah" />;
+  return (
+    <OfficeLateFeesPage
+      officeTitle="Savannah Office"
+      apiPath="/api/late-fees/savannah"
+    />
+  );
 }
 
 type LateFeeRow = {
   orderId: string;
+
+  customerId: string;
+  revenueCode: string;
+
   blnum: string;
-  customerId: string | null;
-  locationId: string | null;
-  cityName: string | null;
-  state: string | null;
-  deliveryDate: string | null;
-  baleCount: number | null;
-  movementStatus: string | null;
-  brokerageStatus: string | null;
+  mark: string | null;
+
+  bales: number;
+
+  movementStatus: string;
+  brokerageStatus: string;
+  orderStatus: string;
+
+  docCutoffDate: string | null;
+
+  lastFreeDate: string | null;
+  feeStartDate: string | null;
+
   rawDaysLate: number;
-  daysLate: number;
-  ratePerBale: number;
+  graceDays: number;
+  effectiveDaysLate: number;
+
   lateFee: number;
+
+  policyCode: string | null;
+  policyType: string | null;
+  policyAmount: number | null;
+
+  puLocationId: string | null;
+  puCity: string | null;
+  puState: string | null;
+
+  soLocationId: string | null;
+  soCity: string | null;
+  soState: string | null;
 };
 
 type ApiResponse = {
@@ -31,10 +58,6 @@ type ApiResponse = {
   note?: string;
   error?: string;
 };
-
-
-
-
 
 function OfficeLateFeesPage({
   officeTitle,
@@ -57,7 +80,10 @@ function OfficeLateFeesPage({
         setLoading(true);
         setError(null);
 
-        const res = await fetch(apiPath, { cache: "no-store" });
+        const res = await fetch(apiPath, {
+  cache: "no-store",
+});
+
         const data = (await res.json()) as ApiResponse;
 
         if (!res.ok || !data.ok) {
@@ -70,7 +96,10 @@ function OfficeLateFeesPage({
         setNote(data.note ?? null);
       } catch (err) {
         if (!active) return;
-        setError(err instanceof Error ? err.message : "Failed to load");
+
+        setError(
+          err instanceof Error ? err.message : "Failed to load"
+        );
       } finally {
         if (active) setLoading(false);
       }
@@ -85,16 +114,22 @@ function OfficeLateFeesPage({
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
+
     if (!q) return rows;
 
     return rows.filter((row) =>
       [
         row.orderId,
         row.blnum,
-        row.customerId ?? "",
-        row.locationId ?? "",
-        row.cityName ?? "",
-        row.state ?? "",
+        row.customerId,
+        row.mark ?? "",
+        row.policyCode ?? "",
+        row.puLocationId ?? "",
+        row.puCity ?? "",
+        row.puState ?? "",
+        row.soLocationId ?? "",
+        row.soCity ?? "",
+        row.soState ?? "",
       ]
         .join(" ")
         .toLowerCase()
@@ -106,19 +141,35 @@ function OfficeLateFeesPage({
     return filteredRows.reduce(
       (acc, row) => {
         acc.loads += 1;
-        acc.bales += row.baleCount ?? 0;
-        acc.exposure += row.lateFee ?? 0;
+        acc.bales += row.bales;
+        acc.exposure += row.lateFee;
         return acc;
       },
-      { loads: 0, bales: 0, exposure: 0 }
+      {
+        loads: 0,
+        bales: 0,
+        exposure: 0,
+      }
     );
   }, [filteredRows]);
 
   return (
-    <main style={{ maxWidth: 1440, margin: "0 auto", padding: "24px 20px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-        
-
+    <main
+      style={{
+        maxWidth: 1600,
+        margin: "0 auto",
+        padding: "24px 20px 40px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          flexWrap: "wrap",
+          marginBottom: 24,
+        }}
+      >
         <div
           style={{
             display: "inline-flex",
@@ -153,9 +204,23 @@ function OfficeLateFeesPage({
       </div>
 
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 32, color: "#f8fafc" }}>{officeTitle}</h1>
-        <p style={{ margin: "8px 0 0", color: "#94a3b8" }}>
-          Late-fee exposure, bale counts, and active loads.
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 32,
+            color: "#f8fafc",
+          }}
+        >
+          {officeTitle}
+        </h1>
+
+        <p
+          style={{
+            margin: "8px 0 0",
+            color: "#94a3b8",
+          }}
+        >
+          Current late-fee exposure on active loads.
         </p>
       </div>
 
@@ -177,21 +242,33 @@ function OfficeLateFeesPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(220px, 1fr))",
           gap: 14,
           marginBottom: 18,
         }}
       >
-        <StatCard label="Loads" value={String(totals.loads)} />
-        <StatCard label="Bales" value={String(totals.bales)} />
-        <StatCard label="Exposure" value={`$${totals.exposure.toFixed(2)}`} />
+        <StatCard
+          label="Loads"
+          value={String(totals.loads)}
+        />
+
+        <StatCard
+          label="Bales"
+          value={String(totals.bales)}
+        />
+
+        <StatCard
+          label="Exposure"
+          value={`$${totals.exposure.toFixed(2)}`}
+        />
       </div>
 
       <div style={{ marginBottom: 16 }}>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search order, BL, customer, city, location..."
+          placeholder="Search order, mark, customer, city, policy..."
           style={{
             width: "100%",
             maxWidth: 520,
@@ -213,28 +290,54 @@ function OfficeLateFeesPage({
         }}
       >
         {loading ? (
-          <div style={{ padding: 18, color: "#94a3b8" }}>Loading late fees...</div>
+          <div
+            style={{
+              padding: 18,
+              color: "#94a3b8",
+            }}
+          >
+            Loading late fees...
+          </div>
         ) : error ? (
-          <div style={{ padding: 18, color: "#fca5a5" }}>{error}</div>
+          <div
+            style={{
+              padding: 18,
+              color: "#fca5a5",
+            }}
+          >
+            {error}
+          </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1200 }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                minWidth: 1500,
+              }}
+            >
               <thead>
-                <tr style={{ background: "rgba(30,41,59,0.9)" }}>
+                <tr
+                  style={{
+                    background: "rgba(30,41,59,0.9)",
+                  }}
+                >
                   {[
                     "Order",
-                    "BL",
+                    "Mark",
                     "Customer",
-                    "Location",
-                    "City",
-                    "State",
-                    "Delivery",
+                    "PU",
+                    "PU City",
+                    "SO",
+                    "SO City",
                     "Bales",
                     "Move",
                     "Brokerage",
-                    "Days Late",
+                    "Cutoff",
+                    "Grace",
+                    "Late",
                     "Rate",
-                    "Late Fee",
+                    "Fee",
                   ].map((head) => (
                     <th
                       key={head}
@@ -243,7 +346,8 @@ function OfficeLateFeesPage({
                         padding: "12px 14px",
                         fontSize: 12,
                         color: "#cbd5e1",
-                        borderBottom: "1px solid rgba(148,163,184,0.14)",
+                        borderBottom:
+                          "1px solid rgba(148,163,184,0.14)",
                         whiteSpace: "nowrap",
                       }}
                     >
@@ -252,27 +356,78 @@ function OfficeLateFeesPage({
                   ))}
                 </tr>
               </thead>
+
               <tbody>
                 {filteredRows.map((row) => (
-                  <tr key={row.orderId} style={{ borderBottom: "1px solid rgba(148,163,184,0.08)" }}>
+                  <tr
+                    key={row.orderId}
+                    style={{
+                      borderBottom:
+                        "1px solid rgba(148,163,184,0.08)",
+                    }}
+                  >
                     <Cell>{row.orderId}</Cell>
-                    <Cell>{row.blnum}</Cell>
-                    <Cell>{row.customerId ?? ""}</Cell>
-                    <Cell>{row.locationId ?? ""}</Cell>
-                    <Cell>{row.cityName ?? ""}</Cell>
-                    <Cell>{row.state ?? ""}</Cell>
-                    <Cell>{row.deliveryDate ?? ""}</Cell>
-                    <Cell>{row.baleCount ?? ""}</Cell>
-                    <Cell>{row.movementStatus ?? ""}</Cell>
-                    <Cell>{row.brokerageStatus ?? ""}</Cell>
-                    <Cell>{row.daysLate}</Cell>
-                    <Cell>${row.ratePerBale.toFixed(2)}</Cell>
-                    <Cell>${row.lateFee.toFixed(2)}</Cell>
+
+                    <Cell>{row.mark ?? ""}</Cell>
+
+                    <Cell>{row.customerId}</Cell>
+
+                    <Cell>{row.puLocationId ?? ""}</Cell>
+
+                    <Cell>
+                      {row.puCity ?? ""}{" "}
+                      {row.puState ?? ""}
+                    </Cell>
+
+                    <Cell>{row.soLocationId ?? ""}</Cell>
+
+                    <Cell>
+                      {row.soCity ?? ""}{" "}
+                      {row.soState ?? ""}
+                    </Cell>
+
+                    <Cell>{row.bales}</Cell>
+
+                    <Cell>{row.movementStatus}</Cell>
+
+                    <Cell>{row.brokerageStatus}</Cell>
+
+                    <Cell>{row.docCutoffDate ?? ""}</Cell>
+
+                    <Cell>{row.graceDays}</Cell>
+
+                    <Cell>{row.effectiveDaysLate}</Cell>
+
+                    <Cell>
+                      $
+                      {(row.policyAmount ?? 0).toFixed(2)}
+                    </Cell>
+
+                    <Cell>
+                      <span
+                        style={{
+                          color:
+                            row.lateFee > 0
+                              ? "#fca5a5"
+                              : "#86efac",
+                          fontWeight: 700,
+                        }}
+                      >
+                        ${row.lateFee.toFixed(2)}
+                      </span>
+                    </Cell>
                   </tr>
                 ))}
+
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={13} style={{ padding: 18, color: "#94a3b8" }}>
+                    <td
+                      colSpan={15}
+                      style={{
+                        padding: 18,
+                        color: "#94a3b8",
+                      }}
+                    >
                       No late-fee rows yet.
                     </td>
                   </tr>
@@ -286,7 +441,13 @@ function OfficeLateFeesPage({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div
       style={{
@@ -296,15 +457,36 @@ function StatCard({ label, value }: { label: string; value: string }) {
         background: "rgba(15,23,42,0.72)",
       }}
     >
-      <div style={{ color: "#94a3b8", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+      <div
+        style={{
+          color: "#94a3b8",
+          fontSize: 12,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
         {label}
       </div>
-      <div style={{ marginTop: 8, color: "#f8fafc", fontSize: 28, fontWeight: 800 }}>{value}</div>
+
+      <div
+        style={{
+          marginTop: 8,
+          color: "#f8fafc",
+          fontSize: 28,
+          fontWeight: 800,
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
 
-function Cell({ children }: { children: React.ReactNode }) {
+function Cell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <td
       style={{
