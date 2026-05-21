@@ -12,6 +12,8 @@ export default function SavannahLateFeesPage() {
   );
 }
 
+
+
 type LateFeeRow = {
   orderId: string;
 
@@ -188,20 +190,8 @@ function OfficeLateFeesPage({
           SCM Platform
         </div>
 
-        <Link
-          href="/late-fees"
-          style={{
-            marginLeft: "auto",
-            textDecoration: "none",
-            color: "#e5e7eb",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 10,
-            padding: "8px 12px",
-          }}
-        >
-          Back to Late Fees
-        </Link>
-      </div>
+      
+            </div>
 
       <div style={{ marginBottom: 20 }}>
         <h1
@@ -223,6 +213,24 @@ function OfficeLateFeesPage({
           Current late-fee exposure on active loads.
         </p>
       </div>
+    <div style={{ marginBottom: 20, paddingTop: 8 }}>
+  <Link
+    href="/late-fees/savannah/import"
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+      padding: "10px 14px",
+      background: "#2563eb",
+      color: "#fff",
+      fontWeight: 700,
+      textDecoration: "none",
+    }}
+  >
+    Import FlowLogix CSV
+  </Link>
+</div>
 
       {note ? (
         <div
@@ -333,7 +341,7 @@ function OfficeLateFeesPage({
                     "Bales",
                     "Move",
                     "Brokerage",
-                    "Cutoff",
+                    "OG Date",
                     "Grace",
                     "Late",
                     "Rate",
