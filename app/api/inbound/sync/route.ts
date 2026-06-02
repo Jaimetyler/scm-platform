@@ -30,8 +30,6 @@ type McleodStop = {
   status?: string;
   actual_arrival?: string | null;
   actual_departure?: string | null;
-  sched_arrive_early?: string | null;
-  sched_arrive_late?: string | null;
   [key: string]: unknown;
 };
 
@@ -75,30 +73,6 @@ function hasActuals(stop: McleodStop | undefined) {
   return !!(stop?.actual_arrival && stop?.actual_departure);
 }
 
-function buildStopPayload(
-  stopId: string,
-  actualArrival?: string | null,
-  actualDeparture?: string | null
-) {
-  const payload: Record<string, unknown> = {
-    __type: "stop",
-    id: stopId,
-  };
-
-  if (actualArrival) payload.actual_arrival = actualArrival;
-  if (actualDeparture) payload.actual_departure = actualDeparture;
-
-  return payload;
-}
-
-function buildMovementPayload(movementId: string, brokerageStatus: string) {
-  return {
-    __type: "movement",
-    id: movementId,
-    brokerage_status: brokerageStatus,
-  };
-}
-
 async function getOrder(orderId: string) {
   const res = await fetch(`${getBaseUrl()}/orders/${orderId}`, {
     method: "GET",
@@ -115,17 +89,37 @@ async function getOrder(orderId: string) {
   return JSON.parse(text);
 }
 
-async function updateOrder(payload: Record<string, unknown>) {
-  console.log("MCLEOD_UPDATE_ORDER_PAYLOAD", JSON.stringify(payload, null, 2));
-
-  const res = await fetch(`${getBaseUrl()}/orders/update`, {
-    method: "PUT",
-    headers: getHeaders(),
-    body: JSON.stringify(payload),
-    cache: "no-store",
+async function clearCarrierStop(
+  stopId: string,
+  arrivalDate: string,
+  departureDate: string
+) {
+  const qs = new URLSearchParams({
+    arrivalDate,
+    departureDate,
   });
 
+  const url = `${getBaseUrl()}/carrierDispatch/clearStop/${stopId}?${qs.toString()}`;
+
+ // console.log("MCLEOD_CLEAR_STOP_URL", url);//
+
+  const res = await fetch(url, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,
+    Accept: "text/plain",
+  },
+  cache: "no-store",
+});
+
   const text = await res.text();
+
+  console.log("MCLEOD_CLEAR_STOP_RESPONSE", {
+    stopId,
+    status: res.status,
+    ok: res.ok,
+    body: text,
+  });
 
   return {
     ok: res.ok,
@@ -134,20 +128,35 @@ async function updateOrder(payload: Record<string, unknown>) {
   };
 }
 
+function parseLocalDateOnly(value?: string | null) {
+  const raw = String(value ?? "").trim();
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return new Date(Number(y), Number(m) - 1, Number(d), 8, 0, 0, 0);
+  }
+
+  const dt = raw ? new Date(raw) : new Date();
+  dt.setHours(8, 0, 0, 0);
+  return dt;
+}
+
 function formatMcleodDateTime(date: Date) {
   const yyyy = String(date.getFullYear());
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  const ss = "00";
 
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const offsetHh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const offsetMm = String(abs % 60).padStart(2, "0");
 
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-
-  const hh = String(hours).padStart(2, "0");
-  return `${mm}/${dd}/${yyyy} ${hh}:${minutes}${ampm}`;
+  return `${yyyy}${mm}${dd}${hh}${mi}${ss}${sign}${offsetHh}${offsetMm}`;
 }
 
 function addMinutes(date: Date, minutes: number) {
@@ -155,33 +164,16 @@ function addMinutes(date: Date, minutes: number) {
 }
 
 function buildEventTimes(baseDateInput?: string | null) {
-  let deliveryBaseDate: Date;
+  const deliveryBaseDate = parseLocalDateOnly(baseDateInput);
 
-  if (baseDateInput) {
-    deliveryBaseDate = new Date(baseDateInput);
-  } else {
-    deliveryBaseDate = new Date();
-  }
-
-  // Delivery date = check-in sheet date
-  deliveryBaseDate.setHours(8, 0, 0, 0);
-
-  // Pickup date = day before check-in sheet date
   const pickupBaseDate = new Date(deliveryBaseDate);
   pickupBaseDate.setDate(pickupBaseDate.getDate() - 1);
-  pickupBaseDate.setHours(8, 0, 0, 0);
-
-  const pickupArrival = pickupBaseDate;
-  const pickupDeparture = addMinutes(pickupArrival, 5);
-
-  const deliveryArrival = deliveryBaseDate;
-  const deliveryDeparture = addMinutes(deliveryArrival, 5);
 
   return {
-    pickupArrival: formatMcleodDateTime(pickupArrival),
-    pickupDeparture: formatMcleodDateTime(pickupDeparture),
-    deliveryArrival: formatMcleodDateTime(deliveryArrival),
-    deliveryDeparture: formatMcleodDateTime(deliveryDeparture),
+    pickupArrival: formatMcleodDateTime(pickupBaseDate),
+    pickupDeparture: formatMcleodDateTime(addMinutes(pickupBaseDate, 5)),
+    deliveryArrival: formatMcleodDateTime(deliveryBaseDate),
+    deliveryDeparture: formatMcleodDateTime(addMinutes(deliveryBaseDate, 5)),
   };
 }
 
@@ -235,54 +227,75 @@ export async function POST(req: NextRequest) {
     }
 
     const movement = order.movements?.[0] as McleodMovement | undefined;
+
     const pickup = order.stops?.find((s: McleodStop) => s.stop_type === "PU") as
       | McleodStop
       | undefined;
+
     const delivery = order.stops?.find((s: McleodStop) => s.stop_type === "SO") as
       | McleodStop
       | undefined;
 
     if (!movement?.id) {
       return NextResponse.json(
-        { ok: false, error: "No movement found", matchedOrderId: preview.matchedOrderId, row },
+        {
+          ok: false,
+          error: "No movement found",
+          matchedOrderId: preview.matchedOrderId,
+          row,
+        },
         { status: 500 }
       );
     }
 
     if (!pickup?.id || !delivery?.id) {
       return NextResponse.json(
-        { ok: false, error: "Missing pickup or delivery stop", matchedOrderId: preview.matchedOrderId, row },
+        {
+          ok: false,
+          error: "Missing pickup or delivery stop",
+          matchedOrderId: preview.matchedOrderId,
+          row,
+        },
         { status: 500 }
       );
     }
 
     const pickupHas = hasActuals(pickup);
     const deliveryHas = hasActuals(delivery);
-   
 
-const baseDate =
-  row.received_date ||
-  row.date ||
-  null;
+    const baseDate =
+      (row as any).receivedDate ||
+      (row as any).received_date ||
+      (row as any).date ||
+      null;
 
-const times = buildEventTimes(baseDate);
+    const times = buildEventTimes(baseDate);
 
-    const payload = {
-      __type: "orders",
-      id: preview.matchedOrderId,
-      stops: [
-        buildStopPayload(
-          pickup.id,
-          pickupHas ? pickup.actual_arrival ?? undefined : times.pickupArrival,
-          pickupHas ? pickup.actual_departure ?? undefined : times.pickupDeparture
-        ),
-        buildStopPayload(
-          delivery.id,
-          deliveryHas ? delivery.actual_arrival ?? undefined : times.deliveryArrival,
-          deliveryHas ? delivery.actual_departure ?? undefined : times.deliveryDeparture
-        ),
-      ],
-      movements: [buildMovementPayload(movement.id, "FINISHED")],
+    const plannedActions = {
+      pickup: pickupHas
+        ? {
+            skipped: true,
+            reason: "Pickup already had actuals",
+            stopId: pickup.id,
+          }
+        : {
+            skipped: false,
+            stopId: pickup.id,
+            arrivalDate: times.pickupArrival,
+            departureDate: times.pickupDeparture,
+          },
+      delivery: deliveryHas
+        ? {
+            skipped: true,
+            reason: "Delivery already had actuals",
+            stopId: delivery.id,
+          }
+        : {
+            skipped: false,
+            stopId: delivery.id,
+            arrivalDate: times.deliveryArrival,
+            departureDate: times.deliveryDeparture,
+          },
     };
 
     if (!isSyncEnabled()) {
@@ -290,26 +303,52 @@ const times = buildEventTimes(baseDate);
         ok: true,
         mode: "safe",
         matchedOrderId: preview.matchedOrderId,
+        movementId: movement.id,
         usedPossibleMatch: isSafePossible,
         pickupHasActuals: pickupHas,
         deliveryHasActuals: deliveryHas,
         generatedTimes: times,
-        payload,
+        plannedActions,
         row,
       });
     }
 
-    const res = await updateOrder(payload);
+    const pickupRes = pickupHas
+      ? {
+          ok: true,
+          status: 200,
+          body: "Pickup already had actuals",
+        }
+      : await clearCarrierStop(pickup.id, times.pickupArrival, times.pickupDeparture);
+
+    const deliveryRes = deliveryHas
+      ? {
+          ok: true,
+          status: 200,
+          body: "Delivery already had actuals",
+        }
+      : await clearCarrierStop(
+          delivery.id,
+          times.deliveryArrival,
+          times.deliveryDeparture
+        );
+
+    const allOk = pickupRes.ok && deliveryRes.ok;
 
     return NextResponse.json({
-      ok: res.ok,
+      ok: allOk,
       matchedOrderId: preview.matchedOrderId,
+      movementId: movement.id,
       usedPossibleMatch: isSafePossible,
       pickupHasActuals: pickupHas,
       deliveryHasActuals: deliveryHas,
       generatedTimes: times,
-      payload,
-      mcleodResponse: res,
+      plannedActions,
+      mcleodResponse: {
+        ok: allOk,
+        pickup: pickupRes,
+        delivery: deliveryRes,
+      },
       row,
     });
   } catch (e: unknown) {
