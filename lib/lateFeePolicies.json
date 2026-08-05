@@ -1239,6 +1239,16 @@
     "early_loading_fee_type": "",
     "early_loading_fee_amount": 0
   },
+   {
+    "mcleod_code": "AMARAMT1",
+    "description": "Amarillo Cotton Whse #4  (8-2)",
+    "late_load_grace_days": 0,
+    "avoidable_fee": false,
+    "amount": 0.5,
+    "fee_type": "PER_BALE_PER_DAY",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
   {
     "mcleod_code": "BALLBATX",
     "description": "Ballinger Compress Co 8-3:00PM",
@@ -1590,6 +1600,16 @@
     "early_loading_fee_amount": 0
   },
   {
+    "mcleod_code": "PLAIRUTX",
+    "description": "Plains Cotton Co-op",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
     "mcleod_code": "COLIMCTX",
     "description": "Colimar International 8-5 by appt VF",
     "late_load_grace_days": 0,
@@ -1650,8 +1670,8 @@
     "early_loading_fee_amount": 0
   },
   {
-    "mcleod_code": "FARMLUT6",
-    "description": "Farmers #7 Plainview  7-4pm",
+    "mcleod_code": "FARMPLTX",
+    "description": "Farmers #6 Plainview  7-4pm",
     "late_load_grace_days": 2,
     "avoidable_fee": false,
     "amount": 0.25,
@@ -1780,7 +1800,27 @@
     "early_loading_fee_amount": 0
   },
   {
-    "mcleod_code": "PLAIRUTX",
+    "mcleod_code":"PLAIBITX",
+    "description": "Plains Cotton Co-op",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAILIKS",
+    "description": "Plains Cotton Co-op",
+    "late_load_grace_days": 3,
+    "avoidable_fee": false,
+    "amount": 1,
+    "fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_type": "",
+    "early_loading_fee_amount": 0
+  },
+  {
+    "mcleod_code": "PLAICLKS",
     "description": "Plains Cotton Co-op",
     "late_load_grace_days": 3,
     "avoidable_fee": false,
@@ -2018,5 +2058,15 @@
     "fee_type": "PER_BALE_ONE_TIME",
     "early_loading_fee_type": "",
     "early_loading_fee_amount": 0
-  }
+  },
+  {
+  "mcleod_code": "FARMLUT1",
+  "description": "Farmers #2 Lubbock 7-4pm",
+  "late_load_grace_days": 2,
+  "avoidable_fee": false,
+  "amount": 0.25,
+  "fee_type": "PER_BALE_ONE_TIME",
+  "early_loading_fee_type": "",
+  "early_loading_fee_amount": 0
+}
 ]

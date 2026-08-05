@@ -54,17 +54,75 @@ function getHeaders(): HeadersInit {
   };
 }
 
+function normalizeText(v: unknown) {
+  return String(v ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
 function parseNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
-  const n = Number(String(v).trim());
+  const cleaned = String(v).trim().replace(/,/g, "");
+  const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 }
 
 function resolveBales(row: InboundExcelRow, preview: SyncPreviewResult): number | null {
   return (
-    parseNum(row.balesUnloaded) ??
-    parseNum(row.bolBC) ??
+    parseNum((row as any).balesUnloaded) ??
+    parseNum((row as any).bolBC) ??
     parseNum(preview?.parsedBlnum?.count) ??
+    null
+  );
+}
+
+function resolveRowCustomer(row: InboundExcelRow) {
+  return normalizeText(
+    (row as any).customer ??
+      (row as any).shipper ??
+      (row as any).customerId ??
+      (row as any).customer_id ??
+      ""
+  );
+}
+
+function resolveOrderCustomer(order: any) {
+  return normalizeText(
+    order.customer_id ??
+      order.customerId ??
+      order.customer?.id ??
+      order.customer?.name ??
+      ""
+  );
+}
+
+function resolveRowMark(row: InboundExcelRow, preview: SyncPreviewResult) {
+  return normalizeText(
+    (row as any).mark ??
+      (row as any).consignee_refno ??
+      (row as any).consigneeRefno ??
+      preview?.parsedBlnum?.mark ??
+      ""
+  );
+}
+
+function resolveOrderMark(order: any, preview: SyncPreviewResult) {
+  return normalizeText(
+    order.consignee_refno ??
+      order.consigneeRefno ??
+      preview?.parsedBlnum?.mark ??
+      ""
+  );
+}
+
+function resolveOrderBales(order: any, preview: SyncPreviewResult): number | null {
+  return (
+    parseNum(preview?.parsedBlnum?.count) ??
+    parseNum(order.pieces) ??
+    parseNum(order.pieces_count) ??
+    parseNum(order.piece_count) ??
+    parseNum(order.commodity?.pieces) ??
     null
   );
 }
@@ -101,25 +159,25 @@ async function clearCarrierStop(
 
   const url = `${getBaseUrl()}/carrierDispatch/clearStop/${stopId}?${qs.toString()}`;
 
- // console.log("MCLEOD_CLEAR_STOP_URL", url);//
-
   const res = await fetch(url, {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,
-    Accept: "text/plain",
-  },
-  cache: "no-store",
-});
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,
+      Accept: "text/plain",
+    },
+    cache: "no-store",
+  });
 
   const text = await res.text();
 
   console.log("MCLEOD_CLEAR_STOP_RESPONSE", {
-    stopId,
-    status: res.status,
-    ok: res.ok,
-    body: text,
-  });
+  stopId,
+  arrivalDate,
+  departureDate,
+  status: res.status,
+  ok: res.ok,
+  body: text,
+});
 
   return {
     ok: res.ok,
@@ -131,18 +189,31 @@ async function clearCarrierStop(
 function parseLocalDateOnly(value?: string | null) {
   const raw = String(value ?? "").trim();
 
+  if (!raw) {
+    throw new Error("Missing received date - cannot clear stops");
+  }
+
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) {
     const [, y, m, d] = iso;
     return new Date(Number(y), Number(m) - 1, Number(d), 8, 0, 0, 0);
   }
 
-  const dt = raw ? new Date(raw) : new Date();
+  const dt = new Date(raw);
+
+  if (Number.isNaN(dt.getTime())) {
+    throw new Error(`Invalid received date: ${raw}`);
+  }
+
   dt.setHours(8, 0, 0, 0);
   return dt;
 }
 
 function formatMcleodDateTime(date: Date) {
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Invalid date object while formatting McLeod datetime");
+  }
+
   const yyyy = String(date.getFullYear());
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
@@ -177,6 +248,26 @@ function buildEventTimes(baseDateInput?: string | null) {
   };
 }
 
+function getBaseDateFromRow(row: InboundExcelRow) {
+  return (
+    (row as any).receivedDate ??
+    (row as any).received_date ??
+    (row as any).date ??
+    null
+  );
+}
+
+function validationFailure(payload: Record<string, unknown>, status = 400) {
+  return NextResponse.json(
+    {
+      ok: false,
+      needsReview: true,
+      ...payload,
+    },
+    { status }
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { row } = await req.json();
@@ -203,18 +294,59 @@ export async function POST(req: NextRequest) {
       baleCount !== null;
 
     if (!isStrong && !isSafePossible) {
-      return NextResponse.json(
-        {
-          ok: false,
-          needsReview: true,
-          error: "Not safe to auto-process",
-          preview,
-        },
-        { status: 400 }
-      );
+      return validationFailure({
+        error: "Not safe to auto-process",
+        reason: "UNSAFE_MATCH",
+        preview,
+        row,
+      });
     }
 
     const order = await getOrder(preview.matchedOrderId);
+
+    const rowMark = resolveRowMark(row, preview);
+    const orderMark = resolveOrderMark(order, preview);
+
+    if (rowMark && orderMark && rowMark !== orderMark) {
+      return validationFailure({
+        error: "Mark mismatch - blocked delivery",
+        reason: "MARK_MISMATCH",
+        matchedOrderId: preview.matchedOrderId,
+        inboundMark: rowMark,
+        mcleodMark: orderMark,
+        preview,
+        row,
+      });
+    }
+
+    const rowCustomer = resolveRowCustomer(row);
+    const orderCustomer = resolveOrderCustomer(order);
+
+    if (rowCustomer && orderCustomer && rowCustomer !== orderCustomer) {
+      return validationFailure({
+        error: "Customer mismatch - blocked delivery",
+        reason: "CUSTOMER_MISMATCH",
+        matchedOrderId: preview.matchedOrderId,
+        inboundCustomer: rowCustomer,
+        mcleodCustomer: orderCustomer,
+        preview,
+        row,
+      });
+    }
+
+    const orderBales = resolveOrderBales(order, preview);
+
+    if (baleCount !== null && orderBales !== null && baleCount !== orderBales) {
+      return validationFailure({
+        error: "Bale count mismatch - blocked delivery",
+        reason: "BALE_COUNT_MISMATCH",
+        matchedOrderId: preview.matchedOrderId,
+        inboundBales: baleCount,
+        mcleodBales: orderBales,
+        preview,
+        row,
+      });
+    }
 
     if (order.status === "D") {
       return NextResponse.json({
@@ -241,6 +373,7 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: "No movement found",
+          reason: "NO_MOVEMENT_FOUND",
           matchedOrderId: preview.matchedOrderId,
           row,
         },
@@ -253,6 +386,7 @@ export async function POST(req: NextRequest) {
         {
           ok: false,
           error: "Missing pickup or delivery stop",
+          reason: "MISSING_PICKUP_OR_DELIVERY_STOP",
           matchedOrderId: preview.matchedOrderId,
           row,
         },
@@ -263,12 +397,7 @@ export async function POST(req: NextRequest) {
     const pickupHas = hasActuals(pickup);
     const deliveryHas = hasActuals(delivery);
 
-    const baseDate =
-      (row as any).receivedDate ||
-      (row as any).received_date ||
-      (row as any).date ||
-      null;
-
+    const baseDate = getBaseDateFromRow(row);
     const times = buildEventTimes(baseDate);
 
     const plannedActions = {
@@ -305,6 +434,23 @@ export async function POST(req: NextRequest) {
         matchedOrderId: preview.matchedOrderId,
         movementId: movement.id,
         usedPossibleMatch: isSafePossible,
+        validation: {
+          mark: {
+            inbound: rowMark,
+            mcleod: orderMark,
+            ok: !rowMark || !orderMark || rowMark === orderMark,
+          },
+          customer: {
+            inbound: rowCustomer,
+            mcleod: orderCustomer,
+            ok: !rowCustomer || !orderCustomer || rowCustomer === orderCustomer,
+          },
+          bales: {
+            inbound: baleCount,
+            mcleod: orderBales,
+            ok: baleCount === null || orderBales === null || baleCount === orderBales,
+          },
+        },
         pickupHasActuals: pickupHas,
         deliveryHasActuals: deliveryHas,
         generatedTimes: times,
@@ -320,6 +466,22 @@ export async function POST(req: NextRequest) {
           body: "Pickup already had actuals",
         }
       : await clearCarrierStop(pickup.id, times.pickupArrival, times.pickupDeparture);
+
+    if (!pickupRes.ok) {
+      return NextResponse.json({
+        ok: false,
+        error: "Failed to clear pickup stop",
+        reason: "PICKUP_CLEAR_STOP_FAILED",
+        matchedOrderId: preview.matchedOrderId,
+        movementId: movement.id,
+        generatedTimes: times,
+        plannedActions,
+        mcleodResponse: {
+          pickup: pickupRes,
+        },
+        row,
+      });
+    }
 
     const deliveryRes = deliveryHas
       ? {
@@ -337,9 +499,28 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: allOk,
+      error: allOk ? undefined : "Failed to clear delivery stop",
+      reason: allOk ? undefined : "DELIVERY_CLEAR_STOP_FAILED",
       matchedOrderId: preview.matchedOrderId,
       movementId: movement.id,
       usedPossibleMatch: isSafePossible,
+      validation: {
+        mark: {
+          inbound: rowMark,
+          mcleod: orderMark,
+          ok: !rowMark || !orderMark || rowMark === orderMark,
+        },
+        customer: {
+          inbound: rowCustomer,
+          mcleod: orderCustomer,
+          ok: !rowCustomer || !orderCustomer || rowCustomer === orderCustomer,
+        },
+        bales: {
+          inbound: baleCount,
+          mcleod: orderBales,
+          ok: baleCount === null || orderBales === null || baleCount === orderBales,
+        },
+      },
       pickupHasActuals: pickupHas,
       deliveryHasActuals: deliveryHas,
       generatedTimes: times,
