@@ -172,6 +172,7 @@ export default function SiteCheckinPage() {
   const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
   const [loading, setLoading] = useState(true);
   const [editingProcessedIds, setEditingProcessedIds] = useState<Set<string>>(new Set());
+  const [dispatcherLookupIds, setDispatcherLookupIds] = useState<Set<string>>(new Set());
 
   const saveTimersRef = useRef<Record<string, number>>({});
   const createInFlightRef = useRef<Set<string>>(new Set());
@@ -608,10 +609,28 @@ export default function SiteCheckinPage() {
     }
   }
 
-  function beginProcessedEdit(row: CheckinRow) {
+  async function beginProcessedEdit(row: CheckinRow) {
     if (row.draft_status !== "processed") return;
+    setDispatcherLookupIds((previous) => new Set(previous).add(row.id));
+    let dispatcher: string | null = null;
+    try {
+      const response = await fetch(`/api/inbound/checkin/rows/${row.id}/dispatcher`, { cache: "no-store" });
+      if (response.ok) {
+        const result = await response.json();
+        dispatcher = result.dispatcherName || (result.dispatcherId ? `McLeod user ${result.dispatcherId}` : null);
+      }
+    } catch {
+      // The warning must still work when McLeod cannot be reached.
+    } finally {
+      setDispatcherLookupIds((previous) => {
+        const next = new Set(previous);
+        next.delete(row.id);
+        return next;
+      });
+    }
+    const contact = dispatcher ? `contact ${dispatcher}` : "contact the dispatcher";
     const ok = window.confirm(
-      "This load has already been delivered in McLeod. Editing this check-in will not change or undo that delivery. If the mark is wrong, the load was not actually delivered, or there is another delivery issue, tell the dispatcher so McLeod can be corrected. Continue?"
+      `SCM order #${row.matched_order_id ?? "unknown"} has already been delivered in McLeod. Editing this check-in will not change or undo that delivery. If the mark is wrong, the load was not actually delivered, or there is another delivery issue, ${contact} so McLeod can be corrected. Continue?`
     );
     if (!ok) return;
     editSnapshotsRef.current[row.id] = { ...row };
@@ -792,12 +811,12 @@ export default function SiteCheckinPage() {
         </div>
       </PlatformPanel>
 
-      <PlatformPanel style={{ maxWidth: 1320, marginInline: "auto", padding: 16 }}>
+      <PlatformPanel style={{ padding: 16 }}>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: 1280, tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
-              {[32, 116, 66, 118, 156, 84, 82, 78, 100, 162, 116, 75, 95].map((width, index) => (
-                <col key={index} style={{ width }} />
+              {[2.5, 10, 5, 9, 12, 6, 6, 7, 8, 11, 10, 7, 6.5].map((width, index) => (
+                <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
             <thead>
@@ -840,7 +859,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "received_date")}
                         ref={(el) => registerCellRef(index, "received_date", el)}
-                        style={{ ...cellInputStyle, width: 106, fontSize: 11, padding: "3px 4px" }}
+                        style={{ ...cellInputStyle, fontSize: 11, padding: "3px 4px" }}
                         disabled={isReadOnlyRow(row)}
                       />
                     </td>
@@ -875,7 +894,7 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "mark", el)}
-                        style={{ ...cellInputStyle, width: 104 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
                       {row.matched_order_id ? (
@@ -904,7 +923,7 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "shipper", el)}
-                        style={{ ...cellInputStyle, width: 142 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                         placeholder="Start typing customer..."
                       />
@@ -932,7 +951,7 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "bol_bc", el)}
-                        style={{ ...cellInputStyle, width: 72 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
                     </td>
@@ -953,7 +972,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "bale_count")}
                         ref={(el) => registerCellRef(index, "bale_count", el)}
-                        style={{ ...cellInputStyle, width: 72 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
                     </td>
@@ -971,7 +990,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "equipment_type")}
                         ref={(el) => registerCellRef(index, "equipment_type", el)}
-                        style={{ ...cellInputStyle, width: 68 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       >
                         <option value="">Select</option>
@@ -993,7 +1012,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "sub_location")}
                         ref={(el) => registerCellRef(index, "sub_location", el)}
-                        style={{ ...cellInputStyle, width: 88 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       >
                         {site.subLocations.map((sub) => (
@@ -1041,16 +1060,16 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "warehouse_location", el)}
-                        style={{ ...cellInputStyle, width: 106 }}
+                        style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
                     </td>
 
                     <td style={tdStyle}>
                       {row.draft_status === "processed" && !editingProcessedIds.has(row.id) ? (
-                        <button type="button" onClick={() => beginProcessedEdit(row)}
+                        <button type="button" onClick={() => void beginProcessedEdit(row)} disabled={dispatcherLookupIds.has(row.id)}
                           style={smallActionButtonStyle} title="Edit check-in details; McLeod delivery stays unchanged">
-                          Edit
+                          {dispatcherLookupIds.has(row.id) ? "Loading..." : "Edit"}
                         </button>
                       ) : null}
                       {row.draft_status === "processed" && editingProcessedIds.has(row.id) ? (
@@ -1286,7 +1305,7 @@ const cellInputStyle: React.CSSProperties = {
 };
 
 const cellTextareaStyle: React.CSSProperties = {
-  width: 150,
+  width: "100%",
   minWidth: 0,
   minHeight: 30,
   height: 30,
