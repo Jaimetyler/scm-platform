@@ -10,6 +10,7 @@ import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 
 type CheckinRow = {
   id: string;
+  client_id?: string;
   created_at: string;
   updated_at: string;
   last_saved_at: string;
@@ -138,10 +139,24 @@ export default function SiteCheckinPage() {
   const [rows, setRows] = useState<CheckinRow[]>([]);
   const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
   const [loading, setLoading] = useState(true);
-  const [addingRow, setAddingRow] = useState(false);
 
   const saveTimersRef = useRef<Record<string, number>>({});
+  const createInFlightRef = useRef<Set<string>>(new Set());
+  const rowsRef = useRef<CheckinRow[]>([]);
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => { rowsRef.current = rows; }, [rows]);
+
+  function blankRow(): CheckinRow {
+    return {
+      id: `local-${crypto.randomUUID()}`, created_at: "", updated_at: "", last_saved_at: "",
+      terminal: site!.terminal, site_code: site!.siteCode, site_name: site!.siteName,
+      sub_location: site!.subLocations[0] ?? "MAIN", received_date: new Date().toISOString().slice(0, 10),
+      mark: null, shipper: null, bol_bc: null, bale_count: null, warehouse_location: null,
+      equipment_type: site!.terminal === "SAV" ? "V" : null, verified: false,
+      comment_1: null, comment_2: null, draft_status: "draft", processed_at: null,
+    };
+  }
 
   function makeCellKey(rowIndex: number, column: ColumnKey) {
     return `${rowIndex}:${column}`;
@@ -269,7 +284,7 @@ export default function SiteCheckinPage() {
           !row.id.startsWith("local-") &&
           (row.id === focusedId || saveTimersRef.current[row.id] || rowUi[row.id]?.saveState === "saving")
         ).map((row) => [row.id, row]));
-        return [...pending, ...nextRows.map((row) => active.get(row.id) ?? row)];
+        return [...nextRows.map((row) => active.get(row.id) ?? row), ...pending];
       });
 
       const nextUi: Record<string, RowUiState> = {};
@@ -285,7 +300,7 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
-    setRows([]);
+    setRows(site ? Array.from({ length: 25 }, () => blankRow()) : []);
     setRowUi({});
     void loadRows(true);
     const interval = window.setInterval(() => {
@@ -312,6 +327,7 @@ export default function SiteCheckinPage() {
     const current = rows.find((row) => row.id === id);
     if (!current) return null;
     const updatedRow = updater(current);
+    rowsRef.current = rowsRef.current.map((row) => row.id === id ? updatedRow : row);
     setRows((prev) => prev.map((row) => row.id === id ? updatedRow : row));
     return updatedRow;
   }
@@ -352,7 +368,7 @@ export default function SiteCheckinPage() {
       }
 
       const savedRow = data.row as CheckinRow;
-      setRows((prev) => prev.map((item) => (item.id === row.id ? savedRow : item)));
+      setRows((prev) => prev.map((item) => (item.id === row.id ? { ...savedRow, client_id: item.client_id } : item)));
       delete saveTimersRef.current[row.id];
       setRowUiState(row.id, { saveState: "saved", message: "" });
     } catch (error) {
@@ -364,39 +380,37 @@ export default function SiteCheckinPage() {
   }
 
   function queueSaveRow(row: CheckinRow) {
-    if (row.id.startsWith("local-")) return;
     const existing = saveTimersRef.current[row.id];
     if (existing) {
       window.clearTimeout(existing);
     }
 
     saveTimersRef.current[row.id] = window.setTimeout(() => {
-      void saveRowSnapshot(row);
-    }, 400);
+      delete saveTimersRef.current[row.id];
+      const latest = rowsRef.current.find((item) => item.id === row.id) ?? row;
+      if (latest.id.startsWith("local-")) {
+        if (latest.mark?.trim() && latest.shipper?.trim()) void checkIn(latest);
+      } else {
+        void saveRowSnapshot(latest);
+      }
+    }, row.id.startsWith("local-") ? 650 : 400);
   }
 
-  async function addRows(count: number) {
+  function addRows(count: number) {
     if (!site) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const newRows: CheckinRow[] = Array.from({ length: count }, () => ({
-      id: `local-${crypto.randomUUID()}`, created_at: "", updated_at: "", last_saved_at: "",
-      terminal: site.terminal, site_code: site.siteCode, site_name: site.siteName,
-      sub_location: site.subLocations[0] ?? "MAIN", received_date: today,
-      mark: null, shipper: null, bol_bc: null, bale_count: null, warehouse_location: null,
-      equipment_type: site.terminal === "SAV" ? "V" : null, verified: false,
-      comment_1: null, comment_2: null, draft_status: "draft", processed_at: null,
-    }));
+    const newRows: CheckinRow[] = Array.from({ length: count }, () => blankRow());
     setRows((prev) => [...newRows, ...prev]);
   }
 
   async function checkIn(row: CheckinRow) {
-    if (!site || !row.id.startsWith("local-")) return;
-    setAddingRow(true);
+    if (!site || !row.id.startsWith("local-") || createInFlightRef.current.has(row.id)) return;
+    createInFlightRef.current.add(row.id);
     setRowUiState(row.id, { saveState: "saving", message: "" });
     try {
       const res = await fetch("/api/inbound/checkin/rows", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clientId: row.id.slice(6),
           terminal: row.terminal, siteCode: row.site_code, siteName: row.site_name,
           subLocation: row.sub_location, receivedDate: row.received_date,
           mark: row.mark, shipper: row.shipper, bolBC: row.bol_bc,
@@ -407,21 +421,27 @@ export default function SiteCheckinPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Check-in failed");
-      setRows((prev) => prev.map((item) => item.id === row.id ? data.row as CheckinRow : item));
+      const latest = rowsRef.current.find((item) => item.id === row.id) ?? row;
+      const saved = {
+        ...data.row, ...latest, id: data.row.id, client_id: row.id,
+        draft_status: data.row.draft_status, processed_at: data.row.processed_at,
+      } as CheckinRow;
+      const newBlank = blankRow();
+      rowsRef.current = [...rowsRef.current.map((item) => item.id === row.id ? saved : item), newBlank];
+      setRows((prev) => [...prev.map((item) => item.id === row.id ? saved : item), newBlank]);
       setRowUi((prev) => {
         const next = { ...prev };
         delete next[row.id];
         next[data.row.id] = createEmptyUiState();
         return next;
       });
-      if (data.row.received_date && data.row.bale_count &&
-          data.row.warehouse_location && data.row.equipment_type && data.row.verified) {
-        void saveRowSnapshot(data.row as CheckinRow);
+      if (latest !== row || saved.warehouse_location || saved.verified) {
+        void saveRowSnapshot(saved);
       }
     } catch (error) {
       setRowUiState(row.id, { saveState: "error", message: error instanceof Error ? error.message : "Check-in failed" });
     } finally {
-      setAddingRow(false);
+      createInFlightRef.current.delete(row.id);
     }
   }
 
@@ -512,7 +532,6 @@ export default function SiteCheckinPage() {
 
   const readyCount = rows.filter((row) => row.draft_status === "ready").length;
   const processedCount = rows.filter((row) => row.draft_status === "processed").length;
-  const draftCount = rows.filter((row) => row.draft_status === "draft").length;
   const waitingCount = rows.filter((row) => row.draft_status === "checked_in").length;
   const failedCount = rows.filter((row) => row.draft_status === "failed").length;
 
@@ -536,7 +555,7 @@ export default function SiteCheckinPage() {
     <main style={{ maxWidth: "100%", padding: "0 16px" }}>
       <PlatformPageHeader
         title={`${site.siteName} Check-In`}
-        subtitle="Enter a mark and customer, then Check In. Everyone can see the waiting row. Add its location and verify it to process in McLeod."
+        subtitle="Fill in the grid. A row appears to everyone once it has a mark and customer. Add its location and verify it to process in McLeod."
         actions={
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Link href="/inbound/checkin" style={linkButtonStyle}>
@@ -558,20 +577,10 @@ export default function SiteCheckinPage() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
-                onClick={() => void addRows(1)}
+                onClick={() => addRows(5)}
                 style={primaryButtonStyle}
-                disabled={addingRow}
               >
-                {addingRow ? "Checking in..." : "+ New Check-In"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void addRows(5)}
-                style={primaryButtonStyle}
-                disabled={addingRow}
-              >
-                {addingRow ? "Checking in..." : "+ 5 Blank Lines"}
+                + 5 Blank Lines
               </button>
             </div>
           </div>
@@ -580,7 +589,6 @@ export default function SiteCheckinPage() {
 
       <PlatformPanel>
         <div style={statsGridStyle}>
-          <StatCard label="Draft" value={draftCount} />
           <StatCard label="Waiting for location/details" value={waitingCount} />
           <StatCard label="Ready" value={readyCount} tone="success" />
           <StatCard label="Processed" value={processedCount} tone="info" />
@@ -616,7 +624,7 @@ export default function SiteCheckinPage() {
                 const ui = rowUi[row.id] ?? createEmptyUiState();
 
                 return (
-                  <tr key={row.id} data-checkin-id={row.id} style={rowTone(row)}>
+                  <tr key={row.client_id ?? row.id} data-checkin-id={row.id} style={rowTone(row)}>
                     <td style={rowNumberCellStyle}>{index + 1}</td>
 
                     <td style={tdStyle}>
@@ -841,8 +849,9 @@ export default function SiteCheckinPage() {
 
                     <td style={tdStyle}>
                       {row.id.startsWith("local-") ? (
-                        <button type="button" onClick={() => void checkIn(row)}
-                          disabled={addingRow} style={primaryButtonStyle}>Check In</button>
+                        (rowUi[row.id]?.saveState === "error" ?
+                          <button type="button" onClick={() => void checkIn(row)}
+                            style={primaryButtonStyle}>Retry Save</button> : null)
                       ) : null}
                       {row.draft_status === "failed" ? (
                         <button type="button" onClick={() => void saveRowSnapshot(row)}
@@ -860,7 +869,7 @@ export default function SiteCheckinPage() {
 
                     <td style={statusDotCellStyle}>
                       <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.draft_status === "checked_in" ? "Waiting" : row.draft_status}</small>
+                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in" ? "Waiting" : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (
                         <div title={row.processing_error || ui.message || "Save failed"} style={errorDotStyle}>
                           {row.processing_error || ui.message}

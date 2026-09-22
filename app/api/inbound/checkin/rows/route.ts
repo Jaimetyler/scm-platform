@@ -113,7 +113,11 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      rows: (data ?? []) as CheckinRow[],
+      rows: ((data ?? []) as CheckinRow[]).filter((row) =>
+        !(row.draft_status === "draft" && !row.mark && !row.shipper &&
+          !row.bol_bc && !row.bale_count && !row.warehouse_location &&
+          !row.comment_1 && !row.comment_2)
+      ),
     });
   } catch (error) {
     return NextResponse.json(
@@ -138,6 +142,11 @@ export async function POST(req: NextRequest) {
     const received_date = normalizeDate(body?.receivedDate);
     const mark = cleanText(body?.mark).toUpperCase();
     const shipper = cleanText(body?.shipper).toUpperCase();
+    const clientId = cleanText(body?.clientId);
+
+    if (clientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
+      return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
+    }
 
     if (!terminal || !site_code || !site_name) {
       return NextResponse.json(
@@ -157,6 +166,7 @@ export async function POST(req: NextRequest) {
       requestedEquipment ?? (terminal === "SAV" ? "V" : null);
 
     const insertPayload = {
+      ...(clientId ? { id: clientId } : {}),
       terminal,
       site_code,
       site_name,
@@ -182,6 +192,14 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
+      // A timed-out first response may leave a saved row. Retrying the same
+      // browser line returns it instead of making a duplicate check-in.
+      if (error.code === "23505" && clientId) {
+        const { data: existing } = await sb.from("inbound_checkin_rows")
+          .select("*").eq("id", clientId).eq("terminal", terminal)
+          .eq("site_code", site_code).single();
+        if (existing) return NextResponse.json({ ok: true, row: existing as CheckinRow });
+      }
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 500 }
