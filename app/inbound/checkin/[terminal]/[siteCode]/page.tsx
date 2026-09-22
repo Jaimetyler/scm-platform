@@ -134,6 +134,16 @@ function willProcess(row: CheckinRow) {
     row.equipment_type && row.verified);
 }
 
+function formatArrivalTime(row: CheckinRow): string {
+  if (!row.checked_in_at) return "";
+
+  return new Date(row.checked_in_at).toLocaleTimeString("en-US", {
+    timeZone: row.terminal === "HOU" ? "America/Chicago" : "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default function SiteCheckinPage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
 
@@ -578,7 +588,7 @@ export default function SiteCheckinPage() {
 
     const headers = [
       "Received Date",
-      "Arrival Logged At (UTC)",
+      "Arrival Time",
       "Mark",
       "Customer",
       "BOL B/C",
@@ -597,7 +607,7 @@ export default function SiteCheckinPage() {
       ...rows.map((row) =>
         [
           sanitizeCell(row.received_date),
-          sanitizeCell(row.checked_in_at),
+          sanitizeCell(formatArrivalTime(row)),
           sanitizeCell(row.mark),
           sanitizeCell(row.shipper),
           sanitizeCell(row.bol_bc),
@@ -695,7 +705,7 @@ export default function SiteCheckinPage() {
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
                 <th style={thStyle}>Received Date *</th>
-                <th style={thStyle}>Arrival Logged At</th>
+                <th style={thStyle}>Arrival Time</th>
                 <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
                 <th style={thStyle}>BOL B/C *</th>
@@ -741,10 +751,7 @@ export default function SiteCheckinPage() {
                     <td style={tdStyle}>
                       {row.checked_in_at ? (
                         <>
-                          <div>{new Date(row.checked_in_at).toLocaleString("en-US", {
-                            timeZone: row.terminal === "HOU" ? "America/Chicago" : "America/New_York",
-                            month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit",
-                          })}</div>
+                          <div>{formatArrivalTime(row)}</div>
                           {row.identity_corrected_at ? <small title={row.identity_corrected_at}>
                             Check-in details corrected
                           </small> : null}
