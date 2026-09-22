@@ -171,6 +171,7 @@ export default function SiteCheckinPage() {
   const [rows, setRows] = useState<CheckinRow[]>([]);
   const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
   const [loading, setLoading] = useState(true);
+  const [editingProcessedIds, setEditingProcessedIds] = useState<Set<string>>(new Set());
 
   const saveTimersRef = useRef<Record<string, number>>({});
   const createInFlightRef = useRef<Set<string>>(new Set());
@@ -178,9 +179,16 @@ export default function SiteCheckinPage() {
   const pendingSaveRef = useRef<Set<string>>(new Set());
   const editRevisionRef = useRef<Record<string, number>>({});
   const rowsRef = useRef<CheckinRow[]>([]);
+  const editSnapshotsRef = useRef<Record<string, CheckinRow>>({});
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
 
   useEffect(() => { rowsRef.current = rows; }, [rows]);
+
+  function isReadOnlyRow(row: CheckinRow) {
+    return isClosedRow(row) &&
+      !(row.draft_status === "processed" && editingProcessedIds.has(row.id) &&
+        rowUi[row.id]?.saveState !== "saving");
+  }
 
   function blankRow(): CheckinRow {
     return {
@@ -317,7 +325,7 @@ export default function SiteCheckinPage() {
         const focusedId = document.activeElement?.closest("tr")?.getAttribute("data-checkin-id");
         const active = new Map(previous.filter((row) =>
           !row.id.startsWith("local-") &&
-          (row.id === focusedId || saveTimersRef.current[row.id] ||
+          (editSnapshotsRef.current[row.id] || row.id === focusedId || saveTimersRef.current[row.id] ||
             rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error")
         ).map((row) => [row.id, row]));
         return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending]);
@@ -336,7 +344,9 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
-    setRows(site ? Array.from({ length: 25 }, () => blankRow()) : []);
+    editSnapshotsRef.current = {};
+    setEditingProcessedIds(new Set());
+    setRows(site ? Array.from({ length: 10 }, () => blankRow()) : []);
     setRowUi({});
     void loadRows(true);
     const interval = window.setInterval(() => {
@@ -463,6 +473,7 @@ export default function SiteCheckinPage() {
   }
 
   function queueSaveRow(row: CheckinRow) {
+    if (editSnapshotsRef.current[row.id]) return;
     const existing = saveTimersRef.current[row.id];
     if (existing) {
       window.clearTimeout(existing);
@@ -585,9 +596,75 @@ export default function SiteCheckinPage() {
       if (!current) throw new Error("Check-in row no longer exists");
       rowsRef.current = rowsRef.current.map((row) => row.id === id ? current : row);
       setRows((previous) => previous.map((row) => row.id === id ? current : row));
+      delete editSnapshotsRef.current[id];
+      setEditingProcessedIds((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
       setRowUiState(id, { saveState: "idle", message: "" });
     } catch (error) {
       alert(error instanceof Error ? error.message : "Could not reload row");
+    }
+  }
+
+  function beginProcessedEdit(row: CheckinRow) {
+    if (row.draft_status !== "processed") return;
+    const ok = window.confirm(
+      "This load has already been delivered in McLeod. Editing this check-in will not change or undo that delivery. If the mark is wrong, the load was not actually delivered, or there is another delivery issue, tell the dispatcher so McLeod can be corrected. Continue?"
+    );
+    if (!ok) return;
+    editSnapshotsRef.current[row.id] = { ...row };
+    setEditingProcessedIds((previous) => new Set(previous).add(row.id));
+  }
+
+  function cancelProcessedEdit(id: string) {
+    const original = editSnapshotsRef.current[id];
+    if (!original) return;
+    rowsRef.current = rowsRef.current.map((row) => row.id === id ? original : row);
+    setRows((previous) => previous.map((row) => row.id === id ? original : row));
+    delete editSnapshotsRef.current[id];
+    setEditingProcessedIds((previous) => {
+      const next = new Set(previous);
+      next.delete(id);
+      return next;
+    });
+    setRowUiState(id, { saveState: "idle", message: "" });
+  }
+
+  async function saveProcessedEdit(id: string) {
+    const original = editSnapshotsRef.current[id];
+    const row = rowsRef.current.find((item) => item.id === id);
+    if (!original || !row || row.draft_status !== "processed") return;
+    setRowUiState(id, { saveState: "saving", message: "" });
+    try {
+      const response = await fetch(`/api/inbound/checkin/rows/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          correctionOnly: true,
+          expectedUpdatedAt: original.updated_at,
+          subLocation: row.sub_location, receivedDate: row.received_date,
+          mark: row.mark, shipper: row.shipper, bolBC: row.bol_bc,
+          baleCount: row.bale_count, warehouseLocation: row.warehouse_location,
+          equipmentType: row.equipment_type,
+          comment1: row.comment_1, comment2: row.comment_2,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Correction could not be saved");
+      const saved = result.row as CheckinRow;
+      rowsRef.current = rowsRef.current.map((item) => item.id === id ? saved : item);
+      setRows((previous) => previous.map((item) => item.id === id ? saved : item));
+      delete editSnapshotsRef.current[id];
+      setEditingProcessedIds((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+      setRowUiState(id, { saveState: "saved", message: "" });
+    } catch (error) {
+      setRowUiState(id, { saveState: "error", message: error instanceof Error ? error.message : "Correction could not be saved" });
     }
   }
 
@@ -715,9 +792,14 @@ export default function SiteCheckinPage() {
         </div>
       </PlatformPanel>
 
-      <PlatformPanel>
+      <PlatformPanel style={{ maxWidth: 1320, marginInline: "auto", padding: 16 }}>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: "100%", minWidth: 1320, borderCollapse: "collapse" }}>
+          <table style={{ width: 1280, tableLayout: "fixed", borderCollapse: "collapse" }}>
+            <colgroup>
+              {[32, 116, 66, 118, 156, 84, 82, 78, 100, 162, 116, 75, 95].map((width, index) => (
+                <col key={index} style={{ width }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
@@ -758,8 +840,8 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "received_date")}
                         ref={(el) => registerCellRef(index, "received_date", el)}
-                        style={{ ...cellInputStyle, width: 122 }}
-                        disabled={isClosedRow(row)}
+                        style={{ ...cellInputStyle, width: 106, fontSize: 11, padding: "3px 4px" }}
+                        disabled={isReadOnlyRow(row)}
                       />
                     </td>
 
@@ -794,7 +876,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "mark", el)}
                         style={{ ...cellInputStyle, width: 104 }}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                       />
                       {row.matched_order_id ? (
                         <small style={orderNumberStyle} title={row.draft_status === "failed" ? "Possible McLeod match; review before delivery" : "Matched SCM order"}>
@@ -823,7 +905,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "shipper", el)}
                         style={{ ...cellInputStyle, width: 142 }}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                         placeholder="Start typing customer..."
                       />
                     </td>
@@ -851,7 +933,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "bol_bc", el)}
                         style={{ ...cellInputStyle, width: 72 }}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                       />
                     </td>
 
@@ -872,7 +954,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "bale_count")}
                         ref={(el) => registerCellRef(index, "bale_count", el)}
                         style={{ ...cellInputStyle, width: 72 }}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                       />
                     </td>
 
@@ -890,7 +972,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "equipment_type")}
                         ref={(el) => registerCellRef(index, "equipment_type", el)}
                         style={{ ...cellInputStyle, width: 68 }}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                       >
                         <option value="">Select</option>
                         <option value="V">V</option>
@@ -912,7 +994,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "sub_location")}
                         ref={(el) => registerCellRef(index, "sub_location", el)}
                         style={{ ...cellInputStyle, width: 88 }}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                       >
                         {site.subLocations.map((sub) => (
                           <option key={sub} value={sub}>
@@ -936,7 +1018,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "comment_1")}
                         ref={(el) => registerCellRef(index, "comment_1", el)}
                         style={cellTextareaStyle}
-                        disabled={isClosedRow(row)}
+                        disabled={isReadOnlyRow(row)}
                       />
                     </td>
 
@@ -959,12 +1041,26 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "warehouse_location", el)}
-                        style={{ ...cellInputStyle, width: 108 }}
-                        disabled={isClosedRow(row)}
+                        style={{ ...cellInputStyle, width: 106 }}
+                        disabled={isReadOnlyRow(row)}
                       />
                     </td>
 
                     <td style={tdStyle}>
+                      {row.draft_status === "processed" && !editingProcessedIds.has(row.id) ? (
+                        <button type="button" onClick={() => beginProcessedEdit(row)}
+                          style={smallActionButtonStyle} title="Edit check-in details; McLeod delivery stays unchanged">
+                          Edit
+                        </button>
+                      ) : null}
+                      {row.draft_status === "processed" && editingProcessedIds.has(row.id) ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <button type="button" onClick={() => void saveProcessedEdit(row.id)}
+                            disabled={ui.saveState === "saving"} style={smallActionButtonStyle}>Save</button>
+                          <button type="button" onClick={() => cancelProcessedEdit(row.id)}
+                            disabled={ui.saveState === "saving"} style={smallActionButtonStyle}>Cancel</button>
+                        </div>
+                      ) : null}
                       {row.id.startsWith("local-") ? (
                         (rowUi[row.id]?.saveState === "error" ?
                           <button type="button" onClick={() => void checkIn(row)}
@@ -978,18 +1074,17 @@ export default function SiteCheckinPage() {
                         <button type="button" onClick={() => void reloadRow(row.id)}
                           title="Discard unsaved edits and load the latest row" style={linkButtonStyle}>Reload</button>
                       ) : null}
-                      <button
+                      {!isClosedRow(row) ? <button
                         type="button"
                         onClick={() => void deleteRow(row.id)}
                         style={deleteButtonStyle}
-                        disabled={isClosedRow(row)}
                         aria-label={`Delete check-in row ${index + 1}`}
                         title="Delete check-in"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" />
                         </svg>
-                      </button>
+                      </button> : null}
                     </td>
 
                     <td style={statusDotCellStyle}>
@@ -1253,5 +1348,17 @@ const deleteButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  cursor: "pointer",
+};
+
+const smallActionButtonStyle: React.CSSProperties = {
+  minHeight: 25,
+  width: "100%",
+  padding: "3px 5px",
+  borderRadius: 6,
+  border: "1px solid rgba(148,163,184,0.35)",
+  background: "rgba(30,41,59,0.9)",
+  color: "#e2e8f0",
+  fontSize: 11,
   cursor: "pointer",
 };

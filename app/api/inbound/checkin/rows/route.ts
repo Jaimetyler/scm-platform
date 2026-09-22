@@ -94,10 +94,10 @@ export async function GET(req: NextRequest) {
       .eq("site_code", siteCode);
 
     if (date) {
-      // Carry unresolved check-ins into the next day so a waiting driver
-      // does not disappear at midnight.
+      // Carry unresolved rows forward and keep today's corrected processed
+      // rows visible even when staff fixes their received date to another day.
       query = query.or(
-        `received_date.eq.${date},draft_status.in.(checked_in,ready,processing,failed)`
+        `received_date.eq.${date},draft_status.in.(checked_in,ready,processing,failed),updated_at.gte.${date}T00:00:00Z`
       );
     }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isReadyCheckin } from "../lib/inbound/checkin/ready.ts";
+import { buildPostDeliveryCorrection, isReadyCheckin } from "../lib/inbound/checkin/ready.ts";
 
 const complete = {
   terminal: "SAV", site_code: "MAIN", site_name: "Savannah",
@@ -18,4 +18,19 @@ test("a row never processes before its location or another required field is com
     assert.equal(isReadyCheckin({ ...complete, [field]: null }), false, field);
   }
   assert.equal(isReadyCheckin({ ...complete, warehouse_location: "  " }), false);
+});
+
+test("post-delivery corrections update only check-in details and preserve the McLeod record", () => {
+  const existing = { ...complete, comment_1: "Old note", comment_2: null,
+    matched_order_id: "8022392", draft_status: "processed",
+    checked_in_at: "2026-09-22T14:00:00Z", verified_at: "2026-09-22T15:00:00Z" };
+  const corrected = buildPostDeliveryCorrection(existing,
+    { ...existing, mark: "FIXED", comment_1: "New note" }, "2026-09-22T16:00:00Z");
+  assert.equal(corrected.mark, "FIXED");
+  assert.equal(corrected.identity_corrected_at, "2026-09-22T16:00:00Z");
+  for (const protectedField of ["matched_order_id", "draft_status", "checked_in_at", "verified_at", "terminal", "site_code"]) {
+    assert.equal(Object.hasOwn(corrected, protectedField), false, protectedField);
+  }
+  assert.throws(() => buildPostDeliveryCorrection(existing,
+    { ...existing, mark: "" }, "2026-09-22T16:00:00Z"), /required fields/);
 });

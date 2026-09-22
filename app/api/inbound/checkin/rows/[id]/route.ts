@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
-import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
+import { buildPostDeliveryCorrection, isReadyCheckin } from "@/lib/inbound/checkin/ready";
 
 export const runtime = "nodejs";
 
@@ -97,7 +97,8 @@ export async function PATCH(
       );
     }
 
-    if (["processed", "outside_carrier", "processing"].includes(existing.draft_status)) {
+    const correctingProcessed = body?.correctionOnly === true && existing.draft_status === "processed";
+    if (["processed", "outside_carrier", "processing"].includes(existing.draft_status) && !correctingProcessed) {
       return NextResponse.json(
         { ok: false, error: "This row is processing or already processed" },
         { status: 409 }
@@ -108,6 +109,12 @@ export async function PATCH(
         { ok: false, error: "This row was changed in another browser. Reload to review it." },
         { status: 409 }
       );
+    }
+    if (body?.correctionOnly === true && !correctingProcessed) {
+      return NextResponse.json({ ok: false, error: "Only processed rows can use this correction action" }, { status: 409 });
+    }
+    if (correctingProcessed && !body?.expectedUpdatedAt) {
+      return NextResponse.json({ ok: false, error: "Reload this row before editing it" }, { status: 409 });
     }
 
     const merged: CheckinRow = {
@@ -133,6 +140,25 @@ export async function PATCH(
       processed_at: existing.processed_at,
       id: existing.id,
     };
+
+    if (correctingProcessed) {
+      let correction;
+      try {
+        correction = buildPostDeliveryCorrection(existing, merged, new Date().toISOString());
+      } catch (error) {
+        return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid correction" }, { status: 400 });
+      }
+      const { data, error } = await sb.from("inbound_checkin_rows")
+        .update(correction)
+        .eq("id", id)
+        .eq("updated_at", existing.updated_at)
+        .eq("draft_status", "processed")
+        .select("*")
+        .maybeSingle();
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      if (!data) return NextResponse.json({ ok: false, error: "Row changed while editing. Reload to review it." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: data as CheckinRow });
+    }
 
     const draft_status = isReadyCheckin(merged) ? "ready" : "checked_in";
     merged.verified = draft_status === "ready";
