@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
 
 export const runtime = "nodejs";
 
@@ -97,7 +98,7 @@ type CheckinRow = {
   verified: boolean;
   comment_1: string | null;
   comment_2: string | null;
-  draft_status: "draft" | "ready" | "processed";
+  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "failed";
   processed_at: string | null;
 };
 
@@ -123,10 +124,10 @@ export async function PATCH(
       );
     }
 
-    if (existing.draft_status === "processed") {
+    if (existing.draft_status === "processed" || existing.draft_status === "processing") {
       return NextResponse.json(
-        { ok: false, error: "Processed rows cannot be edited" },
-        { status: 400 }
+        { ok: false, error: "This row is processing or already processed" },
+        { status: 409 }
       );
     }
 
@@ -136,15 +137,15 @@ export async function PATCH(
       site_code: cleanText(body?.siteCode ?? existing.site_code),
       site_name: cleanText(body?.siteName ?? existing.site_name),
       sub_location: normalizeSubLocation(body?.subLocation ?? existing.sub_location),
-      received_date: normalizeDate(body?.receivedDate ?? existing.received_date),
-      mark: cleanText(body?.mark ?? existing.mark).toUpperCase() || null,
-      shipper: cleanText(body?.shipper ?? existing.shipper).toUpperCase() || null,
-      bol_bc: normalizePositiveInteger(body?.bolBC ?? existing.bol_bc),
-      bale_count: normalizePositiveInteger(body?.baleCount ?? existing.bale_count),
+      received_date: normalizeDate(body?.receivedDate !== undefined ? body.receivedDate : existing.received_date),
+      mark: cleanText(body?.mark !== undefined ? body.mark : existing.mark).toUpperCase() || null,
+      shipper: cleanText(body?.shipper !== undefined ? body.shipper : existing.shipper).toUpperCase() || null,
+      bol_bc: normalizePositiveInteger(body?.bolBC !== undefined ? body.bolBC : existing.bol_bc),
+      bale_count: normalizePositiveInteger(body?.baleCount !== undefined ? body.baleCount : existing.bale_count),
       warehouse_location:
-        cleanText(body?.warehouseLocation ?? existing.warehouse_location).toUpperCase() || null,
+        cleanText(body?.warehouseLocation !== undefined ? body.warehouseLocation : existing.warehouse_location).toUpperCase() || null,
       equipment_type: normalizeEquipmentType(
-        body?.equipmentType ?? existing.equipment_type
+        body?.equipmentType !== undefined ? body.equipmentType : existing.equipment_type
       ),
       verified:
         typeof body?.verified === "boolean" ? body.verified : Boolean(existing.verified),
@@ -155,7 +156,7 @@ export async function PATCH(
       id: existing.id,
     };
 
-    const draft_status = isReadyRow(merged) ? "ready" : "draft";
+    const draft_status = isReadyRow(merged) ? "ready" : "checked_in";
 
     const updatePayload = {
       terminal: merged.terminal,
@@ -173,14 +174,16 @@ export async function PATCH(
       comment_1: merged.comment_1,
       comment_2: merged.comment_2,
       draft_status,
+      processing_error: null,
     };
 
     const { data, error } = await sb
       .from("inbound_checkin_rows")
       .update(updatePayload)
       .eq("id", id)
+      .in("draft_status", ["draft", "checked_in", "ready", "failed"])
       .select("*")
-      .single();
+      .maybeSingle();
 
     if (error) {
       return NextResponse.json(
@@ -189,9 +192,14 @@ export async function PATCH(
       );
     }
 
+    if (!data) {
+      return NextResponse.json({ ok: false, error: "Row changed while saving. Refresh and try again." }, { status: 409 });
+    }
+
+    const saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
     return NextResponse.json({
       ok: true,
-      row: data as CheckinRow,
+      row: saved as CheckinRow,
     });
   } catch (error) {
     return NextResponse.json(
@@ -212,15 +220,24 @@ export async function DELETE(
     const sb = getSupabase();
     const { id } = await context.params;
 
-    const { error } = await sb
+    const { data, error } = await sb
       .from("inbound_checkin_rows")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .in("draft_status", ["draft", "checked_in", "failed"])
+      .select("id");
 
     if (error) {
       return NextResponse.json(
         { ok: false, error: error.message },
         { status: 500 }
+      );
+    }
+
+    if (!data?.length) {
+      return NextResponse.json(
+        { ok: false, error: "This row is processing or already processed" },
+        { status: 409 }
       );
     }
 

@@ -42,6 +42,12 @@ function normalizeDate(value: unknown): string | null {
   return raw || null;
 }
 
+function positiveInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
 type CheckinRow = {
   id: string;
   created_at: string;
@@ -61,7 +67,7 @@ type CheckinRow = {
   verified: boolean;
   comment_1: string | null;
   comment_2: string | null;
-  draft_status: "draft" | "ready" | "processed";
+  draft_status: "checked_in" | "ready" | "processing" | "processed" | "failed" | "draft";
   processed_at: string | null;
 };
 
@@ -88,12 +94,14 @@ export async function GET(req: NextRequest) {
       .eq("site_code", siteCode);
 
     if (date) {
-      query = query.eq("received_date", date);
+      // Carry unresolved check-ins into the next day so a waiting driver
+      // does not disappear at midnight.
+      query = query.or(
+        `received_date.eq.${date},draft_status.in.(checked_in,ready,processing,failed)`
+      );
     }
 
     const { data, error } = await query
-      .order("draft_status", { ascending: true })
-      .order("received_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -128,10 +136,18 @@ export async function POST(req: NextRequest) {
     const site_name = cleanText(body?.siteName);
     const sub_location = normalizeSubLocation(body?.subLocation);
     const received_date = normalizeDate(body?.receivedDate);
+    const mark = cleanText(body?.mark).toUpperCase();
+    const shipper = cleanText(body?.shipper).toUpperCase();
 
     if (!terminal || !site_code || !site_name) {
       return NextResponse.json(
         { ok: false, error: "terminal, siteCode, and siteName are required" },
+        { status: 400 }
+      );
+    }
+    if (!mark || !shipper) {
+      return NextResponse.json(
+        { ok: false, error: "Enter a mark and customer before checking in" },
         { status: 400 }
       );
     }
@@ -146,16 +162,16 @@ export async function POST(req: NextRequest) {
       site_name,
       sub_location,
       received_date,
-      mark: null,
-      shipper: null,
-      bol_bc: null,
-      bale_count: null,
-      warehouse_location: null,
+      mark,
+      shipper,
+      bol_bc: positiveInteger(body?.bolBC),
+      bale_count: positiveInteger(body?.baleCount),
+      warehouse_location: cleanText(body?.warehouseLocation).toUpperCase() || null,
       equipment_type: defaultEquipment,
-      verified: false,
-      comment_1: null,
-      comment_2: null,
-      draft_status: "draft" as const,
+      verified: body?.verified === true,
+      comment_1: cleanText(body?.comment1) || null,
+      comment_2: cleanText(body?.comment2) || null,
+      draft_status: "checked_in" as const,
       processed_at: null,
     };
 
