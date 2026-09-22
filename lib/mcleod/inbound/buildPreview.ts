@@ -1,5 +1,6 @@
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
+import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 
 type CustomerResolution = {
   canonicalCustomer: string;
@@ -171,13 +172,7 @@ function buildSearchPatterns(mark: string): string[] {
 }
 
 function parseSearchRows(parsed: unknown): SearchCandidate[] {
-  const rows = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray((parsed as any)?.items)
-    ? (parsed as any).items
-    : Array.isArray((parsed as any)?.results)
-    ? (parsed as any).results
-    : [];
+  const rows = extractSearchOrders(parsed) ?? [];
 
   return rows.map((item: any) => ({
     orderId: String(item.id ?? item.orderId ?? ""),
@@ -200,13 +195,15 @@ function parseSearchRows(parsed: unknown): SearchCandidate[] {
   })) as SearchCandidate[];
 }
 
-function isRecognizedSearchResponse(parsed: unknown): boolean {
-  return Array.isArray(parsed) ||
-    (typeof parsed === "object" && parsed !== null &&
-      (Array.isArray((parsed as any).items) || Array.isArray((parsed as any).results)));
+type SearchContext = { strict: boolean; incomplete: Set<string> };
+
+function unexpectedSearchShape(parsed: unknown): string {
+  if (parsed === null) return "empty response body";
+  if (typeof parsed !== "object") return `unexpected ${typeof parsed} response`;
+  return `unexpected response fields: ${Object.keys(parsed).slice(0, 8).join(", ") || "none"}`;
 }
 
-async function searchOrders(customerId: string, mark: string, strictSearch = false): Promise<SearchCandidate[]> {
+async function searchOrders(customerId: string, mark: string, context: SearchContext): Promise<SearchCandidate[]> {
   const baseUrl = getBaseUrl();
 
   async function runSearch(
@@ -233,11 +230,18 @@ async function searchOrders(customerId: string, mark: string, strictSearch = fal
       console.log("MCLEOD_SEARCH_PATTERN", pattern);
       console.log("MCLEOD_SEARCH_URL", url);
 
-      const res = await fetch(url, {
-        method: "GET",
-        headers: getHeaders(),
-        cache: "no-store",
-      });
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "GET",
+          headers: getHeaders(),
+          cache: "no-store",
+        });
+      } catch (error) {
+        if (!context.strict) throw error;
+        context.incomplete.add("network error");
+        continue;
+      }
 
       const text = await res.text();
 
@@ -245,19 +249,25 @@ async function searchOrders(customerId: string, mark: string, strictSearch = fal
       console.log("MCLEOD_SEARCH_BODY", text);
 
       if (!res.ok) {
-        if (strictSearch) throw new Error(`McLeod order search failed (${res.status}); cannot classify outside carrier`);
+        if (context.strict) context.incomplete.add(`HTTP ${res.status}`);
         console.warn("MCLEOD_SEARCH_ERROR", res.status, text);
         continue;
       }
 
-      const parsed = text ? JSON.parse(text) : [];
-      if (strictSearch && (!text || !isRecognizedSearchResponse(parsed))) {
-        throw new Error("McLeod order search returned an unexpected response; cannot classify outside carrier");
+      let parsed: unknown;
+      try {
+        parsed = text ? JSON.parse(text) : null;
+      } catch (error) {
+        if (!context.strict) throw error;
+        context.incomplete.add("invalid JSON");
+        continue;
+      }
+      if (context.strict && !extractSearchOrders(parsed)) {
+        context.incomplete.add(unexpectedSearchShape(parsed));
+        continue;
       }
       const found = parseSearchRows(parsed);
-      if (strictSearch && found.length >= 200) {
-        throw new Error("McLeod order search reached its result limit; cannot classify outside carrier");
-      }
+      if (context.strict && found.length >= 200) context.incomplete.add("result limit reached");
       results.push(...found);
     }
 
@@ -280,7 +290,7 @@ async function searchOrders(customerId: string, mark: string, strictSearch = fal
   return Array.from(deduped.values());
 }
 
-async function searchOrdersByCustomer(customerId: string, strictSearch = false): Promise<SearchCandidate[]> {
+async function searchOrdersByCustomer(customerId: string, context: SearchContext): Promise<SearchCandidate[]> {
   if (!customerId || !customerId.trim()) {
     return [];
   }
@@ -296,11 +306,18 @@ async function searchOrdersByCustomer(customerId: string, strictSearch = false):
   console.log("BUILD_PREVIEW_VERSION", BUILD_PREVIEW_VERSION);
   console.log("MCLEOD_CUSTOMER_BATCH_URL", url);
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (!context.strict) throw error;
+    context.incomplete.add("network error");
+    return [];
+  }
 
   const text = await res.text();
 
@@ -308,19 +325,25 @@ async function searchOrdersByCustomer(customerId: string, strictSearch = false):
   console.log("MCLEOD_CUSTOMER_BATCH_BODY", text);
 
   if (!res.ok) {
-    if (strictSearch) throw new Error(`McLeod customer search failed (${res.status}); cannot classify outside carrier`);
+    if (context.strict) context.incomplete.add(`HTTP ${res.status}`);
     console.warn("MCLEOD_CUSTOMER_BATCH_ERROR", res.status, text);
     return [];
   }
 
-  const parsed = text ? JSON.parse(text) : [];
-  if (strictSearch && (!text || !isRecognizedSearchResponse(parsed))) {
-    throw new Error("McLeod customer search returned an unexpected response; cannot classify outside carrier");
+  let parsed: unknown;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch (error) {
+    if (!context.strict) throw error;
+    context.incomplete.add("invalid JSON");
+    return [];
+  }
+  if (context.strict && !extractSearchOrders(parsed)) {
+    context.incomplete.add(unexpectedSearchShape(parsed));
+    return [];
   }
   const rows = parseSearchRows(parsed);
-  if (strictSearch && rows.length >= 500) {
-    throw new Error("McLeod customer search reached its result limit; cannot classify outside carrier");
-  }
+  if (context.strict && rows.length >= 500) context.incomplete.add("result limit reached");
 
   const deduped = new Map<string, SearchCandidate>();
 
@@ -379,6 +402,7 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
   const results: PreviewResult[] = [];
 
   for (const row of rows) {
+    const searchContext: SearchContext = { strict: options.strictSearch === true, incomplete: new Set() };
     const resolvedCustomer = resolveCustomer(row.shipper);
     const targetMark = normalizeMark(row.mark);
     const targetBales = parseCount(row.balesUnloaded) ?? parseCount(row.bolBC);
@@ -409,13 +433,13 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
     const primaryCandidates = await searchOrders(
       resolvedCustomer.customerId,
       targetMark,
-      options.strictSearch
+      searchContext
     );
 
     let globalCandidates: SearchCandidate[] = [];
     if (primaryCandidates.length === 0) {
       console.log("FALLBACK_SEARCH_TRIGGERED", targetMark);
-      globalCandidates = await searchOrders("", targetMark, options.strictSearch);
+      globalCandidates = await searchOrders("", targetMark, searchContext);
     }
 
     let allCandidates =
@@ -427,7 +451,7 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
     // A customer-filtered search can return partial mark hits. Before calling
     // the row outside-carrier, also inspect exact marks across all customers.
     if (options.strictSearch && exactMarkCandidates.length === 0 && primaryCandidates.length > 0) {
-      globalCandidates = await searchOrders("", targetMark, true);
+      globalCandidates = await searchOrders("", targetMark, searchContext);
       const combined = new Map([...primaryCandidates, ...globalCandidates]
         .map((candidate) => [candidate.orderId, candidate]));
       allCandidates = Array.from(combined.values());
@@ -443,7 +467,7 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
 
       const batchCandidates = await searchOrdersByCustomer(
         resolvedCustomer.customerId,
-        options.strictSearch
+        searchContext
       );
 
       if (batchCandidates.length > 0) {
@@ -454,6 +478,9 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
     }
 
     if (exactMarkCandidates.length === 0) {
+      if (searchContext.incomplete.size) {
+        throw new Error(`McLeod search incomplete (${Array.from(searchContext.incomplete).join(", ")}); cannot classify outside carrier. Review McLeod search logs.`);
+      }
       results.push({
         row,
         resolvedCustomer,
