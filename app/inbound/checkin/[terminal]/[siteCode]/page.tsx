@@ -54,7 +54,6 @@ type ColumnKey =
   | "equipment_type"
   | "sub_location"
   | "comment_1"
-  | "comment_2"
   | "warehouse_location";
 
 const COLUMN_ORDER: ColumnKey[] = [
@@ -66,7 +65,6 @@ const COLUMN_ORDER: ColumnKey[] = [
   "equipment_type",
   "sub_location",
   "comment_1",
-  "comment_2",
   "warehouse_location",
 ];
 
@@ -220,7 +218,7 @@ export default function SiteCheckinPage() {
     const colIndex = COLUMN_ORDER.indexOf(column);
     if (colIndex === -1) return;
 
-    const isTextarea = column === "comment_1" || column === "comment_2";
+    const isTextarea = column === "comment_1";
 
     if (isTextarea && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
       return;
@@ -615,8 +613,7 @@ export default function SiteCheckinPage() {
       "Bales",
       "Equipment",
       "Sub-Location",
-      "Comment 1",
-      "Comment 2",
+      "Comment",
       "Warehouse Location",
       "Status",
     ];
@@ -634,8 +631,7 @@ export default function SiteCheckinPage() {
           sanitizeCell(row.bale_count),
           sanitizeCell(row.equipment_type),
           sanitizeCell(row.sub_location),
-          sanitizeCell(row.comment_1),
-          sanitizeCell(row.comment_2),
+          sanitizeCell([row.comment_1, row.comment_2].filter(Boolean).join(" / ")),
           sanitizeCell(row.warehouse_location),
           sanitizeCell(row.draft_status),
         ].join("\t")
@@ -721,24 +717,22 @@ export default function SiteCheckinPage() {
 
       <PlatformPanel>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: "100%", minWidth: 1820, borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: 1320, borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
-                <th style={thStyle}>Received Date *</th>
-                <th style={thStyle}>Arrival Time</th>
-                <th style={thStyle}>SCM Order #</th>
+                <th style={thStyle}>Date *</th>
+                <th style={thStyle}>Time</th>
                 <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
                 <th style={thStyle}>BOL B/C *</th>
                 <th style={thStyle}>Bales *</th>
                 <th style={thStyle}>Equipment *</th>
-                <th style={thStyle}>Sub-Location *</th>
-                <th style={thStyle}>Comment 1</th>
-                <th style={thStyle}>Comment 2</th>
-                <th style={thStyle}>Warehouse Location * (final)</th>
+                <th style={thStyle}>Sub-Loc *</th>
+                <th style={thStyle}>Comment</th>
+                <th style={thStyle}>Location * (final)</th>
                 <th style={thStyle}>Actions</th>
-                <th style={statusDotHeaderStyle}></th>
+                <th style={statusDotHeaderStyle}>Status</th>
               </tr>
             </thead>
 
@@ -764,28 +758,20 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "received_date")}
                         ref={(el) => registerCellRef(index, "received_date", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 122 }}
                         disabled={isClosedRow(row)}
                       />
                     </td>
 
-                    <td style={tdStyle}>
+                    <td style={{ ...tdStyle, fontSize: 10, whiteSpace: "nowrap" }}>
                       {row.checked_in_at ? (
                         <>
-                          <div>{formatArrivalTime(row)}</div>
+                          <span title={row.checked_in_at}>{formatArrivalTime(row)}</span>
                           {row.identity_corrected_at ? <small title={row.identity_corrected_at}>
-                            Check-in details corrected
+                            {" *"}
                           </small> : null}
                         </>
                       ) : ""}
-                    </td>
-
-                    <td style={tdStyle}>
-                      {row.matched_order_id
-                        ? row.draft_status === "failed"
-                          ? `Possible: ${row.matched_order_id}`
-                          : row.matched_order_id
-                        : ""}
                     </td>
 
                     <td style={tdStyle}>
@@ -807,9 +793,14 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "mark", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 104 }}
                         disabled={isClosedRow(row)}
                       />
+                      {row.matched_order_id ? (
+                        <small style={orderNumberStyle} title={row.draft_status === "failed" ? "Possible McLeod match; review before delivery" : "Matched SCM order"}>
+                          {row.draft_status === "failed" ? "Possible #" : "SCM #"}{row.matched_order_id}
+                        </small>
+                      ) : null}
                     </td>
 
                     <td style={tdStyle}>
@@ -831,7 +822,7 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "shipper", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 142 }}
                         disabled={isClosedRow(row)}
                         placeholder="Start typing customer..."
                       />
@@ -859,7 +850,7 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "bol_bc", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 72 }}
                         disabled={isClosedRow(row)}
                       />
                     </td>
@@ -880,7 +871,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "bale_count")}
                         ref={(el) => registerCellRef(index, "bale_count", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 72 }}
                         disabled={isClosedRow(row)}
                       />
                     </td>
@@ -898,7 +889,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "equipment_type")}
                         ref={(el) => registerCellRef(index, "equipment_type", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 68 }}
                         disabled={isClosedRow(row)}
                       >
                         <option value="">Select</option>
@@ -920,7 +911,7 @@ export default function SiteCheckinPage() {
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "sub_location")}
                         ref={(el) => registerCellRef(index, "sub_location", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 88 }}
                         disabled={isClosedRow(row)}
                       >
                         {site.subLocations.map((sub) => (
@@ -933,33 +924,17 @@ export default function SiteCheckinPage() {
 
                     <td style={tdStyle}>
                       <textarea
-                        value={row.comment_1 ?? ""}
+                        value={[row.comment_1, row.comment_2].filter(Boolean).join("\n")}
                         onChange={(e) => {
                           const updated = applyRowUpdate(row.id, (current) => ({
                             ...current,
                             comment_1: e.target.value,
+                            comment_2: null,
                           }));
                           if (updated) queueSaveRow(updated);
                         }}
                         onKeyDown={(e) => handleGridKeyDown(e, index, "comment_1")}
                         ref={(el) => registerCellRef(index, "comment_1", el)}
-                        style={cellTextareaStyle}
-                        disabled={isClosedRow(row)}
-                      />
-                    </td>
-
-                    <td style={tdStyle}>
-                      <textarea
-                        value={row.comment_2 ?? ""}
-                        onChange={(e) => {
-                          const updated = applyRowUpdate(row.id, (current) => ({
-                            ...current,
-                            comment_2: e.target.value,
-                          }));
-                          if (updated) queueSaveRow(updated);
-                        }}
-                        onKeyDown={(e) => handleGridKeyDown(e, index, "comment_2")}
-                        ref={(el) => registerCellRef(index, "comment_2", el)}
                         style={cellTextareaStyle}
                         disabled={isClosedRow(row)}
                       />
@@ -984,7 +959,7 @@ export default function SiteCheckinPage() {
                           if (latest) queueSaveRow(latest);
                         }}
                         ref={(el) => registerCellRef(index, "warehouse_location", el)}
-                        style={cellInputStyle}
+                        style={{ ...cellInputStyle, width: 108 }}
                         disabled={isClosedRow(row)}
                       />
                     </td>
@@ -1008,8 +983,12 @@ export default function SiteCheckinPage() {
                         onClick={() => void deleteRow(row.id)}
                         style={deleteButtonStyle}
                         disabled={isClosedRow(row)}
+                        aria-label={`Delete check-in row ${index + 1}`}
+                        title="Delete check-in"
                       >
-                        Delete
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" />
+                        </svg>
                       </button>
                     </td>
 
@@ -1017,9 +996,10 @@ export default function SiteCheckinPage() {
                       <div title={row.draft_status} style={rowDotStyle(row)} />
                       <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in" ? "Waiting" : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (
-                        <div title={row.processing_error || ui.message || "Save failed"} style={errorDotStyle}>
-                          {row.processing_error || ui.message}
-                        </div>
+                        <button type="button" title={row.processing_error || ui.message || "Save failed"}
+                          aria-label="Show check-in error"
+                          onClick={() => alert(row.processing_error || ui.message || "Save failed")}
+                          style={errorButtonStyle}>View error</button>
                       ) : null}
                     </td>
                   </tr>
@@ -1028,7 +1008,7 @@ export default function SiteCheckinPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={15} style={emptyStateStyle}>
+                  <td colSpan={13} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
                       : "No check-ins yet. Add a blank line to check in a driver."}
@@ -1110,10 +1090,10 @@ const statValueStyle: React.CSSProperties = {
 };
 
 const rowNumberHeaderStyle: React.CSSProperties = {
-  width: 50,
-  minWidth: 50,
+  width: 34,
+  minWidth: 34,
   textAlign: "center",
-  padding: "8px 6px",
+  padding: "6px 3px",
   color: "#94a3b8",
   fontSize: 11,
   whiteSpace: "nowrap",
@@ -1125,10 +1105,10 @@ const rowNumberHeaderStyle: React.CSSProperties = {
 };
 
 const rowNumberCellStyle: React.CSSProperties = {
-  width: 40,
-  minWidth: 40,
+  width: 34,
+  minWidth: 34,
   textAlign: "center",
-  padding: "6px 4px",
+  padding: "4px 2px",
   borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "middle",
   color: "#94a3b8",
@@ -1137,9 +1117,9 @@ const rowNumberCellStyle: React.CSSProperties = {
 };
 
 const statusDotHeaderStyle: React.CSSProperties = {
-  width: 26,
-  minWidth: 26,
-  padding: "8px 6px",
+  width: 88,
+  minWidth: 88,
+  padding: "6px 4px",
   borderBottom: "1px solid rgba(148,163,184,0.16)",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
@@ -1148,27 +1128,38 @@ const statusDotHeaderStyle: React.CSSProperties = {
 };
 
 const statusDotCellStyle: React.CSSProperties = {
-  width: 26,
-  minWidth: 26,
-  padding: "8px 6px",
+  width: 88,
+  minWidth: 88,
+  padding: "4px 3px",
   borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "middle",
-  position: "relative",
+  fontSize: 10,
+  overflowWrap: "anywhere",
 };
 
-const errorDotStyle: React.CSSProperties = {
-  position: "absolute",
-  right: 4,
-  top: 6,
-  width: 6,
-  height: 6,
-  borderRadius: "50%",
-  background: "#ef4444",
+const errorButtonStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: 3,
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  color: "#fca5a5",
+  fontSize: 10,
+  cursor: "pointer",
+  textDecoration: "underline",
+};
+
+const orderNumberStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 10,
+  color: "#93c5fd",
+  whiteSpace: "nowrap",
+  marginTop: 2,
 };
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: "8px 10px",
+  padding: "6px 5px",
   color: "#94a3b8",
   fontSize: 11,
   whiteSpace: "nowrap",
@@ -1180,7 +1171,7 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "8px 10px",
+  padding: "4px 5px",
   borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "top",
   color: "#e5e7eb",
@@ -1188,9 +1179,11 @@ const tdStyle: React.CSSProperties = {
 
 const cellInputStyle: React.CSSProperties = {
   width: "100%",
-  minWidth: 90,
-  padding: "6px 8px",
-  borderRadius: 8,
+  minWidth: 0,
+  height: 30,
+  boxSizing: "border-box",
+  padding: "4px 6px",
+  borderRadius: 6,
   border: "1px solid rgba(148,163,184,0.18)",
   background: "rgba(15,23,42,0.82)",
   color: "#e2e8f0",
@@ -1198,11 +1191,13 @@ const cellInputStyle: React.CSSProperties = {
 };
 
 const cellTextareaStyle: React.CSSProperties = {
-  width: "100%",
-  minWidth: 120,
-  minHeight: 48,
-  padding: "6px 8px",
-  borderRadius: 8,
+  width: 150,
+  minWidth: 0,
+  minHeight: 30,
+  height: 30,
+  boxSizing: "border-box",
+  padding: "4px 6px",
+  borderRadius: 6,
   border: "1px solid rgba(148,163,184,0.18)",
   background: "rgba(15,23,42,0.82)",
   color: "#e2e8f0",
@@ -1248,11 +1243,15 @@ const linkButtonStyle: React.CSSProperties = {
 };
 
 const deleteButtonStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
+  width: 30,
+  height: 30,
+  padding: 5,
+  borderRadius: 6,
   border: "1px solid rgba(239,68,68,0.25)",
   background: "rgba(127,29,29,0.26)",
   color: "#fecaca",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
   cursor: "pointer",
-  fontWeight: 800,
 };

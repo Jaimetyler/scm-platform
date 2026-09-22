@@ -128,7 +128,7 @@ export async function PATCH(
       ),
       verified: Boolean(existing.verified),
       comment_1: cleanText(body?.comment1 ?? existing.comment_1) || null,
-      comment_2: cleanText(body?.comment2 ?? existing.comment_2) || null,
+      comment_2: cleanText(body?.comment2 !== undefined ? body.comment2 : existing.comment_2) || null,
       draft_status: existing.draft_status,
       processed_at: existing.processed_at,
       id: existing.id,
