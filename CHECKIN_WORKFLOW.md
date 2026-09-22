@@ -16,3 +16,9 @@ The live check-in route does not write pickup actuals. If pickup actuals are mis
 Blank lines stay in the browser until they have both a mark and customer, then they save automatically. The page starts with 25 browser-only blank lines and replenishes a line as each check-in is saved. Previously stored blank `draft` rows remain in the database but are hidden from the grid; the change does not delete them. This grid update needs no additional database migration. A processing row is claimed atomically to prevent concurrent requests from initiating duplicate McLeod calls. If a process is interrupted after the claim, the row remains **Processing** for manual investigation.
 
 Saved check-ins display oldest first with newer check-ins below them; blank entry lines remain after saved rows.
+
+## McLeod match outcomes
+
+Apply `supabase/migrations/009_inbound_checkin_outside_carrier.sql` before deploying this update. After a complete live check-in, compare the customer using the mapped McLeod customer ID, not the short name typed in the grid. A confirmed match displays its SCM order number in the grid. A possible order with a conflicting mark, customer, or bale count remains **Failed** for review and shows the possible order number; do not post a delivery to that order.
+
+If the full McLeod search returns no order for the mark, finish the check-in as **Outside carrier**, without posting any McLeod delivery. McLeod search errors or capped searches remain **Failed** for review instead of being treated as outside carriers. A failed row can be retried after a correction; previously processed or outside-carrier rows stay locked. This classification applies only to live check-ins; Excel imports retain their existing behavior.

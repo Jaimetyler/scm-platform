@@ -67,7 +67,7 @@ type CheckinRow = {
   verified: boolean;
   comment_1: string | null;
   comment_2: string | null;
-  draft_status: "checked_in" | "ready" | "processing" | "processed" | "failed" | "draft";
+  draft_status: "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed" | "draft";
   processed_at: string | null;
 };
 

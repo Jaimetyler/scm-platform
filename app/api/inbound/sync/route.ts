@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
+import { resolveCustomer } from "@/lib/mcleod/inbound/resolveCustomer";
+import { expectedCustomerId, isOutsideCarrierNoMatch } from "@/lib/inbound/checkin/match-outcome";
 
 export const runtime = "nodejs";
 
@@ -10,6 +12,7 @@ type SyncPreviewResult = {
   matchedOrderId?: string;
   reason?: string;
   candidateCount?: number;
+  resolvedCustomer?: { customerId?: string };
   parsedBlnum?: {
     raw?: string;
     mark?: string;
@@ -89,13 +92,8 @@ function resolveRowCustomer(row: InboundExcelRow) {
 }
 
 function resolveOrderCustomer(order: any) {
-  return normalizeText(
-    order.customer_id ??
-      order.customerId ??
-      order.customer?.id ??
-      order.customer?.name ??
-      ""
-  );
+  const id = order.customer_id ?? order.customerId ?? order.customer?.id;
+  return normalizeText(id ?? resolveCustomer(order.customer?.name).customerId);
 }
 
 function resolveRowMark(row: InboundExcelRow, preview: SyncPreviewResult) {
@@ -277,9 +275,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing row" }, { status: 400 });
     }
 
-    const preview = (await buildPreview([row]))[0] as SyncPreviewResult;
+    const preview = (await buildPreview([row], {
+      strictSearch: row.source === "live_checkin",
+    }))[0] as SyncPreviewResult;
 
     if (!preview || !preview.matchedOrderId) {
+      if (row.source === "live_checkin" && isOutsideCarrierNoMatch(preview)) {
+        return NextResponse.json({
+          ok: true, skipped: true, outsideCarrier: true,
+          reason: "No McLeod order found for this mark; treated as outside carrier",
+        });
+      }
       return NextResponse.json(
         { ok: false, error: "No match", preview },
         { status: 400 }
@@ -320,7 +326,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const rowCustomer = resolveRowCustomer(row);
+    const rowCustomer = expectedCustomerId(preview, resolveRowCustomer(row));
     const orderCustomer = resolveOrderCustomer(order);
 
     if (rowCustomer && orderCustomer && rowCustomer !== orderCustomer) {

@@ -200,7 +200,13 @@ function parseSearchRows(parsed: unknown): SearchCandidate[] {
   })) as SearchCandidate[];
 }
 
-async function searchOrders(customerId: string, mark: string): Promise<SearchCandidate[]> {
+function isRecognizedSearchResponse(parsed: unknown): boolean {
+  return Array.isArray(parsed) ||
+    (typeof parsed === "object" && parsed !== null &&
+      (Array.isArray((parsed as any).items) || Array.isArray((parsed as any).results)));
+}
+
+async function searchOrders(customerId: string, mark: string, strictSearch = false): Promise<SearchCandidate[]> {
   const baseUrl = getBaseUrl();
 
   async function runSearch(
@@ -239,12 +245,20 @@ async function searchOrders(customerId: string, mark: string): Promise<SearchCan
       console.log("MCLEOD_SEARCH_BODY", text);
 
       if (!res.ok) {
+        if (strictSearch) throw new Error(`McLeod order search failed (${res.status}); cannot classify outside carrier`);
         console.warn("MCLEOD_SEARCH_ERROR", res.status, text);
         continue;
       }
 
       const parsed = text ? JSON.parse(text) : [];
-      results.push(...parseSearchRows(parsed));
+      if (strictSearch && (!text || !isRecognizedSearchResponse(parsed))) {
+        throw new Error("McLeod order search returned an unexpected response; cannot classify outside carrier");
+      }
+      const found = parseSearchRows(parsed);
+      if (strictSearch && found.length >= 200) {
+        throw new Error("McLeod order search reached its result limit; cannot classify outside carrier");
+      }
+      results.push(...found);
     }
 
     return results;
@@ -266,7 +280,7 @@ async function searchOrders(customerId: string, mark: string): Promise<SearchCan
   return Array.from(deduped.values());
 }
 
-async function searchOrdersByCustomer(customerId: string): Promise<SearchCandidate[]> {
+async function searchOrdersByCustomer(customerId: string, strictSearch = false): Promise<SearchCandidate[]> {
   if (!customerId || !customerId.trim()) {
     return [];
   }
@@ -294,12 +308,19 @@ async function searchOrdersByCustomer(customerId: string): Promise<SearchCandida
   console.log("MCLEOD_CUSTOMER_BATCH_BODY", text);
 
   if (!res.ok) {
+    if (strictSearch) throw new Error(`McLeod customer search failed (${res.status}); cannot classify outside carrier`);
     console.warn("MCLEOD_CUSTOMER_BATCH_ERROR", res.status, text);
     return [];
   }
 
   const parsed = text ? JSON.parse(text) : [];
+  if (strictSearch && (!text || !isRecognizedSearchResponse(parsed))) {
+    throw new Error("McLeod customer search returned an unexpected response; cannot classify outside carrier");
+  }
   const rows = parseSearchRows(parsed);
+  if (strictSearch && rows.length >= 500) {
+    throw new Error("McLeod customer search reached its result limit; cannot classify outside carrier");
+  }
 
   const deduped = new Map<string, SearchCandidate>();
 
@@ -352,7 +373,7 @@ function buildProposed(candidate: SearchCandidate | null) {
   };
 }
 
-export async function buildPreview(rows: InboundExcelRow[]): Promise<PreviewResult[]> {
+export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean } = {}): Promise<PreviewResult[]> {
   console.log("BUILD_PREVIEW_LOADED", BUILD_PREVIEW_VERSION);
 
   const results: PreviewResult[] = [];
@@ -387,13 +408,14 @@ export async function buildPreview(rows: InboundExcelRow[]): Promise<PreviewResu
 
     const primaryCandidates = await searchOrders(
       resolvedCustomer.customerId,
-      targetMark
+      targetMark,
+      options.strictSearch
     );
 
     let globalCandidates: SearchCandidate[] = [];
     if (primaryCandidates.length === 0) {
       console.log("FALLBACK_SEARCH_TRIGGERED", targetMark);
-      globalCandidates = await searchOrders("", targetMark);
+      globalCandidates = await searchOrders("", targetMark, options.strictSearch);
     }
 
     let allCandidates =
@@ -402,6 +424,17 @@ export async function buildPreview(rows: InboundExcelRow[]): Promise<PreviewResu
     let enriched = enrichCandidates(allCandidates, targetMark, targetBales);
     let exactMarkCandidates = enriched.filter((c) => c.exactMark);
 
+    // A customer-filtered search can return partial mark hits. Before calling
+    // the row outside-carrier, also inspect exact marks across all customers.
+    if (options.strictSearch && exactMarkCandidates.length === 0 && primaryCandidates.length > 0) {
+      globalCandidates = await searchOrders("", targetMark, true);
+      const combined = new Map([...primaryCandidates, ...globalCandidates]
+        .map((candidate) => [candidate.orderId, candidate]));
+      allCandidates = Array.from(combined.values());
+      enriched = enrichCandidates(allCandidates, targetMark, targetBales);
+      exactMarkCandidates = enriched.filter((c) => c.exactMark);
+    }
+
     if (exactMarkCandidates.length === 0) {
       console.log("CUSTOMER_BATCH_FALLBACK_TRIGGERED", {
         customerId: resolvedCustomer.customerId,
@@ -409,7 +442,8 @@ export async function buildPreview(rows: InboundExcelRow[]): Promise<PreviewResu
       });
 
       const batchCandidates = await searchOrdersByCustomer(
-        resolvedCustomer.customerId
+        resolvedCustomer.customerId,
+        options.strictSearch
       );
 
       if (batchCandidates.length > 0) {

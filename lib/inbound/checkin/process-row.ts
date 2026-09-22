@@ -68,9 +68,12 @@ export async function processCheckinRow(req: NextRequest, id: string) {
     const live = process.env.MCLEOD_SYNC_ENABLED === "true";
     const completed = response.ok && result.ok === true && live &&
       result.mode !== "safe" && result.mcleodResponse?.ok !== false;
+    const outsideCarrier = response.ok && result.ok === true &&
+      result.skipped === true && result.outsideCarrier === true &&
+      !result.matchedOrderId;
     const skipped = response.ok && result.skipped === true;
-    const status = completed || skipped ? "processed" : "failed";
-    const message = completed || skipped
+    const status = outsideCarrier ? "outside_carrier" : completed || skipped ? "processed" : "failed";
+    const message = outsideCarrier || completed || skipped
       ? null
       : !live || result.mode === "safe"
       ? "McLeod sync is in preview mode. No delivery was posted."
@@ -78,7 +81,8 @@ export async function processCheckinRow(req: NextRequest, id: string) {
     const { data, error } = await sb.from("inbound_checkin_rows")
       .update({
         draft_status: status,
-        processed_at: status === "processed" ? new Date().toISOString() : null,
+        processed_at: status === "processed" || status === "outside_carrier"
+          ? new Date().toISOString() : null,
         processing_error: message,
         matched_order_id: result.matchedOrderId ? String(result.matchedOrderId) : null,
       })

@@ -32,7 +32,7 @@ type CheckinRow = {
   verified: boolean;
   comment_1: string | null;
   comment_2: string | null;
-  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "failed";
+  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed";
   processed_at: string | null;
   processing_error?: string | null;
   matched_order_id?: string | null;
@@ -97,6 +97,10 @@ function rowTone(row: CheckinRow): React.CSSProperties {
     return { background: "rgba(16,185,129,0.03)" };
   }
 
+  if (row.draft_status === "outside_carrier") {
+    return { background: "rgba(168,85,247,0.07)" };
+  }
+
   if (row.draft_status === "failed") return { background: "rgba(239,68,68,0.06)" };
 
   return {};
@@ -111,6 +115,8 @@ function rowDotStyle(row: CheckinRow): React.CSSProperties {
     background:
       row.draft_status === "processed"
         ? "#3b82f6"
+        : row.draft_status === "outside_carrier"
+        ? "#a855f7"
         : row.draft_status === "failed"
         ? "#ef4444"
         : row.draft_status === "processing"
@@ -129,6 +135,11 @@ function rowDotStyle(row: CheckinRow): React.CSSProperties {
 
 function willProcess(row: CheckinRow) {
   return isReadyCheckin(row);
+}
+
+function isClosedRow(row: CheckinRow) {
+  return row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
+    row.draft_status === "processing";
 }
 
 function formatArrivalTime(row: CheckinRow): string {
@@ -361,7 +372,7 @@ export default function SiteCheckinPage() {
   }
 
   async function saveRowSnapshot(row: CheckinRow) {
-    if (!row || row.id.startsWith("local-") || row.draft_status === "processed" || row.draft_status === "processing") return;
+    if (!row || row.id.startsWith("local-") || isClosedRow(row)) return;
     if (willProcess(row) &&
         (document.activeElement?.getAttribute("data-checkin-identity") === row.id ||
          document.activeElement?.getAttribute("data-checkin-location") === row.id)) return;
@@ -414,7 +425,7 @@ export default function SiteCheckinPage() {
       const savedRow = data.row as CheckinRow;
       const changedDuringSave = (editRevisionRef.current[row.id] ?? 0) !== revision;
       const current = rowsRef.current.find((item) => item.id === row.id);
-      const displayRow = changedDuringSave && current && savedRow.draft_status !== "processed"
+      const displayRow = changedDuringSave && current && !isClosedRow(savedRow)
         ? { ...savedRow, ...current, draft_status: savedRow.draft_status,
             updated_at: savedRow.updated_at, last_saved_at: savedRow.last_saved_at,
             checked_in_at: savedRow.checked_in_at,
@@ -423,7 +434,7 @@ export default function SiteCheckinPage() {
         : { ...savedRow, client_id: current?.client_id };
       rowsRef.current = rowsRef.current.map((item) => item.id === row.id ? displayRow : item);
       setRows((prev) => prev.map((item) => item.id === row.id ? displayRow : item));
-      if (changedDuringSave && savedRow.draft_status !== "processed") {
+      if (changedDuringSave && !isClosedRow(savedRow)) {
         pendingSaveRef.current.add(row.id);
       }
       delete saveTimersRef.current[row.id];
@@ -446,7 +457,7 @@ export default function SiteCheckinPage() {
       saveInFlightRef.current.delete(row.id);
       if (pendingSaveRef.current.delete(row.id)) {
         const latest = rowsRef.current.find((item) => item.id === row.id);
-        if (latest && latest.draft_status !== "processed" && latest.draft_status !== "processing") {
+        if (latest && !isClosedRow(latest)) {
           void saveRowSnapshot(latest);
         }
       }
@@ -597,6 +608,7 @@ export default function SiteCheckinPage() {
     const headers = [
       "Received Date",
       "Arrival Time",
+      "SCM Order #",
       "Mark",
       "Customer",
       "BOL B/C",
@@ -615,6 +627,7 @@ export default function SiteCheckinPage() {
         [
           sanitizeCell(row.received_date),
           sanitizeCell(formatArrivalTime(row)),
+          sanitizeCell(row.matched_order_id),
           sanitizeCell(row.mark),
           sanitizeCell(row.shipper),
           sanitizeCell(row.bol_bc),
@@ -639,6 +652,7 @@ export default function SiteCheckinPage() {
 
   const readyCount = rows.filter((row) => row.draft_status === "ready").length;
   const processedCount = rows.filter((row) => row.draft_status === "processed").length;
+  const outsideCount = rows.filter((row) => row.draft_status === "outside_carrier").length;
   const waitingCount = rows.filter((row) => row.draft_status === "checked_in").length;
   const failedCount = rows.filter((row) => row.draft_status === "failed").length;
 
@@ -699,6 +713,7 @@ export default function SiteCheckinPage() {
           <StatCard label="Waiting for location/details" value={waitingCount} />
           <StatCard label="Ready" value={readyCount} tone="success" />
           <StatCard label="Processed" value={processedCount} tone="info" />
+          <StatCard label="Outside carrier" value={outsideCount} />
           <StatCard label="Needs attention" value={failedCount} />
           <StatCard label="Sub-Locations" value={site.subLocations.join(", ")} />
         </div>
@@ -706,12 +721,13 @@ export default function SiteCheckinPage() {
 
       <PlatformPanel>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: "100%", minWidth: 1740, borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: 1820, borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
                 <th style={thStyle}>Received Date *</th>
                 <th style={thStyle}>Arrival Time</th>
+                <th style={thStyle}>SCM Order #</th>
                 <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
                 <th style={thStyle}>BOL B/C *</th>
@@ -749,7 +765,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "received_date")}
                         ref={(el) => registerCellRef(index, "received_date", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -762,6 +778,14 @@ export default function SiteCheckinPage() {
                           </small> : null}
                         </>
                       ) : ""}
+                    </td>
+
+                    <td style={tdStyle}>
+                      {row.matched_order_id
+                        ? row.draft_status === "failed"
+                          ? `Possible: ${row.matched_order_id}`
+                          : row.matched_order_id
+                        : ""}
                     </td>
 
                     <td style={tdStyle}>
@@ -784,7 +808,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "mark", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -808,7 +832,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "shipper", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                         placeholder="Start typing customer..."
                       />
                     </td>
@@ -836,7 +860,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "bol_bc", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -857,7 +881,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "bale_count")}
                         ref={(el) => registerCellRef(index, "bale_count", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -875,7 +899,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "equipment_type")}
                         ref={(el) => registerCellRef(index, "equipment_type", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       >
                         <option value="">Select</option>
                         <option value="V">V</option>
@@ -897,7 +921,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "sub_location")}
                         ref={(el) => registerCellRef(index, "sub_location", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       >
                         {site.subLocations.map((sub) => (
                           <option key={sub} value={sub}>
@@ -920,7 +944,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "comment_1")}
                         ref={(el) => registerCellRef(index, "comment_1", el)}
                         style={cellTextareaStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -937,7 +961,7 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "comment_2")}
                         ref={(el) => registerCellRef(index, "comment_2", el)}
                         style={cellTextareaStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -961,7 +985,7 @@ export default function SiteCheckinPage() {
                         }}
                         ref={(el) => registerCellRef(index, "warehouse_location", el)}
                         style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                        disabled={isClosedRow(row)}
                       />
                     </td>
 
@@ -983,7 +1007,7 @@ export default function SiteCheckinPage() {
                         type="button"
                         onClick={() => void deleteRow(row.id)}
                         style={deleteButtonStyle}
-                        disabled={row.draft_status === "processing" || row.draft_status === "processed"}
+                        disabled={isClosedRow(row)}
                       >
                         Delete
                       </button>
@@ -1004,7 +1028,7 @@ export default function SiteCheckinPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={14} style={emptyStateStyle}>
+                  <td colSpan={15} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
                       : "No check-ins yet. Add a blank line to check in a driver."}

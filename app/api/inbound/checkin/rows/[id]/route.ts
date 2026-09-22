@@ -71,7 +71,7 @@ type CheckinRow = {
   verified: boolean;
   comment_1: string | null;
   comment_2: string | null;
-  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "failed";
+  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed";
   processed_at: string | null;
 };
 
@@ -97,7 +97,7 @@ export async function PATCH(
       );
     }
 
-    if (existing.draft_status === "processed" || existing.draft_status === "processing") {
+    if (["processed", "outside_carrier", "processing"].includes(existing.draft_status)) {
       return NextResponse.json(
         { ok: false, error: "This row is processing or already processed" },
         { status: 409 }
