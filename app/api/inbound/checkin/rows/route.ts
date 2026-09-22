@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { data, error } = await query
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
     if (error) {
       return NextResponse.json(
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
       bale_count: positiveInteger(body?.baleCount),
       warehouse_location: cleanText(body?.warehouseLocation).toUpperCase() || null,
       equipment_type: defaultEquipment,
-      verified: body?.verified === true,
+      verified: false,
       comment_1: cleanText(body?.comment1) || null,
       comment_2: cleanText(body?.comment2) || null,
       draft_status: "checked_in" as const,

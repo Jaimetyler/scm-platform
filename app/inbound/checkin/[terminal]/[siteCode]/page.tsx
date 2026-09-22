@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
+import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 
 type CheckinRow = {
@@ -50,12 +51,11 @@ type ColumnKey =
   | "shipper"
   | "bol_bc"
   | "bale_count"
-  | "warehouse_location"
   | "equipment_type"
   | "sub_location"
-  | "verified"
   | "comment_1"
-  | "comment_2";
+  | "comment_2"
+  | "warehouse_location";
 
 const COLUMN_ORDER: ColumnKey[] = [
   "received_date",
@@ -63,12 +63,11 @@ const COLUMN_ORDER: ColumnKey[] = [
   "shipper",
   "bol_bc",
   "bale_count",
-  "warehouse_location",
   "equipment_type",
   "sub_location",
-  "verified",
   "comment_1",
   "comment_2",
+  "warehouse_location",
 ];
 
 function createEmptyUiState(): RowUiState {
@@ -129,9 +128,7 @@ function rowDotStyle(row: CheckinRow): React.CSSProperties {
 }
 
 function willProcess(row: CheckinRow) {
-  return Boolean(row.received_date && row.mark?.trim() && row.shipper?.trim() &&
-    row.bol_bc && row.bale_count && row.warehouse_location?.trim() &&
-    row.equipment_type && row.verified);
+  return isReadyCheckin(row);
 }
 
 function formatArrivalTime(row: CheckinRow): string {
@@ -142,6 +139,13 @@ function formatArrivalTime(row: CheckinRow): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function orderCheckinRows(rows: CheckinRow[]): CheckinRow[] {
+  const saved = rows.filter((row) => !row.id.startsWith("local-"));
+  const blank = rows.filter((row) => row.id.startsWith("local-"));
+  saved.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return [...saved, ...blank];
 }
 
 export default function SiteCheckinPage() {
@@ -307,7 +311,7 @@ export default function SiteCheckinPage() {
           (row.id === focusedId || saveTimersRef.current[row.id] ||
             rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error")
         ).map((row) => [row.id, row]));
-        return [...nextRows.map((row) => active.get(row.id) ?? row), ...pending];
+        return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending]);
       });
 
       const nextUi: Record<string, RowUiState> = {};
@@ -358,6 +362,9 @@ export default function SiteCheckinPage() {
 
   async function saveRowSnapshot(row: CheckinRow) {
     if (!row || row.id.startsWith("local-") || row.draft_status === "processed" || row.draft_status === "processing") return;
+    if (willProcess(row) &&
+        (document.activeElement?.getAttribute("data-checkin-identity") === row.id ||
+         document.activeElement?.getAttribute("data-checkin-location") === row.id)) return;
     if (saveInFlightRef.current.has(row.id)) {
       pendingSaveRef.current.add(row.id);
       return;
@@ -393,7 +400,6 @@ export default function SiteCheckinPage() {
           baleCount: row.bale_count,
           warehouseLocation: row.warehouse_location,
           equipmentType: row.equipment_type,
-          verified: row.verified,
           comment1: row.comment_1,
           comment2: row.comment_2,
         }),
@@ -457,10 +463,12 @@ export default function SiteCheckinPage() {
       delete saveTimersRef.current[row.id];
       const latest = rowsRef.current.find((item) => item.id === row.id);
       if (!latest) return;
-      // Once a row has been verified, wait for the editor to leave an identity
-      // field before a corrected value can initiate McLeod processing.
-      if (latest.verified &&
+      // A complete row processes automatically, so wait until the editor
+      // leaves fields that may still contain a partial value.
+      if (willProcess(latest) &&
           document.activeElement?.getAttribute("data-checkin-identity") === row.id) return;
+      if (latest.warehouse_location &&
+          document.activeElement?.getAttribute("data-checkin-location") === row.id) return;
       if (!latest.checked_in_at &&
           document.activeElement?.getAttribute("data-checkin-bol") === row.id) return;
       if (latest.id.startsWith("local-")) {
@@ -474,7 +482,7 @@ export default function SiteCheckinPage() {
   function addRows(count: number) {
     if (!site) return;
     const newRows: CheckinRow[] = Array.from({ length: count }, () => blankRow());
-    setRows((prev) => [...newRows, ...prev]);
+    setRows((prev) => [...prev, ...newRows]);
   }
 
   async function checkIn(row: CheckinRow) {
@@ -490,7 +498,7 @@ export default function SiteCheckinPage() {
           subLocation: row.sub_location, receivedDate: row.received_date,
           mark: row.mark, shipper: row.shipper, bolBC: row.bol_bc,
           baleCount: row.bale_count, warehouseLocation: row.warehouse_location,
-          equipmentType: row.equipment_type, verified: row.verified,
+          equipmentType: row.equipment_type,
           comment1: row.comment_1, comment2: row.comment_2,
         }),
       });
@@ -509,16 +517,16 @@ export default function SiteCheckinPage() {
       const newBlank = blankRow();
       editRevisionRef.current[data.row.id] = editRevisionRef.current[row.id] ?? 0;
       delete editRevisionRef.current[row.id];
-      rowsRef.current = [...rowsRef.current.map((item) => item.id === row.id ? saved : item), newBlank];
-      setRows((prev) => [...prev.map((item) => item.id === row.id ? saved : item), newBlank]);
+      rowsRef.current = orderCheckinRows([...rowsRef.current.map((item) => item.id === row.id ? saved : item), newBlank]);
+      setRows((prev) => orderCheckinRows([...prev.map((item) => item.id === row.id ? saved : item), newBlank]));
       setRowUi((prev) => {
         const next = { ...prev };
         delete next[row.id];
         next[data.row.id] = createEmptyUiState();
         return next;
       });
-      if (latest !== row || saved.warehouse_location || saved.verified) {
-        void saveRowSnapshot(saved);
+      if (latest !== row || saved.warehouse_location) {
+        queueSaveRow(saved);
       }
     } catch (error) {
       setRowUiState(row.id, { saveState: "error", message: error instanceof Error ? error.message : "Check-in failed" });
@@ -593,12 +601,11 @@ export default function SiteCheckinPage() {
       "Customer",
       "BOL B/C",
       "Bales",
-      "Warehouse Location",
       "Equipment",
       "Sub-Location",
-      "Verified",
       "Comment 1",
       "Comment 2",
+      "Warehouse Location",
       "Status",
     ];
 
@@ -612,12 +619,11 @@ export default function SiteCheckinPage() {
           sanitizeCell(row.shipper),
           sanitizeCell(row.bol_bc),
           sanitizeCell(row.bale_count),
-          sanitizeCell(row.warehouse_location),
           sanitizeCell(row.equipment_type),
           sanitizeCell(row.sub_location),
-          row.verified ? "YES" : "NO",
           sanitizeCell(row.comment_1),
           sanitizeCell(row.comment_2),
+          sanitizeCell(row.warehouse_location),
           sanitizeCell(row.draft_status),
         ].join("\t")
       ),
@@ -656,7 +662,7 @@ export default function SiteCheckinPage() {
     <main style={{ maxWidth: "100%", padding: "0 16px" }}>
       <PlatformPageHeader
         title={`${site.siteName} Check-In`}
-        subtitle="Fill in the grid. A row appears to everyone once it has a mark and customer. Add its location and verify it to process in McLeod."
+        subtitle="Fill in the grid. A row appears to everyone once it has a mark and customer. When all required details and the warehouse location are entered, it processes automatically."
         actions={
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Link href="/inbound/checkin" style={linkButtonStyle}>
@@ -710,12 +716,11 @@ export default function SiteCheckinPage() {
                 <th style={thStyle}>Customer *</th>
                 <th style={thStyle}>BOL B/C *</th>
                 <th style={thStyle}>Bales *</th>
-                <th style={thStyle}>Warehouse Location *</th>
                 <th style={thStyle}>Equipment *</th>
                 <th style={thStyle}>Sub-Location *</th>
-                <th style={thStyle}>Verified *</th>
                 <th style={thStyle}>Comment 1</th>
                 <th style={thStyle}>Comment 2</th>
+                <th style={thStyle}>Warehouse Location * (final)</th>
                 <th style={thStyle}>Actions</th>
                 <th style={statusDotHeaderStyle}></th>
               </tr>
@@ -857,25 +862,6 @@ export default function SiteCheckinPage() {
                     </td>
 
                     <td style={tdStyle}>
-                      <input
-                        type="text"
-                        value={row.warehouse_location ?? ""}
-                        onChange={(e) => {
-                          const value = e.target.value.toUpperCase();
-                          const updated = applyRowUpdate(row.id, (current) => ({
-                            ...current,
-                            warehouse_location: value,
-                          }));
-                          if (updated) queueSaveRow(updated);
-                        }}
-                        onKeyDown={(e) => handleGridKeyDown(e, index, "warehouse_location")}
-                        ref={(el) => registerCellRef(index, "warehouse_location", el)}
-                        style={cellInputStyle}
-                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
-                      />
-                    </td>
-
-                    <td style={tdStyle}>
                       <select
                         value={row.equipment_type ?? (row.terminal === "SAV" ? "V" : "")}
                         onChange={(e) => {
@@ -922,27 +908,6 @@ export default function SiteCheckinPage() {
                     </td>
 
                     <td style={tdStyle}>
-                      <label style={checkboxWrapStyle}>
-                        <input
-                          type="checkbox"
-                          checked={row.verified}
-                          onChange={(e) => {
-                            const value = e.target.checked;
-                            const updated = applyRowUpdate(row.id, (current) => ({
-                              ...current,
-                              verified: value,
-                            }));
-                            if (updated) queueSaveRow(updated);
-                          }}
-                          onKeyDown={(e) => handleGridKeyDown(e, index, "verified")}
-                          ref={(el) => registerCellRef(index, "verified", el)}
-                          disabled={row.draft_status === "processed" || row.draft_status === "processing"}
-                        />
-                        <span>Verified</span>
-                      </label>
-                    </td>
-
-                    <td style={tdStyle}>
                       <textarea
                         value={row.comment_1 ?? ""}
                         onChange={(e) => {
@@ -972,6 +937,30 @@ export default function SiteCheckinPage() {
                         onKeyDown={(e) => handleGridKeyDown(e, index, "comment_2")}
                         ref={(el) => registerCellRef(index, "comment_2", el)}
                         style={cellTextareaStyle}
+                        disabled={row.draft_status === "processed" || row.draft_status === "processing"}
+                      />
+                    </td>
+
+                    <td style={tdStyle}>
+                      <input
+                        type="text"
+                        data-checkin-location={row.id}
+                        value={row.warehouse_location ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value.toUpperCase();
+                          const updated = applyRowUpdate(row.id, (current) => ({
+                            ...current,
+                            warehouse_location: value,
+                          }));
+                          if (updated) queueSaveRow(updated);
+                        }}
+                        onKeyDown={(e) => handleGridKeyDown(e, index, "warehouse_location")}
+                        onBlur={() => {
+                          const latest = rowsRef.current.find((item) => item.id === row.id);
+                          if (latest) queueSaveRow(latest);
+                        }}
+                        ref={(el) => registerCellRef(index, "warehouse_location", el)}
+                        style={cellInputStyle}
                         disabled={row.draft_status === "processed" || row.draft_status === "processing"}
                       />
                     </td>
@@ -1015,7 +1004,7 @@ export default function SiteCheckinPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={15} style={emptyStateStyle}>
+                  <td colSpan={14} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
                       : "No check-ins yet. Add a blank line to check in a driver."}
@@ -1195,15 +1184,6 @@ const cellTextareaStyle: React.CSSProperties = {
   color: "#e2e8f0",
   fontSize: 12,
   resize: "vertical",
-};
-
-const checkboxWrapStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 8,
-  color: "#e2e8f0",
-  fontSize: 13,
-  fontWeight: 700,
 };
 
 const emptyStateStyle: React.CSSProperties = {

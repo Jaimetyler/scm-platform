@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
+import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
 
 export const runtime = "nodejs";
 
@@ -52,36 +53,6 @@ function normalizePositiveInteger(value: unknown): number | null {
 function normalizeDate(value: unknown): string | null {
   const raw = cleanText(value);
   return raw || null;
-}
-
-function isReadyRow(row: {
-  terminal?: string | null;
-  site_code?: string | null;
-  site_name?: string | null;
-  sub_location?: string | null;
-  received_date?: string | null;
-  mark?: string | null;
-  shipper?: string | null;
-  bale_count?: number | null;
-  bol_bc?: number | null;
-  warehouse_location?: string | null;
-  equipment_type?: string | null;
-  verified?: boolean | null;
-}) {
-  return Boolean(
-    cleanText(row.terminal) &&
-      cleanText(row.site_code) &&
-      cleanText(row.site_name) &&
-      cleanText(row.sub_location) &&
-      cleanText(row.received_date) &&
-      cleanText(row.mark) &&
-      cleanText(row.shipper) &&
-      Number(row.bol_bc ?? 0) > 0 &&
-      Number(row.bale_count ?? 0) > 0 &&
-      cleanText(row.warehouse_location) &&
-      cleanText(row.equipment_type) &&
-      row.verified === true
-  );
 }
 
 type CheckinRow = {
@@ -155,8 +126,7 @@ export async function PATCH(
       equipment_type: normalizeEquipmentType(
         body?.equipmentType !== undefined ? body.equipmentType : existing.equipment_type
       ),
-      verified:
-        typeof body?.verified === "boolean" ? body.verified : Boolean(existing.verified),
+      verified: Boolean(existing.verified),
       comment_1: cleanText(body?.comment1 ?? existing.comment_1) || null,
       comment_2: cleanText(body?.comment2 ?? existing.comment_2) || null,
       draft_status: existing.draft_status,
@@ -164,7 +134,8 @@ export async function PATCH(
       id: existing.id,
     };
 
-    const draft_status = isReadyRow(merged) ? "ready" : "checked_in";
+    const draft_status = isReadyCheckin(merged) ? "ready" : "checked_in";
+    merged.verified = draft_status === "ready";
     const identityCorrected = Boolean(existing.checked_in_at) && (
       existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
       existing.bol_bc !== merged.bol_bc
