@@ -63,6 +63,7 @@ function isReadyRow(row: {
   mark?: string | null;
   shipper?: string | null;
   bale_count?: number | null;
+  bol_bc?: number | null;
   warehouse_location?: string | null;
   equipment_type?: string | null;
   verified?: boolean | null;
@@ -75,6 +76,7 @@ function isReadyRow(row: {
       cleanText(row.received_date) &&
       cleanText(row.mark) &&
       cleanText(row.shipper) &&
+      Number(row.bol_bc ?? 0) > 0 &&
       Number(row.bale_count ?? 0) > 0 &&
       cleanText(row.warehouse_location) &&
       cleanText(row.equipment_type) &&
@@ -130,6 +132,12 @@ export async function PATCH(
         { status: 409 }
       );
     }
+    if (body?.expectedUpdatedAt && body.expectedUpdatedAt !== existing.updated_at) {
+      return NextResponse.json(
+        { ok: false, error: "This row was changed in another browser. Reload to review it." },
+        { status: 409 }
+      );
+    }
 
     const merged: CheckinRow = {
       ...(existing as CheckinRow),
@@ -157,6 +165,24 @@ export async function PATCH(
     };
 
     const draft_status = isReadyRow(merged) ? "ready" : "checked_in";
+    const identityCorrected = Boolean(existing.checked_in_at) && (
+      existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
+      existing.bol_bc !== merged.bol_bc
+    );
+    const correctedAfterFailure = existing.draft_status === "failed" && (
+      existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
+      existing.bale_count !== merged.bale_count ||
+      existing.warehouse_location !== merged.warehouse_location ||
+      existing.equipment_type !== merged.equipment_type ||
+      existing.received_date !== merged.received_date
+    );
+    const verified_at = draft_status === "ready"
+      ? !correctedAfterFailure && existing.verified_at
+        ? existing.verified_at
+        : new Date().toISOString()
+      : null;
+    const checked_in_at = existing.checked_in_at ??
+      (merged.mark && merged.shipper && merged.bol_bc ? new Date().toISOString() : null);
 
     const updatePayload = {
       terminal: merged.terminal,
@@ -174,6 +200,9 @@ export async function PATCH(
       comment_1: merged.comment_1,
       comment_2: merged.comment_2,
       draft_status,
+      checked_in_at,
+      verified_at,
+      identity_corrected_at: identityCorrected ? new Date().toISOString() : existing.identity_corrected_at,
       processing_error: null,
     };
 
@@ -181,6 +210,7 @@ export async function PATCH(
       .from("inbound_checkin_rows")
       .update(updatePayload)
       .eq("id", id)
+      .eq("updated_at", existing.updated_at)
       .in("draft_status", ["draft", "checked_in", "ready", "failed"])
       .select("*")
       .maybeSingle();

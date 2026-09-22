@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
+import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
 
 export const runtime = "nodejs";
 
@@ -396,6 +397,56 @@ export async function POST(req: NextRequest) {
 
     const pickupHas = hasActuals(pickup);
     const deliveryHas = hasActuals(delivery);
+
+    if (row.source === "live_checkin") {
+      const arrival = new Date(row.checkedInAt ?? "");
+      const departure = new Date(row.verifiedAt ?? "");
+      if (Number.isNaN(arrival.getTime()) || Number.isNaN(departure.getTime()) ||
+          departure.getTime() < arrival.getTime() ||
+          (row.terminal !== "SAV" && row.terminal !== "HOU")) {
+        return validationFailure({
+          error: "Invalid check-in or verification time - blocked delivery",
+          reason: "INVALID_CHECKIN_TIME", matchedOrderId: preview.matchedOrderId,
+        });
+      }
+      if (!pickupHas) {
+        return validationFailure({
+          error: "Pickup has no actual arrival/departure. Review it in McLeod before completing delivery.",
+          reason: "PICKUP_ACTUALS_MISSING", matchedOrderId: preview.matchedOrderId,
+        });
+      }
+
+      const deliveryArrival = formatWarehouseTime(arrival, row.terminal);
+      const deliveryDeparture = formatWarehouseTime(departure, row.terminal);
+      const plannedActions = {
+        pickup: { skipped: true, reason: "Pickup already has actuals", stopId: pickup.id },
+        delivery: deliveryHas
+          ? { skipped: true, reason: "Delivery already has actuals", stopId: delivery.id }
+          : { skipped: false, stopId: delivery.id, arrivalDate: deliveryArrival, departureDate: deliveryDeparture },
+      };
+
+      if (!isSyncEnabled()) {
+        return NextResponse.json({
+          ok: true, mode: "safe", matchedOrderId: preview.matchedOrderId,
+          movementId: movement.id, plannedActions, row,
+        });
+      }
+      if (deliveryHas) {
+        return NextResponse.json({
+          ok: true, skipped: true, reason: "Delivery already has actuals",
+          matchedOrderId: preview.matchedOrderId, plannedActions,
+        });
+      }
+
+      const deliveryRes = await clearCarrierStop(delivery.id, deliveryArrival, deliveryDeparture);
+      return NextResponse.json({
+        ok: deliveryRes.ok,
+        error: deliveryRes.ok ? undefined : "Failed to clear delivery stop",
+        reason: deliveryRes.ok ? undefined : "DELIVERY_CLEAR_STOP_FAILED",
+        matchedOrderId: preview.matchedOrderId, movementId: movement.id,
+        plannedActions, mcleodResponse: { ok: deliveryRes.ok, delivery: deliveryRes },
+      });
+    }
 
     const baseDate = getBaseDateFromRow(row);
     const times = buildEventTimes(baseDate);

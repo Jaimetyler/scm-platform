@@ -183,6 +183,7 @@ export async function POST(req: NextRequest) {
       comment_2: cleanText(body?.comment2) || null,
       draft_status: "checked_in" as const,
       processed_at: null,
+      checked_in_at: positiveInteger(body?.bolBC) ? new Date().toISOString() : null,
     };
 
     const { data, error } = await sb

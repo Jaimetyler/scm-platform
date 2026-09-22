@@ -3,6 +3,9 @@ import { NextRequest } from "next/server";
 
 type Row = {
   id: string;
+  created_at: string;
+  checked_in_at: string | null;
+  verified_at: string | null;
   terminal: string;
   site_code: string;
   sub_location: string;
@@ -54,6 +57,9 @@ export async function processCheckinRow(req: NextRequest, id: string) {
           sourceSheet: row.sub_location,
           terminal: row.terminal,
           equipmentType: row.equipment_type,
+          source: "live_checkin",
+          checkedInAt: row.checked_in_at,
+          verifiedAt: row.verified_at,
         },
       }),
       cache: "no-store",

@@ -6,6 +6,10 @@ export type InboundExcelRow = {
   balesUnloaded?: number | null;
   location?: string | null;
   sourceSheet?: string | null;
+  source?: "live_checkin";
+  checkedInAt?: string | null;
+  verifiedAt?: string | null;
+  terminal?: "SAV" | "HOU";
 };
 
 export type CustomerXrefRow = {
