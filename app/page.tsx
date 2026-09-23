@@ -108,6 +108,13 @@ export default function Home() {
           <div style={cardDesc}>Review inbound cotton records</div>
         </Link>
 
+        <Link href="/warehouse/inventory" style={cardStylePrimary}>
+          <div style={cardTitle}>Warehouse Inventory</div>
+          <div style={cardDesc}>
+            Review marks, bale balances, locations, and booking allocations
+          </div>
+        </Link>
+
         <Link href="/late-fees" style={cardStyle}>
           <div style={cardTitle}>Late Fees</div>
           <div style={cardDesc}>Review late fee candidates and totals</div>

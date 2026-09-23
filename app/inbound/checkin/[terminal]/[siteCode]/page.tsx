@@ -779,6 +779,10 @@ export default function SiteCheckinPage() {
               View History
             </Link>
 
+            <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={linkButtonStyle}>
+              View Inventory
+            </Link>
+
             <button
               type="button"
               onClick={() => void handleCopyTable()}
