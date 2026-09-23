@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string };
 
 type FormState = {
+  checkinType: string;
   driverName: string;
   driverPhone: string;
   movementDirection: string;
@@ -17,7 +18,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  driverName: "", driverPhone: "", movementDirection: "", materialType: "",
+  checkinType: "", driverName: "", driverPhone: "", movementDirection: "", materialType: "",
   referenceNumber: "", destination: "", mark: "", bolBaleCount: "",
 };
 
@@ -76,6 +77,7 @@ export default function DriverCheckinPage() {
   const [bolPhoto, setBolPhoto] = useState<File | null>(null);
   const [photoSaved, setPhotoSaved] = useState(false);
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [clientId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
@@ -107,9 +109,10 @@ export default function DriverCheckinPage() {
     setError("");
     try {
       const position = await currentPosition();
-      const preparedPhoto = bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
+      const preparedPhoto = form.checkinType === "domestic" && bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
       const request = new FormData();
       request.set("clientId", clientId);
+      request.set("checkinType", form.checkinType);
       request.set("driverName", form.driverName);
       request.set("driverPhone", form.driverPhone);
       request.set("movementDirection", form.movementDirection);
@@ -129,6 +132,7 @@ export default function DriverCheckinPage() {
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
+      setQueuePosition(result.queue === true ? Number(result.position) : null);
       setPhotoSaved(result.photoSaved === true);
       setPhotoFailed(Boolean(bolPhoto) && result.photoSaved !== true);
       setComplete(true);
@@ -153,8 +157,11 @@ export default function DriverCheckinPage() {
     <main style={shellStyle}>
       <div style={{ ...cardStyle, textAlign: "center" }}>
         <div style={{ fontSize: 54, marginBottom: 12 }}>✓</div>
-        <h1 style={titleStyle}>You’re checked in</h1>
-        <p style={bodyStyle}>Your arrival was sent to {site.siteName}. Warehouse staff can now see your load.</p>
+        <h1 style={titleStyle}>{queuePosition !== null ? "You’re in line" : "You’re checked in"}</h1>
+        {queuePosition !== null ? <>
+          <div style={{ color: "#67e8f9", fontSize: 80, lineHeight: 1, fontWeight: 950, margin: "24px 0 8px" }}>#{queuePosition}</div>
+          <p style={bodyStyle}>Your current place in the container line at {site.siteName}.</p>
+        </> : <p style={bodyStyle}>Your arrival was sent to {site.siteName}. Warehouse staff can now see your load.</p>}
         {photoSaved ? <p style={{ ...bodyStyle, color: "#86efac" }}>Your paperwork photo was attached.</p> : null}
         {photoFailed ? <p style={{ ...bodyStyle, color: "#fbbf24" }}>Your check-in was saved, but the photo did not upload. Keep your paper BOL ready for warehouse staff.</p> : null}
         <p style={{ ...bodyStyle, color: "#67e8f9", fontWeight: 800 }}>Please follow the yard’s instructions and wait for direction.</p>
@@ -167,10 +174,16 @@ export default function DriverCheckinPage() {
       <form onSubmit={submit} style={cardStyle}>
         <div style={badgeStyle}>SCM DRIVER CHECK-IN</div>
         <h1 style={titleStyle}>{site.siteName}</h1>
-        <p style={bodyStyle}>Tell us what you are picking up or delivering. When you submit, your phone will verify that you are at the yard.</p>
+        <p style={bodyStyle}>Choose why you are here. When you submit, your phone will verify that you are at the yard.</p>
 
-        <div style={gridStyle}>
+        <div style={choiceGridStyle}>
+          <Choice selected={form.checkinType === "container"} title="Container / Drayage" detail="Join the driver line" onClick={() => change("checkinType", "container")} />
+          <Choice selected={form.checkinType === "domestic"} title="Domestic Freight" detail="Pickup or delivery" onClick={() => change("checkinType", "domestic")} />
+        </div>
+
+        {form.checkinType ? <div style={gridStyle}>
           <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
+          {form.checkinType === "domestic" ? <>
           <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
           <label style={labelStyle}>Pickup or delivery? *
             <select required value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
@@ -195,25 +208,33 @@ export default function DriverCheckinPage() {
             <Field label="Mark *" value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
             <Field label="Bale count on BOL *" value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
           </> : null}
-        </div>
+          </> : null}
+        </div> : null}
 
-        <label style={labelStyle}>Paperwork photo (optional)
+        {form.checkinType === "domestic" ? <label style={labelStyle}>Paperwork photo (optional)
           <input type="file" accept="image/*" capture="environment"
             onChange={(event) => setBolPhoto(event.target.files?.[0] ?? null)}
             style={fileInputStyle} />
           <small style={{ color: "#64748b", fontWeight: 500 }}>
             {bolPhoto ? bolPhoto.name : "Take a clear photo of the BOL, pickup order, or other paperwork."}
           </small>
-        </label>
+        </label> : null}
 
         {error ? <div role="alert" style={errorBoxStyle}>{error}</div> : null}
-        <button type="submit" disabled={submitting} style={{ ...buttonStyle, opacity: submitting ? .65 : 1 }}>
-          {submitting ? "Verifying location…" : "Verify location & check in"}
-        </button>
+        {form.checkinType ? <button type="submit" disabled={submitting} style={{ ...buttonStyle, opacity: submitting ? .65 : 1 }}>
+          {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
+        </button> : null}
         <p style={privacyStyle}>Your location is used to confirm this check-in at the yard and is saved with the arrival record.</p>
       </form>
     </main>
   );
+}
+
+function Choice({ selected, title, detail, onClick }: { selected: boolean; title: string; detail: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} style={{ ...choiceStyle, borderColor: selected ? "#67e8f9" : "rgba(148,163,184,.3)", background: selected ? "rgba(8,145,178,.18)" : "#0b1220" }}>
+    <strong style={{ fontSize: 17, color: "#f8fafc" }}>{title}</strong>
+    <span style={{ color: "#94a3b8", fontSize: 13 }}>{detail}</span>
+  </button>;
 }
 
 function Field(props: {
@@ -233,6 +254,8 @@ const badgeStyle: React.CSSProperties = { display: "inline-block", padding: "5px
 const titleStyle: React.CSSProperties = { margin: "16px 0 8px", fontSize: "clamp(28px, 8vw, 40px)", lineHeight: 1.05, color: "#f8fafc" };
 const bodyStyle: React.CSSProperties = { color: "#a8b5c8", lineHeight: 1.55, fontSize: 15 };
 const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14, margin: "24px 0 14px" };
+const choiceGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, marginTop: 24 };
+const choiceStyle: React.CSSProperties = { minHeight: 100, padding: 14, borderRadius: 12, border: "1px solid", display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, textAlign: "left", cursor: "pointer" };
 const labelStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 7, color: "#cbd5e1", fontSize: 13, fontWeight: 800 };
 const inputStyle: React.CSSProperties = { width: "100%", minHeight: 48, padding: "11px 12px", borderRadius: 10, border: "1px solid rgba(148,163,184,.3)", background: "#0b1220", color: "#f8fafc", fontSize: 16 };
 const fileInputStyle: React.CSSProperties = { ...inputStyle, padding: "10px", height: "auto" };

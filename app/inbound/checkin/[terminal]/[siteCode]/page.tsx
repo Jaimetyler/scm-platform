@@ -797,6 +797,10 @@ export default function SiteCheckinPage() {
               View Inventory
             </Link>
 
+            <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={linkButtonStyle}>
+              Container Line
+            </Link>
+
             <button
               type="button"
               onClick={() => void handleCopyTable()}

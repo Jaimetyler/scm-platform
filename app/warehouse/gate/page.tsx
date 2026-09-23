@@ -160,6 +160,7 @@ function GateCard({ site, onSaved }: { site: GateSite; onSaved: (site: GateSite)
       </label>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 9, marginTop: 18 }}>
+        <Link href={`/warehouse/gate/${site.terminal.toLowerCase()}/${site.site_code}/containers`} style={primaryButtonStyle}>View container line</Link>
         <button type="button" onClick={useCurrentLocation} style={secondaryButtonStyle}>Use my current location</button>
         <button type="button" onClick={() => void save()} disabled={saving} style={primaryButtonStyle}>{saving ? "Saving…" : "Save settings"}</button>
         <button type="button" onClick={() => void copyLink()} disabled={!gateUrl} style={secondaryButtonStyle}>Copy driver link</button>

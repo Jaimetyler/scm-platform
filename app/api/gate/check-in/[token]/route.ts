@@ -30,6 +30,7 @@ async function requestBody(req: NextRequest) {
     return {
       body: {
         clientId: form.get("clientId"),
+        checkinType: form.get("checkinType"),
         driverName: form.get("driverName"),
         driverPhone: form.get("driverPhone"),
         movementDirection: form.get("movementDirection"),
@@ -101,16 +102,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
 
     const { body, photo } = await requestBody(req);
-    const photoError = validatePhoto(photo);
-    if (photoError) {
-      return NextResponse.json({ ok: false, error: photoError }, { status: 400 });
-    }
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
       return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
     }
 
+    const checkinType = clean(body?.checkinType, 20).toLowerCase();
     const driverName = clean(body?.driverName).toUpperCase();
+    if (!driverName || !["container", "domestic"].includes(checkinType)) {
+      return NextResponse.json({ ok: false, error: "Choose a check-in type and enter the driver name" }, { status: 400 });
+    }
     const driverPhone = clean(body?.driverPhone, 40);
     const movementDirection = clean(body?.movementDirection, 20).toLowerCase();
     const materialType = clean(body?.materialType, 20).toLowerCase();
@@ -122,12 +123,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     const bolBaleCount = materialType === "cotton"
       ? positiveInteger(body?.bolBaleCount ?? body?.bolBC)
       : null;
-    if (!driverName || !driverPhone ||
+    if (checkinType === "domestic" && (!driverPhone ||
         !["pickup", "delivery"].includes(movementDirection) ||
         !["cotton", "lumber", "other"].includes(materialType) ||
         !referenceNumber || (movementDirection === "pickup" && !destination) ||
-        (materialType === "cotton" && (!mark || !bolBaleCount))) {
+        (materialType === "cotton" && (!mark || !bolBaleCount)))) {
       return NextResponse.json({ ok: false, error: "Complete every required field before checking in" }, { status: 400 });
+    }
+    if (checkinType === "domestic") {
+      const photoError = validatePhoto(photo);
+      if (photoError) return NextResponse.json({ ok: false, error: photoError }, { status: 400 });
     }
 
     const latitude = Number(body?.location?.latitude);
@@ -143,6 +148,43 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     }
 
     const checkedInAt = new Date();
+    const sb = database();
+    if (checkinType === "container") {
+      const queuePayload = {
+        id: clientId,
+        driver_checkin_site_id: gate.id,
+        terminal: gate.terminal,
+        site_code: gate.site_code,
+        site_name: gate.site_name,
+        driver_name: driverName,
+        checked_in_at: checkedInAt.toISOString(),
+        driver_latitude: latitude,
+        driver_longitude: longitude,
+        driver_accuracy_m: accuracyMeters,
+        driver_distance_m: locationResult.distanceMeters,
+        location_verified_at: checkedInAt.toISOString(),
+        queue_status: "waiting",
+      };
+      let { data, error } = await sb.from("container_gate_queue").insert(queuePayload)
+        .select("id, checked_in_at").single();
+      if (error?.code === "23505") {
+        const existing = await sb.from("container_gate_queue")
+          .select("id, checked_in_at").eq("id", clientId)
+          .eq("driver_checkin_site_id", gate.id).maybeSingle();
+        data = existing.data;
+        error = existing.error;
+      }
+      if (error || !data) throw error ?? new Error("Could not join the container line");
+      const positionResult = await sb.rpc("container_queue_position", { p_id: clientId });
+      if (positionResult.error) throw positionResult.error;
+      return NextResponse.json({
+        ok: true,
+        queue: true,
+        position: Number(positionResult.data),
+        checkedInAt: data.checked_in_at,
+      });
+    }
+
     const insertPayload = {
       id: clientId,
       terminal: gate.terminal,
@@ -178,7 +220,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       gate_location_verified_at: checkedInAt.toISOString(),
     };
 
-    const sb = database();
     let { data, error } = await sb.from("inbound_checkin_rows").insert(insertPayload)
       .select("id, terminal, site_code, site_name, checked_in_at").single();
     if (error?.code === "23505") {

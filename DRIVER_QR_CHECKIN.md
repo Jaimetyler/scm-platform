@@ -1,10 +1,10 @@
 # Driver QR Check-In
 
-Each warehouse has an unguessable public QR link. A driver opens the mobile form, identifies a pickup or delivery and its material, and submits once. The browser captures a fresh high-accuracy GPS position and the server verifies it against the configured gate geofence before creating a check-in row.
+Each warehouse has one unguessable public QR link. A driver first chooses **Container / Drayage** or **Domestic Freight**. The browser captures a fresh high-accuracy GPS position and the server verifies it against the configured gate geofence before accepting either type of arrival.
 
 ## Warehouse workflow
 
-1. Run `supabase/migrations/022_driver_self_checkin.sql`, then `supabase/migrations/023_driver_bol_photos.sql` in Supabase.
+1. Run `supabase/migrations/022_driver_self_checkin.sql`, `supabase/migrations/023_driver_bol_photos.sql`, and then `supabase/migrations/024_container_gate_queue.sql` in Supabase.
 2. Deploy the application changes.
 3. Open `/warehouse/gate` using the warehouse credentials (`WAREHOUSE_USERS`, falling back to `PNL_USERS`).
 4. At the gate, choose **Use my current location**, set the allowed radius, activate the site, and save.
@@ -14,7 +14,11 @@ Do not activate a site until its gate coordinates have been confirmed. A radius 
 
 ## Driver workflow
 
-The public link is `/gate/check-in/{site-token}`. It works over HTTPS, which mobile browsers require for geolocation. At every yard, the driver supplies their name, mobile number, pickup/delivery direction, material type (Cotton, Lumber, or Other/FAK), and a reference number. Pickups also require a destination. Cotton adds mark and the bale count shown on the BOL. The driver may attach an optional paperwork photo. Location access happens when they tap **Verify location & check in**.
+The public link is `/gate/check-in/{site-token}`. It works over HTTPS, which mobile browsers require for geolocation.
+
+**Container / Drayage** asks only for the driver's name. After GPS verification, the server records the arrival time and returns the driver's current number in line. Warehouse staff use `/warehouse/gate/{terminal}/{site-code}/containers` to see the oldest arrival first and mark drivers complete or remove them. Container arrivals live in `container_gate_queue`; they do not enter the domestic grid or McLeod.
+
+**Domestic Freight** asks for the driver's name, mobile number, pickup/delivery direction, material type (Cotton, Lumber, or Other/FAK), and a reference number. Pickups also require a destination. Cotton adds mark and the bale count shown on the BOL. The driver may attach an optional paperwork photo. Location access happens when they tap **Verify location & check in**.
 
 An accepted submission creates the same `inbound_checkin_rows` record used by staff, with:
 
