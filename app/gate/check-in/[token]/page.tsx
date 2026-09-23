@@ -78,16 +78,41 @@ export default function DriverCheckinPage() {
   const [photoSaved, setPhotoSaved] = useState(false);
   const [photoFailed, setPhotoFailed] = useState(false);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [queueSiteName, setQueueSiteName] = useState("");
+  const [queuedDriverName, setQueuedDriverName] = useState("");
+  const [deviceId, setDeviceId] = useState("");
   const [clientId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
+    let id = crypto.randomUUID();
+    try {
+      const stored = window.localStorage.getItem("scm-container-device-id");
+      if (stored) id = stored;
+      else window.localStorage.setItem("scm-container-device-id", id);
+    } catch {
+      // The in-memory ID still protects this browser tab if storage is unavailable.
+    }
+    setDeviceId(id);
+  }, []);
+
+  useEffect(() => {
+    if (!deviceId) return;
     let cancelled = false;
     async function load() {
       try {
-        const response = await fetch(`/api/gate/check-in/${token}`, { cache: "no-store" });
+        const query = new URLSearchParams({ deviceId });
+        const response = await fetch(`/api/gate/check-in/${token}?${query}`, { cache: "no-store" });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "This check-in link is unavailable");
-        if (!cancelled) setSite(result.site);
+        if (!cancelled) {
+          setSite(result.site);
+          if (result.activeQueue) {
+            setQueuePosition(Number(result.activeQueue.position));
+            setQueueSiteName(result.activeQueue.siteName);
+            setQueuedDriverName(result.activeQueue.driverName);
+            setComplete(true);
+          }
+        }
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : "This check-in link is unavailable");
       } finally {
@@ -96,7 +121,7 @@ export default function DriverCheckinPage() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, deviceId]);
 
   function change(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -112,6 +137,7 @@ export default function DriverCheckinPage() {
       const preparedPhoto = form.checkinType === "domestic" && bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
       const request = new FormData();
       request.set("clientId", clientId);
+      request.set("deviceId", deviceId);
       request.set("checkinType", form.checkinType);
       request.set("driverName", form.driverName);
       request.set("driverPhone", form.driverPhone);
@@ -133,6 +159,8 @@ export default function DriverCheckinPage() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
       setQueuePosition(result.queue === true ? Number(result.position) : null);
+      setQueueSiteName(result.siteName || site.siteName);
+      setQueuedDriverName(result.driverName || form.driverName);
       setPhotoSaved(result.photoSaved === true);
       setPhotoFailed(Boolean(bolPhoto) && result.photoSaved !== true);
       setComplete(true);
@@ -160,7 +188,8 @@ export default function DriverCheckinPage() {
         <h1 style={titleStyle}>{queuePosition !== null ? "You’re in line" : "You’re checked in"}</h1>
         {queuePosition !== null ? <>
           <div style={{ color: "#67e8f9", fontSize: 80, lineHeight: 1, fontWeight: 950, margin: "24px 0 8px" }}>#{queuePosition}</div>
-          <p style={bodyStyle}>Your current place in the container line at {site.siteName}.</p>
+          <p style={bodyStyle}>{queuedDriverName ? `${queuedDriverName}, this is your` : "Your"} current place in the container line at {queueSiteName || site.siteName}.</p>
+          <p style={{ ...bodyStyle, color: "#fbbf24" }}>This phone cannot check in another container driver until warehouse staff completes or removes this entry.</p>
         </> : <p style={bodyStyle}>Your arrival was sent to {site.siteName}. Warehouse staff can now see your load.</p>}
         {photoSaved ? <p style={{ ...bodyStyle, color: "#86efac" }}>Your paperwork photo was attached.</p> : null}
         {photoFailed ? <p style={{ ...bodyStyle, color: "#fbbf24" }}>Your check-in was saved, but the photo did not upload. Keep your paper BOL ready for warehouse staff.</p> : null}
@@ -210,6 +239,8 @@ export default function DriverCheckinPage() {
           </> : null}
           </> : null}
         </div> : null}
+
+        {form.checkinType === "container" ? <div style={noticeStyle}>Check in only yourself. Each phone may hold one active place in the container line.</div> : null}
 
         {form.checkinType === "domestic" ? <label style={labelStyle}>Paperwork photo (optional)
           <input type="file" accept="image/*" capture="environment"
@@ -262,4 +293,5 @@ const fileInputStyle: React.CSSProperties = { ...inputStyle, padding: "10px", he
 const buttonStyle: React.CSSProperties = { width: "100%", marginTop: 20, padding: "15px 18px", border: 0, borderRadius: 12, color: "white", background: "linear-gradient(135deg,#4f46e5,#7c3aed)", fontSize: 17, fontWeight: 900, cursor: "pointer" };
 const errorStyle: React.CSSProperties = { color: "#fca5a5", lineHeight: 1.5 };
 const errorBoxStyle: React.CSSProperties = { marginTop: 16, padding: 12, borderRadius: 10, color: "#fecaca", background: "rgba(127,29,29,.34)", border: "1px solid rgba(248,113,113,.3)", lineHeight: 1.4 };
+const noticeStyle: React.CSSProperties = { marginTop: 12, padding: 12, borderRadius: 10, color: "#fde68a", background: "rgba(120,53,15,.25)", border: "1px solid rgba(251,191,36,.25)", fontSize: 13, lineHeight: 1.45 };
 const privacyStyle: React.CSSProperties = { margin: "12px 0 0", color: "#64748b", fontSize: 11, textAlign: "center", lineHeight: 1.4 };

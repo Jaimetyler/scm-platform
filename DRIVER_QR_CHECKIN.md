@@ -18,6 +18,8 @@ The public link is `/gate/check-in/{site-token}`. It works over HTTPS, which mob
 
 **Container / Drayage** asks only for the driver's name. After GPS verification, the server records the arrival time and returns the driver's current number in line. Warehouse staff use `/warehouse/gate/{terminal}/{site-code}/containers` to see the oldest arrival first and mark drivers complete or remove them. Container arrivals live in `container_gate_queue`; they do not enter the domestic grid or McLeod.
 
+The browser receives an anonymous device ID that is stored locally and hashed before it is saved. A device may hold only one waiting container entry across SCM yards. Scanning again returns the existing driver's current position instead of creating another entry. Completing or removing that entry releases the device for its next check-in. This discourages proxy check-ins without requiring an account or SMS, but clearing browser storage can bypass it; stronger identity verification remains a future option if needed.
+
 **Domestic Freight** asks for the driver's name, mobile number, pickup/delivery direction, material type (Cotton, Lumber, or Other/FAK), and a reference number. Pickups also require a destination. Cotton adds mark and the bale count shown on the BOL. The driver may attach an optional paperwork photo. Location access happens when they tap **Verify location & check in**.
 
 An accepted submission creates the same `inbound_checkin_rows` record used by staff, with:

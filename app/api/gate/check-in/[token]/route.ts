@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
+import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,7 @@ async function requestBody(req: NextRequest) {
     return {
       body: {
         clientId: form.get("clientId"),
+        deviceId: form.get("deviceId"),
         checkinType: form.get("checkinType"),
         driverName: form.get("driverName"),
         driverPhone: form.get("driverPhone"),
@@ -81,14 +83,36 @@ async function getGate(token: string) {
   };
 }
 
-export async function GET(_req: NextRequest, context: { params: Promise<{ token: string }> }) {
+export async function GET(req: NextRequest, context: { params: Promise<{ token: string }> }) {
   try {
     const { token } = await context.params;
     const gate = await getGate(token);
     if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
+    let activeQueue = null;
+    const deviceId = new URL(req.url).searchParams.get("deviceId");
+    if (validContainerDeviceId(deviceId)) {
+      const sb = database();
+      const { data, error } = await sb.from("container_gate_queue")
+        .select("id, driver_name, site_name, checked_in_at")
+        .eq("device_token_hash", containerDeviceHash(deviceId))
+        .eq("queue_status", "waiting")
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        const positionResult = await sb.rpc("container_queue_position", { p_id: data.id });
+        if (positionResult.error) throw positionResult.error;
+        activeQueue = {
+          position: Number(positionResult.data),
+          driverName: data.driver_name,
+          siteName: data.site_name,
+          checkedInAt: data.checked_in_at,
+        };
+      }
+    }
     return NextResponse.json({
       ok: true,
       site: { terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name },
+      activeQueue,
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load this check-in site" }, { status: 500 });
@@ -134,6 +158,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       const photoError = validatePhoto(photo);
       if (photoError) return NextResponse.json({ ok: false, error: photoError }, { status: 400 });
     }
+    const deviceId = clean(body?.deviceId, 36);
+    if (checkinType === "container" && !validContainerDeviceId(deviceId)) {
+      return NextResponse.json({ ok: false, error: "This phone could not be identified. Refresh the page and try again." }, { status: 400 });
+    }
 
     const latitude = Number(body?.location?.latitude);
     const longitude = Number(body?.location?.longitude);
@@ -150,6 +178,24 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     const checkedInAt = new Date();
     const sb = database();
     if (checkinType === "container") {
+      const deviceTokenHash = containerDeviceHash(deviceId);
+      const existingResult = await sb.from("container_gate_queue")
+        .select("id, driver_name, site_name, checked_in_at")
+        .eq("device_token_hash", deviceTokenHash)
+        .eq("queue_status", "waiting")
+        .maybeSingle();
+      if (existingResult.error) throw existingResult.error;
+      if (existingResult.data) {
+        const positionResult = await sb.rpc("container_queue_position", { p_id: existingResult.data.id });
+        if (positionResult.error) throw positionResult.error;
+        return NextResponse.json({
+          ok: true, queue: true, existing: true,
+          position: Number(positionResult.data),
+          driverName: existingResult.data.driver_name,
+          siteName: existingResult.data.site_name,
+          checkedInAt: existingResult.data.checked_in_at,
+        });
+      }
       const queuePayload = {
         id: clientId,
         driver_checkin_site_id: gate.id,
@@ -157,6 +203,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         site_code: gate.site_code,
         site_name: gate.site_name,
         driver_name: driverName,
+        device_token_hash: deviceTokenHash,
         checked_in_at: checkedInAt.toISOString(),
         driver_latitude: latitude,
         driver_longitude: longitude,
@@ -169,8 +216,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         .select("id, checked_in_at").single();
       if (error?.code === "23505") {
         const existing = await sb.from("container_gate_queue")
-          .select("id, checked_in_at").eq("id", clientId)
-          .eq("driver_checkin_site_id", gate.id).maybeSingle();
+          .select("id, driver_name, site_name, checked_in_at")
+          .eq("device_token_hash", deviceTokenHash)
+          .eq("queue_status", "waiting").maybeSingle();
         data = existing.data;
         error = existing.error;
       }
@@ -181,6 +229,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         ok: true,
         queue: true,
         position: Number(positionResult.data),
+        driverName: "driver_name" in data ? data.driver_name : driverName,
+        siteName: "site_name" in data ? data.site_name : gate.site_name,
         checkedInAt: data.checked_in_at,
       });
     }
