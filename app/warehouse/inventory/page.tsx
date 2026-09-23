@@ -9,7 +9,10 @@ export default function InventorySiteSelector() {
       <PlatformPageHeader
         title="Warehouse Inventory"
         subtitle="Choose a warehouse to review current cotton inventory, locations, booking allocations, and receipt status."
-        actions={<Link href="/" style={buttonStyle}>← Back Home</Link>}
+        actions={<>
+          <Link href="/warehouse/gate" style={buttonStyle}>Driver QR Setup</Link>
+          <Link href="/" style={buttonStyle}>← Back Home</Link>
+        </>}
       />
 
       {(["SAV", "HOU"] as const).map((terminal) => (

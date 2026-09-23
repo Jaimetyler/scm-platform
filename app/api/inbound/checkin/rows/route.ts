@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
 
 export const runtime = "nodejs";
 
@@ -117,7 +118,7 @@ export async function GET(req: NextRequest) {
         !(row.draft_status === "draft" && !row.mark && !row.shipper &&
           !row.bol_bc && !row.bale_count && !row.warehouse_location &&
           !row.comment_1 && !row.comment_2)
-      ),
+      ).map((row) => publicCheckinRow(row as unknown as Record<string, unknown>)),
     });
   } catch (error) {
     return NextResponse.json(
@@ -199,7 +200,7 @@ export async function POST(req: NextRequest) {
         const { data: existing } = await sb.from("inbound_checkin_rows")
           .select("*").eq("id", clientId).eq("terminal", terminal)
           .eq("site_code", site_code).single();
-        if (existing) return NextResponse.json({ ok: true, row: existing as CheckinRow });
+        if (existing) return NextResponse.json({ ok: true, row: publicCheckinRow(existing) });
       }
       return NextResponse.json(
         { ok: false, error: error.message },
@@ -209,7 +210,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      row: data as CheckinRow,
+      row: publicCheckinRow(data),
     });
   } catch (error) {
     return NextResponse.json(

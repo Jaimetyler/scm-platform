@@ -20,7 +20,11 @@ function parseUsers(env: string | undefined) {
 }
 
 export function middleware(req: NextRequest) {
-  const users = parseUsers(process.env.PNL_USERS);
+  const isWarehouseGate = req.nextUrl.pathname.startsWith("/warehouse/gate") ||
+    req.nextUrl.pathname.startsWith("/api/warehouse/gate-sites");
+  const users = parseUsers(isWarehouseGate
+    ? (process.env.WAREHOUSE_USERS || process.env.PNL_USERS)
+    : process.env.PNL_USERS);
 
   if (!users.length) {
     return new NextResponse("No users configured.", { status: 500 });
@@ -51,5 +55,10 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/pnl/:path*", "/api/pnl/:path*"],
+  matcher: [
+    "/pnl/:path*",
+    "/api/pnl/:path*",
+    "/warehouse/gate/:path*",
+    "/api/warehouse/gate-sites/:path*",
+  ],
 };

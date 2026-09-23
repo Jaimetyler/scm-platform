@@ -36,6 +36,11 @@ type CheckinRow = {
   processed_at: string | null;
   processing_error?: string | null;
   matched_order_id?: string | null;
+  checkin_source?: "staff" | "driver_qr";
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  trucking_company?: string | null;
+  gate_location_verified_at?: string | null;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -875,6 +880,11 @@ export default function SiteCheckinPage() {
                           {row.identity_corrected_at ? <small title={row.identity_corrected_at}>
                             {" *"}
                           </small> : null}
+                          {row.checkin_source === "driver_qr" ? (
+                            <small style={driverQrStyle} title={`Location-verified driver check-in${row.driver_name ? ` · ${row.driver_name}` : ""}${row.trucking_company ? ` · ${row.trucking_company}` : ""}`}>
+                              QR ✓
+                            </small>
+                          ) : null}
                         </>
                       ) : ""}
                     </td>
@@ -1265,6 +1275,15 @@ const errorButtonStyle: React.CSSProperties = {
   fontSize: 10,
   cursor: "pointer",
   textDecoration: "underline",
+};
+
+const driverQrStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: 2,
+  color: "#67e8f9",
+  fontSize: 9,
+  fontWeight: 900,
+  letterSpacing: ".05em",
 };
 
 const orderNumberStyle: React.CSSProperties = {

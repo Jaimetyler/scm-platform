@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
 import { buildPostDeliveryCorrection, isReadyCheckin } from "@/lib/inbound/checkin/ready";
+import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
 
 export const runtime = "nodejs";
 
@@ -157,7 +158,7 @@ export async function PATCH(
         .maybeSingle();
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
       if (!data) return NextResponse.json({ ok: false, error: "Row changed while editing. Reload to review it." }, { status: 409 });
-      return NextResponse.json({ ok: true, row: data as CheckinRow });
+      return NextResponse.json({ ok: true, row: publicCheckinRow(data) });
     }
 
     const draft_status = isReadyCheckin(merged) ? "ready" : "checked_in";
@@ -226,7 +227,7 @@ export async function PATCH(
     const saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
     return NextResponse.json({
       ok: true,
-      row: saved as CheckinRow,
+      row: publicCheckinRow(saved as unknown as Record<string, unknown>),
     });
   } catch (error) {
     return NextResponse.json(
