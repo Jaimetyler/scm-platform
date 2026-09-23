@@ -8,19 +8,48 @@ type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string };
 type FormState = {
   driverName: string;
   driverPhone: string;
-  truckingCompany: string;
+  movementDirection: string;
+  materialType: string;
+  referenceNumber: string;
+  destination: string;
   mark: string;
-  shipper: string;
-  bolBC: string;
-  baleCount: string;
-  equipmentType: string;
-  comment: string;
+  bolBaleCount: string;
 };
 
 const EMPTY_FORM: FormState = {
-  driverName: "", driverPhone: "", truckingCompany: "", mark: "", shipper: "",
-  bolBC: "", baleCount: "", equipmentType: "", comment: "",
+  driverName: "", driverPhone: "", movementDirection: "", materialType: "",
+  referenceNumber: "", destination: "", mark: "", bolBaleCount: "",
 };
+
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+async function prepareBolPhoto(file: File) {
+  const accepted = new Set(["image/jpeg", "image/png", "image/webp"]);
+  if (accepted.has(file.type) && file.size <= 2.5 * 1024 * 1024) return file;
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error("This photo format could not be read. Set the camera to JPG/Most Compatible or take a screenshot of the paperwork.");
+  }
+
+  const maxDimension = 1600;
+  const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This phone could not prepare the paperwork photo.");
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", .78));
+  if (!blob || blob.size > MAX_UPLOAD_BYTES) {
+    throw new Error("The paperwork photo is too large. Retake it at a lower resolution.");
+  }
+  return new File([blob], "bol-photo.jpg", { type: "image/jpeg" });
+}
 
 function currentPosition() {
   return new Promise<GeolocationPosition>((resolve, reject) => {
@@ -44,6 +73,9 @@ export default function DriverCheckinPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [complete, setComplete] = useState(false);
+  const [bolPhoto, setBolPhoto] = useState<File | null>(null);
+  const [photoSaved, setPhotoSaved] = useState(false);
+  const [photoFailed, setPhotoFailed] = useState(false);
   const [clientId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
@@ -75,22 +107,30 @@ export default function DriverCheckinPage() {
     setError("");
     try {
       const position = await currentPosition();
+      const preparedPhoto = bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
+      const request = new FormData();
+      request.set("clientId", clientId);
+      request.set("driverName", form.driverName);
+      request.set("driverPhone", form.driverPhone);
+      request.set("movementDirection", form.movementDirection);
+      request.set("materialType", form.materialType);
+      request.set("referenceNumber", form.referenceNumber);
+      request.set("destination", form.destination);
+      request.set("mark", form.mark);
+      request.set("bolBaleCount", form.bolBaleCount);
+      request.set("latitude", String(position.coords.latitude));
+      request.set("longitude", String(position.coords.longitude));
+      request.set("accuracyMeters", String(position.coords.accuracy));
+      request.set("capturedAt", new Date(position.timestamp).toISOString());
+      if (preparedPhoto) request.set("bolPhoto", preparedPhoto);
       const response = await fetch(`/api/gate/check-in/${token}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          clientId,
-          location: {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracyMeters: position.coords.accuracy,
-            capturedAt: new Date(position.timestamp).toISOString(),
-          },
-        }),
+        body: request,
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
+      setPhotoSaved(result.photoSaved === true);
+      setPhotoFailed(Boolean(bolPhoto) && result.photoSaved !== true);
       setComplete(true);
     } catch (reason) {
       if (typeof reason === "object" && reason !== null && "code" in reason) {
@@ -115,6 +155,8 @@ export default function DriverCheckinPage() {
         <div style={{ fontSize: 54, marginBottom: 12 }}>✓</div>
         <h1 style={titleStyle}>You’re checked in</h1>
         <p style={bodyStyle}>Your arrival was sent to {site.siteName}. Warehouse staff can now see your load.</p>
+        {photoSaved ? <p style={{ ...bodyStyle, color: "#86efac" }}>Your paperwork photo was attached.</p> : null}
+        {photoFailed ? <p style={{ ...bodyStyle, color: "#fbbf24" }}>Your check-in was saved, but the photo did not upload. Keep your paper BOL ready for warehouse staff.</p> : null}
         <p style={{ ...bodyStyle, color: "#67e8f9", fontWeight: 800 }}>Please follow the yard’s instructions and wait for direction.</p>
       </div>
     </main>
@@ -125,27 +167,43 @@ export default function DriverCheckinPage() {
       <form onSubmit={submit} style={cardStyle}>
         <div style={badgeStyle}>SCM DRIVER CHECK-IN</div>
         <h1 style={titleStyle}>{site.siteName}</h1>
-        <p style={bodyStyle}>Enter your load information. When you submit, your phone will verify that you are at the yard.</p>
+        <p style={bodyStyle}>Tell us what you are picking up or delivering. When you submit, your phone will verify that you are at the yard.</p>
 
         <div style={gridStyle}>
           <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
-          <Field label="Mobile number" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
-          <Field label="Trucking company *" value={form.truckingCompany} onChange={(value) => change("truckingCompany", value)} />
-          <Field label="Mark *" value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
-          <Field label="Customer *" value={form.shipper} onChange={(value) => change("shipper", value.toUpperCase())} autoCapitalize="characters" />
-          <Field label="BOL B/C *" value={form.bolBC} onChange={(value) => change("bolBC", value.replace(/\D/g, ""))} inputMode="numeric" />
-          <Field label="Bales *" value={form.baleCount} onChange={(value) => change("baleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
-          <label style={labelStyle}>Equipment *
-            <select required value={form.equipmentType} onChange={(event) => change("equipmentType", event.target.value)} style={inputStyle}>
+          <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
+          <label style={labelStyle}>Pickup or delivery? *
+            <select required value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
               <option value="">Select</option>
-              <option value="V">Van</option>
-              <option value="F">Flatbed</option>
+              <option value="delivery">Delivery</option>
+              <option value="pickup">Pickup</option>
             </select>
           </label>
+          <label style={labelStyle}>Material *
+            <select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
+              <option value="">Select</option>
+              <option value="cotton">Cotton</option>
+              <option value="lumber">Lumber</option>
+              <option value="other">Other / FAK</option>
+            </select>
+          </label>
+          <Field label="Reference number *" value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
+          {form.movementDirection === "pickup" ? (
+            <Field label="Destination *" value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
+          ) : null}
+          {form.materialType === "cotton" ? <>
+            <Field label="Mark *" value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
+            <Field label="Bale count on BOL *" value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
+          </> : null}
         </div>
 
-        <label style={labelStyle}>Comment
-          <textarea value={form.comment} onChange={(event) => change("comment", event.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+        <label style={labelStyle}>Paperwork photo (optional)
+          <input type="file" accept="image/*" capture="environment"
+            onChange={(event) => setBolPhoto(event.target.files?.[0] ?? null)}
+            style={fileInputStyle} />
+          <small style={{ color: "#64748b", fontWeight: 500 }}>
+            {bolPhoto ? bolPhoto.name : "Take a clear photo of the BOL, pickup order, or other paperwork."}
+          </small>
         </label>
 
         {error ? <div role="alert" style={errorBoxStyle}>{error}</div> : null}
@@ -177,6 +235,7 @@ const bodyStyle: React.CSSProperties = { color: "#a8b5c8", lineHeight: 1.55, fon
 const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14, margin: "24px 0 14px" };
 const labelStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 7, color: "#cbd5e1", fontSize: 13, fontWeight: 800 };
 const inputStyle: React.CSSProperties = { width: "100%", minHeight: 48, padding: "11px 12px", borderRadius: 10, border: "1px solid rgba(148,163,184,.3)", background: "#0b1220", color: "#f8fafc", fontSize: 16 };
+const fileInputStyle: React.CSSProperties = { ...inputStyle, padding: "10px", height: "auto" };
 const buttonStyle: React.CSSProperties = { width: "100%", marginTop: 20, padding: "15px 18px", border: 0, borderRadius: 12, color: "white", background: "linear-gradient(135deg,#4f46e5,#7c3aed)", fontSize: 17, fontWeight: 900, cursor: "pointer" };
 const errorStyle: React.CSSProperties = { color: "#fca5a5", lineHeight: 1.5 };
 const errorBoxStyle: React.CSSProperties = { marginTop: 16, padding: 12, borderRadius: 10, color: "#fecaca", background: "rgba(127,29,29,.34)", border: "1px solid rgba(248,113,113,.3)", lineHeight: 1.4 };

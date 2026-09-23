@@ -1,10 +1,10 @@
 # Driver QR Check-In
 
-Each warehouse has an unguessable public QR link. A driver opens the mobile form, enters the load details, and submits once. The browser captures a fresh high-accuracy GPS position and the server verifies it against the configured gate geofence before creating an inbound check-in row.
+Each warehouse has an unguessable public QR link. A driver opens the mobile form, identifies a pickup or delivery and its material, and submits once. The browser captures a fresh high-accuracy GPS position and the server verifies it against the configured gate geofence before creating a check-in row.
 
 ## Warehouse workflow
 
-1. Run `supabase/migrations/022_driver_self_checkin.sql` in Supabase.
+1. Run `supabase/migrations/022_driver_self_checkin.sql`, then `supabase/migrations/023_driver_bol_photos.sql` in Supabase.
 2. Deploy the application changes.
 3. Open `/warehouse/gate` using the warehouse credentials (`WAREHOUSE_USERS`, falling back to `PNL_USERS`).
 4. At the gate, choose **Use my current location**, set the allowed radius, activate the site, and save.
@@ -14,7 +14,7 @@ Do not activate a site until its gate coordinates have been confirmed. A radius 
 
 ## Driver workflow
 
-The public link is `/gate/check-in/{site-token}`. It works over HTTPS, which mobile browsers require for geolocation. The driver supplies their name, trucking company, mark, customer, BOL B/C, bale count, and equipment. Location access happens when they tap **Verify location & check in**.
+The public link is `/gate/check-in/{site-token}`. It works over HTTPS, which mobile browsers require for geolocation. At every yard, the driver supplies their name, mobile number, pickup/delivery direction, material type (Cotton, Lumber, or Other/FAK), and a reference number. Pickups also require a destination. Cotton adds mark and the bale count shown on the BOL. The driver may attach an optional paperwork photo. Location access happens when they tap **Verify location & check in**.
 
 An accepted submission creates the same `inbound_checkin_rows` record used by staff, with:
 
@@ -23,8 +23,12 @@ An accepted submission creates the same `inbound_checkin_rows` record used by st
 - the warehouse-local received date and server arrival time
 - `checkin_source = driver_qr`
 - the GPS accuracy, distance from gate, and verification time for audit
+- movement direction, material, reference number, and pickup destination when applicable
+- an optional paperwork image stored in the private `driver-bol-documents` bucket
 
-The warehouse grid shows a `QR ✓` marker. Staff assigns the final warehouse location; the existing McLeod processing rules then take over.
+For cotton, the driver's bale count populates **BOL B/C**. Customer, actual unloaded bales, equipment, and warehouse location remain blank for staff to complete. The warehouse grid shows a `QR ✓` link to an authenticated details page with the driver's phone and location-verification summary. When present, it also shows an authenticated paperwork link.
+
+Only **Cotton + Delivery** is eligible for the existing McLeod delivery workflow. Cotton pickups and every Lumber/Other movement are labeled **Gate only** and cannot accidentally post a McLeod delivery. Their future operational completion workflow can be added without changing the driver QR form.
 
 ## Guardrails
 

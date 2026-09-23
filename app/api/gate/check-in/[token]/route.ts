@@ -20,11 +20,52 @@ function positiveInteger(value: unknown) {
   return Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
-function equipment(value: unknown): "V" | "F" | null {
-  const normalized = clean(value, 20).toUpperCase();
-  if (normalized === "V") return "V";
-  if (normalized === "F") return "F";
+const BOL_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_BOL_PHOTO_BYTES = 4 * 1024 * 1024;
+
+async function requestBody(req: NextRequest) {
+  if (req.headers.get("content-type")?.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const photoValue = form.get("bolPhoto");
+    return {
+      body: {
+        clientId: form.get("clientId"),
+        driverName: form.get("driverName"),
+        driverPhone: form.get("driverPhone"),
+        movementDirection: form.get("movementDirection"),
+        materialType: form.get("materialType"),
+        referenceNumber: form.get("referenceNumber"),
+        destination: form.get("destination"),
+        mark: form.get("mark"),
+        bolBaleCount: form.get("bolBaleCount"),
+        location: {
+          latitude: form.get("latitude"),
+          longitude: form.get("longitude"),
+          accuracyMeters: form.get("accuracyMeters"),
+          capturedAt: form.get("capturedAt"),
+        },
+      },
+      photo: photoValue instanceof File && photoValue.size > 0 ? photoValue : null,
+    };
+  }
+  return { body: await req.json(), photo: null as File | null };
+}
+
+function validatePhoto(photo: File | null) {
+  if (!photo) return null;
+  if (!BOL_PHOTO_TYPES.has(photo.type)) {
+    return "The paperwork photo must be a JPG, PNG, or WebP image.";
+  }
+  if (photo.size > MAX_BOL_PHOTO_BYTES) {
+    return "The paperwork photo is too large. Retake it at a lower resolution.";
+  }
   return null;
+}
+
+function photoExtension(contentType: string) {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  return "jpg";
 }
 
 async function getGate(token: string) {
@@ -59,21 +100,33 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     const gate = await getGate(token);
     if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
 
-    const body = await req.json();
+    const { body, photo } = await requestBody(req);
+    const photoError = validatePhoto(photo);
+    if (photoError) {
+      return NextResponse.json({ ok: false, error: photoError }, { status: 400 });
+    }
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
       return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
     }
 
     const driverName = clean(body?.driverName).toUpperCase();
-    const truckingCompany = clean(body?.truckingCompany).toUpperCase();
     const driverPhone = clean(body?.driverPhone, 40);
-    const mark = clean(body?.mark).toUpperCase();
-    const shipper = clean(body?.shipper).toUpperCase();
-    const bolBC = positiveInteger(body?.bolBC);
-    const baleCount = positiveInteger(body?.baleCount);
-    const equipmentType = equipment(body?.equipmentType);
-    if (!driverName || !truckingCompany || !mark || !shipper || !bolBC || !baleCount || !equipmentType) {
+    const movementDirection = clean(body?.movementDirection, 20).toLowerCase();
+    const materialType = clean(body?.materialType, 20).toLowerCase();
+    const referenceNumber = clean(body?.referenceNumber).toUpperCase();
+    const destination = movementDirection === "pickup"
+      ? clean(body?.destination, 200).toUpperCase()
+      : null;
+    const mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
+    const bolBaleCount = materialType === "cotton"
+      ? positiveInteger(body?.bolBaleCount ?? body?.bolBC)
+      : null;
+    if (!driverName || !driverPhone ||
+        !["pickup", "delivery"].includes(movementDirection) ||
+        !["cotton", "lumber", "other"].includes(materialType) ||
+        !referenceNumber || (movementDirection === "pickup" && !destination) ||
+        (materialType === "cotton" && (!mark || !bolBaleCount))) {
       return NextResponse.json({ ok: false, error: "Complete every required field before checking in" }, { status: 400 });
     }
 
@@ -97,14 +150,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       site_name: gate.site_name,
       sub_location: "MAIN",
       received_date: warehouseDate(checkedInAt, gate.terminal),
+      movement_direction: movementDirection,
+      material_type: materialType,
+      reference_number: referenceNumber,
+      destination,
       mark,
-      shipper,
-      bol_bc: bolBC,
-      bale_count: baleCount,
+      shipper: null,
+      bol_bc: bolBaleCount,
+      bale_count: null,
       warehouse_location: null,
-      equipment_type: equipmentType,
+      equipment_type: null,
       verified: false,
-      comment_1: clean(body?.comment, 500) || null,
+      comment_1: null,
       comment_2: null,
       draft_status: "checked_in",
       processed_at: null,
@@ -112,8 +169,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       checkin_source: "driver_qr",
       driver_checkin_site_id: gate.id,
       driver_name: driverName,
-      driver_phone: driverPhone || null,
-      trucking_company: truckingCompany,
+      driver_phone: driverPhone,
+      trucking_company: null,
       driver_latitude: latitude,
       driver_longitude: longitude,
       driver_accuracy_m: accuracyMeters,
@@ -122,17 +179,36 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     };
 
     const sb = database();
-    const { data, error } = await sb.from("inbound_checkin_rows").insert(insertPayload)
+    let { data, error } = await sb.from("inbound_checkin_rows").insert(insertPayload)
       .select("id, terminal, site_code, site_name, checked_in_at").single();
     if (error?.code === "23505") {
       const { data: existing } = await sb.from("inbound_checkin_rows")
         .select("id, terminal, site_code, site_name, checked_in_at")
         .eq("id", clientId).eq("driver_checkin_site_id", gate.id).maybeSingle();
-      if (existing) return NextResponse.json({ ok: true, checkin: existing });
+      if (existing) {
+        data = existing;
+        error = null;
+      }
     }
     if (error) throw error;
 
-    return NextResponse.json({ ok: true, checkin: data });
+    let photoSaved = false;
+    if (photo) {
+      const path = `${gate.terminal}/${gate.site_code}/${clientId}.${photoExtension(photo.type)}`;
+      const { error: uploadError } = await sb.storage.from("driver-bol-documents")
+        .upload(path, photo, { contentType: photo.type, upsert: true });
+      if (!uploadError) {
+        const { error: updateError } = await sb.from("inbound_checkin_rows").update({
+          bol_photo_path: path,
+          bol_photo_original_name: clean(photo.name, 200),
+          bol_photo_content_type: photo.type,
+          bol_photo_uploaded_at: new Date().toISOString(),
+        }).eq("id", clientId).eq("driver_checkin_site_id", gate.id);
+        photoSaved = !updateError;
+      }
+    }
+
+    return NextResponse.json({ ok: true, checkin: data, photoSaved });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed" }, { status: 500 });
   }

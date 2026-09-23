@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
-import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
+import { isReadyCheckin, usesMcleodCheckin } from "@/lib/inbound/checkin/ready";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 
 type CheckinRow = {
@@ -41,6 +41,11 @@ type CheckinRow = {
   driver_phone?: string | null;
   trucking_company?: string | null;
   gate_location_verified_at?: string | null;
+  has_bol_photo?: boolean;
+  movement_direction?: "pickup" | "delivery" | null;
+  material_type?: "cotton" | "lumber" | "other" | null;
+  reference_number?: string | null;
+  destination?: string | null;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -110,13 +115,16 @@ function rowTone(row: CheckinRow): React.CSSProperties {
 }
 
 function rowDotStyle(row: CheckinRow): React.CSSProperties {
+  const gateOnly = row.checkin_source === "driver_qr" && !usesMcleodCheckin(row);
   return {
     width: 10,
     height: 10,
     borderRadius: "50%",
     margin: "0 auto",
     background:
-      row.draft_status === "processed"
+      gateOnly
+        ? "#06b6d4"
+        : row.draft_status === "processed"
         ? "#3b82f6"
         : row.draft_status === "outside_carrier"
         ? "#a855f7"
@@ -750,7 +758,8 @@ export default function SiteCheckinPage() {
   const readyCount = rows.filter((row) => row.draft_status === "ready").length;
   const processedCount = rows.filter((row) => row.draft_status === "processed").length;
   const outsideCount = rows.filter((row) => row.draft_status === "outside_carrier").length;
-  const waitingCount = rows.filter((row) => row.draft_status === "checked_in").length;
+  const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && usesMcleodCheckin(row)).length;
+  const gateOnlyCount = rows.filter((row) => row.checkin_source === "driver_qr" && !usesMcleodCheckin(row)).length;
   const failedCount = rows.filter((row) => row.draft_status === "failed").length;
 
   if (!site) {
@@ -812,6 +821,7 @@ export default function SiteCheckinPage() {
       <PlatformPanel>
         <div style={statsGridStyle}>
           <StatCard label="Waiting for location/details" value={waitingCount} />
+          <StatCard label="Gate-only arrivals" value={gateOnlyCount} />
           <StatCard label="Ready" value={readyCount} tone="success" />
           <StatCard label="Processed" value={processedCount} tone="info" />
           <StatCard label="Outside carrier" value={outsideCount} />
@@ -824,7 +834,7 @@ export default function SiteCheckinPage() {
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
           <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
-              {[2.5, 10, 5, 9, 12, 6, 6, 7, 8, 11, 10, 7, 6.5].map((width, index) => (
+              {[2.5, 9, 8, 8.5, 11.5, 6, 6, 7, 8, 10, 10, 7, 6.5].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
@@ -881,9 +891,20 @@ export default function SiteCheckinPage() {
                             {" *"}
                           </small> : null}
                           {row.checkin_source === "driver_qr" ? (
-                            <small style={driverQrStyle} title={`Location-verified driver check-in${row.driver_name ? ` · ${row.driver_name}` : ""}${row.trucking_company ? ` · ${row.trucking_company}` : ""}`}>
-                              QR ✓
-                            </small>
+                            <>
+                              <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer"
+                                style={driverQrStyle} title="Open location-verified driver details">
+                                QR ✓ · {(row.movement_direction ?? "delivery").toUpperCase()} · {(row.material_type ?? "cotton").toUpperCase()}
+                              </a>
+                              {row.reference_number ? <small style={gateReferenceStyle} title={row.reference_number}>Ref: {row.reference_number}</small> : null}
+                              {row.movement_direction === "pickup" && row.destination ? <small style={gateReferenceStyle} title={row.destination}>To: {row.destination}</small> : null}
+                            </>
+                          ) : null}
+                          {row.has_bol_photo ? (
+                            <a href={`/api/warehouse/checkin-bol/${row.id}`} target="_blank" rel="noreferrer"
+                              style={bolPhotoLinkStyle} title="Open the driver's paperwork photo">
+                              View paperwork
+                            </a>
                           ) : null}
                         </>
                       ) : ""}
@@ -1122,7 +1143,9 @@ export default function SiteCheckinPage() {
 
                     <td style={statusDotCellStyle}>
                       <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in" ? "Waiting" : row.draft_status}</small>
+                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in"
+                        ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
+                        : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (
                         <button type="button" title={row.processing_error || ui.message || "Save failed"}
                           aria-label="Show check-in error"
@@ -1284,6 +1307,24 @@ const driverQrStyle: React.CSSProperties = {
   fontSize: 9,
   fontWeight: 900,
   letterSpacing: ".05em",
+};
+
+const gateReferenceStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: 2,
+  color: "#94a3b8",
+  fontSize: 8,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const bolPhotoLinkStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: 2,
+  color: "#a5b4fc",
+  fontSize: 9,
+  fontWeight: 800,
+  textDecoration: "underline",
 };
 
 const orderNumberStyle: React.CSSProperties = {

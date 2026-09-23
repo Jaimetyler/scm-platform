@@ -74,6 +74,10 @@ type CheckinRow = {
   comment_2: string | null;
   draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed";
   processed_at: string | null;
+  movement_direction?: "pickup" | "delivery" | null;
+  material_type?: "cotton" | "lumber" | "other" | null;
+  reference_number?: string | null;
+  destination?: string | null;
 };
 
 export async function PATCH(

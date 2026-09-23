@@ -10,9 +10,19 @@ export type CheckinReadyFields = {
   bale_count?: number | null;
   warehouse_location?: string | null;
   equipment_type?: string | null;
+  movement_direction?: string | null;
+  material_type?: string | null;
 };
 
+export function usesMcleodCheckin(row: CheckinReadyFields): boolean {
+  // Existing staff-created rows predate these fields and retain the original
+  // cotton-delivery behavior.
+  return (row.movement_direction ?? "delivery") === "delivery" &&
+    (row.material_type ?? "cotton") === "cotton";
+}
+
 export function isReadyCheckin(row: CheckinReadyFields): boolean {
+  if (!usesMcleodCheckin(row)) return false;
   return Boolean(
     row.terminal?.trim() && row.site_code?.trim() && row.site_name?.trim() &&
     row.sub_location?.trim() && row.received_date?.trim() &&

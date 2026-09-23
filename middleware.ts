@@ -21,7 +21,9 @@ function parseUsers(env: string | undefined) {
 
 export function middleware(req: NextRequest) {
   const isWarehouseGate = req.nextUrl.pathname.startsWith("/warehouse/gate") ||
-    req.nextUrl.pathname.startsWith("/api/warehouse/gate-sites");
+    req.nextUrl.pathname.startsWith("/warehouse/checkin") ||
+    req.nextUrl.pathname.startsWith("/api/warehouse/gate-sites") ||
+    req.nextUrl.pathname.startsWith("/api/warehouse/checkin-bol");
   const users = parseUsers(isWarehouseGate
     ? (process.env.WAREHOUSE_USERS || process.env.PNL_USERS)
     : process.env.PNL_USERS);
@@ -59,6 +61,8 @@ export const config = {
     "/pnl/:path*",
     "/api/pnl/:path*",
     "/warehouse/gate/:path*",
+    "/warehouse/checkin/:path*",
     "/api/warehouse/gate-sites/:path*",
+    "/api/warehouse/checkin-bol/:path*",
   ],
 };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPostDeliveryCorrection, isReadyCheckin } from "../lib/inbound/checkin/ready.ts";
+import { buildPostDeliveryCorrection, isReadyCheckin, usesMcleodCheckin } from "../lib/inbound/checkin/ready.ts";
 
 const complete = {
   terminal: "SAV", site_code: "MAIN", site_name: "Savannah",
@@ -18,6 +18,18 @@ test("a row never processes before its location or another required field is com
     assert.equal(isReadyCheckin({ ...complete, [field]: null }), false, field);
   }
   assert.equal(isReadyCheckin({ ...complete, warehouse_location: "  " }), false);
+});
+
+test("only cotton deliveries can enter the McLeod delivery workflow", () => {
+  assert.equal(usesMcleodCheckin({ ...complete, movement_direction: "delivery", material_type: "cotton" }), true);
+  for (const row of [
+    { ...complete, movement_direction: "pickup", material_type: "cotton" },
+    { ...complete, movement_direction: "delivery", material_type: "lumber" },
+    { ...complete, movement_direction: "delivery", material_type: "other" },
+  ]) {
+    assert.equal(usesMcleodCheckin(row), false);
+    assert.equal(isReadyCheckin(row), false);
+  }
 });
 
 test("post-delivery corrections update only check-in details and preserve the McLeod record", () => {
