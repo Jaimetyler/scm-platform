@@ -259,6 +259,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       processed_at: null,
       checked_in_at: checkedInAt.toISOString(),
       checkin_source: "driver_qr",
+      yard_status: "waiting",
       driver_checkin_site_id: gate.id,
       driver_name: driverName,
       driver_phone: driverPhone,

@@ -4,7 +4,7 @@ Each warehouse has one unguessable public QR link. A driver first chooses **Cont
 
 ## Warehouse workflow
 
-1. Run `supabase/migrations/022_driver_self_checkin.sql`, `supabase/migrations/023_driver_bol_photos.sql`, and then `supabase/migrations/024_container_gate_queue.sql` in Supabase.
+1. Run migrations `022` through `026` in numeric order in Supabase, including `025_container_queue_device_lock.sql` and `026_domestic_gate_queue.sql`.
 2. Deploy the application changes.
 3. Open `/warehouse/gate` using the warehouse credentials (`WAREHOUSE_USERS`, falling back to `PNL_USERS`).
 4. At the gate, choose **Use my current location**, set the allowed radius, activate the site, and save.
@@ -35,6 +35,8 @@ An accepted submission creates the same `inbound_checkin_rows` record used by st
 For cotton, the driver's bale count populates **BOL B/C**. Customer, actual unloaded bales, equipment, and warehouse location remain blank for staff to complete. The warehouse grid shows a `QR ✓` link to an authenticated details page with the driver's phone and location-verification summary. When present, it also shows an authenticated paperwork link.
 
 Only **Cotton + Delivery** is eligible for the existing McLeod delivery workflow. Cotton pickups and every Lumber/Other movement are labeled **Gate only** and cannot accidentally post a McLeod delivery. Their future operational completion workflow can be added without changing the driver QR form.
+
+Warehouse staff use `/warehouse/gate/{terminal}/{site-code}/domestic` to see active domestic QR arrivals in arrival order. The independent yard status progresses through **Waiting → Called → In door → Loading/Unloading → Complete**. Staff can move one stage back to correct a tap, or remove an arrival. Each transition records server time and the warehouse user; completion removes it from the active queue. The warehouse's existing cotton grid and McLeod processing status remain independent, so completing yard work does not claim that a cotton receipt has posted. Older QR check-ins are marked completed during migration so they do not appear as waiting trucks.
 
 ## Guardrails
 
