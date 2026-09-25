@@ -13,7 +13,7 @@ type Row = {
   id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null;
   movement_direction: string; material_type: string; reference_number: string;
   destination: string | null; shipper: string | null; matched_order_id: string | null;
-  warehouse_location: string | null; comment_1: string | null; mark: string | null; bol_bc: number | null;
+  comment_1: string | null; mark: string | null; bol_bc: number | null;
   draft_status: string; has_bol_photo: boolean; yard_status: YardStatus;
   yard_called_at: string | null; yard_in_door_at: string | null;
   yard_work_started_at: string | null;
@@ -21,10 +21,10 @@ type Row = {
 type Match = { orderId: string; customerId: string; customerName: string; value: string };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
   referenceNumber: string; customer: string; driverName: string; driverPhone: string;
-  destination: string; warehouseLocation: string; notes: string };
+  destination: string; notes: string };
 function blankDraft(id: string): Draft {
   return { id, movementDirection: "delivery", materialType: "lumber", referenceNumber: "", customer: "",
-    driverName: "", driverPhone: "", destination: "", warehouseLocation: "", notes: "" };
+    driverName: "", driverPhone: "", destination: "", notes: "" };
 }
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
@@ -120,7 +120,7 @@ export default function DomesticQueuePage() {
     finally { setWorking(""); }
   }
 
-  async function saveField(row: Row, field: "reference_number" | "warehouse_location" | "comment_1", value: string) {
+  async function saveField(row: Row, field: "reference_number" | "comment_1", value: string) {
     if (!site || value.trim().toUpperCase() === String(row[field] ?? "")) return;
     setWorking(row.id);
     setError("");
@@ -186,17 +186,16 @@ export default function DomesticQueuePage() {
       </div>
       {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1760, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
-            <colgroup>{[3, 5, 5, 6, 8, 9, 9, 8, 8, 8, 9, 8, 14].map((width, index) =>
+          <table style={{ width: "100%", minWidth: 1460, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
+            <colgroup>{[3, 6, 6, 7, 13, 14, 12, 10, 11, 8, 10].map((width, index) =>
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
-            <thead><tr>{["#", "Arrived", "Move", "Material", "McLeod field", "Reference", "Customer", "Order match", "Driver", "Destination", "Warehouse location", "Notes", "Status / action"].map((label) =>
+            <thead><tr>{["#", "Arrived", "Move", "Material", "Reference", "Customer", "Order match", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.map((row, index) => <tr key={row.id}>
               <td style={cell}>{index + 1}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}<div style={muted}>{elapsed(row.checked_in_at, tick)}</div></td>
               <td style={cell}>{row.movement_direction}</td>
               <td style={cell}>{row.material_type}</td>
-              <td style={cell}>{row.movement_direction === "pickup" ? "BLNUM" : "consignee_refno"}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Reference for ${row.driver_name}`} defaultValue={row.reference_number}
                 onBlur={(event) => void saveField(row, "reference_number", event.target.value)} style={sheetInput} />
                 <div><Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.has_bol_photo ? "Paperwork" : "Details"}</Link></div></td>
@@ -215,9 +214,6 @@ export default function DomesticQueuePage() {
                 </div>}</td>
               <td style={cell}>{row.driver_name || "Staff entry"}<div style={muted}>{row.driver_phone}</div></td>
               <td style={cell}>{row.destination || "—"}</td>
-              <td style={cell}><input key={row.updated_at} aria-label={`Warehouse location for ${row.driver_name}`}
-                defaultValue={row.warehouse_location ?? ""} placeholder="Location"
-                onBlur={(event) => void saveField(row, "warehouse_location", event.target.value)} style={sheetInput} /></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
                 defaultValue={row.comment_1 ?? ""} placeholder="Notes"
                 onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
@@ -237,7 +233,6 @@ export default function DomesticQueuePage() {
               <td style={cell}><select aria-label="Material" style={sheetInput} value={draft.materialType}
                 onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
                 <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></td>
-              <td style={cell}>{draft.movementDirection === "pickup" ? "BLNUM" : "consignee_refno"}</td>
               <td style={cell}><input aria-label="Reference number" style={sheetInput} value={draft.referenceNumber}
                 onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" /></td>
               <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
@@ -249,8 +244,6 @@ export default function DomesticQueuePage() {
                   onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone" /></td>
               <td style={cell}>{draft.movementDirection === "pickup" && <input aria-label="Destination" style={sheetInput} value={draft.destination}
                 onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" />}</td>
-              <td style={cell}><input aria-label="Warehouse location" style={sheetInput} value={draft.warehouseLocation}
-                onChange={(event) => editDraft(draft.id, { warehouseLocation: event.target.value })} placeholder="Location" /></td>
               <td style={cell}><input aria-label="Notes" style={sheetInput} value={draft.notes}
                 onChange={(event) => editDraft(draft.id, { notes: event.target.value })} placeholder="Notes" /></td>
               <td style={cell}><button style={primary} disabled={working === draft.id} onClick={() => void saveDraft(draft)}>
