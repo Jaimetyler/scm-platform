@@ -73,6 +73,9 @@ export default function DriverCheckinPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [lookingUp, setLookingUp] = useState(false);
+  const [orderReady, setOrderReady] = useState(false);
+  const [orderMessage, setOrderMessage] = useState("");
   const [error, setError] = useState("");
   const [complete, setComplete] = useState(false);
   const [bolPhoto, setBolPhoto] = useState<File | null>(null);
@@ -128,6 +131,30 @@ export default function DriverCheckinPage() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  async function findOrder() {
+    if (!form.orderId.trim() || lookingUp) return;
+    setLookingUp(true);
+    setOrderMessage("");
+    try {
+      const position = await currentPosition();
+      const response = await fetch(`/api/gate/check-in/${token}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "lookupOrder", orderId: form.orderId.trim(), location: {
+          latitude: position.coords.latitude, longitude: position.coords.longitude,
+          accuracyMeters: position.coords.accuracy, capturedAt: new Date(position.timestamp).toISOString(),
+        } }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not find this order");
+      setForm((current) => ({ ...current, movementDirection: result.direction, referenceNumber: result.reference }));
+      setOrderReady(true);
+      setOrderMessage(`SCM order found: ${result.direction}. Reference ${result.reference}.`);
+    } catch (reason) {
+      setOrderReady(false);
+      setOrderMessage(reason instanceof Error ? reason.message : "Could not find this order");
+    } finally { setLookingUp(false); }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!site || submitting) return;
@@ -144,7 +171,7 @@ export default function DriverCheckinPage() {
       request.set("driverPhone", form.driverPhone);
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
-      request.set("orderId", form.materialType === "cotton" ? "" : form.orderId);
+      request.set("orderId", form.materialType === "cotton" ? "" : orderReady ? form.orderId : "");
       request.set("referenceNumber", form.referenceNumber);
       request.set("destination", form.destination);
       request.set("mark", form.mark);
@@ -213,11 +240,22 @@ export default function DriverCheckinPage() {
         </div>
 
         {form.checkinType ? <div style={gridStyle}>
+          {form.checkinType === "domestic" ? <>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
+              onChange={(value) => { setOrderReady(false); setOrderMessage(""); setForm((current) => ({ ...current, orderId: value.toUpperCase(), movementDirection: "", referenceNumber: "" })); }} autoCapitalize="characters" optional />
+            <button type="button" disabled={!form.orderId.trim() || lookingUp} style={{ ...buttonStyle, marginTop: 8 }} onClick={() => void findOrder()}>
+              {lookingUp ? "Finding order…" : "Find my order"}
+            </button>
+            {orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
+            <small style={{ color: "#94a3b8" }}>No SCM number? Fill in the details from your paperwork below.</small>
+          </div>
+          </> : null}
           <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
           {form.checkinType === "domestic" ? <>
           <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
           <label style={labelStyle}>Pickup or delivery? *
-            <select required value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
+            <select required disabled={orderReady} value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
               <option value="">Select</option>
               <option value="delivery">Delivery</option>
               <option value="pickup">Pickup</option>
@@ -231,9 +269,7 @@ export default function DriverCheckinPage() {
               <option value="other">Other / FAK</option>
             </select>
           </label>
-          {form.materialType !== "cotton" && <Field label="SCM order number (if you have one)" value={form.orderId}
-            onChange={(value) => setForm((current) => ({ ...current, orderId: value.toUpperCase(), referenceNumber: value.trim() ? "" : current.referenceNumber }))} autoCapitalize="characters" />}
-          {(!form.orderId || form.materialType === "cotton") && <Field
+          {!orderReady && <Field
             label={form.movementDirection === "pickup" ? "B/L number (McLeod BLNUM) *" : form.movementDirection === "delivery" ? "Consignee reference (McLeod) *" : "Reference number *"}
             value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />}
           {form.movementDirection === "pickup" ? (
@@ -276,10 +312,10 @@ function Choice({ selected, title, detail, onClick }: { selected: boolean; title
 
 function Field(props: {
   label: string; value: string; onChange: (value: string) => void;
-  inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string;
+  inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean;
 }) {
   return <label style={labelStyle}>{props.label}
-    <input required={props.label.endsWith("*")} value={props.value}
+    <input required={!props.optional && props.label.endsWith("*")} value={props.value}
       onChange={(event) => props.onChange(event.target.value)} style={inputStyle}
       inputMode={props.inputMode} autoComplete={props.autoComplete} autoCapitalize={props.autoCapitalize} />
   </label>;

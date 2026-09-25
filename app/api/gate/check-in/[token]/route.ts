@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
-import { lookupMcleodOrderById } from "@/lib/inbound/checkin/mcleod-order-id";
+import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 
 export const runtime = "nodejs";
 
@@ -128,6 +128,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
 
     const { body, photo } = await requestBody(req);
+    if (body?.action === "lookupOrder") {
+      const location = body?.location;
+      const verified = verifyGateLocation({
+        gate: { latitude: gate.latitude, longitude: gate.longitude, radiusMeters: gate.radius_m },
+        driver: { latitude: Number(location?.latitude), longitude: Number(location?.longitude),
+          accuracyMeters: Number(location?.accuracyMeters), capturedAt: clean(location?.capturedAt, 40) },
+      });
+      if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
+      const order = await lookupMcleodGateOrder(clean(body?.orderId, 60), gate.terminal, gate.site_name);
+      return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference });
+    }
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
       return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
@@ -139,21 +150,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       return NextResponse.json({ ok: false, error: "Choose a check-in type and enter the driver name" }, { status: 400 });
     }
     const driverPhone = clean(body?.driverPhone, 40);
-    const movementDirection = clean(body?.movementDirection, 20).toLowerCase();
+    let movementDirection = clean(body?.movementDirection, 20).toLowerCase();
     const materialType = clean(body?.materialType, 20).toLowerCase();
     let referenceNumber = clean(body?.referenceNumber).toUpperCase();
     const orderId = materialType !== "cotton" ? clean(body?.orderId, 60).toUpperCase() : "";
-    const destination = movementDirection === "pickup"
-      ? clean(body?.destination, 200).toUpperCase()
-      : null;
+    let destination = clean(body?.destination, 200).toUpperCase();
     const mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
     const bolBaleCount = materialType === "cotton"
       ? positiveInteger(body?.bolBaleCount ?? body?.bolBC)
       : null;
     if (checkinType === "domestic" && (!driverPhone ||
-        !["pickup", "delivery"].includes(movementDirection) ||
         !["cotton", "lumber", "other"].includes(materialType) ||
-        (!referenceNumber && !orderId) || (movementDirection === "pickup" && !destination) ||
+        (!referenceNumber && !orderId) ||
         (materialType === "cotton" && (!mark || !bolBaleCount)))) {
       return NextResponse.json({ ok: false, error: "Complete every required field before checking in" }, { status: 400 });
     }
@@ -242,13 +250,21 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // passed. Do not return McLeod order details to the public browser.
     let matchedCustomer: string | null = null;
     if (orderId) {
-      const order = await lookupMcleodOrderById(orderId, movementDirection);
+      const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
+      if (movementDirection && movementDirection !== order.direction) {
+        return NextResponse.json({ ok: false, error: "Order direction changed. Look it up again before checking in." }, { status: 409 });
+      }
+      movementDirection = order.direction;
       if (referenceNumber && !order.reference.includes(referenceNumber)) {
         return NextResponse.json({ ok: false, error: "That order does not contain the reference entered" }, { status: 409 });
       }
       referenceNumber ||= order.reference;
       matchedCustomer = order.customer;
     }
+    if (!["pickup", "delivery"].includes(movementDirection) || (movementDirection === "pickup" && !destination)) {
+      return NextResponse.json({ ok: false, error: "Enter the destination for a pickup or choose pickup or delivery" }, { status: 400 });
+    }
+    if (movementDirection !== "pickup") destination = "";
 
     const insertPayload = {
       id: clientId,
@@ -260,7 +276,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       movement_direction: movementDirection,
       material_type: materialType,
       reference_number: referenceNumber,
-      destination,
+      destination: destination || null,
       mark,
       shipper: matchedCustomer,
       matched_order_id: orderId || null,
