@@ -48,6 +48,7 @@ export default function DomesticQueuePage() {
   const [tick, setTick] = useState(0);
   const [matches, setMatches] = useState<Record<string, Match[]>>({});
   const [matchWorking, setMatchWorking] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 5 }, (_, index) => blankDraft(`initial-${index}`)));
 
   const load = useCallback(async (quiet = false) => {
@@ -69,13 +70,16 @@ export default function DomesticQueuePage() {
   }, [site]);
 
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => { void load(true); setTick((value) => value + 1); }, 10000);
+    if (!editingId) void load();
+    const timer = window.setInterval(() => {
+      if (!editingId) void load(true);
+      setTick((value) => value + 1);
+    }, 10000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, editingId]);
 
   async function transition(row: Row & { yard_status: Status }, to: string) {
-    if (!site) return;
+    if (!site || editingId !== row.id) return;
     if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number} from the domestic queue?`)) return;
     setWorking(row.id);
     try {
@@ -86,11 +90,13 @@ export default function DomesticQueuePage() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not update arrival");
       await load(true);
+      setEditingId(null);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update arrival"); }
     finally { setWorking(""); }
   }
 
   async function findOrder(row: Row) {
+    if (editingId !== row.id) return;
     setMatchWorking(row.id);
     setError("");
     try {
@@ -103,7 +109,7 @@ export default function DomesticQueuePage() {
   }
 
   async function saveCustomer(row: Row, customer: string, orderId?: string) {
-    if (!site || (!orderId && customer.trim().toUpperCase() === (row.shipper ?? ""))) return;
+    if (!site || editingId !== row.id || (!orderId && customer.trim().toUpperCase() === (row.shipper ?? ""))) return;
     setWorking(row.id);
     setError("");
     try {
@@ -121,7 +127,7 @@ export default function DomesticQueuePage() {
   }
 
   async function saveField(row: Row, field: "reference_number" | "comment_1", value: string) {
-    if (!site || value.trim().toUpperCase() === String(row[field] ?? "")) return;
+    if (!site || editingId !== row.id || value.trim().toUpperCase() === String(row[field] ?? "")) return;
     setWorking(row.id);
     setError("");
     try {
@@ -191,24 +197,26 @@ export default function DomesticQueuePage() {
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead><tr>{["#", "Arrived", "Move", "Material", "Reference", "Customer", "Order match", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
-            <tbody>{active.map((row, index) => <tr key={row.id}>
+            <tbody>{active.map((row, index) => <tr key={row.id} style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : undefined }}>
               <td style={cell}>{index + 1}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}<div style={muted}>{elapsed(row.checked_in_at, tick)}</div></td>
               <td style={cell}>{row.movement_direction}</td>
               <td style={cell}>{row.material_type}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Reference for ${row.driver_name}`} defaultValue={row.reference_number}
+                disabled={editingId !== row.id}
                 onBlur={(event) => void saveField(row, "reference_number", event.target.value)} style={sheetInput} />
                 <div><Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.has_bol_photo ? "Paperwork" : "Details"}</Link></div></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Customer for ${row.driver_name}`}
                 defaultValue={row.shipper ?? ""} placeholder="Enter customer"
+                disabled={editingId !== row.id}
                 onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} />
                 {row.matched_order_id && <div style={muted}>McLeod #{row.matched_order_id}</div>}</td>
-              <td style={cell}><button style={button} disabled={matchWorking === row.id || working === row.id}
+              <td style={cell}><button style={button} disabled={editingId !== row.id || matchWorking === row.id || working === row.id}
                 onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>
                 {matches[row.id] && <div style={{ minWidth: 180, marginTop: 6 }}>
                   {matches[row.id].length === 0 ? <span>No matching order</span> :
                     matches[row.id].map((match) => <button key={match.orderId} style={{ ...button, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
-                      disabled={working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
+                      disabled={editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
                       #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.value}</small>
                     </button>)}
                 </div>}</td>
@@ -216,12 +224,17 @@ export default function DomesticQueuePage() {
               <td style={cell}>{row.destination || "—"}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
                 defaultValue={row.comment_1 ?? ""} placeholder="Notes"
+                disabled={editingId !== row.id}
                 onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
               <td style={cell}><strong style={{ color: "#67e8f9" }}>{LABEL[row.yard_status]}</strong>
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
-                  <button disabled={working === row.id} style={primary} onClick={() => void transition(row, NEXT[row.yard_status].to)}>{NEXT[row.yard_status].label}</button>
-                  {PREVIOUS[row.yard_status] && <button disabled={working === row.id} style={button} onClick={() => void transition(row, PREVIOUS[row.yard_status]!)}>Back</button>}
-                  <button disabled={working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
+                  {editingId !== row.id ?
+                    <button disabled={Boolean(working || matchWorking)} style={button} onClick={() => setEditingId(row.id)}>Edit</button> : <>
+                    <button disabled={working === row.id || matchWorking === row.id} style={button} onClick={() => setEditingId(null)}>Close edit</button>
+                    <button disabled={working === row.id} style={primary} onClick={() => void transition(row, NEXT[row.yard_status].to)}>{NEXT[row.yard_status].label}</button>
+                    {PREVIOUS[row.yard_status] && <button disabled={working === row.id} style={button} onClick={() => void transition(row, PREVIOUS[row.yard_status]!)}>Back</button>}
+                    <button disabled={working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
+                  </>}
                 </div></td>
             </tr>)}
             {drafts.map((draft, index) => <tr key={draft.id} style={{ background: "rgba(51,65,85,.12)" }}>

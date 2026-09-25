@@ -44,6 +44,8 @@ The Lumber & Other view uses a spreadsheet layout. Pickup references are searche
 
 Staff can also fill in a blank Lumber & Other spreadsheet row without a driver QR arrival. Choose pickup/delivery and material, enter the reference, and save the row; customer, driver, destination, location, and notes can be entered at the same time. After saving, the row joins the yard queue and can use the same McLeod order lookup. The **+ 5 Blank Lines** button adds more entry rows. These manual rows stay outside the cotton McLeod delivery posting workflow.
 
+Saved Lumber & Other rows, whether entered by a driver or staff, open read-only. Staff click **Edit** on a row to change its reference, customer, notes, McLeod match, or yard status, then click **Close edit** when finished. Blank entry rows remain editable until saved.
+
 ## Guardrails
 
 - The public token does not expose the gate coordinates.
