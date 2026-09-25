@@ -321,6 +321,7 @@ export default function SiteCheckinPage() {
         terminal: site.terminal,
         siteCode: site.siteCode,
         date: today,
+        materialType: "cotton",
       });
 
       const res = await fetch(`/api/inbound/checkin/rows?${params.toString()}`, {
@@ -822,10 +823,15 @@ export default function SiteCheckinPage() {
         }
       />
 
+      <nav aria-label="Freight type" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        <span aria-current="page" style={primaryButtonStyle}>Cotton</span>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={linkButtonStyle}>Lumber & Other</Link>
+      </nav>
+
       <PlatformPanel>
         <div style={statsGridStyle}>
           <StatCard label="Waiting for location/details" value={waitingCount} />
-          <StatCard label="Gate-only arrivals" value={gateOnlyCount} />
+          <StatCard label="Cotton pickups" value={gateOnlyCount} />
           <StatCard label="Ready" value={readyCount} tone="success" />
           <StatCard label="Processed" value={processedCount} tone="info" />
           <StatCard label="Outside carrier" value={outsideCount} />

@@ -4,7 +4,6 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
 export const runtime = "nodejs";
 
-const ACTIVE = ["waiting", "called", "in_door", "working"] as const;
 const NEXT: Record<string, string[]> = {
   waiting: ["called", "cancelled"],
   called: ["in_door", "waiting", "cancelled"],
@@ -43,11 +42,13 @@ export async function GET(req: NextRequest) {
     const { data, error } = await database().from("inbound_checkin_rows")
       .select("id,checked_in_at,driver_name,driver_phone,movement_direction,material_type,reference_number,destination,mark,bol_bc,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
       .eq("terminal", terminal).eq("site_code", siteCode).eq("checkin_source", "driver_qr")
-      .in("yard_status", [...ACTIVE]).order("checked_in_at", { ascending: true });
+      .in("material_type", ["lumber", "other"])
+      .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
+      .order("checked_in_at", { ascending: false }).limit(200);
     if (error) throw error;
     return NextResponse.json({ ok: true, rows: (data ?? []).map(({ bol_photo_path, ...row }) => ({ ...row, has_bol_photo: Boolean(bol_photo_path) })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load domestic queue" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: 500 });
   }
 }
 
@@ -66,12 +67,12 @@ export async function PATCH(req: NextRequest) {
     const { data, error } = await database().from("inbound_checkin_rows")
       .update({ yard_status: to, [TIMESTAMP[to]]: now, yard_updated_by: user(req) })
       .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
-      .eq("checkin_source", "driver_qr").eq("yard_status", from)
+      .eq("checkin_source", "driver_qr").in("material_type", ["lumber", "other"]).eq("yard_status", from)
       .select("id,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at").maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the queue." }, { status: 409 });
     return NextResponse.json({ ok: true, row: data });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not update domestic queue" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not update domestic queue") }, { status: 500 });
   }
 }

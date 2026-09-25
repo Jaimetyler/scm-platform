@@ -80,6 +80,7 @@ export async function GET(req: NextRequest) {
     const terminal = cleanText(searchParams.get("terminal")).toUpperCase();
     const siteCode = cleanText(searchParams.get("siteCode"));
     const date = cleanText(searchParams.get("date"));
+    const materialType = cleanText(searchParams.get("materialType"));
 
     if (!terminal || !siteCode) {
       return NextResponse.json(
@@ -93,6 +94,8 @@ export async function GET(req: NextRequest) {
       .select("*")
       .eq("terminal", terminal)
       .eq("site_code", siteCode);
+
+    if (materialType === "cotton") query = query.eq("material_type", "cotton");
 
     if (date) {
       // Carry unresolved rows forward and keep today's corrected processed
