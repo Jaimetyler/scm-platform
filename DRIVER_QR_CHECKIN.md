@@ -20,7 +20,9 @@ The public link is `/gate/check-in/{site-token}`. It works over HTTPS, which mob
 
 The browser receives an anonymous device ID that is stored locally and hashed before it is saved. A device may hold only one waiting container entry across SCM yards. Scanning again returns the existing driver's current position instead of creating another entry. Completing or removing that entry releases the device for its next check-in. This discourages proxy check-ins without requiring an account or SMS, but clearing browser storage can bypass it; stronger identity verification remains a future option if needed.
 
-**Domestic Freight** asks for the driver's name, mobile number, pickup/delivery direction, material type (Cotton, Lumber, or Other/FAK), and a reference number. Pickups also require a destination. Cotton adds mark and the bale count shown on the BOL. The driver may attach an optional paperwork photo. Location access happens when they tap **Verify location & check in**.
+**Domestic Freight** asks for the driver's name, mobile number, pickup/delivery direction, and material type (Cotton, Lumber, or Other/FAK). Pickups also require a destination. Cotton asks for a reference, mark, and the bale count shown on the BOL. The driver may attach an optional paperwork photo. Location access happens when they tap **Verify location & check in**.
+
+For Lumber and Other freight, a driver who has an SCM order number can enter it instead of a reference. After gate location verification, the server reads that McLeod order and fills the check-in's customer and reference from `blnum` for a pickup or `consignee_refno` for a delivery. The public response does not expose those order details. Drivers without an SCM order number continue to enter the reference from their paperwork. Cotton keeps its existing mark and BOL bale count workflow.
 
 An accepted submission creates the same `inbound_checkin_rows` record used by staff, with:
 

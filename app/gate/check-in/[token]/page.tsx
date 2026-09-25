@@ -11,6 +11,7 @@ type FormState = {
   driverPhone: string;
   movementDirection: string;
   materialType: string;
+  orderId: string;
   referenceNumber: string;
   destination: string;
   mark: string;
@@ -19,7 +20,7 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   checkinType: "", driverName: "", driverPhone: "", movementDirection: "", materialType: "",
-  referenceNumber: "", destination: "", mark: "", bolBaleCount: "",
+  orderId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "",
 };
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -143,6 +144,7 @@ export default function DriverCheckinPage() {
       request.set("driverPhone", form.driverPhone);
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
+      request.set("orderId", form.materialType === "cotton" ? "" : form.orderId);
       request.set("referenceNumber", form.referenceNumber);
       request.set("destination", form.destination);
       request.set("mark", form.mark);
@@ -229,7 +231,11 @@ export default function DriverCheckinPage() {
               <option value="other">Other / FAK</option>
             </select>
           </label>
-          <Field label={form.movementDirection === "pickup" ? "B/L number (McLeod BLNUM) *" : form.movementDirection === "delivery" ? "Consignee reference (McLeod) *" : "Reference number *"} value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
+          {form.materialType !== "cotton" && <Field label="SCM order number (if you have one)" value={form.orderId}
+            onChange={(value) => setForm((current) => ({ ...current, orderId: value.toUpperCase(), referenceNumber: value.trim() ? "" : current.referenceNumber }))} autoCapitalize="characters" />}
+          {(!form.orderId || form.materialType === "cotton") && <Field
+            label={form.movementDirection === "pickup" ? "B/L number (McLeod BLNUM) *" : form.movementDirection === "delivery" ? "Consignee reference (McLeod) *" : "Reference number *"}
+            value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />}
           {form.movementDirection === "pickup" ? (
             <Field label="Destination *" value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
           ) : null}

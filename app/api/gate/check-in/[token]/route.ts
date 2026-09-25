@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
+import { lookupMcleodOrderById } from "@/lib/inbound/checkin/mcleod-order-id";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,7 @@ async function requestBody(req: NextRequest) {
         driverPhone: form.get("driverPhone"),
         movementDirection: form.get("movementDirection"),
         materialType: form.get("materialType"),
+        orderId: form.get("orderId"),
         referenceNumber: form.get("referenceNumber"),
         destination: form.get("destination"),
         mark: form.get("mark"),
@@ -139,7 +141,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     const driverPhone = clean(body?.driverPhone, 40);
     const movementDirection = clean(body?.movementDirection, 20).toLowerCase();
     const materialType = clean(body?.materialType, 20).toLowerCase();
-    const referenceNumber = clean(body?.referenceNumber).toUpperCase();
+    let referenceNumber = clean(body?.referenceNumber).toUpperCase();
+    const orderId = materialType !== "cotton" ? clean(body?.orderId, 60).toUpperCase() : "";
     const destination = movementDirection === "pickup"
       ? clean(body?.destination, 200).toUpperCase()
       : null;
@@ -150,7 +153,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (checkinType === "domestic" && (!driverPhone ||
         !["pickup", "delivery"].includes(movementDirection) ||
         !["cotton", "lumber", "other"].includes(materialType) ||
-        !referenceNumber || (movementDirection === "pickup" && !destination) ||
+        (!referenceNumber && !orderId) || (movementDirection === "pickup" && !destination) ||
         (materialType === "cotton" && (!mark || !bolBaleCount)))) {
       return NextResponse.json({ ok: false, error: "Complete every required field before checking in" }, { status: 400 });
     }
@@ -235,6 +238,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       });
     }
 
+    // Resolve a driver's SCM order number only after the gate GPS check has
+    // passed. Do not return McLeod order details to the public browser.
+    let matchedCustomer: string | null = null;
+    if (orderId) {
+      const order = await lookupMcleodOrderById(orderId, movementDirection);
+      if (referenceNumber && !order.reference.includes(referenceNumber)) {
+        return NextResponse.json({ ok: false, error: "That order does not contain the reference entered" }, { status: 409 });
+      }
+      referenceNumber ||= order.reference;
+      matchedCustomer = order.customer;
+    }
+
     const insertPayload = {
       id: clientId,
       terminal: gate.terminal,
@@ -247,7 +262,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       reference_number: referenceNumber,
       destination,
       mark,
-      shipper: null,
+      shipper: matchedCustomer,
+      matched_order_id: orderId || null,
       bol_bc: bolBaleCount,
       bale_count: null,
       warehouse_location: null,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
+import { lookupMcleodOrderById } from "@/lib/inbound/checkin/mcleod-order-id";
 
 export const runtime = "nodejs";
 
@@ -61,25 +62,36 @@ export async function POST(req: NextRequest) {
     const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode);
     const direction = String(body?.movementDirection ?? "").trim();
     const material = String(body?.materialType ?? "").trim();
-    const reference = String(body?.referenceNumber ?? "").trim().toUpperCase();
-    const customer = String(body?.customer ?? "").trim().toUpperCase();
+    let reference = String(body?.referenceNumber ?? "").trim().toUpperCase();
+    let customer = String(body?.customer ?? "").trim().toUpperCase();
+    const orderId = String(body?.orderId ?? "").trim();
     const driverName = String(body?.driverName ?? "").trim();
     const driverPhone = String(body?.driverPhone ?? "").trim();
     const destination = String(body?.destination ?? "").trim().toUpperCase();
     const location = String(body?.warehouseLocation ?? "").trim().toUpperCase();
     const notes = String(body?.notes ?? "").trim();
     if (!site || !["pickup", "delivery"].includes(direction) || !["lumber", "other"].includes(material) ||
-        !reference || reference.length > 200 || customer.length > 200 || driverName.length > 120 ||
+        (!reference && !orderId) || reference.length > 200 || customer.length > 200 || driverName.length > 120 ||
         driverPhone.length > 40 || destination.length > 200 || location.length > 120 || notes.length > 500) {
       return NextResponse.json({ ok: false, error: "Enter a valid site, move, material, and reference" }, { status: 400 });
     }
+    if (orderId) {
+      const order = await lookupMcleodOrderById(orderId, direction);
+      if (reference && !order.reference.includes(reference)) {
+        return NextResponse.json({ ok: false, error: `Order ${orderId} ${order.field} does not contain ${reference}` }, { status: 409 });
+      }
+      reference ||= order.reference;
+      customer = order.customer;
+    }
+    if (reference.length > 200) return NextResponse.json({ ok: false, error: "McLeod reference is too long" }, { status: 400 });
     const now = new Date();
     const { data, error } = await database().from("inbound_checkin_rows").insert({
       terminal, site_code: siteCode, site_name: site.siteName, sub_location: site.subLocations[0] ?? "MAIN",
       received_date: warehouseDate(now, site.terminal), checked_in_at: now.toISOString(),
       checkin_source: "staff", draft_status: "checked_in", yard_status: "waiting",
       movement_direction: direction, material_type: material, reference_number: reference,
-      shipper: customer || null, driver_name: driverName || null, driver_phone: driverPhone || null,
+      shipper: customer || null, matched_order_id: orderId || null,
+      driver_name: driverName || null, driver_phone: driverPhone || null,
       destination: direction === "pickup" ? destination || null : null,
       warehouse_location: location || null, comment_1: notes || null, verified: false,
     }).select("id").single();
@@ -132,21 +144,12 @@ export async function PATCH(req: NextRequest) {
       let orderId: string | null = null;
       if (body.action === "match_order") {
         orderId = String(body.orderId ?? "").trim();
-        if (!orderId || !/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) return NextResponse.json({ ok: false, error: "Invalid order" }, { status: 400 });
-        const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
-        const token = process.env.MCLEOD_AUTH_TOKEN;
-        if (!base || !token) throw new Error("McLeod connection is not configured");
-        const response = await fetch(`${base}/orders/${encodeURIComponent(orderId)}`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
-        });
-        if (!response.ok) throw new Error(`McLeod order lookup failed (${response.status})`);
-        const order = await response.json();
-        const field = existing.movement_direction === "pickup" ? "blnum" : "consignee_refno";
+        const order = await lookupMcleodOrderById(orderId, existing.movement_direction);
         const reference = String(existing.reference_number ?? "").trim().toUpperCase();
-        if (!reference || !String(order[field] ?? "").toUpperCase().includes(reference)) {
+        if (!reference || !order.reference.includes(reference)) {
           return NextResponse.json({ ok: false, error: "That order does not contain the driver's reference in the required field" }, { status: 409 });
         }
-        customer = String(order.customer?.name ?? order.customer_name ?? order.customer_id ?? "").trim().toUpperCase();
+        customer = order.customer;
       }
       if (!customer || customer.length > 200) return NextResponse.json({ ok: false, error: "Enter a customer" }, { status: 400 });
       const { data, error } = await sb.from("inbound_checkin_rows")
