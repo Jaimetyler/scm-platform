@@ -41,7 +41,7 @@ export default async function DriverCheckinDetailsPage({
           <Detail label="Phone" value={row.driver_phone ? <a href={`tel:${row.driver_phone}`} style={phoneStyle}>{row.driver_phone}</a> : "—"} />
           <Detail label="Movement" value={String(row.movement_direction ?? "delivery").toUpperCase()} />
           <Detail label="Material" value={String(row.material_type ?? "cotton").toUpperCase()} />
-          <Detail label="Reference" value={row.reference_number || "—"} />
+          <Detail label={row.movement_direction === "pickup" ? "McLeod BLNUM" : "McLeod consignee_refno"} value={row.reference_number || "—"} />
           {row.movement_direction === "pickup" ? <Detail label="Destination" value={row.destination || "—"} /> : null}
           <Detail label="Mark" value={row.mark || "—"} />
           {row.material_type === "cotton" ? <Detail label="Bale count on BOL" value={row.bol_bc ?? "—"} /> : null}

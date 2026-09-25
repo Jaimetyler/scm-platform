@@ -38,6 +38,8 @@ Only **Cotton + Delivery** is eligible for the existing McLeod delivery workflow
 
 The warehouse check-in has **Cotton** and **Lumber & Other** views. Cotton keeps the existing grid and McLeod delivery workflow. `/warehouse/gate/{terminal}/{site-code}/domestic` shows Lumber and Other QR arrivals, with active trucks in arrival order and recent completed check-ins below. The independent yard status progresses through **Waiting → Called → In door → Loading/Unloading → Complete**. Staff can move one stage back to correct a tap, or remove an arrival. Each transition records server time and the warehouse user; completion removes it from the active queue. The McLeod processing status remains independent. Older QR check-ins are marked completed during migration so they do not appear as waiting trucks.
 
+The Lumber & Other view uses a spreadsheet layout. Pickup references are searched within McLeod `orders.blnum`; delivery references are searched within `orders.consignee_refno`. Staff choose among returned orders if there is more than one possible match. The chosen order ID and its customer are recorded on the check-in; the lookup does not alter the McLeod order. For warehouse-only freight, staff can type a customer without a McLeod order. Editing a reference clears a previously selected McLeod order and its customer so the new reference can be checked again. The customer list is not drawn from the cotton cross-reference.
+
 ## Guardrails
 
 - The public token does not expose the gate coordinates.

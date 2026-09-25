@@ -229,7 +229,7 @@ export default function DriverCheckinPage() {
               <option value="other">Other / FAK</option>
             </select>
           </label>
-          <Field label="Reference number *" value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
+          <Field label={form.movementDirection === "pickup" ? "B/L number (McLeod BLNUM) *" : form.movementDirection === "delivery" ? "Consignee reference (McLeod) *" : "Reference number *"} value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
           {form.movementDirection === "pickup" ? (
             <Field label="Destination *" value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
           ) : null}
