@@ -10,7 +10,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 type Status = "waiting" | "called" | "in_door" | "working";
 type YardStatus = Status | "completed" | "cancelled" | null;
 type Row = {
-  id: string; updated_at: string; checked_in_at: string; driver_name: string; driver_phone: string;
+  id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null;
   movement_direction: string; material_type: string; reference_number: string;
   destination: string | null; shipper: string | null; matched_order_id: string | null;
   warehouse_location: string | null; comment_1: string | null; mark: string | null; bol_bc: number | null;
@@ -19,6 +19,13 @@ type Row = {
   yard_work_started_at: string | null;
 };
 type Match = { orderId: string; customerId: string; customerName: string; value: string };
+type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
+  referenceNumber: string; customer: string; driverName: string; driverPhone: string;
+  destination: string; warehouseLocation: string; notes: string };
+function blankDraft(id: string): Draft {
+  return { id, movementDirection: "delivery", materialType: "lumber", referenceNumber: "", customer: "",
+    driverName: "", driverPhone: "", destination: "", warehouseLocation: "", notes: "" };
+}
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
 };
@@ -41,6 +48,7 @@ export default function DomesticQueuePage() {
   const [tick, setTick] = useState(0);
   const [matches, setMatches] = useState<Record<string, Match[]>>({});
   const [matchWorking, setMatchWorking] = useState("");
+  const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 5 }, (_, index) => blankDraft(`initial-${index}`)));
 
   const load = useCallback(async (quiet = false) => {
     if (!site) return;
@@ -68,7 +76,7 @@ export default function DomesticQueuePage() {
 
   async function transition(row: Row & { yard_status: Status }, to: string) {
     if (!site) return;
-    if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name} from the domestic queue?`)) return;
+    if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number} from the domestic queue?`)) return;
     setWorking(row.id);
     try {
       const response = await fetch("/api/warehouse/domestic-queue", {
@@ -130,6 +138,30 @@ export default function DomesticQueuePage() {
     finally { setWorking(""); }
   }
 
+  function editDraft(id: string, change: Partial<Draft>) {
+    setDrafts((current) => current.map((row) => row.id === id ? { ...row, ...change } : row));
+  }
+
+  async function saveDraft(draft: Draft) {
+    if (!site || !draft.referenceNumber.trim()) {
+      setError("Enter the reference number before saving this row.");
+      return;
+    }
+    setWorking(draft.id);
+    setError("");
+    try {
+      const response = await fetch("/api/warehouse/domestic-queue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, terminal: site.terminal, siteCode: site.siteCode }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not save check-in");
+      setDrafts((current) => current.filter((row) => row.id !== draft.id));
+      await load(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save check-in"); }
+    finally { setWorking(""); }
+  }
+
   if (!site) return <main><PlatformPageHeader title="Domestic Queue Not Found" /></main>;
   const active = rows.filter((row): row is Row & { yard_status: Status } => row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working").reverse();
   const recent = rows.filter((row) => !active.some((item) => item.id === row.id));
@@ -147,10 +179,12 @@ export default function DomesticQueuePage() {
     <PlatformPanel>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <strong style={{ color: "#f8fafc" }}>{counts.join(" · ")}</strong>
-        <button style={button} onClick={() => void load()}>Refresh</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={button} onClick={() => setDrafts((current) => [...current, ...Array.from({ length: 5 }, (_, index) => blankDraft(`${Date.now()}-${index}`))])}>+ 5 Blank Lines</button>
+          <button style={button} onClick={() => void load()}>Refresh</button>
+        </div>
       </div>
-      {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null : active.length === 0 ?
-        <p style={muted}>No active lumber or other freight arrivals.</p> :
+      {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: 1760, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
             <colgroup>{[3, 5, 5, 6, 8, 9, 9, 8, 8, 8, 9, 8, 14].map((width, index) =>
@@ -179,7 +213,7 @@ export default function DomesticQueuePage() {
                       #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.value}</small>
                     </button>)}
                 </div>}</td>
-              <td style={cell}>{row.driver_name}<div style={muted}>{row.driver_phone}</div></td>
+              <td style={cell}>{row.driver_name || "Staff entry"}<div style={muted}>{row.driver_phone}</div></td>
               <td style={cell}>{row.destination || "—"}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Warehouse location for ${row.driver_name}`}
                 defaultValue={row.warehouse_location ?? ""} placeholder="Location"
@@ -193,6 +227,34 @@ export default function DomesticQueuePage() {
                   {PREVIOUS[row.yard_status] && <button disabled={working === row.id} style={button} onClick={() => void transition(row, PREVIOUS[row.yard_status]!)}>Back</button>}
                   <button disabled={working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
                 </div></td>
+            </tr>)}
+            {drafts.map((draft, index) => <tr key={draft.id} style={{ background: "rgba(51,65,85,.12)" }}>
+              <td style={cell}>{active.length + index + 1}</td>
+              <td style={cell}><span style={muted}>New row</span></td>
+              <td style={cell}><select aria-label="Pickup or delivery" style={sheetInput} value={draft.movementDirection}
+                onChange={(event) => editDraft(draft.id, { movementDirection: event.target.value as Draft["movementDirection"] })}>
+                <option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></td>
+              <td style={cell}><select aria-label="Material" style={sheetInput} value={draft.materialType}
+                onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
+                <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></td>
+              <td style={cell}>{draft.movementDirection === "pickup" ? "BLNUM" : "consignee_refno"}</td>
+              <td style={cell}><input aria-label="Reference number" style={sheetInput} value={draft.referenceNumber}
+                onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" /></td>
+              <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
+                onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></td>
+              <td style={cell}><span style={muted}>Save to find order</span></td>
+              <td style={cell}><input aria-label="Driver name" style={sheetInput} value={draft.driverName}
+                onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver" />
+                <input aria-label="Driver phone" style={{ ...sheetInput, marginTop: 4 }} value={draft.driverPhone}
+                  onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone" /></td>
+              <td style={cell}>{draft.movementDirection === "pickup" && <input aria-label="Destination" style={sheetInput} value={draft.destination}
+                onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" />}</td>
+              <td style={cell}><input aria-label="Warehouse location" style={sheetInput} value={draft.warehouseLocation}
+                onChange={(event) => editDraft(draft.id, { warehouseLocation: event.target.value })} placeholder="Location" /></td>
+              <td style={cell}><input aria-label="Notes" style={sheetInput} value={draft.notes}
+                onChange={(event) => editDraft(draft.id, { notes: event.target.value })} placeholder="Notes" /></td>
+              <td style={cell}><button style={primary} disabled={working === draft.id} onClick={() => void saveDraft(draft)}>
+                {working === draft.id ? "Saving…" : "Save check-in"}</button></td>
             </tr>)}</tbody>
           </table>
         </div>}

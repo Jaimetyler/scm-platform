@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 
 export const runtime = "nodejs";
 
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await database().from("inbound_checkin_rows")
       .select("id,updated_at,checked_in_at,driver_name,driver_phone,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,comment_1,mark,bol_bc,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
-      .eq("terminal", terminal).eq("site_code", siteCode).eq("checkin_source", "driver_qr")
+      .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("checked_in_at", { ascending: false }).limit(200);
@@ -49,6 +50,43 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, rows: (data ?? []).map(({ bol_photo_path, ...row }) => ({ ...row, has_bol_photo: Boolean(bol_photo_path) })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const terminal = String(body?.terminal ?? "").trim().toUpperCase();
+    const siteCode = String(body?.siteCode ?? "").trim();
+    const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode);
+    const direction = String(body?.movementDirection ?? "").trim();
+    const material = String(body?.materialType ?? "").trim();
+    const reference = String(body?.referenceNumber ?? "").trim().toUpperCase();
+    const customer = String(body?.customer ?? "").trim().toUpperCase();
+    const driverName = String(body?.driverName ?? "").trim();
+    const driverPhone = String(body?.driverPhone ?? "").trim();
+    const destination = String(body?.destination ?? "").trim().toUpperCase();
+    const location = String(body?.warehouseLocation ?? "").trim().toUpperCase();
+    const notes = String(body?.notes ?? "").trim();
+    if (!site || !["pickup", "delivery"].includes(direction) || !["lumber", "other"].includes(material) ||
+        !reference || reference.length > 200 || customer.length > 200 || driverName.length > 120 ||
+        driverPhone.length > 40 || destination.length > 200 || location.length > 120 || notes.length > 500) {
+      return NextResponse.json({ ok: false, error: "Enter a valid site, move, material, and reference" }, { status: 400 });
+    }
+    const now = new Date();
+    const { data, error } = await database().from("inbound_checkin_rows").insert({
+      terminal, site_code: siteCode, site_name: site.siteName, sub_location: site.subLocations[0] ?? "MAIN",
+      received_date: warehouseDate(now, site.terminal), checked_in_at: now.toISOString(),
+      checkin_source: "staff", draft_status: "checked_in", yard_status: "waiting",
+      movement_direction: direction, material_type: material, reference_number: reference,
+      shipper: customer || null, driver_name: driverName || null, driver_phone: driverPhone || null,
+      destination: direction === "pickup" ? destination || null : null,
+      warehouse_location: location || null, comment_1: notes || null, verified: false,
+    }).select("id").single();
+    if (error) throw error;
+    return NextResponse.json({ ok: true, id: data.id });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save manual check-in" }, { status: 500 });
   }
 }
 
@@ -68,7 +106,7 @@ export async function PATCH(req: NextRequest) {
       const { data: existing, error: lookupError } = await sb.from("inbound_checkin_rows")
         .select("id,updated_at,reference_number,movement_direction,matched_order_id")
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
-        .eq("checkin_source", "driver_qr").in("material_type", ["lumber", "other"]).single();
+        .in("material_type", ["lumber", "other"]).single();
       if (lookupError || !existing) return NextResponse.json({ ok: false, error: "Check-in not found" }, { status: 404 });
       if (existing.updated_at !== body.expectedUpdatedAt) return NextResponse.json({ ok: false, error: "This row changed. Refresh before saving." }, { status: 409 });
       if (body.action === "edit_field") {
@@ -126,7 +164,7 @@ export async function PATCH(req: NextRequest) {
     const { data, error } = await database().from("inbound_checkin_rows")
       .update({ yard_status: to, [TIMESTAMP[to]]: now, yard_updated_by: user(req) })
       .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
-      .eq("checkin_source", "driver_qr").in("material_type", ["lumber", "other"]).eq("yard_status", from)
+      .in("material_type", ["lumber", "other"]).eq("yard_status", from)
       .select("id,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at").maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the queue." }, { status: 409 });

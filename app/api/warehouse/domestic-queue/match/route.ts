@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     const { data: row, error } = await database().from("inbound_checkin_rows")
       .select("id,checkin_source,material_type,movement_direction,reference_number")
       .eq("id", id).single();
-    if (error || !row || row.checkin_source !== "driver_qr" || !["lumber", "other"].includes(row.material_type)) {
+    if (error || !row || !["lumber", "other"].includes(row.material_type)) {
       return NextResponse.json({ ok: false, error: "Check-in not found" }, { status: 404 });
     }
     const reference = text(row.reference_number).toUpperCase();

@@ -40,6 +40,8 @@ The warehouse check-in has **Cotton** and **Lumber & Other** views. Cotton keeps
 
 The Lumber & Other view uses a spreadsheet layout. Pickup references are searched within McLeod `orders.blnum`; delivery references are searched within `orders.consignee_refno`. Staff choose among returned orders if there is more than one possible match. The chosen order ID and its customer are recorded on the check-in; the lookup does not alter the McLeod order. For warehouse-only freight, staff can type a customer without a McLeod order. Editing a reference clears a previously selected McLeod order and its customer so the new reference can be checked again. The customer list is not drawn from the cotton cross-reference.
 
+Staff can also fill in a blank Lumber & Other spreadsheet row without a driver QR arrival. Choose pickup/delivery and material, enter the reference, and save the row; customer, driver, destination, location, and notes can be entered at the same time. After saving, the row joins the yard queue and can use the same McLeod order lookup. The **+ 5 Blank Lines** button adds more entry rows. These manual rows stay outside the cotton McLeod delivery posting workflow.
+
 ## Guardrails
 
 - The public token does not expose the gate coordinates.
