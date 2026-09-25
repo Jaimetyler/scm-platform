@@ -26,6 +26,8 @@ For Lumber and Other freight, a driver who has an SCM order number can enter it 
 
 The domestic form asks for the SCM order number first and identifies it as the **Trip Contract #** on the rate confirmation. **Find my order** verifies the driver's yard location, then checks the order's pickup and delivery stops for an SCM location at that terminal. A matching pickup fills pickup and `blnum`; a matching delivery fills delivery and `consignee_refno`. The final submission checks the order again. Ambiguous or missing SCM stops leave the driver on the manual paperwork-reference path. Material, driver contact, and any pickup destination are still supplied by the driver.
 
+The lookup also shows the McLeod commodity and selects Cotton, Lumber, or Other when its description clearly identifies one of them; drivers confirm it against their paperwork. Cotton orders fill the mark from `consignee_refno` (or a recognizable `blnum` mark) and the BOL bale count when `blnum` contains a recognizable count. The driver can correct the mark and bale count or enter them if McLeod lacks them. A known McLeod commodity must match the submitted material.
+
 An accepted submission creates the same `inbound_checkin_rows` record used by staff, with:
 
 - `draft_status = checked_in`

@@ -137,7 +137,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       });
       if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
       const order = await lookupMcleodGateOrder(clean(body?.orderId, 60), gate.terminal, gate.site_name);
-      return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference });
+      return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference,
+        commodity: order.commodity, materialType: order.materialType, mark: order.mark, baleCount: order.baleCount });
     }
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
@@ -153,7 +154,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     let movementDirection = clean(body?.movementDirection, 20).toLowerCase();
     const materialType = clean(body?.materialType, 20).toLowerCase();
     let referenceNumber = clean(body?.referenceNumber).toUpperCase();
-    const orderId = materialType !== "cotton" ? clean(body?.orderId, 60).toUpperCase() : "";
+    const orderId = clean(body?.orderId, 60).toUpperCase();
     let destination = clean(body?.destination, 200).toUpperCase();
     const mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
     const bolBaleCount = materialType === "cotton"
@@ -251,6 +252,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     let matchedCustomer: string | null = null;
     if (orderId) {
       const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
+      if (order.materialType && materialType !== order.materialType) {
+        return NextResponse.json({ ok: false, error: `McLeod commodity is ${order.commodity}. Check the material selection.` }, { status: 409 });
+      }
       if (movementDirection && movementDirection !== order.direction) {
         return NextResponse.json({ ok: false, error: "Order direction changed. Look it up again before checking in." }, { status: 409 });
       }

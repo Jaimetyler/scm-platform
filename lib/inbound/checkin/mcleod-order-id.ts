@@ -46,5 +46,11 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   const reference = String(order[field] ?? "").trim().toUpperCase();
   const customer = String(order.customer?.name ?? order.customer_name ?? order.customer_id ?? "").trim().toUpperCase();
   if (!reference || !customer) throw new Error("This order is missing check-in details. Check in with the reference from your paperwork instead.");
-  return { direction, reference, customer };
+  const commodity = String(order.commodity?.description ?? order.commodity?.name ?? order.commodity_description ?? order.commodity_desc ?? order.commodity_id ?? order.commodity ?? "").trim().toUpperCase();
+  const materialType = /\bCOTTON\b/.test(commodity) ? "cotton" : /\bLUMBER\b|\bWOOD\b/.test(commodity) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodity) ? "other" : null;
+  const blnum = String(order.blnum ?? "").trim().toUpperCase();
+  const parsedBlnum = blnum.match(/^(.+?)\s+(\d+)\s+(?:BALES?|B\/?C|BC)$/);
+  const mark = String(order.consignee_refno ?? "").trim().toUpperCase() || parsedBlnum?.[1] || "";
+  const baleCount = parsedBlnum?.[2] ?? "";
+  return { direction, reference, customer, commodity, materialType, mark, baleCount };
 }
