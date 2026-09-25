@@ -134,7 +134,7 @@ export default function DomesticQueuePage() {
   const active = rows.filter((row): row is Row & { yard_status: Status } => row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working").reverse();
   const recent = rows.filter((row) => !active.some((item) => item.id === row.id));
   const counts = Object.keys(LABEL).map((status) => `${active.filter((row) => row.yard_status === status).length} ${LABEL[status as Status].toLowerCase()}`);
-  return <main style={{ maxWidth: 1160, margin: "0 auto" }}>
+  return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Check-In`}
       subtitle="Lumber and other freight arrivals. Move each truck through the yard as work progresses."
       actions={<><Link href="/inbound/checkin" style={button}>All check-in sites</Link>
@@ -152,7 +152,9 @@ export default function DomesticQueuePage() {
       {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null : active.length === 0 ?
         <p style={muted}>No active lumber or other freight arrivals.</p> :
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
+          <table style={{ width: "100%", minWidth: 1760, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
+            <colgroup>{[3, 5, 5, 6, 8, 9, 9, 8, 8, 8, 9, 8, 14].map((width, index) =>
+              <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead><tr>{["#", "Arrived", "Move", "Material", "McLeod field", "Reference", "Customer", "Order match", "Driver", "Destination", "Warehouse location", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.map((row, index) => <tr key={row.id}>
@@ -224,4 +226,4 @@ const muted: React.CSSProperties = { color: "#94a3b8", fontSize: 13, marginTop: 
 const card: React.CSSProperties = { border: "1px solid #334155", background: "#0f172a", borderRadius: 12, padding: 16 };
 const heading: React.CSSProperties = { padding: "11px 8px", textAlign: "left", borderBottom: "2px solid #475569", whiteSpace: "nowrap", color: "#94a3b8" };
 const cell: React.CSSProperties = { padding: "10px 8px", borderBottom: "1px solid #334155", verticalAlign: "top" };
-const sheetInput: React.CSSProperties = { width: 170, padding: "8px", border: "1px solid #475569", borderRadius: 6, background: "#0b1220", color: "#f8fafc" };
+const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: "8px", border: "1px solid #475569", borderRadius: 6, background: "#0b1220", color: "#f8fafc" };
