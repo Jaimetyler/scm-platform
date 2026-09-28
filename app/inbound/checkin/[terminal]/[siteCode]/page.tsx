@@ -1249,6 +1249,11 @@ export default function SiteCheckinPage() {
                           style={errorButtonStyle}>View error</button>
                       ) : null}
                         </div>
+                        {(row.processing_error || ui.saveState === "error") && <small
+                          title={row.processing_error || ui.message || "Save failed"}
+                          style={{ color: "#fca5a5", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "block" }}>
+                          {row.processing_error || ui.message || "Save failed"}
+                        </small>}
                         <div style={rowActionsStyle}>
                       {(!row.id.startsWith("local-") || row.mark) && <button type="button"
                         onClick={() => toggleDetails(row.id)} style={smallActionButtonStyle}

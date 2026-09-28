@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string };
@@ -78,6 +78,8 @@ export default function DriverCheckinPage() {
   const [orderMessage, setOrderMessage] = useState("");
   const [orderCommodity, setOrderCommodity] = useState("");
   const [error, setError] = useState("");
+  const errorRef = useRef<HTMLDivElement>(null);
+  const autoDriverRef = useRef({ name: "", phone: "" });
   const [complete, setComplete] = useState(false);
   const [bolPhoto, setBolPhoto] = useState<File | null>(null);
   const [photoSaved, setPhotoSaved] = useState(false);
@@ -129,8 +131,13 @@ export default function DriverCheckinPage() {
   }, [token, deviceId]);
 
   function change(field: keyof FormState, value: string) {
+    setError("");
     setForm((current) => ({ ...current, [field]: value }));
   }
+
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [error]);
 
   async function findOrder() {
     if (!form.orderId.trim() || lookingUp) return;
@@ -145,10 +152,20 @@ export default function DriverCheckinPage() {
           accuracyMeters: position.coords.accuracy, capturedAt: new Date(position.timestamp).toISOString(),
         } }),
       });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Could not find this order");
-      setForm((current) => ({ ...current, movementDirection: result.direction, referenceNumber: result.reference,
-        materialType: result.materialType || "", mark: result.mark || "", bolBaleCount: result.baleCount || "" }));
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || `Could not find this order (HTTP ${response.status})`);
+      setForm((current) => {
+        const driverName = current.driverName || result.driverName || "";
+        const driverPhone = current.driverPhone || result.driverPhone || "";
+        autoDriverRef.current = {
+          name: current.driverName ? "" : driverName,
+          phone: current.driverPhone ? "" : driverPhone,
+        };
+        return { ...current, movementDirection: result.direction, referenceNumber: result.reference,
+          materialType: result.materialType || "", mark: result.mark || "", bolBaleCount: result.baleCount || "",
+          destination: result.direction === "pickup" ? result.destination || "" : "",
+          driverName, driverPhone };
+      });
       setOrderCommodity(result.commodity || "");
       setOrderReady(true);
       setOrderMessage(`SCM order found: ${result.direction}. Please verify the details below.`);
@@ -188,8 +205,8 @@ export default function DriverCheckinPage() {
         method: "POST",
         body: request,
       });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || `Check-in failed (HTTP ${response.status})`);
       setQueuePosition(result.queue === true ? Number(result.position) : null);
       setQueueSiteName(result.siteName || site.siteName);
       setQueuedDriverName(result.driverName || form.driverName);
@@ -232,10 +249,14 @@ export default function DriverCheckinPage() {
 
   return (
     <main style={shellStyle}>
-      <form onSubmit={submit} style={cardStyle}>
+      <form onSubmit={submit} onInvalid={(event) => {
+        const field = event.target as HTMLInputElement | HTMLSelectElement;
+        setError(`Complete the required ${field.closest("label")?.textContent?.replace(/\s*\*.*$/, "").trim().toLowerCase() || "field"} before checking in.`);
+      }} style={cardStyle}>
         <div style={badgeStyle}>SCM DRIVER CHECK-IN</div>
         <h1 style={titleStyle}>{site.siteName}</h1>
         <p style={bodyStyle}>Choose why you are here. When you submit, your phone will verify that you are at the yard.</p>
+        {error ? <div ref={errorRef} role="alert" style={errorBoxStyle}>{error}</div> : null}
 
         <div style={choiceGridStyle}>
           <Choice selected={form.checkinType === "container"} title="Container / Drayage" detail="Join the driver line" onClick={() => change("checkinType", "container")} />
@@ -246,11 +267,18 @@ export default function DriverCheckinPage() {
           {form.checkinType === "domestic" ? <>
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
-              onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity(""); setForm((current) => ({ ...current, orderId: value.toUpperCase(), movementDirection: "", referenceNumber: "", materialType: "", mark: "", bolBaleCount: "" })); }} autoCapitalize="characters" optional />
+              onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
+                const previousAuto = autoDriverRef.current;
+                setForm((current) => ({
+                ...current, orderId: value.toUpperCase(), movementDirection: "", referenceNumber: "", materialType: "",
+                mark: "", bolBaleCount: "", destination: "",
+                driverName: previousAuto.name && current.driverName === previousAuto.name ? "" : current.driverName,
+                driverPhone: previousAuto.phone && current.driverPhone === previousAuto.phone ? "" : current.driverPhone,
+              })); autoDriverRef.current = { name: "", phone: "" }; }} autoCapitalize="characters" optional />
             <button type="button" disabled={!form.orderId.trim() || lookingUp} style={{ ...buttonStyle, marginTop: 8 }} onClick={() => void findOrder()}>
               {lookingUp ? "Finding order…" : "Find my order"}
             </button>
-            {orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
+            {orderMessage && <p role={orderReady ? "status" : "alert"} style={{ ...bodyStyle, color: orderReady ? "#86efac" : "#fca5a5" }}>{orderMessage}</p>}
             <small style={{ color: "#94a3b8" }}>No SCM number? Fill in the details from your paperwork below.</small>
           </div>
           </> : null}
@@ -300,7 +328,6 @@ export default function DriverCheckinPage() {
           </small>
         </label> : null}
 
-        {error ? <div role="alert" style={errorBoxStyle}>{error}</div> : null}
         {form.checkinType ? <button type="submit" disabled={submitting} style={{ ...buttonStyle, opacity: submitting ? .65 : 1 }}>
           {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
         </button> : null}

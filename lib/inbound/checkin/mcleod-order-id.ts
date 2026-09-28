@@ -64,7 +64,17 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   const parsedBlnum = blnum.match(/^(.+?)\s+(\d+)\s+(?:BALES?|B\/?C|BC)$/);
   const mark = String(order.consignee_refno ?? "").trim().toUpperCase() || parsedBlnum?.[1] || "";
   const baleCount = parsedBlnum?.[2] ?? "";
+  const delivery = stops.find((item: Record<string, unknown>) => item.stop_type === "SO") as Record<string, unknown> | undefined;
+  const deliveryLocation = delivery?.location && typeof delivery.location === "object"
+    ? delivery.location as Record<string, unknown> : {};
+  const destination = String(deliveryLocation.name ?? delivery?.location_name ??
+    [delivery?.city_name, delivery?.state].filter(Boolean).join(", ")).trim().toUpperCase();
+  const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];
+  const movement = movements.find((item) => String(item.id ?? "") === String(order.curr_movement_id ?? "")) ?? movements[0];
+  const driverName = String(movement?.override_driver_nm ?? "").trim();
+  const driverPhone = String(movement?.override_drvr_cell ?? "").trim();
   const stop = (pickups[0] ?? deliveries[0]) as Record<string, unknown>;
   return { direction, reference, customer, commodity, materialType, mark, baleCount,
+    destination, driverName, driverPhone,
     stopId: String(stop.id ?? ""), actualArrival: String(stop.actual_arrival ?? ""), actualDeparture: String(stop.actual_departure ?? "") };
 }

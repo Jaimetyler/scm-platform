@@ -73,7 +73,7 @@ export default function DomesticQueuePage() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not load arrivals");
       setRows(result.rows);
-      setError("");
+      if (!quiet) setError("");
       setLoadError(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load arrivals");

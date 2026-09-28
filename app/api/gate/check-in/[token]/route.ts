@@ -147,7 +147,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       if (checkedIn?.length) return NextResponse.json({ ok: false,
         error: "This SCM order is already checked in at this yard." }, { status: 409 });
       return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference,
-        commodity: order.commodity, materialType: order.materialType, mark: order.mark, baleCount: order.baleCount });
+        commodity: order.commodity, materialType: order.materialType, mark: order.mark, baleCount: order.baleCount,
+        destination: order.destination, driverName: order.driverName, driverPhone: order.driverPhone });
     }
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
@@ -274,6 +275,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         return NextResponse.json({ ok: false, error: "That order does not contain the reference entered" }, { status: 409 });
       }
       referenceNumber ||= order.reference;
+      if (order.direction === "pickup") destination ||= order.destination;
       matchedCustomer = order.customer;
     }
     if (!["pickup", "delivery"].includes(movementDirection) || (movementDirection === "pickup" && !destination)) {
