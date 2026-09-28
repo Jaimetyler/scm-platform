@@ -56,6 +56,8 @@ type RowUiState = {
   message: string;
 };
 
+type CottonMatch = { orderId: string; mark: string; customer: string; bolBC: number | null };
+
 type ColumnKey =
   | "received_date"
   | "mark"
@@ -190,6 +192,10 @@ export default function SiteCheckinPage() {
   const [loading, setLoading] = useState(true);
   const [editingProcessedIds, setEditingProcessedIds] = useState<Set<string>>(new Set());
   const [dispatcherLookupIds, setDispatcherLookupIds] = useState<Set<string>>(new Set());
+  const [cottonMatches, setCottonMatches] = useState<Record<string, CottonMatch[]>>({});
+  const [cottonSearching, setCottonSearching] = useState<Record<string, boolean>>({});
+  const lookupKeysRef = useRef<Record<string, string>>({});
+  const lookupTimersRef = useRef<Record<string, number>>({});
 
   const saveTimersRef = useRef<Record<string, number>>({});
   const createInFlightRef = useRef<Set<string>>(new Set());
@@ -201,6 +207,56 @@ export default function SiteCheckinPage() {
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
 
   useEffect(() => { rowsRef.current = rows; }, [rows]);
+
+  useEffect(() => {
+    for (const row of rows) {
+      if (viewCarryover || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
+      const key = (row.mark ?? "").trim().toUpperCase();
+      if (lookupKeysRef.current[row.id] === key) continue;
+      if (lookupTimersRef.current[row.id]) window.clearTimeout(lookupTimersRef.current[row.id]);
+      lookupKeysRef.current[row.id] = key;
+      setCottonMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
+      if (!site || key.length < 3) {
+        setCottonSearching((current) => ({ ...current, [row.id]: false }));
+        continue;
+      }
+      setCottonSearching((current) => ({ ...current, [row.id]: true }));
+      lookupTimersRef.current[row.id] = window.setTimeout(async () => {
+        delete lookupTimersRef.current[row.id];
+        try {
+          const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, mark: key });
+          const response = await fetch(`/api/inbound/checkin/cotton-match?${query}`, { cache: "no-store" });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.error || "McLeod lookup failed");
+          if (lookupKeysRef.current[row.id] !== key) return;
+          const found = result.matches as CottonMatch[];
+          setCottonMatches((current) => ({ ...current, [row.id]: found }));
+          if (found.length === 1 && found[0].customer) {
+            const match = found[0];
+            const latest = rowsRef.current.find((item) => item.id === row.id);
+            if (latest && (latest.mark ?? "").trim().toUpperCase() === key) {
+              // Keep the typed mark: an embedded reference may not be the whole consignee reference.
+              // Never populate unloaded bales or the final location from the order.
+              const updated = applyRowUpdate(row.id, (current) => ({ ...current,
+                shipper: current.shipper || match.customer,
+                bol_bc: current.bol_bc || match.bolBC,
+              }));
+              if (updated) queueSaveRow(updated);
+            }
+          }
+        } catch (error) {
+          if (lookupKeysRef.current[row.id] === key) setRowUiState(row.id, {
+            saveState: "error", message: error instanceof Error ? error.message : "McLeod lookup failed",
+          });
+        } finally {
+          if (lookupKeysRef.current[row.id] === key) setCottonSearching((current) => ({ ...current, [row.id]: false }));
+        }
+      }, 650);
+    }
+    // Only changing the mark starts a new lookup; row edits may change other fields while searching.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, site, viewCarryover]);
+  useEffect(() => () => { Object.values(lookupTimersRef.current).forEach(window.clearTimeout); }, []);
 
   function isReadOnlyRow(row: CheckinRow) {
     return isClosedRow(row) &&
@@ -395,7 +451,7 @@ export default function SiteCheckinPage() {
     id: string,
     updater: (row: CheckinRow) => CheckinRow
   ): CheckinRow | null {
-    const current = rows.find((row) => row.id === id);
+    const current = rowsRef.current.find((row) => row.id === id);
     if (!current) return null;
     const updatedRow = updater(current);
     editRevisionRef.current[id] = (editRevisionRef.current[id] ?? 0) + 1;
@@ -522,6 +578,15 @@ export default function SiteCheckinPage() {
         void saveRowSnapshot(latest);
       }
     }, row.id.startsWith("local-") ? 650 : 400);
+  }
+
+  function chooseCottonMatch(id: string, match: CottonMatch) {
+    const updated = applyRowUpdate(id, (row) => ({ ...row,
+      shipper: row.shipper || match.customer,
+      bol_bc: row.bol_bc || match.bolBC,
+    }));
+    if (updated) queueSaveRow(updated);
+    setCottonMatches((current) => ({ ...current, [id]: [match] }));
   }
 
   function addRows(count: number) {
@@ -820,15 +885,6 @@ export default function SiteCheckinPage() {
               Copy Table
             </button>
 
-            {!viewCarryover && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => addRows(5)}
-                style={primaryButtonStyle}
-              >
-                + 5 Blank Lines
-              </button>
-            </div>}
           </div>
         }
       />
@@ -855,21 +911,18 @@ export default function SiteCheckinPage() {
         </p>}
       </PlatformPanel>
 
-      <PlatformPanel>
-        <div style={statsGridStyle}>
-          <StatCard label="Waiting for location/details" value={waitingCount} />
-          <StatCard label="Cotton pickups" value={gateOnlyCount} />
-          <StatCard label="Ready" value={readyCount} tone="success" />
-          <StatCard label="Processed" value={processedCount} tone="info" />
-          <StatCard label="Outside carrier" value={outsideCount} />
-          <StatCard label="Needs attention" value={failedCount} />
-          <StatCard label="Sub-Locations" value={site.subLocations.join(", ")} />
-        </div>
-      </PlatformPanel>
-
       <PlatformPanel style={{ padding: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
+          <strong style={{ color: "#f8fafc" }}>
+            {waitingCount} waiting · {gateOnlyCount} pickups · {readyCount} ready · {processedCount} processed · {outsideCount} outside carrier · {failedCount} need attention
+          </strong>
+          <div style={{ display: "flex", gap: 8 }}>
+            {!viewCarryover && <button type="button" style={linkButtonStyle} onClick={() => addRows(5)}>+ 5 Blank Lines</button>}
+            <button type="button" style={linkButtonStyle} onClick={() => void loadRows()}>Refresh</button>
+          </div>
+        </div>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: 1460, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
             <colgroup>
               {[2.5, 9, 8, 8.5, 11.5, 6, 6, 7, 8, 10, 10, 7, 6.5].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
@@ -879,8 +932,8 @@ export default function SiteCheckinPage() {
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
                 <th style={thStyle}>Date *</th>
-                <th style={thStyle}>Time</th>
-                <th style={thStyle}>Mark *</th>
+                <th style={thStyle}>Arrived</th>
+                <th style={thStyle}>Reference / Mark *</th>
                 <th style={thStyle}>Customer *</th>
                 <th style={thStyle}>BOL B/C *</th>
                 <th style={thStyle}>Bales *</th>
@@ -974,6 +1027,19 @@ export default function SiteCheckinPage() {
                           {row.draft_status === "failed" ? "Possible #" : "SCM #"}{row.matched_order_id}
                         </small>
                       ) : null}
+                      {!row.matched_order_id && cottonSearching[row.id] ? <small style={orderNumberStyle}>Searching McLeod…</small> : null}
+                      {!row.matched_order_id && !cottonSearching[row.id] && cottonMatches[row.id]?.length === 1 ?
+                        <small style={orderNumberStyle}>Possible SCM #{cottonMatches[row.id][0].orderId} · confirm before delivery</small> : null}
+                      {!row.matched_order_id && !cottonSearching[row.id] && cottonMatches[row.id]?.length === 0 ?
+                        <small style={gateReferenceStyle}>No McLeod match · enter details manually</small> : null}
+                      {!row.matched_order_id && cottonMatches[row.id]?.length > 1 ?
+                        <div style={{ maxHeight: 140, overflowY: "auto" }}>
+                          {cottonMatches[row.id].map((match) => <button key={match.orderId} type="button"
+                            disabled={isReadOnlyRow(row)} onClick={() => chooseCottonMatch(row.id, match)}
+                            style={{ ...smallActionButtonStyle, textAlign: "left", marginTop: 4 }}>
+                            #{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C
+                          </button>)}
+                        </div> : null}
                     </td>
 
                     <td style={tdStyle}>
@@ -1217,75 +1283,15 @@ export default function SiteCheckinPage() {
   );
 }
 
-function StatCard(props: {
-  label: string;
-  value: number | string;
-  tone?: "default" | "success" | "info";
-}) {
-  const { label, value, tone = "default" } = props;
-
-  const tones: Record<string, React.CSSProperties> = {
-    default: {
-      background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
-      border: "1px solid #1f2937",
-      color: "#f8fafc",
-    },
-    success: {
-      background:
-        "linear-gradient(180deg, rgba(6,95,70,0.22) 0%, rgba(6,78,59,0.3) 100%)",
-      border: "1px solid rgba(16,185,129,0.35)",
-      color: "#d1fae5",
-    },
-    info: {
-      background:
-        "linear-gradient(180deg, rgba(30,64,175,0.22) 0%, rgba(30,58,138,0.3) 100%)",
-      border: "1px solid rgba(96,165,250,0.35)",
-      color: "#dbeafe",
-    },
-  };
-
-  return (
-    <div style={{ ...statCardStyle, ...tones[tone] }}>
-      <div style={statLabelStyle}>{label}</div>
-      <div style={statValueStyle}>{value}</div>
-    </div>
-  );
-}
-
-const statsGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: 14,
-};
-
-const statCardStyle: React.CSSProperties = {
-  borderRadius: 18,
-  padding: 18,
-  boxShadow: "0 10px 24px rgba(0,0,0,0.2)",
-};
-
-const statLabelStyle: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.8,
-  marginBottom: 10,
-};
-
-const statValueStyle: React.CSSProperties = {
-  fontSize: 30,
-  fontWeight: 900,
-  lineHeight: 1,
-  wordBreak: "break-word",
-};
-
 const rowNumberHeaderStyle: React.CSSProperties = {
   width: 34,
   minWidth: 34,
   textAlign: "center",
-  padding: "6px 3px",
+  padding: "11px 8px",
   color: "#94a3b8",
   fontSize: 11,
   whiteSpace: "nowrap",
-  borderBottom: "1px solid rgba(148,163,184,0.16)",
+  borderBottom: "2px solid #475569",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
   top: 0,
@@ -1296,8 +1302,8 @@ const rowNumberCellStyle: React.CSSProperties = {
   width: 34,
   minWidth: 34,
   textAlign: "center",
-  padding: "4px 2px",
-  borderBottom: "1px solid rgba(148,163,184,0.08)",
+  padding: "10px 8px",
+  borderBottom: "1px solid #334155",
   verticalAlign: "middle",
   color: "#94a3b8",
   fontWeight: 700,
@@ -1307,8 +1313,8 @@ const rowNumberCellStyle: React.CSSProperties = {
 const statusDotHeaderStyle: React.CSSProperties = {
   width: 88,
   minWidth: 88,
-  padding: "6px 4px",
-  borderBottom: "1px solid rgba(148,163,184,0.16)",
+  padding: "11px 8px",
+  borderBottom: "2px solid #475569",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
   top: 0,
@@ -1318,8 +1324,8 @@ const statusDotHeaderStyle: React.CSSProperties = {
 const statusDotCellStyle: React.CSSProperties = {
   width: 88,
   minWidth: 88,
-  padding: "4px 3px",
-  borderBottom: "1px solid rgba(148,163,184,0.08)",
+  padding: "10px 8px",
+  borderBottom: "1px solid #334155",
   verticalAlign: "middle",
   fontSize: 10,
   overflowWrap: "anywhere",
@@ -1374,11 +1380,11 @@ const orderNumberStyle: React.CSSProperties = {
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: "6px 5px",
+  padding: "11px 8px",
   color: "#94a3b8",
-  fontSize: 11,
+  fontSize: 13,
   whiteSpace: "nowrap",
-  borderBottom: "1px solid rgba(148,163,184,0.16)",
+  borderBottom: "2px solid #475569",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
   top: 0,
@@ -1386,8 +1392,8 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "4px 5px",
-  borderBottom: "1px solid rgba(148,163,184,0.08)",
+  padding: "10px 8px",
+  borderBottom: "1px solid #334155",
   verticalAlign: "top",
   color: "#e5e7eb",
 };
@@ -1395,28 +1401,28 @@ const tdStyle: React.CSSProperties = {
 const cellInputStyle: React.CSSProperties = {
   width: "100%",
   minWidth: 0,
-  height: 30,
+  minHeight: 36,
   boxSizing: "border-box",
-  padding: "4px 6px",
+  padding: "8px",
   borderRadius: 6,
-  border: "1px solid rgba(148,163,184,0.18)",
-  background: "rgba(15,23,42,0.82)",
+  border: "1px solid #475569",
+  background: "#0b1220",
   color: "#e2e8f0",
-  fontSize: 12,
+  fontSize: 13,
 };
 
 const cellTextareaStyle: React.CSSProperties = {
   width: "100%",
   minWidth: 0,
-  minHeight: 30,
-  height: 30,
+  minHeight: 36,
+  height: 36,
   boxSizing: "border-box",
-  padding: "4px 6px",
+  padding: "8px",
   borderRadius: 6,
-  border: "1px solid rgba(148,163,184,0.18)",
-  background: "rgba(15,23,42,0.82)",
+  border: "1px solid #475569",
+  background: "#0b1220",
   color: "#e2e8f0",
-  fontSize: 12,
+  fontSize: 13,
   resize: "vertical",
 };
 
