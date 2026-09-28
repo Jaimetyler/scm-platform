@@ -81,6 +81,7 @@ export default function DomesticLinePage() {
       <span aria-current="page" style={primary}>Domestic Line</span>
       <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={button}>Cotton grid</Link>
       <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={button}>Lumber & Other grid</Link>
+      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={button}>History & Excel export</Link>
     </nav>
     {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
     {notice && <p role="status" style={{ color: "#86efac" }}>{notice}</p>}

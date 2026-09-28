@@ -178,6 +178,7 @@ export default function DomesticQueuePage() {
       <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={button}>Domestic Line</Link>
       <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={button}>Cotton</Link>
       <span aria-current="page" style={primary}>Lumber & Other</span>
+      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={button}>History & Excel export</Link>
     </nav>
     {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}
     {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}

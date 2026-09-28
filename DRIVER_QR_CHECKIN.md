@@ -52,6 +52,8 @@ Saved Lumber & Other rows, whether entered by a driver or staff, open read-only.
 
 The **Domestic Line** at `/warehouse/gate/{terminal}/{site-code}/line` combines active Cotton, Lumber, and Other arrivals in check-in order and highlights the oldest waiting truck. Staff click **Check out** when a truck leaves or **Remove** for an incorrect arrival. Check-out records the yard completion time. If the row has a linked McLeod order, the server confirms the SCM stop and calls McLeod `carrierDispatch/clearStop` with the check-in arrival and check-out departure; existing McLeod stop actuals are preserved. A failed McLeod update leaves the truck in the line for retry. If there is no linked order, check-out only completes the local yard entry. Driver QR check-ins and staff-entered freight with an arrival time join the line; cotton entries without an arrival time join when check-in details are completed. The Cotton and Lumber & Other grids remain available for their detailed work.
 
+The **Domestic History** page at `/warehouse/gate/{terminal}/{site-code}/history` retains completed and removed rows. Staff can search driver, phone, reference, mark, customer, destination, or McLeod order ID, filter by arrival date and status, page through results, and download all matching operational fields as an Excel workbook. The workbook includes the matched McLeod order ID, check-in and check-out timestamps, yard status, and separate McLeod processing status. It excludes precise driver GPS evidence and the private photo itself.
+
 ## Guardrails
 
 - The public token does not expose the gate coordinates.

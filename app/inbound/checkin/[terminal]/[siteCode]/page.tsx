@@ -827,6 +827,7 @@ export default function SiteCheckinPage() {
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={linkButtonStyle}>Domestic Line</Link>
         <span aria-current="page" style={primaryButtonStyle}>Cotton</span>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={linkButtonStyle}>Lumber & Other</Link>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={linkButtonStyle}>Domestic History</Link>
       </nav>
 
       <PlatformPanel>
