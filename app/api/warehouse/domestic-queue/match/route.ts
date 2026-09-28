@@ -13,6 +13,15 @@ function database() {
 }
 
 function text(value: unknown) { return String(value ?? "").trim(); }
+function orderDay(value: unknown) {
+  const raw = text(value);
+  const match = raw.match(/^(\d{4})(\d{2})(\d{2})/);
+  const day = match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : Date.parse(raw);
+  return Number.isFinite(day) ? day : null;
+}
+function named(value: unknown) {
+  return value && typeof value === "object" ? text((value as Record<string, unknown>).name) : "";
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -54,7 +63,8 @@ export async function GET(req: NextRequest) {
       ? [field, field === "blnum" ? "consignee_refno" : "blnum"] : [field];
     const resultSets = await Promise.all(fields.map(async (searchField) => ({ field: searchField, results: await search(searchField) })));
     const matches = new Map<string, { orderId: string; customerId: string; customerName: string; value: string;
-      materialType: "lumber" | "other" | null; destination: string; direction: string }>();
+      materialType: "lumber" | "other" | null; destination: string; direction: string;
+      carrierName: string; carrierCode: string; orderDate: string; orderStatus: string }>();
     for (const set of resultSets) for (const item of set.results) {
       const order = item as Record<string, unknown>;
       const value = text(order[set.field]);
@@ -73,31 +83,53 @@ export async function GET(req: NextRequest) {
         customerName: text(customer?.name || order.customer_name || order.customer_id),
         materialType: /\bLUMBER\b|\bWOOD\b/.test(commodity) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodity) ? "other" : null,
         destination: text(location?.name || delivery?.location_name),
+        carrierName: "", carrierCode: "", orderDate: "", orderStatus: "",
       });
     }
-    if (matches.size === 1) {
-      const match = [...matches.values()][0];
+    if (matches.size > 20) throw new Error("Too many matching orders. Enter a longer reference number.");
+    const cutoff = Date.now() - 45 * 24 * 60 * 60 * 1000;
+    const verified = await Promise.all([...matches.values()].map(async (match) => {
       const matchedField = match.direction === "pickup" ? "blnum" : "consignee_refno";
       const full = await fetch(`${base}/orders/${encodeURIComponent(match.orderId)}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
       });
       if (!full.ok) throw new Error(`Could not verify McLeod order (${full.status})`);
-      const order = await full.json();
-      if (text(order.revenue_code_id).toUpperCase() !== "MAIN") {
-        return NextResponse.json({ ok: false, error: "This order is not in the MAIN revenue code" }, { status: 409 });
-      }
-      if (!text(order[matchedField]).toUpperCase().includes(reference)) {
-        return NextResponse.json({ ok: false, error: "McLeod order changed during lookup. Try the reference again." }, { status: 409 });
-      }
+      const order = await full.json() as Record<string, unknown>;
+      if (text(order.revenue_code_id).toUpperCase() !== "MAIN" ||
+          !text(order[matchedField]).toUpperCase().includes(reference)) return null;
       const customer = order.customer as Record<string, unknown> | undefined;
-      const commodity = text(order.commodity?.description || order.commodity_description || order.commodity_id).toUpperCase();
-      if (/\bCOTTON\b/.test(commodity)) return NextResponse.json({ ok: false, error: "This is a cotton order. Use the Cotton grid." }, { status: 409 });
-      const delivery = (Array.isArray(order.stops) ? order.stops : []).find((stop: Record<string, unknown>) => stop.stop_type === "SO");
+      const commodity = order.commodity as Record<string, unknown> | string | undefined;
+      const commodityName = text((typeof commodity === "object" ? commodity?.description : commodity) || order.commodity_description || order.commodity_id).toUpperCase();
+      if (/\bCOTTON\b/.test(commodityName)) return null;
+      const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
+      const stop = stops.find((item) => item.stop_type === (match.direction === "pickup" ? "PU" : "SO"));
+      const scheduled = text(stop?.sched_arrive_early || stop?.sched_arrive_late || order.ordered_date);
+      if (scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
+      const delivery = stops.find((item) => item.stop_type === "SO");
+      const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];
+      const movement = movements.find((item) => text(item.id) === text(order.curr_movement_id)) ?? movements[0];
       match.customerName = text(customer?.name || order.customer_name || order.customer_id) || match.customerName;
-      match.materialType = /\bLUMBER\b|\bWOOD\b/.test(commodity) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodity) ? "other" : match.materialType;
-      match.destination = text(delivery?.location?.name || delivery?.location_name) || match.destination;
-    }
-    return NextResponse.json({ ok: true, reference, matches: [...matches.values()] }, { headers: { "Cache-Control": "no-store" } });
+      match.materialType = /\bLUMBER\b|\bWOOD\b/.test(commodityName) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodityName) ? "other" : match.materialType;
+      match.destination = named(delivery?.location) || text(delivery?.location_name) || match.destination;
+      match.orderDate = scheduled;
+      match.orderStatus = text(order.__statusDescr || movement?.__statusDescr || order.status);
+      match.carrierCode = text(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
+      match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
+        named(order.carrier) || named(order.vendor) || text(movement?.carrier_name || movement?.vendor_name || order.carrier_name);
+      if (!match.carrierName && match.carrierCode) {
+        for (const path of ["carriers", "vendors"]) {
+          try {
+            const response = await fetch(`${base}/${path}/${encodeURIComponent(match.carrierCode)}`, {
+              headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
+            });
+            if (response.ok) match.carrierName = named(await response.json());
+            if (match.carrierName) break;
+          } catch { /* Keep the verified order and show its carrier code. */ }
+        }
+      }
+      return match;
+    }));
+    return NextResponse.json({ ok: true, reference, matches: verified.filter((match) => match !== null) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: 500 });
   }

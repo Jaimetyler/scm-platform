@@ -7,6 +7,15 @@ import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 export const runtime = "nodejs";
 
 function value(input: unknown) { return String(input ?? "").trim(); }
+function orderDay(input: unknown) {
+  const raw = value(input);
+  const match = raw.match(/^(\d{4})(\d{2})(\d{2})/);
+  const day = match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : Date.parse(raw);
+  return Number.isFinite(day) ? day : null;
+}
+function named(input: unknown) {
+  return input && typeof input === "object" ? value((input as Record<string, unknown>).name) : "";
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,7 +35,8 @@ export async function GET(request: NextRequest) {
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw new Error("McLeod connection is not configured");
     const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
-    const matches = new Map<string, { orderId: string; mark: string; customer: string; bolBC: number | null }>();
+    const matches = new Map<string, { orderId: string; mark: string; customer: string; bolBC: number | null;
+      carrierName: string; carrierCode: string; orderDate: string; orderStatus: string }>();
     const failedFields: string[] = [];
     let missingRevenueCode = false;
     for (const field of ["consignee_refno", "blnum"]) {
@@ -61,11 +71,40 @@ export async function GET(request: NextRequest) {
         matches.set(id, { orderId: id,
           mark: parsedMark && normalizeKey(parsedMark).includes(normalizeKey(mark)) ? parsedMark : ref || parsedMark || mark,
           customer: value(customer?.name || order.customer_name || order.customer_id).toUpperCase(),
-          bolBC: parsed ? Number(parsed[2]) : null });
+          bolBC: parsed ? Number(parsed[2]) : null, carrierName: "", carrierCode: "", orderDate: "", orderStatus: "" });
       }
     }
     if (failedFields.length === 2) throw new Error(`McLeod could not search this mark (${failedFields.join("; ")}). Try a longer mark or enter the customer and BOL count manually.`);
-    return NextResponse.json({ ok: true, matches: [...matches.values()].slice(0, 20),
+    if (matches.size > 20) throw new Error("Too many matching orders. Enter a longer mark.");
+    const cutoff = Date.now() - 45 * 24 * 60 * 60 * 1000;
+    const verified = await Promise.all([...matches.values()].map(async (match) => {
+      const response = await fetch(`${base}/orders/${encodeURIComponent(match.orderId)}`, { headers, cache: "no-store" });
+      if (!response.ok) throw new Error(`Could not verify McLeod order (${response.status})`);
+      const order = await response.json() as Record<string, unknown>;
+      if (value(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
+      const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
+      const delivery = stops.find((stop) => stop.stop_type === "SO");
+      const scheduled = value(delivery?.sched_arrive_early || delivery?.sched_arrive_late || order.ordered_date);
+      if (scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
+      const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];
+      const movement = movements.find((item) => value(item.id) === value(order.curr_movement_id)) ?? movements[0];
+      match.orderDate = scheduled;
+      match.orderStatus = value(order.__statusDescr || movement?.__statusDescr || order.status);
+      match.carrierCode = value(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
+      match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
+        named(order.carrier) || named(order.vendor) || value(movement?.carrier_name || movement?.vendor_name || order.carrier_name);
+      if (!match.carrierName && match.carrierCode) {
+        for (const path of ["carriers", "vendors"]) {
+          try {
+            const carrier = await fetch(`${base}/${path}/${encodeURIComponent(match.carrierCode)}`, { headers, cache: "no-store" });
+            if (carrier.ok) match.carrierName = named(await carrier.json());
+            if (match.carrierName) break;
+          } catch { /* Keep the verified order and show its carrier code. */ }
+        }
+      }
+      return match;
+    }));
+    return NextResponse.json({ ok: true, matches: verified.filter((match) => match !== null),
       incomplete: failedFields.length > 0 || missingRevenueCode,
       warning: failedFields.length ? `McLeod search incomplete (${failedFields.join("; ")})` :
         missingRevenueCode ? "McLeod omitted a revenue code; verify the order manually" : "" },

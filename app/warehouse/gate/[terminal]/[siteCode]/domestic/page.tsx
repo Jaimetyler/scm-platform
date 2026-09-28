@@ -22,7 +22,8 @@ type Row = {
   yard_work_started_at: string | null;
 };
 type Match = { orderId: string; customerId: string; customerName: string; value: string;
-  materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery" };
+  materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery";
+  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
   referenceNumber: string; customer: string; driverName: string; driverPhone: string;
   destination: string; notes: string; orderId: string };
@@ -343,9 +344,11 @@ export default function DomesticQueuePage() {
                 {editingId === row.id && <button style={inlineButton} disabled={matchWorking === row.id || working === row.id}
                   onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>}
                 {matches[row.id]?.length === 0 && <span>No matching order</span>}
-                {matches[row.id]?.map((match) => <button key={`${match.orderId}-${match.direction}`} style={inlineButton}
+                {matches[row.id]?.map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, textAlign: "left" }}
                   disabled={editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
-                  #{match.orderId} · {match.customerName || match.customerId} · {match.direction}
+                  <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
+                  <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                    {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
                 </button>)}
               </div>
             </td></tr>}</Fragment>)}
@@ -383,8 +386,12 @@ export default function DomesticQueuePage() {
               draftMatches[draft.id]?.length === 0 ? "No SCM order found. Enter the details below." :
               (draftMatches[draft.id]?.length ?? 0) > 1 ? "Choose the matching order:" : null}
             {!draft.orderId && draftMatches[draft.id]?.length > 1 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} type="button" style={button}
-                onClick={() => chooseDraftMatch(draft, match)}>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</button>)}
+              {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} type="button" style={{ ...button, textAlign: "left", flex: "1 1 100%" }}
+                onClick={() => chooseDraftMatch(draft, match)}>
+                <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
+                <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                  {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
+              </button>)}
             </div>}
           </div>
           <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Customer
@@ -412,6 +419,10 @@ export default function DomesticQueuePage() {
 
 function time(value: string, terminal: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: terminal === "HOU" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+function formatOrderDate(value: string) {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
+  return match ? `${match[2]}/${match[3]}/${match[1]}` : value || "Date unavailable";
 }
 function elapsed(value: string, tick: number) {
   void tick;

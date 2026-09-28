@@ -59,7 +59,8 @@ type RowUiState = {
   message: string;
 };
 
-type CottonMatch = { orderId: string; mark: string; customer: string; bolBC: number | null };
+type CottonMatch = { orderId: string; mark: string; customer: string; bolBC: number | null;
+  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string };
 function sameMark(a: string, b: string) {
   return a.toUpperCase().replace(/[^A-Z0-9]/g, "") === b.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
@@ -1257,8 +1258,10 @@ export default function SiteCheckinPage() {
                         <div style={{ maxHeight: 140, overflowY: "auto" }}>
                           {cottonMatches[row.id].map((match) => <button key={match.orderId} type="button"
                             disabled={isReadOnlyRow(row)} onClick={() => chooseCottonMatch(row.id, match)}
-                            style={{ ...smallActionButtonStyle, textAlign: "left", marginTop: 4 }}>
-                            #{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C
+                            style={{ ...smallActionButtonStyle, textAlign: "left", marginTop: 4, display: "block" }}>
+                            <strong>#{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C</strong>
+                            <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                              {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
                           </button>)}
                         </div> : null}
                         {(row.processing_error || ui.message) && <span style={{ color: "#fca5a5" }}>{row.processing_error || ui.message}</span>}
@@ -1335,6 +1338,10 @@ const toolbarPrimaryStyle: React.CSSProperties = {
   ...toolbarButtonStyle, background: "#4338ca", borderColor: "#6366f1", color: "#fff",
 };
 const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 8 };
+function formatOrderDate(value: string) {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
+  return match ? `${match[2]}/${match[3]}/${match[1]}` : value || "Date unavailable";
+}
 const baleHeaderStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8 };
 const rowActionStatusStyle: React.CSSProperties = { display: "grid", gap: 5 };
 const rowStatusStyle: React.CSSProperties = {
