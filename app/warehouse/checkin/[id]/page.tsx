@@ -20,7 +20,7 @@ export default async function DriverCheckinDetailsPage({
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const { data: row, error } = await database().from("inbound_checkin_rows")
-    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, checked_in_at, driver_name, driver_phone, gate_location_verified_at, driver_distance_m, bol_photo_path")
+    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, matched_order_id, checked_in_at, driver_name, driver_phone, gate_location_verified_at, driver_distance_m, bol_photo_path")
     .eq("id", id)
     .eq("checkin_source", "driver_qr")
     .maybeSingle();
@@ -28,23 +28,24 @@ export default async function DriverCheckinDetailsPage({
   if (!row) notFound();
 
   const terminalSlug = row.terminal === "HOU" ? "hou" : "sav";
+  const isCotton = row.material_type === "cotton";
   return (
     <main style={{ maxWidth: 760, margin: "0 auto" }}>
       <PlatformPageHeader
         title="Driver Check-In Details"
-        subtitle={`${row.site_name} · ${row.mark || "Mark not entered"}`}
-        actions={<Link href={`/inbound/checkin/${terminalSlug}/${row.site_code}`} style={buttonStyle}>← Check-In Grid</Link>}
+        subtitle={`${row.site_name} · ${isCotton ? row.mark || "Mark not entered" : row.reference_number || "Reference not entered"}`}
+        actions={<Link href={isCotton ? `/inbound/checkin/${terminalSlug}/${row.site_code}` : `/warehouse/gate/${terminalSlug}/${row.site_code}/domestic`} style={buttonStyle}>← {isCotton ? "Cotton grid" : "Lumber & Other"}</Link>}
       />
       <PlatformPanel>
         <div style={detailsGridStyle}>
           <Detail label="Driver" value={row.driver_name || "—"} />
           <Detail label="Phone" value={row.driver_phone ? <a href={`tel:${row.driver_phone}`} style={phoneStyle}>{row.driver_phone}</a> : "—"} />
-          <Detail label="Movement" value={String(row.movement_direction ?? "delivery").toUpperCase()} />
+          <Detail label="SCM order number" value={row.matched_order_id || "—"} />
           <Detail label="Material" value={String(row.material_type ?? "cotton").toUpperCase()} />
-          <Detail label={row.movement_direction === "pickup" ? "McLeod BLNUM" : "McLeod consignee_refno"} value={row.reference_number || "—"} />
+          {!isCotton && <Detail label={row.movement_direction === "pickup" ? "BOL number" : "Consignee reference"} value={row.reference_number || "—"} />}
           {row.movement_direction === "pickup" ? <Detail label="Destination" value={row.destination || "—"} /> : null}
-          <Detail label="Mark" value={row.mark || "—"} />
-          {row.material_type === "cotton" ? <Detail label="Bale count on BOL" value={row.bol_bc ?? "—"} /> : null}
+          {isCotton && <Detail label="Mark" value={row.mark || "—"} />}
+          {isCotton && <Detail label="Bale count on BOL" value={row.bol_bc ?? "—"} />}
           <Detail label="Arrival" value={row.checked_in_at ? new Date(row.checked_in_at).toLocaleString("en-US", {
             timeZone: row.terminal === "HOU" ? "America/Chicago" : "America/New_York",
           }) : "—"} />
