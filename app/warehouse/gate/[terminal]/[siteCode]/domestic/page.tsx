@@ -48,7 +48,7 @@ export default function DomesticQueuePage() {
   const draftTimers = useRef<Record<string, number>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
-  const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 5 }, (_, index) => blankDraft(`initial-${index}`)));
+  const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 3 }, (_, index) => blankDraft(`initial-${index}`)));
 
   const load = useCallback(async (quiet = false) => {
     if (!site) return;
@@ -255,35 +255,39 @@ export default function DomesticQueuePage() {
   const active = rows.filter((row): row is Row & { yard_status: Status } => row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working").reverse();
   const recent = rows.filter((row) => !active.some((item) => item.id === row.id));
   const counts = Object.keys(LABEL).map((status) => `${active.filter((row) => row.yard_status === status).length} ${LABEL[status as Status].toLowerCase()}`);
-  return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 12px", boxSizing: "border-box" }}>
+  return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 16px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Check-In`}
-      subtitle="Lumber and other freight arrivals. Check out each truck when it leaves the yard."
-      actions={<><Link href="/inbound/checkin" style={button}>All check-in sites</Link>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={button}>Container line</Link></>} />
-    <nav aria-label="Freight type" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={button}>Domestic Line</Link>
-      <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={button}>Cotton</Link>
-      <span aria-current="page" style={primary}>Lumber & Other</span>
-      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={button}>History & Excel export</Link>
+      subtitle="Lumber and other freight arrivals · check out each truck when it leaves"
+      actions={<div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <Link href="/inbound/checkin" style={utilityLink}>All sites</Link>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={utilityLink}>Domestic history</Link>
+        <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLink}>Inventory</Link>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLink}>Containers</Link>
+      </div>} />
+    <nav aria-label="Freight type" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={tab}>Domestic Line</Link>
+      <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={tab}>Cotton</Link>
+      <span aria-current="page" style={activeTab}>Lumber & Other</span>
+      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={tab}>Domestic History</Link>
     </nav>
     {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}
     {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}
-    <PlatformPanel>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
-        <strong style={{ color: "#f8fafc" }}>{counts.join(" · ")}</strong>
+    <PlatformPanel style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div><strong style={{ color: "#f8fafc" }}>Lumber & Other</strong><div style={muted}>{counts.join(" · ")}</div></div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button style={button} onClick={() => setDrafts((current) => [...current, ...Array.from({ length: 5 }, (_, index) => blankDraft(`${Date.now()}-${index}`))])}>+ 5 Blank Lines</button>
+          <button style={primary} onClick={() => setDrafts((current) => [...current, ...Array.from({ length: 5 }, (_, index) => blankDraft(`${Date.now()}-${index}`))])}>+ 5 rows</button>
           <button style={button} onClick={() => void load()}>Refresh</button>
         </div>
       </div>
       {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1460, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
-            <colgroup>{[3, 6, 6, 7, 13, 14, 12, 10, 11, 8, 10].map((width, index) =>
+          <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 12 }}>
+            <colgroup>{[3, 8, 7, 7, 20, 17, 12, 10, 8, 8].map((width, index) =>
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
-            <thead><tr>{["#", "Arrived", "Move", "Material", "Reference", "Customer", "Order match", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
+            <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
-            <tbody>{active.map((row, index) => <tr key={row.id} style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : undefined }}>
+            <tbody>{active.map((row, index) => <tr key={row.id} style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
               <td style={cell}>{index + 1}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}<div style={muted}>{elapsed(row.checked_in_at, tick)}</div></td>
               <td style={cell}>{row.movement_direction}</td>
@@ -291,21 +295,23 @@ export default function DomesticQueuePage() {
               <td style={cell}><input key={row.updated_at} aria-label={`Reference for ${row.driver_name}`} defaultValue={row.reference_number}
                 disabled={editingId !== row.id}
                 onBlur={(event) => void saveField(row, "reference_number", event.target.value)} style={sheetInput} />
-                <div><Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.has_bol_photo ? "Paperwork" : "Details"}</Link></div></td>
-              <td style={cell}><input key={row.updated_at} aria-label={`Customer for ${row.driver_name}`}
-                defaultValue={row.shipper ?? ""} placeholder="Enter customer"
-                disabled={editingId !== row.id}
-                onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} />
-                {row.matched_order_id && <div style={muted}>McLeod #{row.matched_order_id}</div>}</td>
-              <td style={cell}><button style={button} disabled={editingId !== row.id || matchWorking === row.id || working === row.id}
-                onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>
-                {matches[row.id] && <div style={{ minWidth: 180, marginTop: 6 }}>
-                  {matches[row.id].length === 0 ? <span>No matching order</span> :
-                    matches[row.id].map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...button, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
+                <div style={referenceMeta}>
+                  <Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.has_bol_photo ? "Paperwork" : "Details"}</Link>
+                  {row.matched_order_id && <span>SCM #{row.matched_order_id}</span>}
+                  {editingId === row.id && <button style={inlineButton} disabled={matchWorking === row.id || working === row.id}
+                    onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>}
+                </div>
+                {matches[row.id] && <div style={{ maxHeight: 140, overflowY: "auto", marginTop: 4 }}>
+                  {matches[row.id].length === 0 ? <span style={muted}>No matching order</span> :
+                    matches[row.id].map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
                       disabled={editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
                       #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.direction} · {match.value}</small>
                     </button>)}
                 </div>}</td>
+              <td style={cell}><input key={row.updated_at} aria-label={`Customer for ${row.driver_name}`}
+                defaultValue={row.shipper ?? ""} placeholder="Enter customer"
+                disabled={editingId !== row.id}
+                onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} /></td>
               <td style={cell}>{row.driver_name || "Staff entry"}<div style={muted}>{row.driver_phone}</div></td>
               <td style={cell}>{row.destination || "—"}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
@@ -332,21 +338,18 @@ export default function DomesticQueuePage() {
                 onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
                 <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></td>
               <td style={cell}><input aria-label="Reference number" style={sheetInput} value={draft.referenceNumber}
-                onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" /></td>
-              <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
-                onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></td>
-              <td style={cell}>
-                {draftSearching[draft.id] ? <span style={muted}>Searching McLeod…</span> :
-                  draft.orderId ? <span style={{ color: "#86efac" }}>McLeod #{draft.orderId}</span> :
-                  draftMatches[draft.id]?.length === 0 ? <span style={muted}>No match · enter details manually</span> :
-                  draft.referenceNumber.trim().length < 3 ? <span style={muted}>Enter a reference</span> : null}
-                {!draft.orderId && draftMatches[draft.id]?.length > 1 && <div style={{ minWidth: 180 }}>
-                  {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...button, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
+                onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" />
+                <div style={referenceMeta}>{draftSearching[draft.id] ? <span>Searching McLeod…</span> :
+                  draft.orderId ? <span style={{ color: "#86efac" }}>SCM #{draft.orderId}</span> :
+                  draftMatches[draft.id]?.length === 0 ? <span>No order found</span> : null}</div>
+                {!draft.orderId && draftMatches[draft.id]?.length > 1 && <div style={{ maxHeight: 140, overflowY: "auto" }}>
+                  {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
                     onClick={() => chooseDraftMatch(draft, match)}>
                     #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.direction} · {match.value}</small>
                   </button>)}
-                </div>}
-              </td>
+                </div>}</td>
+              <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
+                onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></td>
               <td style={cell}><input aria-label="Driver name" style={sheetInput} value={draft.driverName}
                 onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver" />
                 <input aria-label="Driver phone" style={{ ...sheetInput, marginTop: 4 }} value={draft.driverPhone}
@@ -361,17 +364,9 @@ export default function DomesticQueuePage() {
           </table>
         </div>}
     </PlatformPanel>
-    {!loadError && !loading && recent.length > 0 && <PlatformPanel style={{ marginTop: 16 }}>
-      <h2 style={{ color: "#f8fafc", marginTop: 0 }}>Recent check-ins</h2>
-      <p style={muted}>Completed and removed QR arrivals from the last 30 days. Older test check-ins may appear here.</p>
-      <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
-        {recent.map((row) => <div key={row.id} style={card}>
-          <strong style={{ color: "#f8fafc" }}>{row.driver_name} · {row.material_type} · {row.reference_number}</strong>
-          <div style={muted}>{time(row.checked_in_at, site.terminal)} · {row.yard_status ?? "Before yard tracking"}</div>
-          <Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9", fontSize: 13 }}>View details</Link>
-        </div>)}
-      </div>
-    </PlatformPanel>}
+    {!loadError && !loading && recent.length > 0 && <p style={{ ...muted, marginTop: 14 }}>
+      {recent.length} completed or removed check-ins · <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={{ color: "#67e8f9" }}>View history and export</Link>
+    </p>}
   </main>;
 }
 
@@ -383,11 +378,15 @@ function elapsed(value: string, tick: number) {
   const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
   return minutes < 1 ? "just arrived" : `${minutes} min since arrival`;
 }
-const button: React.CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "1px solid #475569", background: "#0f172a", color: "#e2e8f0", cursor: "pointer", textDecoration: "none", fontWeight: 700 };
-const primary: React.CSSProperties = { ...button, background: "#166534", borderColor: "#22c55e", color: "#dcfce7" };
+const button: React.CSSProperties = { padding: "8px 11px", borderRadius: 7, border: "1px solid #475569", background: "#0f172a", color: "#e2e8f0", cursor: "pointer", textDecoration: "none", fontSize: 12, fontWeight: 700 };
+const primary: React.CSSProperties = { ...button, background: "#4338ca", borderColor: "#6366f1", color: "#fff" };
 const danger: React.CSSProperties = { ...button, color: "#fecaca", borderColor: "#7f1d1d" };
-const muted: React.CSSProperties = { color: "#94a3b8", fontSize: 13, marginTop: 5 };
-const card: React.CSSProperties = { border: "1px solid #334155", background: "#0f172a", borderRadius: 12, padding: 16 };
-const heading: React.CSSProperties = { padding: "11px 8px", textAlign: "left", borderBottom: "2px solid #475569", whiteSpace: "nowrap", color: "#94a3b8" };
-const cell: React.CSSProperties = { padding: "10px 8px", borderBottom: "1px solid #334155", verticalAlign: "top" };
-const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, boxSizing: "border-box", padding: "8px", border: "1px solid #475569", borderRadius: 6, background: "#0b1220", color: "#f8fafc" };
+const muted: React.CSSProperties = { color: "#94a3b8", fontSize: 11, marginTop: 4 };
+const heading: React.CSSProperties = { padding: "6px 5px", textAlign: "left", borderBottom: "1px solid rgba(148,163,184,.16)", whiteSpace: "nowrap", color: "#94a3b8", fontSize: 11, background: "rgba(15,23,42,.96)" };
+const cell: React.CSSProperties = { padding: "5px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "top" };
+const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 30, boxSizing: "border-box", padding: "4px 6px", border: "1px solid rgba(148,163,184,.18)", borderRadius: 6, background: "rgba(15,23,42,.82)", color: "#e2e8f0", fontSize: 12 };
+const utilityLink: React.CSSProperties = { color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700 };
+const tab: React.CSSProperties = { padding: "9px 13px", borderRadius: 8, border: "1px solid #334155", color: "#cbd5e1", background: "#0f172a", fontSize: 13, fontWeight: 700, textDecoration: "none" };
+const activeTab: React.CSSProperties = { ...tab, borderColor: "#6366f1", color: "#fff", background: "#4338ca" };
+const inlineButton: React.CSSProperties = { ...button, padding: "3px 7px", fontSize: 11 };
+const referenceMeta: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4, fontSize: 11, color: "#93c5fd" };
