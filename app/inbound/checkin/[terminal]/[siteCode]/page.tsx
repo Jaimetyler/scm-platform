@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
+import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { isReadyCheckin, usesMcleodCheckin } from "@/lib/inbound/checkin/ready";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 
@@ -182,6 +183,9 @@ export default function SiteCheckinPage() {
   );
 
   const [rows, setRows] = useState<CheckinRow[]>([]);
+  const [viewCarryover, setViewCarryover] = useState(false);
+  const [carryover, setCarryover] = useState({ count: 0, missingLocation: 0, missingBales: 0 });
+  const dayRef = useRef("");
   const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
   const [loading, setLoading] = useState(true);
   const [editingProcessedIds, setEditingProcessedIds] = useState<Set<string>>(new Set());
@@ -208,7 +212,7 @@ export default function SiteCheckinPage() {
     return {
       id: `local-${crypto.randomUUID()}`, created_at: "", updated_at: "", last_saved_at: "",
       terminal: site!.terminal, site_code: site!.siteCode, site_name: site!.siteName,
-      sub_location: site!.subLocations[0] ?? "MAIN", received_date: new Date().toISOString().slice(0, 10),
+      sub_location: site!.subLocations[0] ?? "MAIN", received_date: warehouseDate(new Date(), site!.terminal),
       mark: null, shipper: null, bol_bc: null, bale_count: null, warehouse_location: null,
       equipment_type: site!.terminal === "SAV" ? "V" : null, verified: false,
       comment_1: null, comment_2: null, draft_status: "draft", processed_at: null,
@@ -315,13 +319,16 @@ export default function SiteCheckinPage() {
     try {
       if (initial) setLoading(true);
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = warehouseDate(new Date(), site.terminal);
+      const changedDay = dayRef.current !== today;
+      dayRef.current = today;
 
       const params = new URLSearchParams({
         terminal: site.terminal,
         siteCode: site.siteCode,
         date: today,
         materialType: "cotton",
+        ...(viewCarryover ? { view: "carryover" } : {}),
       });
 
       const res = await fetch(`/api/inbound/checkin/rows?${params.toString()}`, {
@@ -335,15 +342,18 @@ export default function SiteCheckinPage() {
       }
 
       const nextRows = (data.rows ?? []) as CheckinRow[];
+      setCarryover({ count: Number(data.carryoverCount ?? 0), missingLocation: Number(data.carryoverMissingLocation ?? 0),
+        missingBales: Number(data.carryoverMissingBales ?? 0) });
       setRows((previous) => {
-        const pending = previous.filter((row) => row.id.startsWith("local-"));
+        const pending = changedDay || viewCarryover ? [] : previous.filter((row) => row.id.startsWith("local-"));
         const focusedId = document.activeElement?.closest("tr")?.getAttribute("data-checkin-id");
-        const active = new Map(previous.filter((row) =>
+        const active = new Map((changedDay ? [] : previous).filter((row) =>
           !row.id.startsWith("local-") &&
           (editSnapshotsRef.current[row.id] || row.id === focusedId || saveTimersRef.current[row.id] ||
             rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error")
         ).map((row) => [row.id, row]));
-        return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending]);
+        return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending,
+          ...(changedDay && !viewCarryover ? Array.from({ length: 10 }, () => blankRow()) : [])]);
       });
 
       const nextUi: Record<string, RowUiState> = {};
@@ -361,7 +371,7 @@ export default function SiteCheckinPage() {
   useEffect(() => {
     editSnapshotsRef.current = {};
     setEditingProcessedIds(new Set());
-    setRows(site ? Array.from({ length: 10 }, () => blankRow()) : []);
+    setRows(site && !viewCarryover ? Array.from({ length: 10 }, () => blankRow()) : []);
     setRowUi({});
     void loadRows(true);
     const interval = window.setInterval(() => {
@@ -369,7 +379,7 @@ export default function SiteCheckinPage() {
     }, 10000);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site?.terminal, site?.siteCode]);
+  }, [site?.terminal, site?.siteCode, viewCarryover]);
 
   function setRowUiState(id: string, state: Partial<RowUiState>) {
     setRowUi((prev) => ({
@@ -783,7 +793,7 @@ export default function SiteCheckinPage() {
     <main style={{ maxWidth: "100%", padding: "0 16px" }}>
       <PlatformPageHeader
         title={`${site.siteName} Check-In`}
-        subtitle="Fill in the grid. A row appears to everyone once it has a mark and customer. When all required details and the warehouse location are entered, it processes automatically."
+        subtitle={viewCarryover ? "Earlier cotton check-ins that still need attention." : "Today's cotton check-ins. When all required details and the warehouse location are entered, the delivery processes automatically."}
         actions={
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Link href="/inbound/checkin" style={linkButtonStyle}>
@@ -810,7 +820,7 @@ export default function SiteCheckinPage() {
               Copy Table
             </button>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {!viewCarryover && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={() => addRows(5)}
@@ -818,7 +828,7 @@ export default function SiteCheckinPage() {
               >
                 + 5 Blank Lines
               </button>
-            </div>
+            </div>}
           </div>
         }
       />
@@ -829,6 +839,21 @@ export default function SiteCheckinPage() {
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={linkButtonStyle}>Lumber & Other</Link>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={linkButtonStyle}>Domestic History</Link>
       </nav>
+
+      <PlatformPanel style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <strong>{viewCarryover ? "Earlier rows needing review" : `${warehouseDate(new Date(), site.terminal)} · Today's cotton grid`}</strong>
+          <button type="button" style={carryover.count ? primaryButtonStyle : linkButtonStyle}
+            onClick={() => setViewCarryover((current) => !current)}>
+            {viewCarryover ? "Back to today's grid" : `Review earlier rows (${carryover.count})`}
+          </button>
+        </div>
+        {carryover.count > 0 && <p role="status" style={{ color: "#fbbf24", margin: "10px 0 0" }}>
+          {carryover.count} earlier cotton check-in{carryover.count === 1 ? "" : "s"} still need review.
+          {carryover.missingLocation > 0 ? ` ${carryover.missingLocation} missing a warehouse location.` : ""}
+          {carryover.missingBales > 0 ? ` ${carryover.missingBales} missing a confirmed bale count.` : ""}
+        </p>}
+      </PlatformPanel>
 
       <PlatformPanel>
         <div style={statsGridStyle}>
@@ -1174,7 +1199,7 @@ export default function SiteCheckinPage() {
                   <td colSpan={13} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
-                      : "No check-ins yet. Add a blank line to check in a driver."}
+                      : viewCarryover ? "No earlier cotton check-ins need review." : "No check-ins yet. Add a blank line to check in a driver."}
                   </td>
                 </tr>
               ) : null}

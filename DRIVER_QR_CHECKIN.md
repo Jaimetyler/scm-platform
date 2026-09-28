@@ -54,6 +54,8 @@ The **Domestic Line** at `/warehouse/gate/{terminal}/{site-code}/line` combines 
 
 The **Domestic History** page at `/warehouse/gate/{terminal}/{site-code}/history` retains completed and removed rows. Staff can search driver, phone, reference, mark, customer, destination, or McLeod order ID, filter by arrival date and status, page through results, and download all matching operational fields as an Excel workbook. The workbook includes the matched McLeod order ID, check-in and check-out timestamps, yard status, and separate McLeod processing status. It excludes precise driver GPS evidence and the private photo itself.
 
+The cotton check-in sheet opens on the current warehouse-local date and starts a fresh grid each day. Earlier checked-in, ready, or failed cotton rows stay in the database and appear under **Review earlier rows**, with a reminder showing how many are missing a warehouse location or confirmed bale count. Staff can correct those rows in that review view; processed rows remain accessible in history.
+
 ## Guardrails
 
 - The public token does not expose the gate coordinates.

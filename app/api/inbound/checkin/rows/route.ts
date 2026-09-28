@@ -81,6 +81,7 @@ export async function GET(req: NextRequest) {
     const siteCode = cleanText(searchParams.get("siteCode"));
     const date = cleanText(searchParams.get("date"));
     const materialType = cleanText(searchParams.get("materialType"));
+    const viewCarryover = searchParams.get("view") === "carryover";
 
     if (!terminal || !siteCode) {
       return NextResponse.json(
@@ -97,13 +98,7 @@ export async function GET(req: NextRequest) {
 
     if (materialType === "cotton") query = query.eq("material_type", "cotton");
 
-    if (date) {
-      // Carry unresolved rows forward and keep today's corrected processed
-      // rows visible even when staff fixes their received date to another day.
-      query = query.or(
-        `received_date.eq.${date},draft_status.in.(checked_in,ready,processing,failed),updated_at.gte.${date}T00:00:00Z`
-      );
-    }
+    if (date) query = query.eq("received_date", date);
 
     const { data, error } = await query
       .order("created_at", { ascending: true });
@@ -115,9 +110,22 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    let carryoverRows: CheckinRow[] = [];
+    if (date && materialType === "cotton") {
+      const { data: older, error: olderError } = await sb.from("inbound_checkin_rows")
+        .select("*").eq("terminal", terminal).eq("site_code", siteCode)
+        .eq("material_type", "cotton").lt("received_date", date)
+        .in("draft_status", ["checked_in", "ready", "failed"])
+        .order("received_date", { ascending: false }).limit(1000);
+      if (olderError) throw olderError;
+      carryoverRows = (older ?? []) as CheckinRow[];
+    }
     return NextResponse.json({
       ok: true,
-      rows: ((data ?? []) as CheckinRow[]).filter((row) =>
+      carryoverCount: carryoverRows.length,
+      carryoverMissingLocation: carryoverRows.filter((row) => !row.warehouse_location?.trim()).length,
+      carryoverMissingBales: carryoverRows.filter((row) => !Number(row.bale_count ?? 0)).length,
+      rows: (viewCarryover ? carryoverRows : (data ?? []) as CheckinRow[]).filter((row) =>
         !(row.draft_status === "draft" && !row.mark && !row.shipper &&
           !row.bol_bc && !row.bale_count && !row.warehouse_location &&
           !row.comment_1 && !row.comment_2)
