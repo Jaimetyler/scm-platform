@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -198,6 +198,7 @@ export default function SiteCheckinPage() {
   const [cottonMatches, setCottonMatches] = useState<Record<string, CottonMatch[]>>({});
   const [cottonSearching, setCottonSearching] = useState<Record<string, boolean>>({});
   const [cottonWarnings, setCottonWarnings] = useState<Record<string, string>>({});
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const lookupKeysRef = useRef<Record<string, string>>({});
   const lookupTimersRef = useRef<Record<string, number>>({});
 
@@ -456,6 +457,14 @@ export default function SiteCheckinPage() {
         ...state,
       },
     }));
+  }
+
+  function toggleDetails(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
   function applyRowUpdate(
@@ -941,13 +950,15 @@ export default function SiteCheckinPage() {
                 const ui = rowUi[row.id] ?? createEmptyUiState();
 
                 return (
-                  <tr key={row.client_id ?? row.id} data-checkin-id={row.id}
+                  <Fragment key={row.client_id ?? row.id}>
+                  <tr data-checkin-id={row.id}
                     style={{ background: index % 2 ? "rgba(30,41,59,0.18)" : undefined, ...rowTone(row) }}>
                     <td style={rowNumberCellStyle}>{index + 1}</td>
 
                     <td style={tdStyle}>
                       <input
                         type="date"
+                        title={row.checked_in_at ? `Arrived ${formatArrivalTime(row)}` : "Received date"}
                         value={row.received_date ?? ""}
                         onChange={(e) => {
                           const value = e.target.value || null;
@@ -962,32 +973,6 @@ export default function SiteCheckinPage() {
                         style={{ ...cellInputStyle, fontSize: 11, padding: "3px 4px" }}
                         disabled={isReadOnlyRow(row)}
                       />
-                      <div style={arrivalDetailsStyle}>
-                      {row.checked_in_at ? (
-                        <>
-                          <span title={row.checked_in_at}>{formatArrivalTime(row)}</span>
-                          {row.identity_corrected_at ? <small title={row.identity_corrected_at}>
-                            {" *"}
-                          </small> : null}
-                          {row.checkin_source === "driver_qr" ? (
-                            <>
-                              <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer"
-                                style={driverQrStyle} title="Open location-verified driver details">
-                                QR · {(row.movement_direction ?? "delivery").toUpperCase()}
-                              </a>
-                              {row.reference_number ? <small style={gateReferenceStyle} title={row.reference_number}>Ref: {row.reference_number}</small> : null}
-                              {row.movement_direction === "pickup" && row.destination ? <small style={gateReferenceStyle} title={row.destination}>To: {row.destination}</small> : null}
-                            </>
-                          ) : null}
-                          {row.has_bol_photo ? (
-                            <a href={`/api/warehouse/checkin-bol/${row.id}`} target="_blank" rel="noreferrer"
-                              style={bolPhotoLinkStyle} title="Open the driver's paperwork photo">
-                              View paperwork
-                            </a>
-                          ) : null}
-                        </>
-                      ) : ""}
-                      </div>
                     </td>
 
                     <td style={tdStyle}>
@@ -1013,25 +998,7 @@ export default function SiteCheckinPage() {
                         style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
-                      {row.matched_order_id ? (
-                        <small style={orderNumberStyle} title={row.draft_status === "failed" ? "Possible McLeod match; review before delivery" : "Matched SCM order"}>
-                          {row.draft_status === "failed" ? "Possible #" : "SCM #"}{row.matched_order_id}
-                        </small>
-                      ) : null}
-                      {!row.matched_order_id && cottonSearching[row.id] ? <small style={orderNumberStyle}>Searching McLeod…</small> : null}
-                      {!row.matched_order_id && cottonWarnings[row.id] ? <small style={{ ...gateReferenceStyle, color: "#fbbf24", fontSize: 11 }} title={cottonWarnings[row.id]}>Search incomplete · check manually</small> : null}
-                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 1 ?
-                        <small style={orderNumberStyle} title="Possible order; mark needs an exact match before it is linked">Possible #{cottonMatches[row.id][0].orderId}</small> : null}
-                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 0 ?
-                        <small style={gateReferenceStyle}>No order found</small> : null}
-                      {!row.matched_order_id && cottonMatches[row.id]?.length > 1 ?
-                        <div style={{ maxHeight: 140, overflowY: "auto" }}>
-                          {cottonMatches[row.id].map((match) => <button key={match.orderId} type="button"
-                            disabled={isReadOnlyRow(row)} onClick={() => chooseCottonMatch(row.id, match)}
-                            style={{ ...smallActionButtonStyle, textAlign: "left", marginTop: 4 }}>
-                            #{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C
-                          </button>)}
-                        </div> : null}
+
                     </td>
 
                     <td style={tdStyle}>
@@ -1210,11 +1177,16 @@ export default function SiteCheckinPage() {
                       {row.processing_error || ui.saveState === "error" ? (
                         <button type="button" title={row.processing_error || ui.message || "Save failed"}
                           aria-label="Show check-in error"
-                          onClick={() => alert(row.processing_error || ui.message || "Save failed")}
+                          onClick={() => setExpandedIds((current) => new Set(current).add(row.id))}
                           style={errorButtonStyle}>View error</button>
                       ) : null}
                         </div>
                         <div style={rowActionsStyle}>
+                      {(!row.id.startsWith("local-") || row.mark) && <button type="button"
+                        onClick={() => toggleDetails(row.id)} style={smallActionButtonStyle}
+                        aria-expanded={expandedIds.has(row.id)}>
+                        {expandedIds.has(row.id) ? "Less" : !row.matched_order_id && (cottonMatches[row.id]?.length ?? 0) > 0 ? "Review order" : "Details"}
+                      </button>}
                       {row.draft_status === "processed" && !editingProcessedIds.has(row.id) ? (
                         <button type="button" onClick={() => void beginProcessedEdit(row)} disabled={dispatcherLookupIds.has(row.id)}
                           style={smallActionButtonStyle} title="Edit check-in details; McLeod delivery stays unchanged">
@@ -1257,6 +1229,41 @@ export default function SiteCheckinPage() {
                       </div>
                     </td>
                   </tr>
+                  {expandedIds.has(row.id) && <tr style={{ background: "#132337" }}>
+                    <td colSpan={10} style={detailsCellStyle}>
+                      <div style={detailsContentStyle}>
+                        {row.checked_in_at && <span>Arrived {formatArrivalTime(row)} · {row.received_date}</span>}
+                        {row.identity_corrected_at && <span>Identity corrected</span>}
+                        {row.checkin_source === "driver_qr" && <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer" style={detailLinkStyle}>
+                          QR driver details · {row.movement_direction ?? "delivery"}
+                        </a>}
+                        {row.reference_number && <span>Reference: {row.reference_number}</span>}
+                        {row.movement_direction === "pickup" && row.destination && <span>To: {row.destination}</span>}
+                        {row.has_bol_photo && <a href={`/api/warehouse/checkin-bol/${row.id}`} target="_blank" rel="noreferrer" style={detailLinkStyle}>View paperwork</a>}
+                      {row.matched_order_id ? (
+                        <small style={orderNumberStyle} title={row.draft_status === "failed" ? "Possible McLeod match; review before delivery" : "Matched SCM order"}>
+                          {row.draft_status === "failed" ? "Possible #" : "SCM #"}{row.matched_order_id}
+                        </small>
+                      ) : null}
+                      {!row.matched_order_id && cottonSearching[row.id] ? <small style={orderNumberStyle}>Searching McLeod…</small> : null}
+                      {!row.matched_order_id && cottonWarnings[row.id] ? <small style={{ ...gateReferenceStyle, color: "#fbbf24", fontSize: 11 }} title={cottonWarnings[row.id]}>Search incomplete · check manually</small> : null}
+                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 1 ?
+                        <small style={orderNumberStyle} title="Possible order; mark needs an exact match before it is linked">Possible #{cottonMatches[row.id][0].orderId}</small> : null}
+                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 0 ?
+                        <small style={gateReferenceStyle}>No order found</small> : null}
+                      {!row.matched_order_id && cottonMatches[row.id]?.length > 1 ?
+                        <div style={{ maxHeight: 140, overflowY: "auto" }}>
+                          {cottonMatches[row.id].map((match) => <button key={match.orderId} type="button"
+                            disabled={isReadOnlyRow(row)} onClick={() => chooseCottonMatch(row.id, match)}
+                            style={{ ...smallActionButtonStyle, textAlign: "left", marginTop: 4 }}>
+                            #{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C
+                          </button>)}
+                        </div> : null}
+                        {(row.processing_error || ui.message) && <span style={{ color: "#fca5a5" }}>{row.processing_error || ui.message}</span>}
+                      </div>
+                    </td>
+                  </tr>}
+                  </Fragment>
                 );
               })}
 
@@ -1332,9 +1339,6 @@ const toolbarButtonStyle: React.CSSProperties = {
 const toolbarPrimaryStyle: React.CSSProperties = {
   ...toolbarButtonStyle, background: "#4338ca", borderColor: "#6366f1", color: "#fff",
 };
-const arrivalDetailsStyle: React.CSSProperties = {
-  color: "#94a3b8", fontSize: 11, marginTop: 5, whiteSpace: "normal", lineHeight: 1.3,
-};
 const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 5 };
 const smallCellLabelStyle: React.CSSProperties = {
   flex: 1, minWidth: 0, color: "#94a3b8", fontSize: 10, display: "grid", gap: 3,
@@ -1344,6 +1348,9 @@ const rowStatusStyle: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", fontSize: 11,
 };
 const rowActionsStyle: React.CSSProperties = { display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" };
+const detailsCellStyle: React.CSSProperties = { padding: "12px 16px", borderBottom: "1px solid #334155", color: "#cbd5e1", fontSize: 12 };
+const detailsContentStyle: React.CSSProperties = { display: "flex", gap: "8px 18px", alignItems: "center", flexWrap: "wrap" };
+const detailLinkStyle: React.CSSProperties = { color: "#67e8f9", textDecoration: "underline" };
 
 const errorButtonStyle: React.CSSProperties = {
   display: "inline",
@@ -1357,15 +1364,6 @@ const errorButtonStyle: React.CSSProperties = {
   textDecoration: "underline",
 };
 
-const driverQrStyle: React.CSSProperties = {
-  display: "block",
-  marginTop: 2,
-  color: "#67e8f9",
-  fontSize: 9,
-  fontWeight: 900,
-  letterSpacing: ".05em",
-};
-
 const gateReferenceStyle: React.CSSProperties = {
   display: "block",
   marginTop: 2,
@@ -1373,15 +1371,6 @@ const gateReferenceStyle: React.CSSProperties = {
   fontSize: 8,
   overflow: "hidden",
   textOverflow: "ellipsis",
-};
-
-const bolPhotoLinkStyle: React.CSSProperties = {
-  display: "block",
-  marginTop: 2,
-  color: "#a5b4fc",
-  fontSize: 9,
-  fontWeight: 800,
-  textDecoration: "underline",
 };
 
 const orderNumberStyle: React.CSSProperties = {
