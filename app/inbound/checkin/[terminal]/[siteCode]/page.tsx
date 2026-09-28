@@ -126,7 +126,7 @@ function rowDotStyle(row: CheckinRow): React.CSSProperties {
     width: 10,
     height: 10,
     borderRadius: "50%",
-    margin: "0 auto",
+    margin: 0,
     background:
       gateOnly
         ? "#06b6d4"
@@ -420,7 +420,7 @@ export default function SiteCheckinPage() {
             rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error")
         ).map((row) => [row.id, row]));
         return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending,
-          ...(changedDay && !viewCarryover ? Array.from({ length: 10 }, () => blankRow()) : [])]);
+          ...(changedDay && !viewCarryover ? Array.from({ length: 3 }, () => blankRow()) : [])]);
       });
 
       const nextUi: Record<string, RowUiState> = {};
@@ -438,7 +438,7 @@ export default function SiteCheckinPage() {
   useEffect(() => {
     editSnapshotsRef.current = {};
     setEditingProcessedIds(new Set());
-    setRows(site && !viewCarryover ? Array.from({ length: 10 }, () => blankRow()) : []);
+    setRows(site && !viewCarryover ? Array.from({ length: 3 }, () => blankRow()) : []);
     setRowUi({});
     void loadRows(true);
     const interval = window.setInterval(() => {
@@ -873,103 +873,66 @@ export default function SiteCheckinPage() {
     <main style={{ maxWidth: "100%", padding: "0 16px" }}>
       <PlatformPageHeader
         title={`${site.siteName} Check-In`}
-        subtitle={viewCarryover ? "Earlier cotton check-ins that still need attention." : "Today's cotton check-ins. When all required details and the warehouse location are entered, the delivery processes automatically."}
+        subtitle={viewCarryover ? "Earlier cotton check-ins needing review" : "Cotton arrivals · enter confirmed bales and location to finish a delivery"}
         actions={
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Link href="/inbound/checkin" style={linkButtonStyle}>
-              ← All Check-In Sites
-            </Link>
-
-            <Link href="/inbound/history" style={linkButtonStyle}>
-              View History
-            </Link>
-
-            <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={linkButtonStyle}>
-              View Inventory
-            </Link>
-
-            <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={linkButtonStyle}>
-              Container Line
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => void handleCopyTable()}
-              style={linkButtonStyle}
-            >
-              Copy Table
-            </button>
-
-            {!viewCarryover && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => addRows(5)}
-                style={primaryButtonStyle}
-              >
-                + 5 Blank Lines
-              </button>
-            </div>}
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <Link href="/inbound/checkin" style={utilityLinkStyle}>All sites</Link>
+            <Link href="/inbound/history" style={utilityLinkStyle}>Cotton history</Link>
+            <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLinkStyle}>Inventory</Link>
+            <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLinkStyle}>Containers</Link>
           </div>
         }
       />
 
-      <nav aria-label="Freight type" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={linkButtonStyle}>Domestic Line</Link>
-        <span aria-current="page" style={primaryButtonStyle}>Cotton</span>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={linkButtonStyle}>Lumber & Other</Link>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={linkButtonStyle}>Domestic History</Link>
+      <nav aria-label="Freight type" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={tabButtonStyle}>Domestic Line</Link>
+        <span aria-current="page" style={activeTabStyle}>Cotton</span>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={tabButtonStyle}>Lumber & Other</Link>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={tabButtonStyle}>Domestic History</Link>
       </nav>
 
-      <PlatformPanel style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <strong>{viewCarryover ? "Earlier rows needing review" : `${warehouseDate(new Date(), site.terminal)} · Today's cotton grid`}</strong>
-          <button type="button" style={carryover.count ? primaryButtonStyle : linkButtonStyle}
-            onClick={() => setViewCarryover((current) => !current)}>
-            {viewCarryover ? "Back to today's grid" : `Review earlier rows (${carryover.count})`}
-          </button>
-        </div>
-        {carryover.count > 0 && <p role="status" style={{ color: "#fbbf24", margin: "10px 0 0" }}>
-          {carryover.count} earlier cotton check-in{carryover.count === 1 ? "" : "s"} still need review.
-          {carryover.missingLocation > 0 ? ` ${carryover.missingLocation} missing a warehouse location.` : ""}
-          {carryover.missingBales > 0 ? ` ${carryover.missingBales} missing a confirmed bale count.` : ""}
-        </p>}
-      </PlatformPanel>
-
-      <PlatformPanel>
-        <div style={statsGridStyle}>
-          <StatCard label="Waiting for location/details" value={waitingCount} />
-          <StatCard label="Cotton pickups" value={gateOnlyCount} />
-          <StatCard label="Ready" value={readyCount} tone="success" />
-          <StatCard label="Processed" value={processedCount} tone="info" />
-          <StatCard label="Outside carrier" value={outsideCount} />
-          <StatCard label="Needs attention" value={failedCount} />
-          <StatCard label="Sub-Locations" value={site.subLocations.join(", ")} />
-        </div>
-      </PlatformPanel>
-
       <PlatformPanel style={{ padding: 16 }}>
+        <div style={gridToolbarStyle}>
+          <div>
+            <strong style={{ color: "#f8fafc" }}>{viewCarryover ? "Earlier check-ins" : `${warehouseDate(new Date(), site.terminal)} · Cotton`}</strong>
+            <div style={summaryStyle}>{waitingCount} waiting · {gateOnlyCount} pickups · {processedCount} processed
+              {readyCount > 0 ? ` · ${readyCount} ready` : ""}
+              {outsideCount > 0 ? ` · ${outsideCount} outside carrier` : ""}
+              {failedCount > 0 ? ` · ${failedCount} need attention` : ""}
+            </div>
+            {carryover.count > 0 && <div role="status" style={{ ...summaryStyle, color: "#fbbf24" }}>
+              {carryover.count} earlier row{carryover.count === 1 ? "" : "s"} need review
+              {carryover.missingLocation > 0 ? ` · ${carryover.missingLocation} missing location` : ""}
+              {carryover.missingBales > 0 ? ` · ${carryover.missingBales} missing bales` : ""}
+            </div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button type="button" style={toolbarButtonStyle} onClick={() => setViewCarryover((current) => !current)}>
+              {viewCarryover ? "Today" : `Earlier (${carryover.count})`}
+            </button>
+            <button type="button" style={toolbarButtonStyle} onClick={() => void handleCopyTable()}>Copy table</button>
+            {!viewCarryover && <button type="button" style={toolbarPrimaryStyle} onClick={() => addRows(5)}>+ 5 rows</button>}
+          </div>
+        </div>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
           <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
-              {[2.5, 9, 8, 8.5, 11.5, 6, 6, 7, 8, 10, 10, 7, 6.5].map((width, index) => (
+              {[3, 11, 12, 17, 12, 7, 8, 10, 10, 10].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
             <thead>
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
-                <th style={thStyle}>Date *</th>
-                <th style={thStyle}>Time</th>
+                <th style={thStyle}>Arrival</th>
                 <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
-                <th style={thStyle}>BOL B/C *</th>
-                <th style={thStyle}>Bales *</th>
+                <th style={thStyle}>Bales · BOL / unloaded</th>
                 <th style={thStyle}>Equipment *</th>
                 <th style={thStyle}>Sub-Loc *</th>
                 <th style={thStyle}>Comment</th>
                 <th style={thStyle}>Location * (final)</th>
-                <th style={thStyle}>Actions</th>
-                <th style={statusDotHeaderStyle}>Status</th>
+                <th style={thStyle}>Status / action</th>
               </tr>
             </thead>
 
@@ -978,7 +941,8 @@ export default function SiteCheckinPage() {
                 const ui = rowUi[row.id] ?? createEmptyUiState();
 
                 return (
-                  <tr key={row.client_id ?? row.id} data-checkin-id={row.id} style={rowTone(row)}>
+                  <tr key={row.client_id ?? row.id} data-checkin-id={row.id}
+                    style={{ background: index % 2 ? "rgba(30,41,59,0.18)" : undefined, ...rowTone(row) }}>
                     <td style={rowNumberCellStyle}>{index + 1}</td>
 
                     <td style={tdStyle}>
@@ -998,9 +962,7 @@ export default function SiteCheckinPage() {
                         style={{ ...cellInputStyle, fontSize: 11, padding: "3px 4px" }}
                         disabled={isReadOnlyRow(row)}
                       />
-                    </td>
-
-                    <td style={{ ...tdStyle, fontSize: 10, whiteSpace: "nowrap" }}>
+                      <div style={arrivalDetailsStyle}>
                       {row.checked_in_at ? (
                         <>
                           <span title={row.checked_in_at}>{formatArrivalTime(row)}</span>
@@ -1011,7 +973,7 @@ export default function SiteCheckinPage() {
                             <>
                               <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer"
                                 style={driverQrStyle} title="Open location-verified driver details">
-                                QR ✓ · {(row.movement_direction ?? "delivery").toUpperCase()} · {(row.material_type ?? "cotton").toUpperCase()}
+                                QR · {(row.movement_direction ?? "delivery").toUpperCase()}
                               </a>
                               {row.reference_number ? <small style={gateReferenceStyle} title={row.reference_number}>Ref: {row.reference_number}</small> : null}
                               {row.movement_direction === "pickup" && row.destination ? <small style={gateReferenceStyle} title={row.destination}>To: {row.destination}</small> : null}
@@ -1025,6 +987,7 @@ export default function SiteCheckinPage() {
                           ) : null}
                         </>
                       ) : ""}
+                      </div>
                     </td>
 
                     <td style={tdStyle}>
@@ -1058,9 +1021,9 @@ export default function SiteCheckinPage() {
                       {!row.matched_order_id && cottonSearching[row.id] ? <small style={orderNumberStyle}>Searching McLeod…</small> : null}
                       {!row.matched_order_id && cottonWarnings[row.id] ? <small style={{ ...gateReferenceStyle, color: "#fbbf24", fontSize: 11 }} title={cottonWarnings[row.id]}>Search incomplete · check manually</small> : null}
                       {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 1 ?
-                        <small style={orderNumberStyle}>Possible SCM #{cottonMatches[row.id][0].orderId} · confirm before delivery</small> : null}
+                        <small style={orderNumberStyle} title="Possible order; mark needs an exact match before it is linked">Possible #{cottonMatches[row.id][0].orderId}</small> : null}
                       {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 0 ?
-                        <small style={gateReferenceStyle}>No McLeod match · enter details manually</small> : null}
+                        <small style={gateReferenceStyle}>No order found</small> : null}
                       {!row.matched_order_id && cottonMatches[row.id]?.length > 1 ?
                         <div style={{ maxHeight: 140, overflowY: "auto" }}>
                           {cottonMatches[row.id].map((match) => <button key={match.orderId} type="button"
@@ -1097,6 +1060,8 @@ export default function SiteCheckinPage() {
                     </td>
 
                     <td style={tdStyle}>
+                      <div style={baleFieldsStyle}>
+                        <label style={smallCellLabelStyle}>BOL
                       <input
                         type="text"
                         data-checkin-identity={row.id}
@@ -1123,9 +1088,8 @@ export default function SiteCheckinPage() {
                         style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
-                    </td>
-
-                    <td style={tdStyle}>
+                        </label>
+                        <label style={smallCellLabelStyle}>Unloaded
                       <input
                         type="text"
                         inputMode="numeric"
@@ -1144,6 +1108,8 @@ export default function SiteCheckinPage() {
                         style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
+                        </label>
+                      </div>
                     </td>
 
                     <td style={tdStyle}>
@@ -1235,6 +1201,20 @@ export default function SiteCheckinPage() {
                     </td>
 
                     <td style={tdStyle}>
+                      <div style={rowActionStatusStyle}>
+                        <div style={rowStatusStyle}>
+                      <div title={row.draft_status} style={rowDotStyle(row)} />
+                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in"
+                        ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
+                        : row.draft_status}</small>
+                      {row.processing_error || ui.saveState === "error" ? (
+                        <button type="button" title={row.processing_error || ui.message || "Save failed"}
+                          aria-label="Show check-in error"
+                          onClick={() => alert(row.processing_error || ui.message || "Save failed")}
+                          style={errorButtonStyle}>View error</button>
+                      ) : null}
+                        </div>
+                        <div style={rowActionsStyle}>
                       {row.draft_status === "processed" && !editingProcessedIds.has(row.id) ? (
                         <button type="button" onClick={() => void beginProcessedEdit(row)} disabled={dispatcherLookupIds.has(row.id)}
                           style={smallActionButtonStyle} title="Edit check-in details; McLeod delivery stays unchanged">
@@ -1252,15 +1232,15 @@ export default function SiteCheckinPage() {
                       {row.id.startsWith("local-") ? (
                         (rowUi[row.id]?.saveState === "error" ?
                           <button type="button" onClick={() => void checkIn(row)}
-                            style={primaryButtonStyle}>Retry Save</button> : null)
+                            style={smallActionButtonStyle}>Retry save</button> : null)
                       ) : null}
                       {row.draft_status === "failed" ? (
                         <button type="button" onClick={() => void saveRowSnapshot(row)}
-                          style={primaryButtonStyle}>Retry</button>
+                          style={smallActionButtonStyle}>Retry</button>
                       ) : null}
                       {!row.id.startsWith("local-") && ui.saveState === "error" ? (
                         <button type="button" onClick={() => void reloadRow(row.id)}
-                          title="Discard unsaved edits and load the latest row" style={linkButtonStyle}>Reload</button>
+                          title="Discard unsaved edits and load the latest row" style={smallActionButtonStyle}>Reload</button>
                       ) : null}
                       {!isClosedRow(row) ? <button
                         type="button"
@@ -1273,19 +1253,8 @@ export default function SiteCheckinPage() {
                           <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" />
                         </svg>
                       </button> : null}
-                    </td>
-
-                    <td style={statusDotCellStyle}>
-                      <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in"
-                        ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
-                        : row.draft_status}</small>
-                      {row.processing_error || ui.saveState === "error" ? (
-                        <button type="button" title={row.processing_error || ui.message || "Save failed"}
-                          aria-label="Show check-in error"
-                          onClick={() => alert(row.processing_error || ui.message || "Save failed")}
-                          style={errorButtonStyle}>View error</button>
-                      ) : null}
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1293,7 +1262,7 @@ export default function SiteCheckinPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} style={emptyStateStyle}>
+                  <td colSpan={10} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
                       : viewCarryover ? "No earlier cotton check-ins need review." : "No check-ins yet. Add a blank line to check in a driver."}
@@ -1313,66 +1282,6 @@ export default function SiteCheckinPage() {
     </main>
   );
 }
-
-function StatCard(props: {
-  label: string;
-  value: number | string;
-  tone?: "default" | "success" | "info";
-}) {
-  const { label, value, tone = "default" } = props;
-
-  const tones: Record<string, React.CSSProperties> = {
-    default: {
-      background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
-      border: "1px solid #1f2937",
-      color: "#f8fafc",
-    },
-    success: {
-      background:
-        "linear-gradient(180deg, rgba(6,95,70,0.22) 0%, rgba(6,78,59,0.3) 100%)",
-      border: "1px solid rgba(16,185,129,0.35)",
-      color: "#d1fae5",
-    },
-    info: {
-      background:
-        "linear-gradient(180deg, rgba(30,64,175,0.22) 0%, rgba(30,58,138,0.3) 100%)",
-      border: "1px solid rgba(96,165,250,0.35)",
-      color: "#dbeafe",
-    },
-  };
-
-  return (
-    <div style={{ ...statCardStyle, ...tones[tone] }}>
-      <div style={statLabelStyle}>{label}</div>
-      <div style={statValueStyle}>{value}</div>
-    </div>
-  );
-}
-
-const statsGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: 14,
-};
-
-const statCardStyle: React.CSSProperties = {
-  borderRadius: 18,
-  padding: 18,
-  boxShadow: "0 10px 24px rgba(0,0,0,0.2)",
-};
-
-const statLabelStyle: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.8,
-  marginBottom: 10,
-};
-
-const statValueStyle: React.CSSProperties = {
-  fontSize: 30,
-  fontWeight: 900,
-  lineHeight: 1,
-  wordBreak: "break-word",
-};
 
 const rowNumberHeaderStyle: React.CSSProperties = {
   width: 34,
@@ -1401,26 +1310,40 @@ const rowNumberCellStyle: React.CSSProperties = {
   fontSize: 12,
 };
 
-const statusDotHeaderStyle: React.CSSProperties = {
-  width: 88,
-  minWidth: 88,
-  padding: "6px 4px",
-  borderBottom: "1px solid rgba(148,163,184,0.16)",
-  background: "rgba(15,23,42,0.96)",
-  position: "sticky",
-  top: 0,
-  zIndex: 3,
+const utilityLinkStyle: React.CSSProperties = {
+  color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700,
 };
-
-const statusDotCellStyle: React.CSSProperties = {
-  width: 88,
-  minWidth: 88,
-  padding: "4px 3px",
-  borderBottom: "1px solid rgba(148,163,184,0.08)",
-  verticalAlign: "middle",
-  fontSize: 10,
-  overflowWrap: "anywhere",
+const tabButtonStyle: React.CSSProperties = {
+  padding: "9px 13px", borderRadius: 8, border: "1px solid #334155",
+  color: "#cbd5e1", background: "#0f172a", fontSize: 13, fontWeight: 700, textDecoration: "none",
 };
+const activeTabStyle: React.CSSProperties = {
+  ...tabButtonStyle, borderColor: "#6366f1", color: "#fff", background: "#4338ca",
+};
+const gridToolbarStyle: React.CSSProperties = {
+  display: "flex", justifyContent: "space-between", alignItems: "center",
+  flexWrap: "wrap", gap: 12, marginBottom: 14,
+};
+const summaryStyle: React.CSSProperties = { color: "#94a3b8", fontSize: 12, marginTop: 4 };
+const toolbarButtonStyle: React.CSSProperties = {
+  padding: "8px 11px", borderRadius: 7, border: "1px solid #475569",
+  background: "#0f172a", color: "#e2e8f0", cursor: "pointer", fontSize: 12, fontWeight: 700,
+};
+const toolbarPrimaryStyle: React.CSSProperties = {
+  ...toolbarButtonStyle, background: "#4338ca", borderColor: "#6366f1", color: "#fff",
+};
+const arrivalDetailsStyle: React.CSSProperties = {
+  color: "#94a3b8", fontSize: 11, marginTop: 5, whiteSpace: "normal", lineHeight: 1.3,
+};
+const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 5 };
+const smallCellLabelStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, color: "#94a3b8", fontSize: 10, display: "grid", gap: 3,
+};
+const rowActionStatusStyle: React.CSSProperties = { display: "grid", gap: 5 };
+const rowStatusStyle: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", fontSize: 11,
+};
+const rowActionsStyle: React.CSSProperties = { display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" };
 
 const errorButtonStyle: React.CSSProperties = {
   display: "block",
