@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -18,13 +18,14 @@ type Row = {
   yard_called_at: string | null; yard_in_door_at: string | null;
   yard_work_started_at: string | null;
 };
-type Match = { orderId: string; customerId: string; customerName: string; value: string };
+type Match = { orderId: string; customerId: string; customerName: string; value: string;
+  materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery" };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
   referenceNumber: string; customer: string; driverName: string; driverPhone: string;
-  destination: string; notes: string };
+  destination: string; notes: string; orderId: string };
 function blankDraft(id: string): Draft {
   return { id, movementDirection: "delivery", materialType: "lumber", referenceNumber: "", customer: "",
-    driverName: "", driverPhone: "", destination: "", notes: "" };
+    driverName: "", driverPhone: "", destination: "", notes: "", orderId: "" };
 }
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
@@ -41,6 +42,10 @@ export default function DomesticQueuePage() {
   const [tick, setTick] = useState(0);
   const [matches, setMatches] = useState<Record<string, Match[]>>({});
   const [matchWorking, setMatchWorking] = useState("");
+  const [draftMatches, setDraftMatches] = useState<Record<string, Match[]>>({});
+  const [draftSearching, setDraftSearching] = useState<Record<string, boolean>>({});
+  const draftLookupKeys = useRef<Record<string, string>>({});
+  const draftTimers = useRef<Record<string, number>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 5 }, (_, index) => blankDraft(`initial-${index}`)));
@@ -72,6 +77,60 @@ export default function DomesticQueuePage() {
     return () => window.clearInterval(timer);
   }, [load, editingId]);
 
+  const searchReference = useCallback(async (reference: string, direction: string, strictDirection = false) => {
+    if (!site) throw new Error("Unknown warehouse site");
+    const params = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode,
+      referenceNumber: reference.trim().toUpperCase(), movementDirection: direction });
+    if (strictDirection) params.set("strictDirection", "1");
+    const response = await fetch(`/api/warehouse/domestic-queue/match?${params}`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "McLeod search failed");
+    return result.matches as Match[];
+  }, [site]);
+
+  useEffect(() => {
+    for (const draft of drafts) {
+      const key = `${draft.movementDirection}|${draft.referenceNumber.trim().toUpperCase()}`;
+      if (draftLookupKeys.current[draft.id] === key) continue;
+      if (draftTimers.current[draft.id]) window.clearTimeout(draftTimers.current[draft.id]);
+      draftLookupKeys.current[draft.id] = key;
+      setDraftMatches((current) => { const next = { ...current }; delete next[draft.id]; return next; });
+      if (draft.referenceNumber.trim().length < 3) {
+        setDraftSearching((current) => ({ ...current, [draft.id]: false }));
+        continue;
+      }
+      setDraftSearching((current) => ({ ...current, [draft.id]: true }));
+      draftTimers.current[draft.id] = window.setTimeout(async () => {
+        delete draftTimers.current[draft.id];
+        let resolvedKey = key;
+        try {
+          const found = await searchReference(draft.referenceNumber, draft.movementDirection);
+          if (draftLookupKeys.current[draft.id] !== key) return;
+          setDraftMatches((current) => ({ ...current, [draft.id]: found }));
+          if (found.length === 1) {
+            const match = found[0];
+            draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
+            resolvedKey = draftLookupKeys.current[draft.id];
+            setDrafts((current) => current.map((item) => item.id === draft.id &&
+              `${item.movementDirection}|${item.referenceNumber.trim().toUpperCase()}` === key ? {
+                ...item, movementDirection: match.direction, referenceNumber: match.value,
+                customer: match.customerName || match.customerId || item.customer, orderId: match.orderId,
+                materialType: match.materialType || item.materialType,
+                destination: match.direction === "pickup" ? match.destination || item.destination : item.destination,
+              } : item));
+          }
+        } catch (reason) {
+          if (draftLookupKeys.current[draft.id] === key) setError(reason instanceof Error ? reason.message : "McLeod search failed");
+        } finally {
+          if (draftLookupKeys.current[draft.id] === resolvedKey) {
+            setDraftSearching((current) => ({ ...current, [draft.id]: false }));
+          }
+        }
+      }, 600);
+    }
+  }, [drafts, searchReference]);
+  useEffect(() => () => { Object.values(draftTimers.current).forEach(window.clearTimeout); }, []);
+
   async function transition(row: Row & { yard_status: Status }, to: "checkout" | "cancelled") {
     if (!site || editingId !== row.id) return;
     if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number} from the domestic queue?`)) return;
@@ -97,13 +156,21 @@ export default function DomesticQueuePage() {
     setMatchWorking(row.id);
     setError("");
     try {
-      const response = await fetch(`/api/warehouse/domestic-queue/match?id=${encodeURIComponent(row.id)}`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "McLeod search failed");
-      setMatches((current) => ({ ...current, [row.id]: result.matches }));
+      const found = await searchReference(row.reference_number, row.movement_direction, true);
+      if (found.length === 1) {
+        await saveCustomer(row, found[0].customerName || found[0].customerId, found[0].orderId);
+      } else setMatches((current) => ({ ...current, [row.id]: found }));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "McLeod search failed"); }
     finally { setMatchWorking(""); }
   }
+
+  useEffect(() => {
+    if (!editingId) return;
+    const row = rows.find((item) => item.id === editingId);
+    if (row && !row.matched_order_id && row.reference_number.trim().length >= 3) void findOrder(row);
+    // Search once when a saved row is opened for editing. Refreshes do not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
 
   async function saveCustomer(row: Row, customer: string, orderId?: string) {
     if (!site || editingId !== row.id || (!orderId && customer.trim().toUpperCase() === (row.shipper ?? ""))) return;
@@ -137,12 +204,30 @@ export default function DomesticQueuePage() {
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not save cell");
       setMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
       await load(true);
+      if (field === "reference_number" && value.trim().length >= 3) {
+        await findOrder({ ...row, reference_number: value.trim().toUpperCase(), updated_at: result.row.updated_at });
+      }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save cell"); }
     finally { setWorking(""); }
   }
 
   function editDraft(id: string, change: Partial<Draft>) {
-    setDrafts((current) => current.map((row) => row.id === id ? { ...row, ...change } : row));
+    setDrafts((current) => current.map((row) => row.id === id ? {
+      ...row, ...change,
+      ...("referenceNumber" in change || "movementDirection" in change ? {
+        orderId: "", customer: row.orderId ? "" : row.customer,
+      } : {}),
+    } : row));
+  }
+
+  function chooseDraftMatch(draft: Draft, match: Match) {
+    draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
+    setDrafts((current) => current.map((row) => row.id === draft.id ? {
+      ...row, movementDirection: match.direction, referenceNumber: match.value, orderId: match.orderId,
+      customer: match.customerName || match.customerId || row.customer,
+      materialType: match.materialType || row.materialType,
+      destination: match.direction === "pickup" ? match.destination || row.destination : row.destination,
+    } : row));
   }
 
   async function saveDraft(draft: Draft) {
@@ -150,6 +235,7 @@ export default function DomesticQueuePage() {
       setError("Enter the reference number before saving this row.");
       return;
     }
+    if (draftSearching[draft.id]) return;
     setWorking(draft.id);
     setError("");
     try {
@@ -215,9 +301,9 @@ export default function DomesticQueuePage() {
                 onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>
                 {matches[row.id] && <div style={{ minWidth: 180, marginTop: 6 }}>
                   {matches[row.id].length === 0 ? <span>No matching order</span> :
-                    matches[row.id].map((match) => <button key={match.orderId} style={{ ...button, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
+                    matches[row.id].map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...button, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
                       disabled={editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
-                      #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.value}</small>
+                      #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.direction} · {match.value}</small>
                     </button>)}
                 </div>}</td>
               <td style={cell}>{row.driver_name || "Staff entry"}<div style={muted}>{row.driver_phone}</div></td>
@@ -249,7 +335,18 @@ export default function DomesticQueuePage() {
                 onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" /></td>
               <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
                 onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></td>
-              <td style={cell}><span style={muted}>Save to find order</span></td>
+              <td style={cell}>
+                {draftSearching[draft.id] ? <span style={muted}>Searching McLeod…</span> :
+                  draft.orderId ? <span style={{ color: "#86efac" }}>McLeod #{draft.orderId}</span> :
+                  draftMatches[draft.id]?.length === 0 ? <span style={muted}>No match · enter details manually</span> :
+                  draft.referenceNumber.trim().length < 3 ? <span style={muted}>Enter a reference</span> : null}
+                {!draft.orderId && draftMatches[draft.id]?.length > 1 && <div style={{ minWidth: 180 }}>
+                  {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...button, display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
+                    onClick={() => chooseDraftMatch(draft, match)}>
+                    #{match.orderId} · {match.customerName || match.customerId}<small style={{ display: "block" }}>{match.direction} · {match.value}</small>
+                  </button>)}
+                </div>}
+              </td>
               <td style={cell}><input aria-label="Driver name" style={sheetInput} value={draft.driverName}
                 onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver" />
                 <input aria-label="Driver phone" style={{ ...sheetInput, marginTop: 4 }} value={draft.driverPhone}
@@ -258,7 +355,7 @@ export default function DomesticQueuePage() {
                 onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" />}</td>
               <td style={cell}><input aria-label="Notes" style={sheetInput} value={draft.notes}
                 onChange={(event) => editDraft(draft.id, { notes: event.target.value })} placeholder="Notes" /></td>
-              <td style={cell}><button style={primary} disabled={working === draft.id} onClick={() => void saveDraft(draft)}>
+              <td style={cell}><button style={primary} disabled={working === draft.id || draftSearching[draft.id]} onClick={() => void saveDraft(draft)}>
                 {working === draft.id ? "Saving…" : "Save check-in"}</button></td>
             </tr>)}</tbody>
           </table>

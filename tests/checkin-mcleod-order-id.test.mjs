@@ -11,6 +11,7 @@ test("driver order ID picks BLNUM for pickup and consignee reference for deliver
   globalThis.fetch = async () => new Response(JSON.stringify({
     id: "12345", blnum: "LOAD 1085745 PICKUP", consignee_refno: "DEL 98765",
     customer_id: "CUSTOMER1",
+    stops: [{ stop_type: "SO", location: { name: "DALLAS CUSTOMER" } }],
   }), { status: 200 });
   try {
     const pickup = await lookupMcleodOrderById("12345", "pickup");
@@ -18,6 +19,7 @@ test("driver order ID picks BLNUM for pickup and consignee reference for deliver
     assert.equal(pickup.reference, "LOAD 1085745 PICKUP");
     assert.equal(delivery.reference, "DEL 98765");
     assert.equal(pickup.customer, "CUSTOMER1");
+    assert.equal(pickup.destination, "DALLAS CUSTOMER");
   } finally {
     globalThis.fetch = previousFetch;
     if (previousBase === undefined) delete process.env.MCLEOD_BASE_URL;

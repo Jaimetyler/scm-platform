@@ -80,13 +80,13 @@ export async function POST(req: NextRequest) {
     const siteCode = String(body?.siteCode ?? "").trim();
     const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode);
     const direction = String(body?.movementDirection ?? "").trim();
-    const material = String(body?.materialType ?? "").trim();
+    let material = String(body?.materialType ?? "").trim();
     let reference = String(body?.referenceNumber ?? "").trim().toUpperCase();
     let customer = String(body?.customer ?? "").trim().toUpperCase();
     const orderId = String(body?.orderId ?? "").trim();
     const driverName = String(body?.driverName ?? "").trim();
     const driverPhone = String(body?.driverPhone ?? "").trim();
-    const destination = String(body?.destination ?? "").trim().toUpperCase();
+    let destination = String(body?.destination ?? "").trim().toUpperCase();
     const location = String(body?.warehouseLocation ?? "").trim().toUpperCase();
     const notes = String(body?.notes ?? "").trim();
     if (!site || !["pickup", "delivery"].includes(direction) || !["lumber", "other"].includes(material) ||
@@ -96,11 +96,16 @@ export async function POST(req: NextRequest) {
     }
     if (orderId) {
       const order = await lookupMcleodOrderById(orderId, direction);
+      if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
       if (reference && !order.reference.includes(reference)) {
         return NextResponse.json({ ok: false, error: `Order ${orderId} ${order.field} does not contain ${reference}` }, { status: 409 });
       }
       reference ||= order.reference;
       customer = order.customer;
+      material = order.materialType || material;
+      if (direction === "pickup" && !destination && order.destination) {
+        destination = order.destination;
+      }
     }
     if (reference.length > 200) return NextResponse.json({ ok: false, error: "McLeod reference is too long" }, { status: 400 });
     const now = new Date();
@@ -216,7 +221,7 @@ export async function PATCH(req: NextRequest) {
       }
       const sb = database();
       const { data: existing, error: lookupError } = await sb.from("inbound_checkin_rows")
-        .select("id,updated_at,reference_number,movement_direction,matched_order_id")
+        .select("id,updated_at,reference_number,movement_direction,matched_order_id,destination")
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["lumber", "other"]).single();
       if (lookupError || !existing) return NextResponse.json({ ok: false, error: "Check-in not found" }, { status: 404 });
@@ -242,18 +247,28 @@ export async function PATCH(req: NextRequest) {
       }
       let customer = String(body.customer ?? "").trim().toUpperCase();
       let orderId: string | null = null;
+      let canonicalReference: string | null = null;
+      let matchedDestination: string | null = null;
+      let matchedMaterial: string | null = null;
       if (body.action === "match_order") {
         orderId = String(body.orderId ?? "").trim();
         const order = await lookupMcleodOrderById(orderId, existing.movement_direction);
+        if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
         const reference = String(existing.reference_number ?? "").trim().toUpperCase();
         if (!reference || !order.reference.includes(reference)) {
           return NextResponse.json({ ok: false, error: "That order does not contain the driver's reference in the required field" }, { status: 409 });
         }
         customer = order.customer;
+        canonicalReference = order.reference;
+        matchedDestination = existing.movement_direction === "pickup" && !existing.destination ? order.destination : null;
+        matchedMaterial = order.materialType;
       }
       if (!customer || customer.length > 200) return NextResponse.json({ ok: false, error: "Enter a customer" }, { status: 400 });
       const { data, error } = await sb.from("inbound_checkin_rows")
-        .update({ shipper: customer, matched_order_id: orderId })
+        .update({ shipper: customer, matched_order_id: orderId,
+          ...(canonicalReference ? { reference_number: canonicalReference } : {}),
+          ...(matchedDestination ? { destination: matchedDestination } : {}),
+          ...(matchedMaterial ? { material_type: matchedMaterial } : {}) })
         .eq("id", id).eq("updated_at", body.expectedUpdatedAt)
         .select("id,updated_at,shipper,matched_order_id").maybeSingle();
       if (error) throw error;
