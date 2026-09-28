@@ -885,6 +885,15 @@ export default function SiteCheckinPage() {
               Copy Table
             </button>
 
+            {!viewCarryover && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => addRows(5)}
+                style={primaryButtonStyle}
+              >
+                + 5 Blank Lines
+              </button>
+            </div>}
           </div>
         }
       />
@@ -911,18 +920,21 @@ export default function SiteCheckinPage() {
         </p>}
       </PlatformPanel>
 
-      <PlatformPanel style={{ padding: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 18 }}>
-          <strong style={{ color: "#f8fafc" }}>
-            {waitingCount} waiting · {gateOnlyCount} pickups · {readyCount} ready · {processedCount} processed · {outsideCount} outside carrier · {failedCount} need attention
-          </strong>
-          <div style={{ display: "flex", gap: 8 }}>
-            {!viewCarryover && <button type="button" style={linkButtonStyle} onClick={() => addRows(5)}>+ 5 Blank Lines</button>}
-            <button type="button" style={linkButtonStyle} onClick={() => void loadRows()}>Refresh</button>
-          </div>
+      <PlatformPanel>
+        <div style={statsGridStyle}>
+          <StatCard label="Waiting for location/details" value={waitingCount} />
+          <StatCard label="Cotton pickups" value={gateOnlyCount} />
+          <StatCard label="Ready" value={readyCount} tone="success" />
+          <StatCard label="Processed" value={processedCount} tone="info" />
+          <StatCard label="Outside carrier" value={outsideCount} />
+          <StatCard label="Needs attention" value={failedCount} />
+          <StatCard label="Sub-Locations" value={site.subLocations.join(", ")} />
         </div>
+      </PlatformPanel>
+
+      <PlatformPanel style={{ padding: 16 }}>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: "100%", minWidth: 1460, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 13 }}>
+          <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
               {[2.5, 9, 8, 8.5, 11.5, 6, 6, 7, 8, 10, 10, 7, 6.5].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
@@ -932,8 +944,8 @@ export default function SiteCheckinPage() {
               <tr>
                 <th style={rowNumberHeaderStyle}>#</th>
                 <th style={thStyle}>Date *</th>
-                <th style={thStyle}>Arrived</th>
-                <th style={thStyle}>Reference / Mark *</th>
+                <th style={thStyle}>Time</th>
+                <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
                 <th style={thStyle}>BOL B/C *</th>
                 <th style={thStyle}>Bales *</th>
@@ -1283,15 +1295,75 @@ export default function SiteCheckinPage() {
   );
 }
 
+function StatCard(props: {
+  label: string;
+  value: number | string;
+  tone?: "default" | "success" | "info";
+}) {
+  const { label, value, tone = "default" } = props;
+
+  const tones: Record<string, React.CSSProperties> = {
+    default: {
+      background: "linear-gradient(180deg, #111827 0%, #0f172a 100%)",
+      border: "1px solid #1f2937",
+      color: "#f8fafc",
+    },
+    success: {
+      background:
+        "linear-gradient(180deg, rgba(6,95,70,0.22) 0%, rgba(6,78,59,0.3) 100%)",
+      border: "1px solid rgba(16,185,129,0.35)",
+      color: "#d1fae5",
+    },
+    info: {
+      background:
+        "linear-gradient(180deg, rgba(30,64,175,0.22) 0%, rgba(30,58,138,0.3) 100%)",
+      border: "1px solid rgba(96,165,250,0.35)",
+      color: "#dbeafe",
+    },
+  };
+
+  return (
+    <div style={{ ...statCardStyle, ...tones[tone] }}>
+      <div style={statLabelStyle}>{label}</div>
+      <div style={statValueStyle}>{value}</div>
+    </div>
+  );
+}
+
+const statsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 14,
+};
+
+const statCardStyle: React.CSSProperties = {
+  borderRadius: 18,
+  padding: 18,
+  boxShadow: "0 10px 24px rgba(0,0,0,0.2)",
+};
+
+const statLabelStyle: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.8,
+  marginBottom: 10,
+};
+
+const statValueStyle: React.CSSProperties = {
+  fontSize: 30,
+  fontWeight: 900,
+  lineHeight: 1,
+  wordBreak: "break-word",
+};
+
 const rowNumberHeaderStyle: React.CSSProperties = {
   width: 34,
   minWidth: 34,
   textAlign: "center",
-  padding: "11px 8px",
+  padding: "6px 3px",
   color: "#94a3b8",
   fontSize: 11,
   whiteSpace: "nowrap",
-  borderBottom: "2px solid #475569",
+  borderBottom: "1px solid rgba(148,163,184,0.16)",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
   top: 0,
@@ -1302,8 +1374,8 @@ const rowNumberCellStyle: React.CSSProperties = {
   width: 34,
   minWidth: 34,
   textAlign: "center",
-  padding: "10px 8px",
-  borderBottom: "1px solid #334155",
+  padding: "4px 2px",
+  borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "middle",
   color: "#94a3b8",
   fontWeight: 700,
@@ -1313,8 +1385,8 @@ const rowNumberCellStyle: React.CSSProperties = {
 const statusDotHeaderStyle: React.CSSProperties = {
   width: 88,
   minWidth: 88,
-  padding: "11px 8px",
-  borderBottom: "2px solid #475569",
+  padding: "6px 4px",
+  borderBottom: "1px solid rgba(148,163,184,0.16)",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
   top: 0,
@@ -1324,8 +1396,8 @@ const statusDotHeaderStyle: React.CSSProperties = {
 const statusDotCellStyle: React.CSSProperties = {
   width: 88,
   minWidth: 88,
-  padding: "10px 8px",
-  borderBottom: "1px solid #334155",
+  padding: "4px 3px",
+  borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "middle",
   fontSize: 10,
   overflowWrap: "anywhere",
@@ -1380,11 +1452,11 @@ const orderNumberStyle: React.CSSProperties = {
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: "11px 8px",
+  padding: "6px 5px",
   color: "#94a3b8",
-  fontSize: 13,
+  fontSize: 11,
   whiteSpace: "nowrap",
-  borderBottom: "2px solid #475569",
+  borderBottom: "1px solid rgba(148,163,184,0.16)",
   background: "rgba(15,23,42,0.96)",
   position: "sticky",
   top: 0,
@@ -1392,8 +1464,8 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "10px 8px",
-  borderBottom: "1px solid #334155",
+  padding: "4px 5px",
+  borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "top",
   color: "#e5e7eb",
 };
@@ -1401,28 +1473,28 @@ const tdStyle: React.CSSProperties = {
 const cellInputStyle: React.CSSProperties = {
   width: "100%",
   minWidth: 0,
-  minHeight: 36,
+  height: 30,
   boxSizing: "border-box",
-  padding: "8px",
+  padding: "4px 6px",
   borderRadius: 6,
-  border: "1px solid #475569",
-  background: "#0b1220",
+  border: "1px solid rgba(148,163,184,0.18)",
+  background: "rgba(15,23,42,0.82)",
   color: "#e2e8f0",
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const cellTextareaStyle: React.CSSProperties = {
   width: "100%",
   minWidth: 0,
-  minHeight: 36,
-  height: 36,
+  minHeight: 30,
+  height: 30,
   boxSizing: "border-box",
-  padding: "8px",
+  padding: "4px 6px",
   borderRadius: 6,
-  border: "1px solid #475569",
-  background: "#0b1220",
+  border: "1px solid rgba(148,163,184,0.18)",
+  background: "rgba(15,23,42,0.82)",
   color: "#e2e8f0",
-  fontSize: 13,
+  fontSize: 12,
   resize: "vertical",
 };
 
