@@ -1346,8 +1346,8 @@ const rowStatusStyle: React.CSSProperties = {
 const rowActionsStyle: React.CSSProperties = { display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" };
 
 const errorButtonStyle: React.CSSProperties = {
-  display: "block",
-  marginTop: 3,
+  display: "inline",
+  marginLeft: 4,
   padding: 0,
   border: 0,
   background: "transparent",
@@ -1406,9 +1406,9 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "4px 5px",
+  padding: "7px 5px",
   borderBottom: "1px solid rgba(148,163,184,0.08)",
-  verticalAlign: "top",
+  verticalAlign: "middle",
   color: "#e5e7eb",
 };
 
@@ -1493,7 +1493,7 @@ const deleteButtonStyle: React.CSSProperties = {
 
 const smallActionButtonStyle: React.CSSProperties = {
   minHeight: 25,
-  width: "100%",
+  minWidth: 58,
   padding: "3px 5px",
   borderRadius: 6,
   border: "1px solid rgba(148,163,184,0.35)",

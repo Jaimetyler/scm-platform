@@ -312,8 +312,8 @@ export default function DomesticQueuePage() {
                 defaultValue={row.shipper ?? ""} placeholder="Enter customer"
                 disabled={editingId !== row.id}
                 onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} /></td>
-              <td style={cell}>{row.driver_name || "Staff entry"}<div style={muted}>{row.driver_phone}</div></td>
-              <td style={cell}>{row.destination || "—"}</td>
+              <td style={cell}><div style={singleLine} title={row.driver_name || "Staff entry"}>{row.driver_name || "Staff entry"}</div><div style={muted}>{row.driver_phone}</div></td>
+              <td style={cell}><div style={singleLine} title={row.destination || ""}>{row.destination || "—"}</div></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
                 defaultValue={row.comment_1 ?? ""} placeholder="Notes"
                 disabled={editingId !== row.id}
@@ -383,10 +383,11 @@ const primary: React.CSSProperties = { ...button, background: "#4338ca", borderC
 const danger: React.CSSProperties = { ...button, color: "#fecaca", borderColor: "#7f1d1d" };
 const muted: React.CSSProperties = { color: "#94a3b8", fontSize: 11, marginTop: 4 };
 const heading: React.CSSProperties = { padding: "6px 5px", textAlign: "left", borderBottom: "1px solid rgba(148,163,184,.16)", whiteSpace: "nowrap", color: "#94a3b8", fontSize: 11, background: "rgba(15,23,42,.96)" };
-const cell: React.CSSProperties = { padding: "5px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "top" };
+const cell: React.CSSProperties = { padding: "7px 5px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "middle" };
 const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 30, boxSizing: "border-box", padding: "4px 6px", border: "1px solid rgba(148,163,184,.18)", borderRadius: 6, background: "rgba(15,23,42,.82)", color: "#e2e8f0", fontSize: 12 };
 const utilityLink: React.CSSProperties = { color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700 };
 const tab: React.CSSProperties = { padding: "9px 13px", borderRadius: 8, border: "1px solid #334155", color: "#cbd5e1", background: "#0f172a", fontSize: 13, fontWeight: 700, textDecoration: "none" };
 const activeTab: React.CSSProperties = { ...tab, borderColor: "#6366f1", color: "#fff", background: "#4338ca" };
 const inlineButton: React.CSSProperties = { ...button, padding: "3px 7px", fontSize: 11 };
 const referenceMeta: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4, fontSize: 11, color: "#93c5fd" };
+const singleLine: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
