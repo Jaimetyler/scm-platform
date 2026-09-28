@@ -56,6 +56,10 @@ The **Domestic History** page at `/warehouse/gate/{terminal}/{site-code}/history
 
 The cotton check-in sheet opens on the current warehouse-local date and starts a fresh grid each day. Earlier checked-in, ready, or failed cotton rows stay in the database and appear under **Review earlier rows**, with a reminder showing how many are missing a warehouse location or confirmed bale count. Staff can correct those rows in that review view; processed rows remain accessible in history.
 
+The Domestic Line shows a linked McLeod order ID and an **SCM carrier** badge when the current movement carrier (or order vendor when no movement carrier is available) matches `SCMIRIGA` or a comma-separated code in `SCM_CARRIER_CODES`. A McLeod order ID alone does not make a truck an SCM carrier. The carrier lookup is cached briefly and a McLeod outage leaves the line usable without a badge.
+
+For an unprocessed cotton delivery, **Finish cotton** expands the line with mark, customer, BOL bale count, unloaded bale count, equipment, and warehouse location. **Process delivery & check out** saves those details, runs the existing cotton delivery workflow once, and closes the yard row only when processing succeeds or the row is confirmed outside carrier. A failed delivery stays active for correction. Cotton deliveries already processed in the cotton grid can be checked out without sending another McLeod stop update. Non-cotton freight and cotton pickups retain their ordinary check-out behavior.
+
 ## Guardrails
 
 - The public token does not expose the gate coordinates.

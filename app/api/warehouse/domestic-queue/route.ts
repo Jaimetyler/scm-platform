@@ -4,6 +4,9 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { lookupMcleodOrderById, lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
+import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
+import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
+import { lookupScmCarrier } from "@/lib/inbound/checkin/scm-carrier";
 
 export const runtime = "nodejs";
 
@@ -44,13 +47,27 @@ export async function GET(req: NextRequest) {
 
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
-      .select("id,updated_at,checked_in_at,driver_name,driver_phone,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,comment_1,mark,bol_bc,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
+      .select("id,updated_at,checked_in_at,driver_name,driver_phone,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
       .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
     if (error) throw error;
-    return NextResponse.json({ ok: true, rows: (data ?? []).map(({ bol_photo_path, ...row }) => ({ ...row, has_bol_photo: Boolean(bol_photo_path) })) }, { headers: { "Cache-Control": "no-store" } });
+    const carriers = new Map<string, { carrierCode: string | null; scmCarrier: boolean }>();
+    if (line) {
+      const ids = [...new Set((data ?? []).filter((row) =>
+        ["waiting", "called", "in_door", "working"].includes(row.yard_status) && row.matched_order_id
+      ).map((row) => String(row.matched_order_id)))];
+      await Promise.all(ids.map(async (id) => {
+        try { carriers.set(id, await lookupScmCarrier(id)); }
+        catch { /* Keep the line available when McLeod cannot supply carrier details. */ }
+      }));
+    }
+    return NextResponse.json({ ok: true, rows: (data ?? []).map(({ bol_photo_path, ...row }) => ({
+      ...row, has_bol_photo: Boolean(bol_photo_path),
+      ...(line && row.matched_order_id ? { carrier_code: carriers.get(String(row.matched_order_id))?.carrierCode ?? null,
+        scm_carrier: carriers.get(String(row.matched_order_id))?.scmCarrier ?? false } : {}),
+    })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: 500 });
   }
@@ -118,7 +135,7 @@ export async function PATCH(req: NextRequest) {
       }
       const sb = database();
       const { data: row, error: lookupError } = await sb.from("inbound_checkin_rows")
-        .select("id,yard_status,checked_in_at,movement_direction,matched_order_id,site_name")
+        .select("*")
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
       if (lookupError) throw lookupError;
@@ -127,7 +144,41 @@ export async function PATCH(req: NextRequest) {
       }
       const departure = new Date();
       let mcleod = "no linked order";
-      if (row.matched_order_id) {
+      if (row.material_type === "cotton" && row.movement_direction === "delivery" &&
+          !["processed", "outside_carrier"].includes(row.draft_status)) {
+        const cotton = body?.cotton;
+        if (!cotton || body.expectedUpdatedAt !== row.updated_at ||
+            !["checked_in", "ready", "failed"].includes(row.draft_status)) {
+          return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
+        }
+        const baleCount = Number(cotton.baleCount);
+        const bolBC = Number(cotton.bolBC);
+        const location = String(cotton.warehouseLocation ?? "").trim().toUpperCase().slice(0, 120);
+        const equipment = String(cotton.equipmentType ?? "").trim().toUpperCase();
+        const mark = String(cotton.mark ?? "").trim().toUpperCase().slice(0, 120);
+        const customer = String(cotton.customer ?? "").trim().toUpperCase().slice(0, 200);
+        const ready = { ...row, mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
+          warehouse_location: location, equipment_type: equipment };
+        if (!Number.isSafeInteger(baleCount) || !Number.isSafeInteger(bolBC) ||
+            !["V", "F"].includes(equipment) || !isReadyCheckin(ready)) {
+          return NextResponse.json({ ok: false, error: "Enter the mark, customer, BOL count, unloaded bales, equipment, and warehouse location." }, { status: 400 });
+        }
+        const { data: prepared, error: prepareError } = await sb.from("inbound_checkin_rows")
+          .update({ mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
+            warehouse_location: location, equipment_type: equipment, verified: true,
+            verified_at: departure.toISOString(), draft_status: "ready", processing_error: null })
+          .eq("id", id).eq("updated_at", row.updated_at)
+          .in("draft_status", ["checked_in", "ready", "failed"]).select("id").maybeSingle();
+        if (prepareError) throw prepareError;
+        if (!prepared) return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
+        const processed = await processCheckinRow(req, id);
+        if (!processed || !["processed", "outside_carrier"].includes(processed.draft_status)) {
+          return NextResponse.json({ ok: false, error: processed?.processing_error || "Cotton delivery was not completed in McLeod. Check-in remains in the line." }, { status: 409 });
+        }
+        mcleod = processed.draft_status === "processed" ? "cotton delivery processed" : "outside carrier; no McLeod delivery";
+      } else if (row.material_type === "cotton" && row.movement_direction === "delivery") {
+        mcleod = row.draft_status === "processed" ? "cotton delivery already processed" : "outside carrier; no McLeod delivery";
+      } else if (row.matched_order_id) {
         if (process.env.MCLEOD_SYNC_ENABLED !== "true") {
           return NextResponse.json({ ok: false, error: "McLeod writes are disabled. Check-out was not saved." }, { status: 503 });
         }
