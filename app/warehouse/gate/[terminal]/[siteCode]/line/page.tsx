@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
@@ -101,12 +102,7 @@ export default function DomesticLinePage() {
     <PlatformPageHeader title={`${site.siteName} Domestic Line`}
       subtitle="Cotton, lumber, and other freight in arrival order. Check out when a truck leaves the yard."
       actions={<Link href="/warehouse/gate" style={button}>All gate sites</Link>} />
-    <nav aria-label="Freight views" style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-      <span aria-current="page" style={primary}>Domestic Line</span>
-      <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={button}>Cotton grid</Link>
-      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={button}>Lumber & Other grid</Link>
-      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={button}>History & Excel export</Link>
-    </nav>
+    <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="line" />
     {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
     {notice && <p role="status" style={{ color: "#86efac" }}>{notice}</p>}
     <PlatformPanel>

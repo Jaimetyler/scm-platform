@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Row = {
@@ -70,6 +71,7 @@ export default function DomesticHistoryPage() {
     <PlatformPageHeader title={`${site.siteName} Domestic History`}
       subtitle="Search completed and removed cotton, lumber, and other freight check-ins."
       actions={<Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={button}>Domestic Line</Link>} />
+    <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="history" />
     <PlatformPanel>
       <form onSubmit={apply} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
         <label style={label}>Search driver, reference, mark, customer, or McLeod ID

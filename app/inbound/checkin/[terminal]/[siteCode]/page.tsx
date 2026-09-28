@@ -5,6 +5,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
@@ -894,12 +895,7 @@ export default function SiteCheckinPage() {
         }
       />
 
-      <nav aria-label="Freight type" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={tabButtonStyle}>Domestic Line</Link>
-        <span aria-current="page" style={activeTabStyle}>Cotton</span>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={tabButtonStyle}>Lumber & Other</Link>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={tabButtonStyle}>Domestic History</Link>
-      </nav>
+      <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="cotton" />
 
       <PlatformPanel style={{ padding: 16 }}>
         <div style={gridToolbarStyle}>
@@ -937,7 +933,7 @@ export default function SiteCheckinPage() {
                 <th style={thStyle}>Arrival</th>
                 <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
-                <th style={thStyle}>Bales · BOL / unloaded</th>
+                <th style={thStyle}><span style={baleHeaderStyle}><span>BOL bales</span><span>Unloaded</span></span></th>
                 <th style={thStyle}>Equipment *</th>
                 <th style={thStyle}>Sub-Loc *</th>
                 <th style={thStyle}>Comment</th>
@@ -1031,11 +1027,12 @@ export default function SiteCheckinPage() {
 
                     <td style={tdStyle}>
                       <div style={baleFieldsStyle}>
-                        <label style={smallCellLabelStyle}>BOL
+                        <div style={{ flex: 1, minWidth: 0 }}>
                       <input
                         type="text"
                         data-checkin-identity={row.id}
                         data-checkin-bol={row.id}
+                        aria-label={`BOL bales for row ${index + 1}`}
                         inputMode="numeric"
                         pattern="[0-9]*"
                         value={row.bol_bc?.toString() ?? ""}
@@ -1058,12 +1055,13 @@ export default function SiteCheckinPage() {
                         style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
-                        </label>
-                        <label style={smallCellLabelStyle}>Unloaded
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                       <input
                         type="text"
                         inputMode="numeric"
                         pattern="[0-9]*"
+                        aria-label={`Unloaded bales for row ${index + 1}`}
                         value={row.bale_count?.toString() ?? ""}
                         onChange={(e) => {
                           const digits = e.target.value.replace(/\D/g, "");
@@ -1078,7 +1076,7 @@ export default function SiteCheckinPage() {
                         style={cellInputStyle}
                         disabled={isReadOnlyRow(row)}
                       />
-                        </label>
+                        </div>
                       </div>
                     </td>
 
@@ -1323,13 +1321,6 @@ const rowNumberCellStyle: React.CSSProperties = {
 const utilityLinkStyle: React.CSSProperties = {
   color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700,
 };
-const tabButtonStyle: React.CSSProperties = {
-  padding: "9px 13px", borderRadius: 8, border: "1px solid #334155",
-  color: "#cbd5e1", background: "#0f172a", fontSize: 13, fontWeight: 700, textDecoration: "none",
-};
-const activeTabStyle: React.CSSProperties = {
-  ...tabButtonStyle, borderColor: "#6366f1", color: "#fff", background: "#4338ca",
-};
 const gridToolbarStyle: React.CSSProperties = {
   display: "flex", justifyContent: "space-between", alignItems: "center",
   flexWrap: "wrap", gap: 12, marginBottom: 14,
@@ -1343,9 +1334,7 @@ const toolbarPrimaryStyle: React.CSSProperties = {
   ...toolbarButtonStyle, background: "#4338ca", borderColor: "#6366f1", color: "#fff",
 };
 const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 5 };
-const smallCellLabelStyle: React.CSSProperties = {
-  flex: 1, minWidth: 0, color: "#94a3b8", fontSize: 10, display: "grid", gap: 3,
-};
+const baleHeaderStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 5 };
 const rowActionStatusStyle: React.CSSProperties = { display: "grid", gap: 5 };
 const rowStatusStyle: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", fontSize: 11,

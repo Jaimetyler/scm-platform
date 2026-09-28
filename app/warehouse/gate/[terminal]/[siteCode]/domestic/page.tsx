@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
@@ -274,12 +275,7 @@ export default function DomesticQueuePage() {
         <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLink}>Inventory</Link>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLink}>Containers</Link>
       </div>} />
-    <nav aria-label="Freight type" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={tab}>Domestic Line</Link>
-      <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={tab}>Cotton</Link>
-      <span aria-current="page" style={activeTab}>Lumber & Other</span>
-      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={tab}>Domestic History</Link>
-    </nav>
+    <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="domestic" />
     {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}
     {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}
     <PlatformPanel style={{ padding: 16 }}>
@@ -407,8 +403,6 @@ const heading: React.CSSProperties = { padding: "6px 5px", textAlign: "left", bo
 const cell: React.CSSProperties = { padding: "7px 5px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "middle" };
 const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 30, boxSizing: "border-box", padding: "4px 6px", border: "1px solid rgba(148,163,184,.18)", borderRadius: 6, background: "rgba(15,23,42,.82)", color: "#e2e8f0", fontSize: 12 };
 const utilityLink: React.CSSProperties = { color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700 };
-const tab: React.CSSProperties = { padding: "9px 13px", borderRadius: 8, border: "1px solid #334155", color: "#cbd5e1", background: "#0f172a", fontSize: 13, fontWeight: 700, textDecoration: "none" };
-const activeTab: React.CSSProperties = { ...tab, borderColor: "#6366f1", color: "#fff", background: "#4338ca" };
 const inlineButton: React.CSSProperties = { ...button, padding: "3px 7px", fontSize: 11 };
 const singleLine: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const detailCell: React.CSSProperties = { padding: "12px 16px", borderBottom: "1px solid #334155", color: "#cbd5e1", fontSize: 12 };
