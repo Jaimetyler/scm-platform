@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Status = "waiting" | "called" | "in_door" | "working";
@@ -292,12 +293,12 @@ export default function DomesticQueuePage() {
       {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 12 }}>
-            <colgroup>{[3, 8, 7, 7, 20, 17, 12, 10, 8, 8].map((width, index) =>
+            <colgroup>{[5, 8, 7, 7, 20, 15, 12, 10, 8, 8].map((width, index) =>
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
-              <td style={cell}>{index + 1}</td>
+              <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
               <td style={cell}>{row.movement_direction}</td>
               <td style={cell}>{row.material_type}</td>

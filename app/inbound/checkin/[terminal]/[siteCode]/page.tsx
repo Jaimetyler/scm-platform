@@ -5,6 +5,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { isReadyCheckin, usesMcleodCheckin } from "@/lib/inbound/checkin/ready";
@@ -926,7 +927,7 @@ export default function SiteCheckinPage() {
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
           <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
-              {[3, 11, 12, 17, 12, 7, 8, 10, 10, 10].map((width, index) => (
+              {[5, 11, 12, 15, 12, 7, 8, 10, 10, 10].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
@@ -953,7 +954,9 @@ export default function SiteCheckinPage() {
                   <Fragment key={row.client_id ?? row.id}>
                   <tr data-checkin-id={row.id}
                     style={{ background: index % 2 ? "rgba(30,41,59,0.18)" : undefined, ...rowTone(row) }}>
-                    <td style={rowNumberCellStyle}>{index + 1}</td>
+                    <td style={rowNumberCellStyle}>{index + 1}
+                      {row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+                    </td>
 
                     <td style={tdStyle}>
                       <input

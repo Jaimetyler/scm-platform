@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Status = "waiting" | "called" | "in_door" | "working";
@@ -118,7 +119,7 @@ export default function DomesticLinePage() {
           <thead><tr>{["#", "Arrived", "Freight", "Move", "Driver", "Reference / mark", "Customer", "SCM / order", "Yard status", "Action"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{active.map((row, index) => <Fragment key={row.id}><tr style={{ background: row.id === nextWaitingId ? "rgba(34,211,238,.12)" : undefined }}>
-            <td style={cell}>{index + 1}</td>
+            <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
             <td style={cell}>{time(row.checked_in_at)}</td>
             <td style={cell}>{row.material_type === "cotton" ? "Cotton" : row.material_type === "lumber" ? "Lumber" : "Other"}</td>
             <td style={cell}>{row.movement_direction || "—"}</td>
