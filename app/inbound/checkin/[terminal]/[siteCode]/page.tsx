@@ -194,6 +194,7 @@ export default function SiteCheckinPage() {
   const [dispatcherLookupIds, setDispatcherLookupIds] = useState<Set<string>>(new Set());
   const [cottonMatches, setCottonMatches] = useState<Record<string, CottonMatch[]>>({});
   const [cottonSearching, setCottonSearching] = useState<Record<string, boolean>>({});
+  const [cottonWarnings, setCottonWarnings] = useState<Record<string, string>>({});
   const lookupKeysRef = useRef<Record<string, string>>({});
   const lookupTimersRef = useRef<Record<string, number>>({});
 
@@ -211,12 +212,14 @@ export default function SiteCheckinPage() {
   useEffect(() => {
     for (const row of rows) {
       if (viewCarryover || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
-      const key = (row.mark ?? "").trim().toUpperCase();
+      const mark = (row.mark ?? "").trim().toUpperCase();
+      const key = `${mark}|${(row.shipper ?? "").trim().toUpperCase()}`;
       if (lookupKeysRef.current[row.id] === key) continue;
       if (lookupTimersRef.current[row.id]) window.clearTimeout(lookupTimersRef.current[row.id]);
       lookupKeysRef.current[row.id] = key;
       setCottonMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
-      if (!site || key.length < 3) {
+      setCottonWarnings((current) => { const next = { ...current }; delete next[row.id]; return next; });
+      if (!site || mark.length < 3) {
         setCottonSearching((current) => ({ ...current, [row.id]: false }));
         continue;
       }
@@ -224,17 +227,19 @@ export default function SiteCheckinPage() {
       lookupTimersRef.current[row.id] = window.setTimeout(async () => {
         delete lookupTimersRef.current[row.id];
         try {
-          const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, mark: key });
+          const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, mark, customer: row.shipper ?? "" });
           const response = await fetch(`/api/inbound/checkin/cotton-match?${query}`, { cache: "no-store" });
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.error || "McLeod lookup failed");
           if (lookupKeysRef.current[row.id] !== key) return;
           const found = result.matches as CottonMatch[];
           setCottonMatches((current) => ({ ...current, [row.id]: found }));
-          if (found.length === 1 && found[0].customer) {
+          if (result.incomplete) setCottonWarnings((current) => ({ ...current, [row.id]: result.warning || "McLeod search incomplete" }));
+          if (!result.incomplete && found.length === 1 && found[0].customer) {
             const match = found[0];
             const latest = rowsRef.current.find((item) => item.id === row.id);
-            if (latest && (latest.mark ?? "").trim().toUpperCase() === key) {
+            if (latest && (latest.mark ?? "").trim().toUpperCase() === mark &&
+              (latest.shipper ?? "").trim().toUpperCase() === (row.shipper ?? "").trim().toUpperCase()) {
               // Keep the typed mark: an embedded reference may not be the whole consignee reference.
               // Never populate unloaded bales or the final location from the order.
               const updated = applyRowUpdate(row.id, (current) => ({ ...current,
@@ -1040,9 +1045,10 @@ export default function SiteCheckinPage() {
                         </small>
                       ) : null}
                       {!row.matched_order_id && cottonSearching[row.id] ? <small style={orderNumberStyle}>Searching McLeod…</small> : null}
-                      {!row.matched_order_id && !cottonSearching[row.id] && cottonMatches[row.id]?.length === 1 ?
+                      {!row.matched_order_id && cottonWarnings[row.id] ? <small style={{ ...gateReferenceStyle, color: "#fbbf24", fontSize: 11 }} title={cottonWarnings[row.id]}>Search incomplete · check manually</small> : null}
+                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 1 ?
                         <small style={orderNumberStyle}>Possible SCM #{cottonMatches[row.id][0].orderId} · confirm before delivery</small> : null}
-                      {!row.matched_order_id && !cottonSearching[row.id] && cottonMatches[row.id]?.length === 0 ?
+                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 0 ?
                         <small style={gateReferenceStyle}>No McLeod match · enter details manually</small> : null}
                       {!row.matched_order_id && cottonMatches[row.id]?.length > 1 ?
                         <div style={{ maxHeight: 140, overflowY: "auto" }}>
