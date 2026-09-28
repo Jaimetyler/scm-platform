@@ -10,6 +10,7 @@ type CustomerResolution = {
 
 type SearchCandidate = {
   orderId: string;
+  revenueCode: string;
   movementId: string;
   customerId: string;
   blnum?: string | null;
@@ -176,6 +177,7 @@ function parseSearchRows(parsed: unknown): SearchCandidate[] {
 
   return rows.map((item: any) => ({
     orderId: String(item.id ?? item.orderId ?? ""),
+    revenueCode: String(item.revenue_code_id ?? "").trim().toUpperCase(),
     movementId: String(
       item.curr_movement_id ??
         item.currMovementId ??
@@ -267,8 +269,9 @@ async function searchOrders(customerId: string, mark: string, context: SearchCon
         continue;
       }
       const found = parseSearchRows(parsed);
+      if (context.strict && found.some((candidate) => !candidate.revenueCode)) context.incomplete.add("missing revenue code in McLeod search response");
       if (context.strict && found.length >= 200) context.incomplete.add("result limit reached");
-      results.push(...found);
+      results.push(...found.filter((candidate) => candidate.revenueCode === "MAIN"));
     }
 
     return results;
@@ -343,12 +346,13 @@ async function searchOrdersByCustomer(customerId: string, context: SearchContext
     return [];
   }
   const rows = parseSearchRows(parsed);
+  if (context.strict && rows.some((candidate) => !candidate.revenueCode)) context.incomplete.add("missing revenue code in McLeod search response");
   if (context.strict && rows.length >= 500) context.incomplete.add("result limit reached");
 
   const deduped = new Map<string, SearchCandidate>();
 
   for (const candidate of rows) {
-    if (candidate.orderId) {
+    if (candidate.orderId && candidate.revenueCode === "MAIN") {
       deduped.set(candidate.orderId, candidate);
     }
   }

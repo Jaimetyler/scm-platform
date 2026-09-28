@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
     const matches = new Map<string, { orderId: string; mark: string; customer: string; bolBC: number | null }>();
     const failedFields: string[] = [];
+    let missingRevenueCode = false;
     for (const field of ["consignee_refno", "blnum"]) {
       const query = new URLSearchParams({ [`orders.${field}`]: `*${mark.replace(/\*/g, "")}*`, recordLength: "200" });
       if (customerId) query.set("customer.id", customerId);
@@ -50,6 +51,9 @@ export async function GET(request: NextRequest) {
         const parsed = blnum.match(/^(.+?)\s+(\d+)\s+(?:BALES?|B\/?C|BC)$/);
         if (!id || ![ref, parsed?.[1] || (!parsed ? blnum : "")]
           .some((candidate) => candidate && normalizeKey(candidate).includes(normalizeKey(mark)))) continue;
+        const revenueCode = value(order.revenue_code_id).toUpperCase();
+        if (!revenueCode) missingRevenueCode = true;
+        if (revenueCode !== "MAIN") continue;
         const commodity = value((order.commodity as Record<string, unknown> | undefined)?.description || order.commodity_description || order.commodity_id).toUpperCase();
         if (commodity && !/\bCOTTON\b/.test(commodity)) continue;
         const customer = order.customer as Record<string, unknown> | undefined;
@@ -60,7 +64,9 @@ export async function GET(request: NextRequest) {
     }
     if (failedFields.length === 2) throw new Error(`McLeod could not search this mark (${failedFields.join("; ")}). Try a longer mark or enter the customer and BOL count manually.`);
     return NextResponse.json({ ok: true, matches: [...matches.values()].slice(0, 20),
-      incomplete: failedFields.length > 0, warning: failedFields.length ? `McLeod search incomplete (${failedFields.join("; ")})` : "" },
+      incomplete: failedFields.length > 0 || missingRevenueCode,
+      warning: failedFields.length ? `McLeod search incomplete (${failedFields.join("; ")})` :
+        missingRevenueCode ? "McLeod omitted a revenue code; verify the order manually" : "" },
       { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: 500 });

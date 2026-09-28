@@ -9,6 +9,8 @@ export async function lookupMcleodOrderById(orderId: string, direction: string) 
   });
   if (!response.ok) throw new Error(`McLeod order lookup failed (${response.status})`);
   const order = await response.json();
+  if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== "MAIN")
+    throw new Error(`SCM order ${orderId} is not a MAIN revenue code order`);
   const field = direction === "pickup" ? "blnum" : "consignee_refno";
   const reference = String(order[field] ?? "").trim().toUpperCase();
   const customer = String(order.customer?.name ?? order.customer_name ?? order.customer_id ?? "").trim().toUpperCase();
@@ -32,6 +34,8 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   });
   if (!response.ok) throw new Error(response.status === 404 ? "SCM order number not found" : `McLeod order lookup failed (${response.status})`);
   const order = await response.json();
+  if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== "MAIN")
+    throw new Error(`SCM order ${orderId} is not a MAIN revenue code order. Check in using the reference from your paperwork.`);
   const stops = Array.isArray(order.stops) ? order.stops : [];
   const city = terminal === "SAV" ? "SAVANNAH" : "HOUSTON";
   const siteWords = siteName.toUpperCase().match(/\b\d{3,}\b/g) ?? [];

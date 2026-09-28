@@ -60,6 +60,8 @@ export async function GET(req: NextRequest) {
       const value = text(order[set.field]);
       const orderId = text(order.id);
       if (!orderId || !value.toUpperCase().includes(reference)) continue;
+      if (!text(order.revenue_code_id)) throw new Error("McLeod search omitted the revenue code. Cannot verify this order.");
+      if (text(order.revenue_code_id).toUpperCase() !== "MAIN") continue;
       const matchDirection = set.field === "blnum" ? "pickup" : "delivery";
       const customer = order.customer as Record<string, unknown> | undefined;
       const commodity = text((order.commodity as Record<string, unknown> | undefined)?.description || order.commodity_description || order.commodity_id).toUpperCase();
@@ -81,6 +83,9 @@ export async function GET(req: NextRequest) {
       });
       if (!full.ok) throw new Error(`Could not verify McLeod order (${full.status})`);
       const order = await full.json();
+      if (text(order.revenue_code_id).toUpperCase() !== "MAIN") {
+        return NextResponse.json({ ok: false, error: "This order is not in the MAIN revenue code" }, { status: 409 });
+      }
       if (!text(order[matchedField]).toUpperCase().includes(reference)) {
         return NextResponse.json({ ok: false, error: "McLeod order changed during lookup. Try the reference again." }, { status: 409 });
       }
