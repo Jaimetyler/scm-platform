@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
-import { lookupMcleodOrderById } from "@/lib/inbound/checkin/mcleod-order-id";
+import { lookupMcleodOrderById, lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
+import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
 
 export const runtime = "nodejs";
 
@@ -111,6 +112,53 @@ export async function PATCH(req: NextRequest) {
     const to = String(body?.to ?? "");
     const terminal = String(body?.terminal ?? "").toUpperCase();
     const siteCode = String(body?.siteCode ?? "");
+    if (body?.action === "checkout") {
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode)) {
+        return NextResponse.json({ ok: false, error: "Invalid check-out" }, { status: 400 });
+      }
+      const sb = database();
+      const { data: row, error: lookupError } = await sb.from("inbound_checkin_rows")
+        .select("id,yard_status,checked_in_at,movement_direction,matched_order_id,site_name")
+        .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+        .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
+        return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
+      }
+      const departure = new Date();
+      let mcleod = "no linked order";
+      if (row.matched_order_id) {
+        if (process.env.MCLEOD_SYNC_ENABLED !== "true") {
+          return NextResponse.json({ ok: false, error: "McLeod writes are disabled. Check-out was not saved." }, { status: 503 });
+        }
+        const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
+        const order = await lookupMcleodGateOrder(row.matched_order_id, site.terminal, site.siteName);
+        if (row.movement_direction !== order.direction || !order.stopId) {
+          return NextResponse.json({ ok: false, error: "Could not confirm the matching McLeod stop. Check-out was not saved." }, { status: 409 });
+        }
+        if (!order.actualDeparture) {
+          const arrival = order.actualArrival || formatWarehouseTime(new Date(row.checked_in_at), site.terminal);
+          const parameters = new URLSearchParams({ arrivalDate: arrival, departureDate: formatWarehouseTime(departure, site.terminal) });
+          const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
+          const token = process.env.MCLEOD_AUTH_TOKEN;
+          if (!base || !token) throw new Error("McLeod connection is not configured");
+          const response = await fetch(`${base}/carrierDispatch/clearStop/${encodeURIComponent(order.stopId)}?${parameters}`, {
+            method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "text/plain" }, cache: "no-store",
+          });
+          if (!response.ok) throw new Error(`McLeod did not save the stop departure (${response.status}). Check-out was not saved.`);
+          mcleod = "departure sent to McLeod";
+        } else {
+          mcleod = "McLeod departure already recorded";
+        }
+      }
+      const { data, error } = await sb.from("inbound_checkin_rows")
+        .update({ yard_status: "completed", yard_completed_at: departure.toISOString(), yard_updated_by: user(req) })
+        .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("yard_status", row.yard_status)
+        .select("id,yard_status,yard_completed_at").maybeSingle();
+      if (error) throw error;
+      if (!data) return NextResponse.json({ ok: false, error: "McLeod may have updated, but this line changed. Refresh and check its status." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: data, mcleod });
+    }
     if (body?.action === "set_customer" || body?.action === "match_order" || body?.action === "edit_field") {
       if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode) || !body.expectedUpdatedAt) {
         return NextResponse.json({ ok: false, error: "Invalid check-in update" }, { status: 400 });

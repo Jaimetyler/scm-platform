@@ -38,11 +38,12 @@ test("driver order detects the SCM stop and selects the corresponding reference"
     blnum: "PICKUP-123", consignee_refno: "DELIVERY-456", customer_id: "CUSTOMER1", commodity_id: "LUMBER", stops,
   }), { status: 200 });
   try {
-    stops = [{ stop_type: "PU", location: { name: "SCM Houston", city: "Houston" } },
+    stops = [{ id: "PU1", stop_type: "PU", location: { name: "SCM Houston", city: "Houston" } },
       { stop_type: "SO", location: { name: "Customer warehouse", city: "Dallas" } }];
     assert.deepEqual(await lookupMcleodGateOrder("12345", "HOU", "Houston 5300"), {
       direction: "pickup", reference: "PICKUP-123", customer: "CUSTOMER1", commodity: "LUMBER",
       materialType: "lumber", mark: "DELIVERY-456", baleCount: "",
+      stopId: "PU1", actualArrival: "", actualDeparture: "",
     });
     stops = [{ stop_type: "PU", location: { name: "Customer warehouse", city: "Dallas" } },
       { stop_type: "SO", location: { name: "Savannah Warehouse", city: "Savannah" } }];

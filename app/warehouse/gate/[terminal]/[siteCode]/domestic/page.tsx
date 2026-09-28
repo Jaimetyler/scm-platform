@@ -29,13 +29,6 @@ function blankDraft(id: string): Draft {
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
 };
-const NEXT: Record<Status, { label: string; to: string }> = {
-  waiting: { label: "Call driver", to: "called" },
-  called: { label: "In door", to: "in_door" },
-  in_door: { label: "Start work", to: "working" },
-  working: { label: "Complete", to: "completed" },
-};
-const PREVIOUS: Partial<Record<Status, string>> = { called: "waiting", in_door: "called", working: "in_door" };
 
 export default function DomesticQueuePage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
@@ -49,6 +42,7 @@ export default function DomesticQueuePage() {
   const [matches, setMatches] = useState<Record<string, Match[]>>({});
   const [matchWorking, setMatchWorking] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
   const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 5 }, (_, index) => blankDraft(`initial-${index}`)));
 
   const load = useCallback(async (quiet = false) => {
@@ -78,19 +72,22 @@ export default function DomesticQueuePage() {
     return () => window.clearInterval(timer);
   }, [load, editingId]);
 
-  async function transition(row: Row & { yard_status: Status }, to: string) {
+  async function transition(row: Row & { yard_status: Status }, to: "checkout" | "cancelled") {
     if (!site || editingId !== row.id) return;
     if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number} from the domestic queue?`)) return;
+    setNotice("");
     setWorking(row.id);
     try {
       const response = await fetch("/api/warehouse/domestic-queue", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, from: row.yard_status, to, terminal: site.terminal, siteCode: site.siteCode }),
+        body: JSON.stringify({ id: row.id, from: row.yard_status, to,
+          action: to === "checkout" ? "checkout" : undefined, terminal: site.terminal, siteCode: site.siteCode }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not update arrival");
       await load(true);
       setEditingId(null);
+      setNotice(to === "checkout" ? `Checked out · ${result.mcleod}` : "Arrival removed");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update arrival"); }
     finally { setWorking(""); }
   }
@@ -174,7 +171,7 @@ export default function DomesticQueuePage() {
   const counts = Object.keys(LABEL).map((status) => `${active.filter((row) => row.yard_status === status).length} ${LABEL[status as Status].toLowerCase()}`);
   return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Check-In`}
-      subtitle="Lumber and other freight arrivals. Move each truck through the yard as work progresses."
+      subtitle="Lumber and other freight arrivals. Check out each truck when it leaves the yard."
       actions={<><Link href="/inbound/checkin" style={button}>All check-in sites</Link>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={button}>Container line</Link></>} />
     <nav aria-label="Freight type" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
@@ -183,6 +180,7 @@ export default function DomesticQueuePage() {
       <span aria-current="page" style={primary}>Lumber & Other</span>
     </nav>
     {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}
+    {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}
     <PlatformPanel>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
         <strong style={{ color: "#f8fafc" }}>{counts.join(" · ")}</strong>
@@ -232,8 +230,7 @@ export default function DomesticQueuePage() {
                   {editingId !== row.id ?
                     <button disabled={Boolean(working || matchWorking)} style={button} onClick={() => setEditingId(row.id)}>Edit</button> : <>
                     <button disabled={working === row.id || matchWorking === row.id} style={button} onClick={() => setEditingId(null)}>Close edit</button>
-                    <button disabled={working === row.id} style={primary} onClick={() => void transition(row, NEXT[row.yard_status].to)}>{NEXT[row.yard_status].label}</button>
-                    {PREVIOUS[row.yard_status] && <button disabled={working === row.id} style={button} onClick={() => void transition(row, PREVIOUS[row.yard_status]!)}>Back</button>}
+                    <button disabled={working === row.id} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
                     <button disabled={working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
                   </>}
                 </div></td>

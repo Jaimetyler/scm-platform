@@ -52,5 +52,7 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   const parsedBlnum = blnum.match(/^(.+?)\s+(\d+)\s+(?:BALES?|B\/?C|BC)$/);
   const mark = String(order.consignee_refno ?? "").trim().toUpperCase() || parsedBlnum?.[1] || "";
   const baleCount = parsedBlnum?.[2] ?? "";
-  return { direction, reference, customer, commodity, materialType, mark, baleCount };
+  const stop = (pickups[0] ?? deliveries[0]) as Record<string, unknown>;
+  return { direction, reference, customer, commodity, materialType, mark, baleCount,
+    stopId: String(stop.id ?? ""), actualArrival: String(stop.actual_arrival ?? ""), actualDeparture: String(stop.actual_departure ?? "") };
 }

@@ -16,13 +16,6 @@ type Arrival = {
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
 };
-const NEXT: Record<Status, { to: string; label: string }> = {
-  waiting: { to: "called", label: "Call driver" },
-  called: { to: "in_door", label: "In door" },
-  in_door: { to: "working", label: "Start work" },
-  working: { to: "completed", label: "Complete" },
-};
-const PREVIOUS: Partial<Record<Status, string>> = { called: "waiting", in_door: "called", working: "in_door" };
 
 export default function DomesticLinePage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
@@ -31,6 +24,7 @@ export default function DomesticLinePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
     if (!site) return;
@@ -51,18 +45,21 @@ export default function DomesticLinePage() {
     return () => window.clearInterval(timer);
   }, [load, working]);
 
-  async function move(row: Arrival & { yard_status: Status }, to: string) {
+  async function move(row: Arrival & { yard_status: Status }, to: "checkout" | "cancelled") {
     if (!site || working) return;
     if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number || row.mark} from the line?`)) return;
+    setNotice("");
     setWorking(row.id);
     try {
       const response = await fetch("/api/warehouse/domestic-queue", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: row.id, from: row.yard_status, to, terminal: site.terminal, siteCode: site.siteCode }),
+        body: JSON.stringify({ id: row.id, from: row.yard_status, to, action: to === "checkout" ? "checkout" : undefined,
+          terminal: site.terminal, siteCode: site.siteCode }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not update this arrival");
       await load();
+      setNotice(to === "checkout" ? `Checked out · ${result.mcleod}` : "Arrival removed");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update this arrival"); }
     finally { setWorking(""); }
   }
@@ -78,7 +75,7 @@ export default function DomesticLinePage() {
   });
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Domestic Line`}
-      subtitle="Cotton, lumber, and other freight in one arrival order. Yard progress is separate from McLeod processing."
+      subtitle="Cotton, lumber, and other freight in arrival order. Check out when a truck leaves the yard."
       actions={<Link href="/warehouse/gate" style={button}>All gate sites</Link>} />
     <nav aria-label="Freight views" style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
       <span aria-current="page" style={primary}>Domestic Line</span>
@@ -86,6 +83,7 @@ export default function DomesticLinePage() {
       <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={button}>Lumber & Other grid</Link>
     </nav>
     {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
+    {notice && <p role="status" style={{ color: "#86efac" }}>{notice}</p>}
     <PlatformPanel>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <strong>{waiting} waiting · {active.length} active</strong>
@@ -103,10 +101,9 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.driver_name || "Staff entry"}</td>
             <td style={cell}>{row.reference_number || row.mark || "—"}</td>
             <td style={cell}>{row.shipper || "—"}</td>
-            <td style={cell}>{LABEL[row.yard_status]}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next to call</div> : null}</td>
+            <td style={cell}>{LABEL[row.yard_status]}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
             <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              <button disabled={Boolean(working)} style={primary} onClick={() => void move(row, NEXT[row.yard_status].to)}>{NEXT[row.yard_status].label}</button>
-              {PREVIOUS[row.yard_status] && <button disabled={Boolean(working)} style={button} onClick={() => void move(row, PREVIOUS[row.yard_status]!)}>Back</button>}
+              <button disabled={Boolean(working)} style={primary} onClick={() => void move(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
               <button disabled={Boolean(working)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
             </div></td>
           </tr>)}</tbody>
