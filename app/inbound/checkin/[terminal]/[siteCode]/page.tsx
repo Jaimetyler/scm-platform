@@ -57,6 +57,9 @@ type RowUiState = {
 };
 
 type CottonMatch = { orderId: string; mark: string; customer: string; bolBC: number | null };
+function sameMark(a: string, b: string) {
+  return a.toUpperCase().replace(/[^A-Z0-9]/g, "") === b.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
 
 type ColumnKey =
   | "received_date"
@@ -245,6 +248,9 @@ export default function SiteCheckinPage() {
               const updated = applyRowUpdate(row.id, (current) => ({ ...current,
                 shipper: current.shipper || match.customer,
                 bol_bc: current.bol_bc || match.bolBC,
+                matched_order_id: sameMark(current.mark ?? "", match.mark) &&
+                  (!current.bol_bc || !match.bolBC || current.bol_bc === match.bolBC)
+                  ? match.orderId : current.matched_order_id,
               }));
               if (updated) queueSaveRow(updated);
             }
@@ -507,6 +513,7 @@ export default function SiteCheckinPage() {
           equipmentType: row.equipment_type,
           comment1: row.comment_1,
           comment2: row.comment_2,
+          matchedOrderId: row.matched_order_id,
         }),
       });
 
@@ -587,8 +594,10 @@ export default function SiteCheckinPage() {
 
   function chooseCottonMatch(id: string, match: CottonMatch) {
     const updated = applyRowUpdate(id, (row) => ({ ...row,
+      mark: match.mark,
       shipper: row.shipper || match.customer,
       bol_bc: row.bol_bc || match.bolBC,
+      matched_order_id: !row.bol_bc || !match.bolBC || row.bol_bc === match.bolBC ? match.orderId : null,
     }));
     if (updated) queueSaveRow(updated);
     setCottonMatches((current) => ({ ...current, [id]: [match] }));
@@ -615,6 +624,7 @@ export default function SiteCheckinPage() {
           baleCount: row.bale_count, warehouseLocation: row.warehouse_location,
           equipmentType: row.equipment_type,
           comment1: row.comment_1, comment2: row.comment_2,
+          matchedOrderId: row.matched_order_id,
         }),
       });
       const data = await res.json();
@@ -1027,6 +1037,7 @@ export default function SiteCheckinPage() {
                           const updated = applyRowUpdate(row.id, (current) => ({
                             ...current,
                             mark: value,
+                            matched_order_id: value === current.mark ? current.matched_order_id : null,
                           }));
                           if (updated) queueSaveRow(updated);
                         }}
@@ -1098,6 +1109,8 @@ export default function SiteCheckinPage() {
                           const updated = applyRowUpdate(row.id, (current) => ({
                             ...current,
                             bol_bc: digits ? Number(digits) : null,
+                            matched_order_id: cottonMatches[row.id]?.[0]?.bolBC && digits &&
+                              Number(digits) !== cottonMatches[row.id][0].bolBC ? null : current.matched_order_id,
                           }));
                           if (updated) queueSaveRow(updated);
                         }}

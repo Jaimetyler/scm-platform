@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
+import { verifyCottonOrder } from "@/lib/inbound/checkin/verify-cotton-order";
 
 export const runtime = "nodejs";
 
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest) {
     const mark = cleanText(body?.mark).toUpperCase();
     const shipper = cleanText(body?.shipper).toUpperCase();
     const clientId = cleanText(body?.clientId);
+    const matchedOrderId = cleanText(body?.matchedOrderId);
 
     if (clientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
       return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
@@ -172,6 +174,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    if (matchedOrderId) await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC));
 
     const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
     const defaultEquipment: EquipmentType =
@@ -186,6 +189,7 @@ export async function POST(req: NextRequest) {
       received_date,
       mark,
       shipper,
+      matched_order_id: matchedOrderId || null,
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),
       warehouse_location: cleanText(body?.warehouseLocation).toUpperCase() || null,

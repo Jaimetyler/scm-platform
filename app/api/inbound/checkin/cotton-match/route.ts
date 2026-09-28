@@ -55,9 +55,11 @@ export async function GET(request: NextRequest) {
         if (!revenueCode) missingRevenueCode = true;
         if (revenueCode !== "MAIN") continue;
         const commodity = value((order.commodity as Record<string, unknown> | undefined)?.description || order.commodity_description || order.commodity_id).toUpperCase();
-        if (commodity && !/\bCOTTON\b/.test(commodity)) continue;
+        if (!/\bCOTTON\b/.test(commodity)) continue;
         const customer = order.customer as Record<string, unknown> | undefined;
-        matches.set(id, { orderId: id, mark: ref || parsed?.[1] || mark,
+        const parsedMark = parsed?.[1] || "";
+        matches.set(id, { orderId: id,
+          mark: parsedMark && normalizeKey(parsedMark).includes(normalizeKey(mark)) ? parsedMark : ref || parsedMark || mark,
           customer: value(customer?.name || order.customer_name || order.customer_id).toUpperCase(),
           bolBC: parsed ? Number(parsed[2]) : null });
       }

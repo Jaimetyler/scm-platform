@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
 import { buildPostDeliveryCorrection, isReadyCheckin } from "@/lib/inbound/checkin/ready";
 import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
+import { verifyCottonOrder } from "@/lib/inbound/checkin/verify-cotton-order";
 
 export const runtime = "nodejs";
 
@@ -165,6 +166,13 @@ export async function PATCH(
       return NextResponse.json({ ok: true, row: publicCheckinRow(data) });
     }
 
+    const requestedOrderId = cleanText(body?.matchedOrderId);
+    const identityChanged = existing.mark !== merged.mark || existing.bol_bc !== merged.bol_bc;
+    const matchedOrderId = requestedOrderId || (identityChanged ? "" : cleanText(existing.matched_order_id));
+    if (matchedOrderId && (identityChanged || matchedOrderId !== cleanText(existing.matched_order_id))) {
+      await verifyCottonOrder(matchedOrderId, merged.mark ?? "", merged.bol_bc);
+    }
+
     const draft_status = isReadyCheckin(merged) ? "ready" : "checked_in";
     merged.verified = draft_status === "ready";
     const identityCorrected = Boolean(existing.checked_in_at) && (
@@ -194,6 +202,7 @@ export async function PATCH(
       received_date: merged.received_date,
       mark: merged.mark,
       shipper: merged.shipper,
+      matched_order_id: matchedOrderId || null,
       bol_bc: merged.bol_bc,
       bale_count: merged.bale_count,
       warehouse_location: merged.warehouse_location,
