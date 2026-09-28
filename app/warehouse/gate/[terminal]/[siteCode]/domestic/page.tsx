@@ -52,7 +52,7 @@ export default function DomesticQueuePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState("");
-  const [drafts, setDrafts] = useState<Draft[]>(Array.from({ length: 3 }, (_, index) => blankDraft(`initial-${index}`)));
+  const [drafts, setDrafts] = useState<Draft[]>([]);
 
   function toggleDetails(id: string) {
     setExpandedIds((current) => {
@@ -284,7 +284,7 @@ export default function DomesticQueuePage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div><strong style={{ color: "#f8fafc", fontSize: 18 }}>Lumber & Other</strong><div style={{ ...muted, fontSize: 13 }}>{counts.join(" · ")}</div></div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button style={primary} onClick={() => setDrafts((current) => [...current, ...Array.from({ length: 5 }, (_, index) => blankDraft(`${Date.now()}-${index}`))])}>+ 5 rows</button>
+          <button style={primary} onClick={() => { setError(""); setDrafts([blankDraft(`staff-${Date.now()}`)]); }}>+ New check-in</button>
           <button style={button} onClick={() => void load()}>Refresh</button>
         </div>
       </div>
@@ -349,51 +349,61 @@ export default function DomesticQueuePage() {
                 </button>)}
               </div>
             </td></tr>}</Fragment>)}
-            {drafts.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>New check-ins · enter a reference to find an SCM order</td></tr>}
-            {drafts.map((draft, index) => <Fragment key={draft.id}><tr style={{ background: "rgba(51,65,85,.12)" }}>
-              <td style={cell}>{active.length + index + 1}</td>
-              <td style={cell}><span style={muted}>New row</span></td>
-              <td style={cell}><select aria-label="Pickup or delivery" style={sheetInput} value={draft.movementDirection}
-                onChange={(event) => editDraft(draft.id, { movementDirection: event.target.value as Draft["movementDirection"] })}>
-                <option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></td>
-              <td style={cell}><select aria-label="Material" style={sheetInput} value={draft.materialType}
-                onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
-                <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></td>
-              <td style={cell}><input aria-label="Reference number" style={sheetInput} value={draft.referenceNumber}
-                onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" /></td>
-              <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
-                onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></td>
-              <td style={cell}><div style={driverFields}>
-                <input aria-label="Driver name" style={sheetInput} value={draft.driverName}
-                  onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver name" />
-                <input aria-label="Driver phone" type="tel" style={sheetInput} value={draft.driverPhone}
-                  onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone number" />
-              </div></td>
-              <td style={cell}>{draft.movementDirection === "pickup" && <input aria-label="Destination" style={sheetInput} value={draft.destination}
-                onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" />}</td>
-              <td style={cell}><input aria-label="Notes" style={sheetInput} value={draft.notes}
-                onChange={(event) => editDraft(draft.id, { notes: event.target.value })} placeholder="Notes" /></td>
-              <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                <button style={primary} disabled={working === draft.id || draftSearching[draft.id]} onClick={() => void saveDraft(draft)}>
-                  {working === draft.id ? "Saving…" : "Save"}</button>
-                <button style={button} onClick={() => toggleDetails(draft.id)} aria-expanded={expandedIds.has(draft.id)}>
-                  {expandedIds.has(draft.id) ? "Less" : draftSearching[draft.id] ? "Searching…" : (draftMatches[draft.id]?.length ?? 0) > 1 ? "Review matches" : "More"}
-                </button>
-              </div></td>
-            </tr>{expandedIds.has(draft.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
-              <div style={detailContent}>
-                {draftSearching[draft.id] ? <span>Searching McLeod…</span> :
-                  draft.orderId ? <span>SCM order #{draft.orderId}</span> :
-                  draftMatches[draft.id]?.length === 0 ? <span>No order found · enter details manually</span> : null}
-                {!draft.orderId && draftMatches[draft.id]?.length > 1 && draftMatches[draft.id].map((match) =>
-                  <button key={`${match.orderId}-${match.direction}`} style={inlineButton} onClick={() => chooseDraftMatch(draft, match)}>
-                    #{match.orderId} · {match.customerName || match.customerId} · {match.direction}
-                  </button>)}
-              </div>
-            </td></tr>}</Fragment>)}</tbody>
+            {active.length === 0 && <tr className="domestic-details"><td colSpan={10} style={{ padding: "32px 16px", textAlign: "center", color: "#94a3b8" }}>
+              No lumber or other freight is currently checked in. Use New check-in to add a truck.
+            </td></tr>}
+            </tbody>
           </table>
         </div>}
     </PlatformPanel>
+    {drafts.map((draft) => <div key={draft.id} style={modalBackdrop} onMouseDown={(event) => {
+      if (event.target === event.currentTarget && working !== draft.id) setDrafts([]);
+    }}>
+      <form role="dialog" aria-modal="true" aria-labelledby="new-domestic-title" style={modalCard}
+        onKeyDown={(event) => { if (event.key === "Escape" && working !== draft.id) { event.preventDefault(); setDrafts([]); } }}
+        onSubmit={(event) => { event.preventDefault(); void saveDraft(draft); }}>
+        <div style={modalTop}>
+          <div><h2 id="new-domestic-title" style={{ margin: 0, fontSize: 22 }}>New check-in</h2>
+            <p style={{ color: "#94a3b8", margin: "5px 0 0", fontSize: 13 }}>Enter the driver's reference to look up the SCM order.</p></div>
+          <button type="button" aria-label="Close check-in" style={button} disabled={working === draft.id} onClick={() => setDrafts([])}>Close</button>
+        </div>
+        {error && <p role="alert" style={{ color: "#fecaca", margin: "0 0 14px" }}>{error}</p>}
+        <div style={modalGrid}>
+          <label style={modalLabel}>Move<select style={modalInput} value={draft.movementDirection}
+            onChange={(event) => editDraft(draft.id, { movementDirection: event.target.value as Draft["movementDirection"] })}>
+            <option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></label>
+          <label style={modalLabel}>Material<select style={modalInput} value={draft.materialType}
+            onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
+            <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></label>
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Reference number *
+            <input autoFocus required style={modalInput} value={draft.referenceNumber}
+              onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="BOL or delivery reference" /></label>
+          <div style={{ gridColumn: "1 / -1", minHeight: 20, color: "#93c5fd", fontSize: 13 }} aria-live="polite">
+            {draftSearching[draft.id] ? "Searching McLeod…" : draft.orderId ? `SCM order #${draft.orderId} found` :
+              draftMatches[draft.id]?.length === 0 ? "No SCM order found. Enter the details below." :
+              (draftMatches[draft.id]?.length ?? 0) > 1 ? "Choose the matching order:" : null}
+            {!draft.orderId && draftMatches[draft.id]?.length > 1 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} type="button" style={button}
+                onClick={() => chooseDraftMatch(draft, match)}>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</button>)}
+            </div>}
+          </div>
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Customer
+            <input style={modalInput} value={draft.customer} onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></label>
+          <label style={modalLabel}>Driver name
+            <input style={modalInput} value={draft.driverName} onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver name" /></label>
+          <label style={modalLabel}>Driver phone
+            <input type="tel" style={modalInput} value={draft.driverPhone} onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone number" /></label>
+          {draft.movementDirection === "pickup" && <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Destination
+            <input style={modalInput} value={draft.destination} onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" /></label>}
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Notes
+            <input style={modalInput} value={draft.notes} onChange={(event) => editDraft(draft.id, { notes: event.target.value })} placeholder="Optional notes" /></label>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <button type="button" style={button} disabled={working === draft.id} onClick={() => setDrafts([])}>Cancel</button>
+          <button type="submit" style={primary} disabled={working === draft.id || draftSearching[draft.id]}>{working === draft.id ? "Checking in…" : "Check in truck"}</button>
+        </div>
+      </form>
+    </div>)}
     {!loadError && !loading && recent.length > 0 && <p style={{ ...muted, marginTop: 14 }}>
       {recent.length} completed or removed check-ins · <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={{ color: "#67e8f9" }}>View history and export</Link>
     </p>}
@@ -424,3 +434,10 @@ const statusPill: React.CSSProperties = { display: "inline-block", padding: "4px
 const detailCell: React.CSSProperties = { padding: "12px 16px", borderBottom: "1px solid #334155", color: "#cbd5e1", fontSize: 12 };
 const detailContent: React.CSSProperties = { display: "flex", gap: "8px 18px", alignItems: "center", flexWrap: "wrap" };
 const detailLink: React.CSSProperties = { color: "#67e8f9", textDecoration: "underline" };
+
+const modalBackdrop: React.CSSProperties = { position: "fixed", inset: 0, zIndex: 100, background: "rgba(2,6,23,.78)", display: "grid", placeItems: "center", padding: 16 };
+const modalCard: React.CSSProperties = { width: "min(100%, 620px)", maxHeight: "min(90vh, 900px)", overflowY: "auto", background: "#111c30", border: "1px solid #475569", borderRadius: 14, boxShadow: "0 24px 70px rgba(0,0,0,.55)", padding: 24, color: "#f8fafc" };
+const modalTop: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 22 };
+const modalGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
+const modalLabel: React.CSSProperties = { display: "grid", gap: 6, minWidth: 0, color: "#cbd5e1", fontSize: 13, fontWeight: 700 };
+const modalInput: React.CSSProperties = { ...sheetInput, height: 40, padding: "8px 10px", background: "#0b1425" };
