@@ -86,6 +86,7 @@ export async function GET(request: NextRequest) {
       if (value(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
       const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
       const delivery = stops.find((stop) => stop.stop_type === "SO");
+      if (value(delivery?.actual_departure)) return null;
       const scheduled = value(delivery?.sched_arrive_early || delivery?.sched_arrive_late || order.ordered_date);
       if (scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
       const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];

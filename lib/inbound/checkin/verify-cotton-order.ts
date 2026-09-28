@@ -1,6 +1,6 @@
 import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 
-export async function verifyCottonOrder(orderId: string, mark: string, bolBC: number | null) {
+export async function verifyCottonOrder(orderId: string, mark: string, bolBC: number | null, forNewCheckin = false) {
   if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) throw new Error("Invalid SCM order number");
   const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
   const token = process.env.MCLEOD_AUTH_TOKEN;
@@ -21,4 +21,10 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
     throw new Error(`SCM order ${orderId} does not have this exact cotton mark`);
   if (bolBC && parsed && Number(parsed[2]) !== bolBC)
     throw new Error(`SCM order ${orderId} has a different BOL bale count`);
+  if (forNewCheckin) {
+    const delivery = (Array.isArray(order.stops) ? order.stops : [])
+      .find((stop: { stop_type?: string }) => stop.stop_type === "SO");
+    if (String(delivery?.actual_departure ?? "").trim())
+      throw new Error(`SCM order ${orderId} has already been delivered in McLeod.`);
+  }
 }

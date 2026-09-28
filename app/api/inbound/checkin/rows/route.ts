@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
     if (driverName.length > 120 || driverPhone.length > 40) {
       return NextResponse.json({ ok: false, error: "Driver name or phone is too long" }, { status: 400 });
     }
-    if (matchedOrderId) await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC));
+    if (matchedOrderId) await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true);
 
     const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
     const defaultEquipment: EquipmentType =
@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json(
         { ok: false, error: error.message },
-        { status: 500 }
+        { status: error.code === "23505" ? 409 : 500 }
       );
     }
 
@@ -241,7 +241,7 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: error instanceof Error ? error.message : "Unknown server error",
       },
-      { status: 500 }
+      { status: error instanceof Error && error.message.includes("already been delivered") ? 409 : 500 }
     );
   }
 }

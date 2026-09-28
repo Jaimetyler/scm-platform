@@ -104,6 +104,7 @@ export async function GET(req: NextRequest) {
       if (/\bCOTTON\b/.test(commodityName)) return null;
       const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
       const stop = stops.find((item) => item.stop_type === (match.direction === "pickup" ? "PU" : "SO"));
+      if (text(stop?.actual_departure)) return null;
       const scheduled = text(stop?.sched_arrive_early || stop?.sched_arrive_late || order.ordered_date);
       if (scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
       const delivery = stops.find((item) => item.stop_type === "SO");

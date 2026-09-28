@@ -15,13 +15,16 @@ export async function lookupMcleodOrderById(orderId: string, direction: string) 
   const reference = String(order[field] ?? "").trim().toUpperCase();
   const customer = String(order.customer?.name ?? order.customer_name ?? order.customer_id ?? "").trim().toUpperCase();
   const delivery = (Array.isArray(order.stops) ? order.stops : []).find((stop: Record<string, unknown>) => stop.stop_type === "SO");
+  const pickup = (Array.isArray(order.stops) ? order.stops : []).find((stop: Record<string, unknown>) => stop.stop_type === "PU");
   const destination = String(delivery?.location?.name ?? delivery?.location_name ?? "").trim().toUpperCase();
   const commodity = String(order.commodity?.description ?? order.commodity_description ?? order.commodity_id ?? order.commodity ?? "").toUpperCase();
   const materialType = /\bCOTTON\b/.test(commodity) ? "cotton" :
     /\bLUMBER\b|\bWOOD\b/.test(commodity) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodity) ? "other" : null;
   if (!reference) throw new Error(`McLeod order ${orderId} has no ${field}`);
   if (!customer) throw new Error(`McLeod order ${orderId} has no customer`);
-  return { orderId, field, reference, customer, destination, materialType };
+  const stop = direction === "pickup" ? pickup : delivery;
+  return { orderId, field, reference, customer, destination, materialType,
+    actualDeparture: String(stop?.actual_departure ?? "").trim() };
 }
 
 export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "HOU", siteName: string) {

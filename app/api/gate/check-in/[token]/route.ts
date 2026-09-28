@@ -137,6 +137,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       });
       if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
       const order = await lookupMcleodGateOrder(clean(body?.orderId, 60), gate.terminal, gate.site_name);
+      if (order.actualDeparture) return NextResponse.json({ ok: false,
+        error: "This SCM order has already left the yard in McLeod." }, { status: 409 });
+      const { data: checkedIn, error: checkError } = await database().from("inbound_checkin_rows")
+        .select("id").eq("terminal", gate.terminal).eq("site_code", gate.site_code)
+        .eq("movement_direction", order.direction).eq("matched_order_id", clean(body?.orderId, 60))
+        .or("yard_status.is.null,yard_status.neq.cancelled").limit(1);
+      if (checkError) throw checkError;
+      if (checkedIn?.length) return NextResponse.json({ ok: false,
+        error: "This SCM order is already checked in at this yard." }, { status: 409 });
       return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference,
         commodity: order.commodity, materialType: order.materialType, mark: order.mark, baleCount: order.baleCount });
     }
@@ -252,6 +261,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     let matchedCustomer: string | null = null;
     if (orderId) {
       const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
+      if (order.actualDeparture) return NextResponse.json({ ok: false,
+        error: "This SCM order has already left the yard in McLeod." }, { status: 409 });
       if (order.materialType && materialType !== order.materialType) {
         return NextResponse.json({ ok: false, error: `McLeod commodity is ${order.commodity}. Check the material selection.` }, { status: 409 });
       }
@@ -318,6 +329,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         error = null;
       }
     }
+    if (error?.code === "23505") return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
     if (error) throw error;
 
     let photoSaved = false;

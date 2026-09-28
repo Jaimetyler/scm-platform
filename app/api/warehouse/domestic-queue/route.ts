@@ -96,6 +96,9 @@ export async function POST(req: NextRequest) {
     }
     if (orderId) {
       const order = await lookupMcleodOrderById(orderId, direction);
+      if (order.actualDeparture) {
+        return NextResponse.json({ ok: false, error: "This SCM order has already left its pickup or delivery stop in McLeod." }, { status: 409 });
+      }
       if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
       if (reference && !order.reference.includes(reference)) {
         return NextResponse.json({ ok: false, error: `Order ${orderId} ${order.field} does not contain ${reference}` }, { status: 409 });
@@ -119,6 +122,7 @@ export async function POST(req: NextRequest) {
       destination: direction === "pickup" ? destination || null : null,
       warehouse_location: location || null, comment_1: notes || null, verified: false,
     }).select("id").single();
+    if (error?.code === "23505") return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
     if (error) throw error;
     return NextResponse.json({ ok: true, id: data.id });
   } catch (error) {
