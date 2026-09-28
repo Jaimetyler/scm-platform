@@ -202,22 +202,23 @@ export default function DomesticQueuePage() {
     finally { setWorking(""); }
   }
 
-  async function saveField(row: Row, field: "reference_number" | "comment_1", value: string) {
-    if (!site || editingId !== row.id || value.trim().toUpperCase() === String(row[field] ?? "")) return;
+  async function saveField(row: Row, field: "reference_number" | "comment_1" | "driver_name" | "driver_phone", value: string) {
+    const nextValue = field === "reference_number" ? value.trim().toUpperCase() : value.trim();
+    if (!site || editingId !== row.id || nextValue === String(row[field] ?? "")) return;
     setWorking(row.id);
     setError("");
     try {
       const response = await fetch("/api/warehouse/domestic-queue", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: row.id, terminal: site.terminal, siteCode: site.siteCode,
-          expectedUpdatedAt: row.updated_at, action: "edit_field", field, value }),
+          expectedUpdatedAt: row.updated_at, action: "edit_field", field, value: nextValue }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not save cell");
       setMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
       await load(true);
-      if (field === "reference_number" && value.trim().length >= 3) {
-        await findOrder({ ...row, reference_number: value.trim().toUpperCase(), updated_at: result.row.updated_at });
+      if (field === "reference_number" && nextValue.length >= 3) {
+        await findOrder({ ...row, reference_number: nextValue, updated_at: result.row.updated_at });
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save cell"); }
     finally { setWorking(""); }
@@ -281,7 +282,7 @@ export default function DomesticQueuePage() {
     {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}
     <PlatformPanel style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-        <div><strong style={{ color: "#f8fafc" }}>Lumber & Other</strong><div style={muted}>{counts.join(" · ")}</div></div>
+        <div><strong style={{ color: "#f8fafc", fontSize: 18 }}>Lumber & Other</strong><div style={{ ...muted, fontSize: 13 }}>{counts.join(" · ")}</div></div>
         <div style={{ display: "flex", gap: 8 }}>
           <button style={primary} onClick={() => setDrafts((current) => [...current, ...Array.from({ length: 5 }, (_, index) => blankDraft(`${Date.now()}-${index}`))])}>+ 5 rows</button>
           <button style={button} onClick={() => void load()}>Refresh</button>
@@ -290,15 +291,16 @@ export default function DomesticQueuePage() {
       {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
         <div style={{ overflowX: "auto" }}>
           <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0" }}>
-            <colgroup>{[5, 8, 7, 7, 20, 15, 12, 10, 8, 8].map((width, index) =>
+            <colgroup>{[5, 8, 7, 7, 20, 15, 16, 8, 6, 8].map((width, index) =>
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
-            <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
+            <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Driver / phone", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
-            <tbody>{active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
+            <tbody>{active.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Checked in · {active.length} in yard</td></tr>}
+            {active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
               <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
-              <td style={cell}>{row.movement_direction}</td>
-              <td style={cell}>{row.material_type}</td>
+              <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
+              <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Reference for ${row.driver_name}`} defaultValue={row.reference_number}
                 disabled={editingId !== row.id}
                 onBlur={(event) => void saveField(row, "reference_number", event.target.value)} style={sheetInput} /></td>
@@ -306,13 +308,21 @@ export default function DomesticQueuePage() {
                 defaultValue={row.shipper ?? ""} placeholder="Enter customer"
                 disabled={editingId !== row.id}
                 onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} /></td>
-              <td style={cell}><div style={singleLine} title={row.driver_name || "Staff entry"}>{row.driver_name || "Staff entry"}</div></td>
+              <td style={cell}>{editingId === row.id
+                ? <div style={driverFields}>
+                    <input key={row.updated_at + "-name"} aria-label="Driver name" defaultValue={row.driver_name ?? ""} placeholder="Driver name"
+                      onBlur={(event) => void saveField(row, "driver_name", event.target.value)} style={sheetInput} />
+                    <input key={row.updated_at + "-phone"} aria-label="Driver phone" type="tel" defaultValue={row.driver_phone ?? ""} placeholder="Phone number"
+                      onBlur={(event) => void saveField(row, "driver_phone", event.target.value)} style={sheetInput} />
+                  </div>
+                : <><div style={singleLine} title={row.driver_name || "Driver not entered"}>{row.driver_name || "Driver not entered"}</div>
+                    <span className="row-secondary">{row.driver_phone || "No phone number"}</span></>}</td>
               <td style={cell}><div style={singleLine} title={row.destination || ""}>{row.destination || "—"}</div></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
                 defaultValue={row.comment_1 ?? ""} placeholder="Notes"
                 disabled={editingId !== row.id}
                 onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
-              <td style={cell}><strong style={{ color: "#67e8f9" }}>{LABEL[row.yard_status]}</strong>
+              <td style={cell}><strong style={statusPill}>{LABEL[row.yard_status]}</strong>
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
                   <button style={button} onClick={() => toggleDetails(row.id)} aria-expanded={expandedIds.has(row.id)}>
                     {expandedIds.has(row.id) ? "Less" : "Details"}</button>
@@ -328,7 +338,6 @@ export default function DomesticQueuePage() {
             </tr>{expandedIds.has(row.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
               <div style={detailContent}>
                 <span>Arrived {time(row.checked_in_at, site.terminal)} · {elapsed(row.checked_in_at, tick)}</span>
-                {row.driver_phone && <span>Driver phone: {row.driver_phone}</span>}
                 <Link href={`/warehouse/checkin/${row.id}`} style={detailLink}>{row.has_bol_photo ? "Paperwork and driver details" : "Driver details"}</Link>
                 {row.matched_order_id && <span>SCM order #{row.matched_order_id}</span>}
                 {editingId === row.id && <button style={inlineButton} disabled={matchWorking === row.id || working === row.id}
@@ -340,6 +349,7 @@ export default function DomesticQueuePage() {
                 </button>)}
               </div>
             </td></tr>}</Fragment>)}
+            {drafts.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>New check-ins · enter a reference to find an SCM order</td></tr>}
             {drafts.map((draft, index) => <Fragment key={draft.id}><tr style={{ background: "rgba(51,65,85,.12)" }}>
               <td style={cell}>{active.length + index + 1}</td>
               <td style={cell}><span style={muted}>New row</span></td>
@@ -353,8 +363,12 @@ export default function DomesticQueuePage() {
                 onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="Reference *" /></td>
               <td style={cell}><input aria-label="Customer" style={sheetInput} value={draft.customer}
                 onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></td>
-              <td style={cell}><input aria-label="Driver name" style={sheetInput} value={draft.driverName}
-                onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver" /></td>
+              <td style={cell}><div style={driverFields}>
+                <input aria-label="Driver name" style={sheetInput} value={draft.driverName}
+                  onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver name" />
+                <input aria-label="Driver phone" type="tel" style={sheetInput} value={draft.driverPhone}
+                  onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone number" />
+              </div></td>
               <td style={cell}>{draft.movementDirection === "pickup" && <input aria-label="Destination" style={sheetInput} value={draft.destination}
                 onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" />}</td>
               <td style={cell}><input aria-label="Notes" style={sheetInput} value={draft.notes}
@@ -368,8 +382,6 @@ export default function DomesticQueuePage() {
               </div></td>
             </tr>{expandedIds.has(draft.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
               <div style={detailContent}>
-                <label>Driver phone <input aria-label="Driver phone" style={{ ...sheetInput, width: 170, marginLeft: 8 }} value={draft.driverPhone}
-                  onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone" /></label>
                 {draftSearching[draft.id] ? <span>Searching McLeod…</span> :
                   draft.orderId ? <span>SCM order #{draft.orderId}</span> :
                   draftMatches[draft.id]?.length === 0 ? <span>No order found · enter details manually</span> : null}
@@ -406,6 +418,9 @@ const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 34
 const utilityLink: React.CSSProperties = { color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700 };
 const inlineButton: React.CSSProperties = { ...button, padding: "3px 7px", fontSize: 11 };
 const singleLine: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+const driverFields: React.CSSProperties = { display: "grid", gap: 5 };
+const sectionCell: React.CSSProperties = { padding: "11px 8px", color: "#a8b8cc", background: "#17243a", borderTop: "1px solid #334155", borderBottom: "1px solid #334155", fontWeight: 700, fontSize: 12, letterSpacing: ".02em" };
+const statusPill: React.CSSProperties = { display: "inline-block", padding: "4px 8px", borderRadius: 999, background: "rgba(34,211,238,.12)", color: "#67e8f9", fontSize: 12 };
 const detailCell: React.CSSProperties = { padding: "12px 16px", borderBottom: "1px solid #334155", color: "#cbd5e1", fontSize: 12 };
 const detailContent: React.CSSProperties = { display: "flex", gap: "8px 18px", alignItems: "center", flexWrap: "wrap" };
 const detailLink: React.CSSProperties = { color: "#67e8f9", textDecoration: "underline" };

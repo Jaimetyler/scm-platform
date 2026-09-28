@@ -228,19 +228,21 @@ export async function PATCH(req: NextRequest) {
       if (existing.updated_at !== body.expectedUpdatedAt) return NextResponse.json({ ok: false, error: "This row changed. Refresh before saving." }, { status: 409 });
       if (body.action === "edit_field") {
         const field = String(body.field ?? "");
-        if (!["reference_number", "warehouse_location", "comment_1"].includes(field)) {
+        if (!["reference_number", "warehouse_location", "comment_1", "driver_name", "driver_phone"].includes(field)) {
           return NextResponse.json({ ok: false, error: "Invalid sheet field" }, { status: 400 });
         }
-        const value = String(body.value ?? "").trim().toUpperCase();
-        if ((field === "reference_number" && !value) || value.length > 200) {
+        const value = String(body.value ?? "").trim();
+        const normalized = ["driver_name", "driver_phone", "comment_1"].includes(field) ? value : value.toUpperCase();
+        const maxLength = field === "driver_name" ? 120 : field === "driver_phone" ? 40 : field === "comment_1" ? 500 : 200;
+        if ((field === "reference_number" && !normalized) || normalized.length > maxLength) {
           return NextResponse.json({ ok: false, error: "Enter a valid value" }, { status: 400 });
         }
-        const changedReference = field === "reference_number" && value !== existing.reference_number;
-        const updates = { [field]: value || null,
+        const changedReference = field === "reference_number" && normalized !== existing.reference_number;
+        const updates = { [field]: normalized || null,
           ...(changedReference && existing.matched_order_id ? { matched_order_id: null, shipper: null } : {}) };
         const { data, error } = await sb.from("inbound_checkin_rows").update(updates)
           .eq("id", id).eq("updated_at", body.expectedUpdatedAt)
-          .select("id,updated_at,reference_number,warehouse_location,comment_1,shipper,matched_order_id").maybeSingle();
+          .select("id,updated_at,reference_number,warehouse_location,comment_1,driver_name,driver_phone,shipper,matched_order_id").maybeSingle();
         if (error) throw error;
         if (!data) return NextResponse.json({ ok: false, error: "This row changed. Refresh before saving." }, { status: 409 });
         return NextResponse.json({ ok: true, row: data });
