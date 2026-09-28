@@ -36,7 +36,8 @@ export async function GET(request: NextRequest) {
     if (!base || !token) throw new Error("McLeod connection is not configured");
     const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
     const matches = new Map<string, { orderId: string; mark: string; customer: string; bolBC: number | null;
-      carrierName: string; carrierCode: string; orderDate: string; orderStatus: string }>();
+      carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
+      driverName: string; driverPhone: string }>();
     const failedFields: string[] = [];
     let missingRevenueCode = false;
     for (const field of ["consignee_refno", "blnum"]) {
@@ -71,7 +72,8 @@ export async function GET(request: NextRequest) {
         matches.set(id, { orderId: id,
           mark: parsedMark && normalizeKey(parsedMark).includes(normalizeKey(mark)) ? parsedMark : ref || parsedMark || mark,
           customer: value(customer?.name || order.customer_name || order.customer_id).toUpperCase(),
-          bolBC: parsed ? Number(parsed[2]) : null, carrierName: "", carrierCode: "", orderDate: "", orderStatus: "" });
+          bolBC: parsed ? Number(parsed[2]) : null, carrierName: "", carrierCode: "", orderDate: "", orderStatus: "",
+          driverName: "", driverPhone: "" });
       }
     }
     if (failedFields.length === 2) throw new Error(`McLeod could not search this mark (${failedFields.join("; ")}). Try a longer mark or enter the customer and BOL count manually.`);
@@ -93,6 +95,8 @@ export async function GET(request: NextRequest) {
       match.carrierCode = value(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
       match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
         named(order.carrier) || named(order.vendor) || value(movement?.carrier_name || movement?.vendor_name || order.carrier_name);
+      match.driverName = value(movement?.override_driver_nm);
+      match.driverPhone = value(movement?.override_drvr_cell);
       if (!match.carrierName && match.carrierCode) {
         for (const path of ["carriers", "vendors"]) {
           try {

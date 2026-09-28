@@ -64,7 +64,8 @@ export async function GET(req: NextRequest) {
     const resultSets = await Promise.all(fields.map(async (searchField) => ({ field: searchField, results: await search(searchField) })));
     const matches = new Map<string, { orderId: string; customerId: string; customerName: string; value: string;
       materialType: "lumber" | "other" | null; destination: string; direction: string;
-      carrierName: string; carrierCode: string; orderDate: string; orderStatus: string }>();
+      carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
+      driverName: string; driverPhone: string }>();
     for (const set of resultSets) for (const item of set.results) {
       const order = item as Record<string, unknown>;
       const value = text(order[set.field]);
@@ -83,7 +84,7 @@ export async function GET(req: NextRequest) {
         customerName: text(customer?.name || order.customer_name || order.customer_id),
         materialType: /\bLUMBER\b|\bWOOD\b/.test(commodity) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodity) ? "other" : null,
         destination: text(location?.name || delivery?.location_name),
-        carrierName: "", carrierCode: "", orderDate: "", orderStatus: "",
+        carrierName: "", carrierCode: "", orderDate: "", orderStatus: "", driverName: "", driverPhone: "",
       });
     }
     if (matches.size > 20) throw new Error("Too many matching orders. Enter a longer reference number.");
@@ -116,6 +117,8 @@ export async function GET(req: NextRequest) {
       match.carrierCode = text(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
       match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
         named(order.carrier) || named(order.vendor) || text(movement?.carrier_name || movement?.vendor_name || order.carrier_name);
+      match.driverName = text(movement?.override_driver_nm);
+      match.driverPhone = text(movement?.override_drvr_cell);
       if (!match.carrierName && match.carrierCode) {
         for (const path of ["carriers", "vendors"]) {
           try {

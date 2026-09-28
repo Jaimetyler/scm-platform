@@ -60,7 +60,8 @@ type RowUiState = {
 };
 
 type CottonMatch = { orderId: string; mark: string; customer: string; bolBC: number | null;
-  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string };
+  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
+  driverName: string; driverPhone: string };
 function sameMark(a: string, b: string) {
   return a.toUpperCase().replace(/[^A-Z0-9]/g, "") === b.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
@@ -203,6 +204,11 @@ export default function SiteCheckinPage() {
   const [cottonSearching, setCottonSearching] = useState<Record<string, boolean>>({});
   const [cottonWarnings, setCottonWarnings] = useState<Record<string, string>>({});
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [newCheckin, setNewCheckin] = useState<CheckinRow | null>(null);
+  const [newMatches, setNewMatches] = useState<CottonMatch[]>([]);
+  const [newSearching, setNewSearching] = useState(false);
+  const [newError, setNewError] = useState("");
+  const [newSaving, setNewSaving] = useState(false);
   const lookupKeysRef = useRef<Record<string, string>>({});
   const lookupTimersRef = useRef<Record<string, number>>({});
 
@@ -289,6 +295,71 @@ export default function SiteCheckinPage() {
       equipment_type: site!.terminal === "SAV" ? "V" : null, verified: false,
       comment_1: null, comment_2: null, draft_status: "draft", processed_at: null,
     };
+  }
+
+  useEffect(() => {
+    if (!site || !newCheckin || newCheckin.matched_order_id) return;
+    const mark = (newCheckin.mark ?? "").trim().toUpperCase();
+    if (mark.length < 3) { setNewMatches([]); setNewSearching(false); return; }
+    let cancelled = false;
+    setNewSearching(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode,
+          mark, customer: newCheckin.shipper ?? "" });
+        const response = await fetch(`/api/inbound/checkin/cotton-match?${query}`, { cache: "no-store" });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "McLeod lookup failed");
+        if (cancelled) return;
+        const found = result.matches as CottonMatch[];
+        setNewMatches(found);
+        setNewError(result.incomplete ? result.warning || "McLeod search incomplete; verify manually." : "");
+        if (!result.incomplete && found.length === 1 && sameMark(mark, found[0].mark) &&
+            (!newCheckin.shipper || normalizeCustomerOption(newCheckin.shipper) === normalizeCustomerOption(found[0].customer))) {
+          const match = found[0];
+          setNewCheckin((current) => current && current.id === newCheckin.id && current.mark === newCheckin.mark
+            ? { ...current, shipper: current.shipper || match.customer,
+              driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone,
+              bol_bc: current.bol_bc || match.bolBC, matched_order_id: match.orderId } : current);
+        }
+      } catch (error) {
+        if (!cancelled) setNewError(error instanceof Error ? error.message : "McLeod lookup failed");
+      } finally {
+        if (!cancelled) setNewSearching(false);
+      }
+    }, 650);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id]);
+
+  async function saveNewCheckin() {
+    if (!site || !newCheckin || newSaving) return;
+    if (!newCheckin.mark?.trim() || !newCheckin.shipper?.trim() || !newCheckin.bol_bc) {
+      setNewError("Enter the mark, customer, and BOL bale count.");
+      return;
+    }
+    setNewSaving(true);
+    setNewError("");
+    try {
+      const response = await fetch("/api/inbound/checkin/rows", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: newCheckin.id.slice(6), terminal: site.terminal, siteCode: site.siteCode, siteName: site.siteName,
+          subLocation: newCheckin.sub_location, receivedDate: newCheckin.received_date,
+          mark: newCheckin.mark, shipper: newCheckin.shipper, bolBC: newCheckin.bol_bc,
+          equipmentType: newCheckin.equipment_type, comment1: newCheckin.comment_1,
+          driverName: newCheckin.driver_name, driverPhone: newCheckin.driver_phone,
+          matchedOrderId: newCheckin.matched_order_id,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
+      setRows((current) => orderCheckinRows([...current.filter((row) => row.id !== result.row.id), result.row]));
+      setNewCheckin(null);
+      setNewMatches([]);
+      void loadRows();
+    } catch (error) {
+      setNewError(error instanceof Error ? error.message : "Check-in failed");
+    } finally { setNewSaving(false); }
   }
 
   function makeCellKey(rowIndex: number, column: ColumnKey) {
@@ -424,8 +495,7 @@ export default function SiteCheckinPage() {
           (editSnapshotsRef.current[row.id] || row.id === focusedId || saveTimersRef.current[row.id] ||
             rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error")
         ).map((row) => [row.id, row]));
-        return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending,
-          ...(changedDay && !viewCarryover ? Array.from({ length: 3 }, () => blankRow()) : [])]);
+        return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending]);
       });
 
       const nextUi: Record<string, RowUiState> = {};
@@ -443,7 +513,7 @@ export default function SiteCheckinPage() {
   useEffect(() => {
     editSnapshotsRef.current = {};
     setEditingProcessedIds(new Set());
-    setRows(site && !viewCarryover ? Array.from({ length: 3 }, () => blankRow()) : []);
+    setRows([]);
     setRowUi({});
     void loadRows(true);
     const interval = window.setInterval(() => {
@@ -616,12 +686,6 @@ export default function SiteCheckinPage() {
     setCottonMatches((current) => ({ ...current, [id]: [match] }));
   }
 
-  function addRows(count: number) {
-    if (!site) return;
-    const newRows: CheckinRow[] = Array.from({ length: count }, () => blankRow());
-    setRows((prev) => [...prev, ...newRows]);
-  }
-
   async function checkIn(row: CheckinRow) {
     if (!site || !row.id.startsWith("local-") || createInFlightRef.current.has(row.id)) return;
     createInFlightRef.current.add(row.id);
@@ -652,11 +716,10 @@ export default function SiteCheckinPage() {
         last_saved_at: data.row.last_saved_at,
         draft_status: data.row.draft_status, processed_at: data.row.processed_at,
       } as CheckinRow;
-      const newBlank = blankRow();
       editRevisionRef.current[data.row.id] = editRevisionRef.current[row.id] ?? 0;
       delete editRevisionRef.current[row.id];
-      rowsRef.current = orderCheckinRows([...rowsRef.current.map((item) => item.id === row.id ? saved : item), newBlank]);
-      setRows((prev) => orderCheckinRows([...prev.map((item) => item.id === row.id ? saved : item), newBlank]));
+      rowsRef.current = orderCheckinRows(rowsRef.current.map((item) => item.id === row.id ? saved : item));
+      setRows((prev) => orderCheckinRows(prev.map((item) => item.id === row.id ? saved : item)));
       setRowUi((prev) => {
         const next = { ...prev };
         delete next[row.id];
@@ -919,7 +982,9 @@ export default function SiteCheckinPage() {
               {viewCarryover ? "Today" : `Earlier (${carryover.count})`}
             </button>
             <button type="button" style={toolbarButtonStyle} onClick={() => void handleCopyTable()}>Copy table</button>
-            {!viewCarryover && <button type="button" style={toolbarPrimaryStyle} onClick={() => addRows(5)}>+ 5 rows</button>}
+            {!viewCarryover && <button type="button" style={toolbarPrimaryStyle} onClick={() => {
+              setNewError(""); setNewMatches([]); setNewCheckin(blankRow());
+            }}>+ New check-in</button>}
           </div>
         </div>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
@@ -1236,6 +1301,7 @@ export default function SiteCheckinPage() {
                     <td colSpan={10} style={detailsCellStyle}>
                       <div style={detailsContentStyle}>
                         {row.checked_in_at && <span>Arrived {formatArrivalTime(row)} · {row.received_date}</span>}
+                        {row.driver_name && <span>Driver: {row.driver_name}{row.driver_phone ? ` · ${row.driver_phone}` : ""}</span>}
                         {row.identity_corrected_at && <span>Identity corrected</span>}
                         {row.checkin_source === "driver_qr" && <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer" style={detailLinkStyle}>
                           QR driver details · {row.movement_direction ?? "delivery"}
@@ -1277,7 +1343,7 @@ export default function SiteCheckinPage() {
                   <td colSpan={10} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
-                      : viewCarryover ? "No earlier cotton check-ins need review." : "No check-ins yet. Add a blank line to check in a driver."}
+                      : viewCarryover ? "No earlier cotton check-ins need review." : "No cotton check-ins yet. Use New check-in to add a truck."}
                   </td>
                 </tr>
               ) : null}
@@ -1291,6 +1357,77 @@ export default function SiteCheckinPage() {
           </datalist>
         </div>
       </PlatformPanel>
+      {newCheckin && <div style={modalBackdropStyle} onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !newSaving) setNewCheckin(null);
+      }}>
+        <form role="dialog" aria-modal="true" aria-labelledby="new-cotton-title" style={modalCardStyle}
+          onKeyDown={(event) => { if (event.key === "Escape" && !newSaving) { event.preventDefault(); setNewCheckin(null); } }}
+          onSubmit={(event) => { event.preventDefault(); void saveNewCheckin(); }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 20 }}>
+            <div><h2 id="new-cotton-title" style={{ margin: 0, fontSize: 22 }}>New cotton check-in</h2>
+              <p style={{ margin: "5px 0 0", color: "#94a3b8", fontSize: 13 }}>Enter the mark to find the SCM order. Confirm the BOL bale count.</p></div>
+            <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Close</button>
+          </div>
+          {newError && <p role="alert" style={{ color: "#fca5a5" }}>{newError}</p>}
+          <div style={modalGridStyle}>
+            <label style={{ ...modalLabelStyle, gridColumn: "1 / -1" }}>Mark *
+              <input autoFocus required style={modalInputStyle} value={newCheckin.mark ?? ""} onChange={(event) => {
+                setNewError(""); setNewMatches([]);
+                setNewCheckin((current) => current && { ...current, mark: event.target.value.toUpperCase(), matched_order_id: null });
+              }} placeholder="Mark on the BOL" /></label>
+            <div style={{ gridColumn: "1 / -1", color: "#93c5fd", fontSize: 13 }} aria-live="polite">
+              {newSearching ? "Searching McLeod…" : newCheckin.matched_order_id ? `SCM order #${newCheckin.matched_order_id} found` :
+                newMatches.length === 0 && (newCheckin.mark?.length ?? 0) >= 3 && !newError ? "No recent SCM order found. Enter the details below." : null}
+              {!newCheckin.matched_order_id && newMatches.length > 0 && <div style={{ display: "grid", gap: 7, marginTop: 8 }}>
+                {newMatches.map((match) => <button type="button" key={match.orderId} style={{ ...toolbarButtonStyle, textAlign: "left" }}
+                  onClick={() => { setNewCheckin((current) => current && { ...current, mark: match.mark,
+                    shipper: match.customer, bol_bc: match.bolBC || current.bol_bc, matched_order_id: match.orderId,
+                    driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone });
+                    setNewError(""); }}>
+                  <strong>#{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C</strong>
+                  <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                    {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
+                </button>)}
+              </div>}
+            </div>
+            <label style={modalLabelStyle}>Customer *
+              <input required list="customer-list" style={modalInputStyle} value={newCheckin.shipper ?? ""} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, shipper: event.target.value.toUpperCase(), matched_order_id: null })} placeholder="Customer" /></label>
+            <label style={modalLabelStyle}>BOL bale count *
+              <input required inputMode="numeric" pattern="[0-9]*" style={modalInputStyle} value={newCheckin.bol_bc ?? ""} onChange={(event) => {
+                const digits = event.target.value.replace(/\D/g, "");
+                setNewCheckin((current) => current && { ...current, bol_bc: digits ? Number(digits) : null,
+                  matched_order_id: current.matched_order_id && newMatches.find((match) => match.orderId === current.matched_order_id)?.bolBC &&
+                    Number(digits) !== newMatches.find((match) => match.orderId === current.matched_order_id)?.bolBC
+                    ? null : current.matched_order_id });
+              }} placeholder="Bales on BOL" /></label>
+            <label style={modalLabelStyle}>Driver name
+              <input style={modalInputStyle} value={newCheckin.driver_name ?? ""} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, driver_name: event.target.value })} placeholder="Confirm driver name" /></label>
+            <label style={modalLabelStyle}>Driver phone
+              <input type="tel" style={modalInputStyle} value={newCheckin.driver_phone ?? ""} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, driver_phone: event.target.value })} placeholder="Confirm phone number" /></label>
+            <label style={modalLabelStyle}>Equipment
+              <select style={modalInputStyle} value={newCheckin.equipment_type ?? ""} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, equipment_type: event.target.value as "V" | "F" || null })}>
+                <option value="">Select</option><option value="V">Van</option><option value="F">Flatbed</option>
+              </select></label>
+            <label style={modalLabelStyle}>Sub-location
+              <select style={modalInputStyle} value={newCheckin.sub_location} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, sub_location: event.target.value })}>
+                {site.subLocations.map((location) => <option key={location} value={location}>{location}</option>)}
+              </select></label>
+            <label style={{ ...modalLabelStyle, gridColumn: "1 / -1" }}>Comment
+              <input style={modalInputStyle} value={newCheckin.comment_1 ?? ""} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, comment_1: event.target.value })} placeholder="Optional note" /></label>
+          </div>
+          <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>Unloaded bales and final warehouse location can be confirmed on the grid after arrival.</p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Cancel</button>
+            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || newSearching}>{newSaving ? "Checking in…" : "Check in truck"}</button>
+          </div>
+        </form>
+      </div>}
     </main>
   );
 }
@@ -1338,6 +1475,11 @@ const toolbarPrimaryStyle: React.CSSProperties = {
   ...toolbarButtonStyle, background: "#4338ca", borderColor: "#6366f1", color: "#fff",
 };
 const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 8 };
+const modalBackdropStyle: React.CSSProperties = { position: "fixed", inset: 0, zIndex: 100, background: "rgba(2,6,23,.78)", display: "grid", placeItems: "center", padding: 16 };
+const modalCardStyle: React.CSSProperties = { width: "min(100%, 620px)", maxHeight: "90vh", overflowY: "auto", padding: 24, borderRadius: 14, border: "1px solid #475569", background: "#111c30", boxShadow: "0 24px 70px rgba(0,0,0,.55)", color: "#f8fafc" };
+const modalGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
+const modalLabelStyle: React.CSSProperties = { display: "grid", gap: 6, minWidth: 0, color: "#cbd5e1", fontSize: 13, fontWeight: 700 };
+const modalInputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", height: 40, border: "1px solid #475569", borderRadius: 6, background: "#0b1425", color: "#f8fafc", padding: "8px 10px", fontSize: 13 };
 function formatOrderDate(value: string) {
   const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
   return match ? `${match[2]}/${match[3]}/${match[1]}` : value || "Date unavailable";

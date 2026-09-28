@@ -23,7 +23,8 @@ type Row = {
 };
 type Match = { orderId: string; customerId: string; customerName: string; value: string;
   materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery";
-  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string };
+  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
+  driverName: string; driverPhone: string };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
   referenceNumber: string; customer: string; driverName: string; driverPhone: string;
   destination: string; notes: string; orderId: string };
@@ -129,6 +130,7 @@ export default function DomesticQueuePage() {
                 ...item, movementDirection: match.direction, referenceNumber: match.value,
                 customer: match.customerName || match.customerId || item.customer, orderId: match.orderId,
                 materialType: match.materialType || item.materialType,
+                driverName: item.driverName || match.driverName, driverPhone: item.driverPhone || match.driverPhone,
                 destination: match.direction === "pickup" ? match.destination || item.destination : item.destination,
               } : item));
           }
@@ -240,6 +242,7 @@ export default function DomesticQueuePage() {
       ...row, movementDirection: match.direction, referenceNumber: match.value, orderId: match.orderId,
       customer: match.customerName || match.customerId || row.customer,
       materialType: match.materialType || row.materialType,
+      driverName: row.driverName || match.driverName, driverPhone: row.driverPhone || match.driverPhone,
       destination: match.direction === "pickup" ? match.destination || row.destination : row.destination,
     } : row));
   }
