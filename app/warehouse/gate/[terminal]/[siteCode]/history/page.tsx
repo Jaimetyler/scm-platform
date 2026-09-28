@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
+import "@/components/warehouse/domestic-tables.css";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Row = {
@@ -73,7 +74,7 @@ export default function DomesticHistoryPage() {
       actions={<Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={button}>Domestic Line</Link>} />
     <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="history" />
     <PlatformPanel>
-      <form onSubmit={apply} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
+      <form onSubmit={apply} style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, background: "rgba(30,41,59,.36)", border: "1px solid rgba(148,163,184,.12)", flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
         <label style={label}>Search driver, reference, mark, customer, or McLeod ID
           <input value={search} onChange={(event) => setSearch(event.target.value)} style={input} /></label>
         <label style={label}>From arrival date<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} style={input} /></label>
@@ -86,16 +87,15 @@ export default function DomesticHistoryPage() {
       </form>
       {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
       {loading ? <p>Loading history…</p> : rows.length === 0 ? <p>No matching check-ins.</p> :
-        <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse", color: "#e2e8f0" }}>
-          <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver", "Reference / mark", "Customer", "McLeod order", "McLeod processing", "Source"].map((name) =>
+        <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse", color: "#e2e8f0" }}>
+          <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver / source", "Reference / mark", "Customer", "SCM order / processing"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{rows.map((row) => <tr key={row.id}>
             <td style={cell}>{time(row.checked_in_at)}</td><td style={cell}>{time(row.yard_completed_at)}</td>
-            <td style={cell}>{row.yard_status}</td><td style={cell}>{row.material_type}</td>
-            <td style={cell}>{row.movement_direction || "—"}</td><td style={cell}>{row.driver_name || "Staff entry"}</td>
+            <td style={cell}><span style={statusStyle(row.yard_status)}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}</span></td><td style={cell}>{row.material_type}</td>
+            <td style={cell}>{row.movement_direction || "—"}</td><td style={cell}>{row.driver_name || "Staff entry"}<span className="row-secondary">{row.checkin_source === "driver_qr" ? "Driver QR" : "Staff"}</span></td>
             <td style={cell}>{row.reference_number || row.mark || "—"}</td><td style={cell}>{row.shipper || "—"}</td>
-            <td style={cell}>{row.matched_order_id || "—"}</td><td style={cell}>{row.draft_status}</td>
-            <td style={cell}>{row.checkin_source || "—"}</td>
+            <td style={cell}>{row.matched_order_id ? <>#{row.matched_order_id}<span className="row-secondary">{row.draft_status === "processed" ? "Processed in McLeod" : "Checked in"}</span></> : "—"}</td>
           </tr>)}</tbody>
         </table></div>}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 16 }}>
@@ -107,9 +107,10 @@ export default function DomesticHistoryPage() {
   </main>;
 }
 
+const statusStyle = (status: string): React.CSSProperties => ({ display: "inline-block", padding: "4px 8px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: status === "cancelled" ? "rgba(148,163,184,.13)" : "rgba(34,197,94,.12)", color: status === "cancelled" ? "#cbd5e1" : "#86efac" });
 const button: React.CSSProperties = { padding: "9px 12px", border: "1px solid #475569", background: "#0f172a", color: "#e2e8f0", borderRadius: 7, textDecoration: "none", cursor: "pointer" };
 const primary: React.CSSProperties = { ...button, background: "#0e7490", borderColor: "#0e7490", color: "white" };
 const label: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#cbd5e1" };
 const input: React.CSSProperties = { padding: "9px", border: "1px solid #475569", background: "#0b1220", color: "white", borderRadius: 6 };
-const heading: React.CSSProperties = { padding: "10px 8px", textAlign: "left", borderBottom: "2px solid #475569", whiteSpace: "nowrap" };
-const cell: React.CSSProperties = { padding: "10px 8px", borderBottom: "1px solid #334155", verticalAlign: "top" };
+const heading: React.CSSProperties = { padding: "12px 10px", textAlign: "left", borderBottom: "1px solid #475569", whiteSpace: "nowrap", color: "#a8b8cc", fontSize: 12 };
+const cell: React.CSSProperties = { padding: "14px 10px", borderBottom: "1px solid #334155", verticalAlign: "middle" };

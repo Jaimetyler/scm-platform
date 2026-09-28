@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
+import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
@@ -111,7 +112,7 @@ export default function DomesticLinePage() {
         <button style={button} onClick={() => void load()}>Refresh</button>
       </div>
       {loading ? <p>Loading arrivals…</p> : active.length === 0 ? <p>No active domestic arrivals.</p> :
-        <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 850, borderCollapse: "collapse", color: "#e2e8f0" }}>
+        <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 850, borderCollapse: "collapse", color: "#e2e8f0" }}>
           <thead><tr>{["#", "Arrived", "Freight", "Move", "Driver", "Reference / mark", "Customer", "SCM / order", "Yard status", "Action"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{active.map((row, index) => <Fragment key={row.id}><tr style={{ background: row.id === nextWaitingId ? "rgba(34,211,238,.12)" : undefined }}>

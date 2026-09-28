@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
+import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
@@ -288,7 +289,7 @@ export default function DomesticQueuePage() {
       </div>
       {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0", fontSize: 12 }}>
+          <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0" }}>
             <colgroup>{[5, 8, 7, 7, 20, 15, 12, 10, 8, 8].map((width, index) =>
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Driver", "Destination", "Notes", "Status / action"].map((label) =>
@@ -399,9 +400,9 @@ const button: React.CSSProperties = { padding: "8px 11px", borderRadius: 7, bord
 const primary: React.CSSProperties = { ...button, background: "#4338ca", borderColor: "#6366f1", color: "#fff" };
 const danger: React.CSSProperties = { ...button, color: "#fecaca", borderColor: "#7f1d1d" };
 const muted: React.CSSProperties = { color: "#94a3b8", fontSize: 11, marginTop: 4 };
-const heading: React.CSSProperties = { padding: "6px 5px", textAlign: "left", borderBottom: "1px solid rgba(148,163,184,.16)", whiteSpace: "nowrap", color: "#94a3b8", fontSize: 11, background: "rgba(15,23,42,.96)" };
-const cell: React.CSSProperties = { padding: "7px 5px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "middle" };
-const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 30, boxSizing: "border-box", padding: "4px 6px", border: "1px solid rgba(148,163,184,.18)", borderRadius: 6, background: "rgba(15,23,42,.82)", color: "#e2e8f0", fontSize: 12 };
+const heading: React.CSSProperties = { padding: "10px 6px", textAlign: "left", borderBottom: "1px solid rgba(148,163,184,.16)", whiteSpace: "nowrap", color: "#a8b8cc", fontSize: 12, background: "rgba(15,23,42,.96)" };
+const cell: React.CSSProperties = { padding: "10px 6px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "middle" };
+const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 34, boxSizing: "border-box", padding: "4px 6px", border: "1px solid rgba(148,163,184,.18)", borderRadius: 6, background: "rgba(15,23,42,.82)", color: "#e2e8f0", fontSize: 13 };
 const utilityLink: React.CSSProperties = { color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700 };
 const inlineButton: React.CSSProperties = { ...button, padding: "3px 7px", fontSize: 11 };
 const singleLine: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };

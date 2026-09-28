@@ -1,0 +1,43 @@
+.domestic-table {
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.domestic-table tbody tr:not(.domestic-details):hover {
+  background: rgba(51, 65, 85, .32) !important;
+}
+
+.domestic-table tbody tr:not(.domestic-details):hover td:first-child {
+  box-shadow: inset 3px 0 #22d3ee;
+}
+
+.domestic-table input:disabled,
+.domestic-table select:disabled,
+.domestic-table textarea:disabled {
+  opacity: 1;
+  border-color: transparent !important;
+  background: transparent !important;
+  color: #e2e8f0 !important;
+  -webkit-text-fill-color: #e2e8f0;
+}
+
+.domestic-table input:focus-visible,
+.domestic-table select:focus-visible,
+.domestic-table textarea:focus-visible,
+.domestic-table button:focus-visible {
+  outline: 2px solid #22d3ee;
+  outline-offset: 2px;
+}
+
+.domestic-table input:not(:disabled):hover,
+.domestic-table select:not(:disabled):hover,
+.domestic-table textarea:not(:disabled):hover {
+  border-color: #64748b !important;
+}
+
+.domestic-table .row-secondary {
+  display: block;
+  color: #94a3b8;
+  font-size: 11px;
+  margin-top: 3px;
+}

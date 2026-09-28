@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
+import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
@@ -921,7 +922,7 @@ export default function SiteCheckinPage() {
           </div>
         </div>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
               {[5, 11, 12, 15, 12, 7, 8, 10, 10, 10].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
@@ -1297,7 +1298,7 @@ const rowNumberHeaderStyle: React.CSSProperties = {
   textAlign: "center",
   padding: "6px 3px",
   color: "#94a3b8",
-  fontSize: 11,
+  fontSize: 12,
   whiteSpace: "nowrap",
   borderBottom: "1px solid rgba(148,163,184,0.16)",
   background: "rgba(15,23,42,0.96)",
@@ -1333,8 +1334,8 @@ const toolbarButtonStyle: React.CSSProperties = {
 const toolbarPrimaryStyle: React.CSSProperties = {
   ...toolbarButtonStyle, background: "#4338ca", borderColor: "#6366f1", color: "#fff",
 };
-const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 5 };
-const baleHeaderStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 5 };
+const baleFieldsStyle: React.CSSProperties = { display: "flex", gap: 8 };
+const baleHeaderStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8 };
 const rowActionStatusStyle: React.CSSProperties = { display: "grid", gap: 5 };
 const rowStatusStyle: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", fontSize: 11,
@@ -1375,9 +1376,9 @@ const orderNumberStyle: React.CSSProperties = {
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  padding: "6px 5px",
+  padding: "10px 6px",
   color: "#94a3b8",
-  fontSize: 11,
+  fontSize: 12,
   whiteSpace: "nowrap",
   borderBottom: "1px solid rgba(148,163,184,0.16)",
   background: "rgba(15,23,42,0.96)",
@@ -1387,7 +1388,7 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "7px 5px",
+  padding: "10px 6px",
   borderBottom: "1px solid rgba(148,163,184,0.08)",
   verticalAlign: "middle",
   color: "#e5e7eb",
@@ -1396,7 +1397,7 @@ const tdStyle: React.CSSProperties = {
 const cellInputStyle: React.CSSProperties = {
   width: "100%",
   minWidth: 0,
-  height: 30,
+  height: 34,
   boxSizing: "border-box",
   padding: "4px 6px",
   borderRadius: 6,
