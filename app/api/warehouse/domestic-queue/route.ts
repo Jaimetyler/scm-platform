@@ -41,12 +41,13 @@ export async function GET(req: NextRequest) {
     const siteCode = String(searchParams.get("siteCode") ?? "");
     if (!siteExists(terminal, siteCode)) return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
 
+    const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
       .select("id,updated_at,checked_in_at,driver_name,driver_phone,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,comment_1,mark,bol_bc,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
       .eq("terminal", terminal).eq("site_code", siteCode)
-      .in("material_type", ["lumber", "other"])
+      .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
-      .order("checked_in_at", { ascending: false }).limit(200);
+      .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
     if (error) throw error;
     return NextResponse.json({ ok: true, rows: (data ?? []).map(({ bol_photo_path, ...row }) => ({ ...row, has_bol_photo: Boolean(bol_photo_path) })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -167,7 +168,7 @@ export async function PATCH(req: NextRequest) {
     const { data, error } = await database().from("inbound_checkin_rows")
       .update({ yard_status: to, [TIMESTAMP[to]]: now, yard_updated_by: user(req) })
       .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
-      .in("material_type", ["lumber", "other"]).eq("yard_status", from)
+      .in("material_type", ["cotton", "lumber", "other"]).eq("yard_status", from)
       .select("id,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at").maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the queue." }, { status: 409 });

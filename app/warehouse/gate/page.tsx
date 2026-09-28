@@ -161,6 +161,7 @@ function GateCard({ site, onSaved }: { site: GateSite; onSaved: (site: GateSite)
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 9, marginTop: 18 }}>
         <Link href={`/warehouse/gate/${site.terminal.toLowerCase()}/${site.site_code}/containers`} style={primaryButtonStyle}>View container line</Link>
+        <Link href={`/warehouse/gate/${site.terminal.toLowerCase()}/${site.site_code}/line`} style={primaryButtonStyle}>Domestic line</Link>
         <Link href={`/warehouse/gate/${site.terminal.toLowerCase()}/${site.site_code}/domestic`} style={primaryButtonStyle}>Lumber & Other check-in</Link>
         <button type="button" onClick={useCurrentLocation} style={secondaryButtonStyle}>Use my current location</button>
         <button type="button" onClick={() => void save()} disabled={saving} style={primaryButtonStyle}>{saving ? "Saving…" : "Save settings"}</button>

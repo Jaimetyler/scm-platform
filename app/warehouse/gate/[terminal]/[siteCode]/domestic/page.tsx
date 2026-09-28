@@ -178,6 +178,7 @@ export default function DomesticQueuePage() {
       actions={<><Link href="/inbound/checkin" style={button}>All check-in sites</Link>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={button}>Container line</Link></>} />
     <nav aria-label="Freight type" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={button}>Domestic Line</Link>
       <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={button}>Cotton</Link>
       <span aria-current="page" style={primary}>Lumber & Other</span>
     </nav>

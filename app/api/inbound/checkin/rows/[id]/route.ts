@@ -203,6 +203,7 @@ export async function PATCH(
       comment_2: merged.comment_2,
       draft_status,
       checked_in_at,
+      yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
       verified_at,
       identity_corrected_at: identityCorrected ? new Date().toISOString() : existing.identity_corrected_at,
       processing_error: null,

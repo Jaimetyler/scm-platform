@@ -188,6 +188,7 @@ export async function POST(req: NextRequest) {
       draft_status: "checked_in" as const,
       processed_at: null,
       checked_in_at: positiveInteger(body?.bolBC) ? new Date().toISOString() : null,
+      yard_status: positiveInteger(body?.bolBC) ? "waiting" : null,
     };
 
     const { data, error } = await sb

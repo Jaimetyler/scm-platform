@@ -824,6 +824,7 @@ export default function SiteCheckinPage() {
       />
 
       <nav aria-label="Freight type" style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={linkButtonStyle}>Domestic Line</Link>
         <span aria-current="page" style={primaryButtonStyle}>Cotton</span>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={linkButtonStyle}>Lumber & Other</Link>
       </nav>
