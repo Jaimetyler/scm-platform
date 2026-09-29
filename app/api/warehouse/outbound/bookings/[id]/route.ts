@@ -22,6 +22,10 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       .select("source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse")
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
+    const { data: containers, error: containerError } = await sb.from("cotton_outbound_containers")
+      .select("id,sequence_no,container_number,seal_number,chassis_number,notes,updated_at")
+      .eq("booking_id", id).order("sequence_no");
+    if (containerError) throw containerError;
     const marks = [...new Set((lines ?? []).map((line) => line.mark))];
     const { data: lots, error: inventoryError } = await sb.from("warehouse_inventory_lots")
       .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,customer")
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }
     const requestedByMark = new Map<string, number>();
     for (const line of lines ?? []) requestedByMark.set(line.mark, (requestedByMark.get(line.mark) ?? 0) + line.requested_bales);
-    return NextResponse.json({ ok: true, booking, lines: (lines ?? []).map((line) => ({ ...line,
+    return NextResponse.json({ ok: true, booking, containers: containers ?? [], lines: (lines ?? []).map((line) => ({ ...line,
       mark_requested_total: requestedByMark.get(line.mark) ?? line.requested_bales,
       available_bales: inventory.get(line.mark)?.available ?? 0,
       inventory_locations: [...(inventory.get(line.mark)?.locations ?? [])],
