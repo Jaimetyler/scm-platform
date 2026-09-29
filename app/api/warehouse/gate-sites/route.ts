@@ -32,8 +32,8 @@ export async function PUT(req: NextRequest) {
     const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode);
     if (!site) return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
 
-    const latitude = Number(body?.latitude);
-    const longitude = Number(body?.longitude);
+    const latitude = body?.latitude === null || body?.latitude === "" ? NaN : Number(body?.latitude);
+    const longitude = body?.longitude === null || body?.longitude === "" ? NaN : Number(body?.longitude);
     const radiusM = Number(body?.radiusM);
     const active = body?.active === true;
     if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {

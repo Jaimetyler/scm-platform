@@ -102,7 +102,8 @@ function GateCard({ site, onSaved }: { site: GateSite; onSaved: (site: GateSite)
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           terminal: site.terminal, siteCode: site.site_code,
-          latitude: Number(latitude), longitude: Number(longitude),
+          latitude: latitude.trim() ? Number(latitude) : null,
+          longitude: longitude.trim() ? Number(longitude) : null,
           radiusM: Number(radius), active, rotateToken,
         }),
       });

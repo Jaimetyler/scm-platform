@@ -44,6 +44,13 @@ export const CHECKIN_SITES: CheckinSite[] = [
     siteName: "Houston - 5300",
     subLocations: ["MAIN"],
   },
+  {
+    terminal: "HOU",
+    terminalSlug: "hou",
+    siteCode: "4331",
+    siteName: "Houston - 4331",
+    subLocations: ["MAIN"],
+  },
 ];
 
 export function getCheckinSite(
