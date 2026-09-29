@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
     const pageSize = 100;
 
-    const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode);
+    const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode && item.materials.includes("cotton"));
     if (!site) {
       return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
     }

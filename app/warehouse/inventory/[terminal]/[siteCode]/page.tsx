@@ -143,7 +143,7 @@ export default function WarehouseInventoryPage() {
     }
   }
 
-  if (!site) {
+  if (!site || !site.materials.includes("cotton")) {
     return <main><PlatformPageHeader title="Inventory Site Not Found"
       actions={<Link href="/warehouse/inventory" style={buttonStyle}>Back to Inventory</Link>} /></main>;
   }

@@ -21,14 +21,11 @@ export default function InventorySiteSelector() {
             {terminal === "SAV" ? "SAVANNAH" : "HOUSTON"}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 360px))", gap: 14 }}>
-            {CHECKIN_SITES.filter((site) => site.terminal === terminal).map((site) => (
+            {CHECKIN_SITES.filter((site) => site.terminal === terminal && site.materials.includes("cotton")).map((site) => (
               <Link key={site.siteCode}
                 href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`}
                 style={siteCardStyle}>
                 <div style={{ color: "#f8fafc", fontSize: 21, fontWeight: 900 }}>{site.siteName}</div>
-                <div style={{ color: "#94a3b8", marginTop: 8, fontSize: 13 }}>
-                  Sub-locations: {site.subLocations.join(", ")}
-                </div>
               </Link>
             ))}
           </div>

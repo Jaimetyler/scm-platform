@@ -1,3 +1,4 @@
+import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
@@ -173,6 +174,9 @@ export async function POST(req: NextRequest) {
         { ok: false, error: "terminal, siteCode, and siteName are required" },
         { status: 400 }
       );
+    }
+    if (!CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === site_code && site.materials.includes("cotton"))) {
+      return NextResponse.json({ ok: false, error: "Cotton check-in is unavailable at this site" }, { status: 400 });
     }
     if (!mark || !shipper) {
       return NextResponse.json(

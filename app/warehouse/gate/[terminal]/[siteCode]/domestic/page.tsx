@@ -271,7 +271,7 @@ export default function DomesticQueuePage() {
     finally { setWorking(""); }
   }
 
-  if (!site) return <main><PlatformPageHeader title="Domestic Queue Not Found" /></main>;
+  if (!site || !site.materials.includes("lumber")) return <main><PlatformPageHeader title="Domestic Queue Not Found" /></main>;
   const active = rows.filter((row): row is Row & { yard_status: Status } => row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working").reverse();
   const recent = rows.filter((row) => !active.some((item) => item.id === row.id));
   const counts = Object.keys(LABEL).map((status) => `${active.filter((row) => row.yard_status === status).length} ${LABEL[status as Status].toLowerCase()}`);
@@ -281,8 +281,8 @@ export default function DomesticQueuePage() {
       actions={<div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Link href="/inbound/checkin" style={utilityLink}>All sites</Link>
         <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={utilityLink}>Domestic history</Link>
-        <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLink}>Inventory</Link>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLink}>Containers</Link>
+        {site.materials.includes("cotton") && <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLink}>Inventory</Link>}
+        {site.containers && <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLink}>Containers</Link>}
       </div>} />
     <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="domestic" />
     {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}

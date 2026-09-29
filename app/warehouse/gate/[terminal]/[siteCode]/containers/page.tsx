@@ -60,7 +60,7 @@ export default function ContainerLinePage() {
     }
   }
 
-  if (!site) return <main><PlatformPageHeader title="Container Line Not Found" /></main>;
+  if (!site || !site.containers) return <main><PlatformPageHeader title="Container Line Not Found" /></main>;
 
   return <main style={{ maxWidth: 1100, margin: "0 auto" }}>
     <PlatformPageHeader

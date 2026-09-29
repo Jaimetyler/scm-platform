@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const customerId = CUSTOMER_XREF.find((row) => row.active &&
       [row.alias, row.canonicalCustomer, row.customerName, row.customerId]
         .some((candidate) => normalizeKey(candidate) === normalizeKey(shipper)))?.customerId;
-    if (!CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode))
+    if (!CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton")))
       return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
     if (mark.length < 3 || mark.length > 80 || normalizeKey(mark).length < 3)
       return NextResponse.json({ ok: false, error: "Enter at least three mark characters" }, { status: 400 });

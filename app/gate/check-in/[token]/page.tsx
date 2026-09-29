@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
-type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string };
+type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string; materials: string[]; containers: boolean };
 type ReferenceMatch = { orderId: string; carrierName: string };
 
 type FormState = {
@@ -317,7 +317,7 @@ export default function DriverCheckinPage() {
         {error ? <div ref={errorRef} role="alert" style={errorBoxStyle}>{error}</div> : null}
 
         <div style={choiceGridStyle}>
-          <Choice selected={form.checkinType === "container"} title="Container / Drayage" detail="Join the driver line" onClick={() => change("checkinType", "container")} />
+          {site?.containers && <Choice selected={form.checkinType === "container"} title="Container / Drayage" detail="Join the driver line" onClick={() => change("checkinType", "container")} />}
           <Choice selected={form.checkinType === "domestic"} title="Domestic Freight" detail="Pickup or delivery" onClick={() => change("checkinType", "domestic")} />
         </div>
 
@@ -367,9 +367,9 @@ export default function DriverCheckinPage() {
           <label style={labelStyle}>Material *
             <select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
               <option value="">Select</option>
-              <option value="cotton">Cotton</option>
-              <option value="lumber">Lumber</option>
-              <option value="other">Other / FAK</option>
+              {site?.materials.includes("cotton") && <option value="cotton">Cotton</option>}
+              {site?.materials.includes("lumber") && <option value="lumber">Lumber</option>}
+              {site?.materials.includes("other") && <option value="other">Other / FAK</option>}
             </select>
             {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>Order commodity: {orderCommodity || "not listed"}. Confirm the material matches your paperwork.</small>}
           </label>

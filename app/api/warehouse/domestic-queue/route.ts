@@ -92,13 +92,15 @@ export async function POST(req: NextRequest) {
     let destination = String(body?.destination ?? "").trim().toUpperCase();
     const location = String(body?.warehouseLocation ?? "").trim().toUpperCase();
     const notes = String(body?.notes ?? "").trim();
-    if (!site || !["pickup", "delivery"].includes(direction) || !["lumber", "other"].includes(material) ||
+    if (!site || !site.materials.includes(material as "cotton" | "lumber" | "other") || !["pickup", "delivery"].includes(direction) || !["lumber", "other"].includes(material) ||
         (!reference && !orderId) || reference.length > 200 || customer.length > 200 || driverName.length > 120 ||
         driverPhone.length > 40 || truckingCompany.length > 200 || destination.length > 200 || location.length > 120 || notes.length > 500) {
       return NextResponse.json({ ok: false, error: "Enter a valid site, move, material, and reference" }, { status: 400 });
     }
     if (orderId) {
       const order = await lookupMcleodOrderById(orderId, direction);
+      const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName);
+      if (yardOrder.direction !== direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
       if (order.actualDeparture) {
         return NextResponse.json({ ok: false, error: "This SCM order has already left its pickup or delivery stop in McLeod." }, { status: 409 });
       }
@@ -266,6 +268,9 @@ export async function PATCH(req: NextRequest) {
       if (body.action === "match_order") {
         orderId = String(body.orderId ?? "").trim();
         const order = await lookupMcleodOrderById(orderId, existing.movement_direction);
+        const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
+        const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName);
+        if (yardOrder.direction !== existing.movement_direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
         if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
         const reference = String(existing.reference_number ?? "").trim().toUpperCase();
         if (!reference || !order.reference.includes(reference)) {
@@ -275,9 +280,7 @@ export async function PATCH(req: NextRequest) {
         canonicalReference = order.reference;
         matchedDestination = existing.movement_direction === "pickup" && !existing.destination ? order.destination : null;
         matchedMaterial = order.materialType;
-        const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
-        try { matchedCarrier = (await lookupMcleodGateOrder(orderId, site.terminal, site.siteName)).carrierName || null; }
-        catch { /* Keep the recorded company when the yard lookup is incomplete. */ }
+        matchedCarrier = yardOrder.carrierName || null;
       }
       if (!customer || customer.length > 200) return NextResponse.json({ ok: false, error: "Enter a customer" }, { status: 400 });
       const { data, error } = await sb.from("inbound_checkin_rows")

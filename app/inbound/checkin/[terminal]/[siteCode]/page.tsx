@@ -74,7 +74,6 @@ type ColumnKey =
   | "bol_bc"
   | "bale_count"
   | "equipment_type"
-  | "sub_location"
   | "comment_1"
   | "warehouse_location";
 
@@ -85,7 +84,6 @@ const COLUMN_ORDER: ColumnKey[] = [
   "bol_bc",
   "bale_count",
   "equipment_type",
-  "sub_location",
   "comment_1",
   "warehouse_location",
 ];
@@ -935,7 +933,7 @@ export default function SiteCheckinPage() {
   const gateOnlyCount = rows.filter((row) => row.checkin_source === "driver_qr" && !usesMcleodCheckin(row)).length;
   const failedCount = rows.filter((row) => row.draft_status === "failed").length;
 
-  if (!site) {
+  if (!site || !site.materials.includes("cotton")) {
     return (
       <main style={{ maxWidth: "100%", padding: "0 16px" }}>
         <PlatformPageHeader
@@ -961,7 +959,7 @@ export default function SiteCheckinPage() {
             <Link href="/inbound/checkin" style={utilityLinkStyle}>All sites</Link>
             <Link href="/inbound/history" style={utilityLinkStyle}>Cotton history</Link>
             <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLinkStyle}>Inventory</Link>
-            <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLinkStyle}>Containers</Link>
+            {site.containers && <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLinkStyle}>Containers</Link>}
           </div>
         }
       />
@@ -996,7 +994,7 @@ export default function SiteCheckinPage() {
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
           <table className="domestic-table" style={{ width: "100%", minWidth: 1300, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
-              {[5, 9, 11, 13, 13, 12, 7, 7, 8, 8, 7].map((width, index) => (
+              {[5, 9, 11, 13, 13, 12, 10, 9, 11, 7].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
@@ -1009,7 +1007,6 @@ export default function SiteCheckinPage() {
                 <th style={thStyle}>Trucking company</th>
                 <th style={thStyle}><span style={baleHeaderStyle}><span>BOL bales</span><span>Unloaded</span></span></th>
                 <th style={thStyle}>Equipment *</th>
-                <th style={thStyle}>Sub-Loc *</th>
                 <th style={thStyle}>Comment</th>
                 <th style={thStyle}>Location * (final)</th>
                 <th style={thStyle}>Status / action</th>
@@ -1189,30 +1186,6 @@ export default function SiteCheckinPage() {
                     </td>
 
                     <td style={tdStyle}>
-                      <select
-                        value={row.sub_location ?? "MAIN"}
-                        onChange={(e) => {
-                          const value = e.target.value || "MAIN";
-                          const updated = applyRowUpdate(row.id, (current) => ({
-                            ...current,
-                            sub_location: value,
-                          }));
-                          if (updated) queueSaveRow(updated);
-                        }}
-                        onKeyDown={(e) => handleGridKeyDown(e, index, "sub_location")}
-                        ref={(el) => registerCellRef(index, "sub_location", el)}
-                        style={cellInputStyle}
-                        disabled={isReadOnlyRow(row)}
-                      >
-                        {site.subLocations.map((sub) => (
-                          <option key={sub} value={sub}>
-                            {sub}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-
-                    <td style={tdStyle}>
                       <textarea
                         value={[row.comment_1, row.comment_2].filter(Boolean).join("\n")}
                         onChange={(e) => {
@@ -1322,7 +1295,7 @@ export default function SiteCheckinPage() {
                     </td>
                   </tr>
                   {expandedIds.has(row.id) && <tr style={{ background: "#132337" }}>
-                    <td colSpan={11} style={detailsCellStyle}>
+                    <td colSpan={10} style={detailsCellStyle}>
                       <div style={detailsContentStyle}>
                         {row.checked_in_at && <span>Arrived {formatArrivalTime(row)} · {row.received_date}</span>}
                         {row.driver_name && <span>Driver: {row.driver_name}{row.driver_phone ? ` · ${row.driver_phone}` : ""}</span>}
@@ -1365,7 +1338,7 @@ export default function SiteCheckinPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={emptyStateStyle}>
+                  <td colSpan={10} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
                       : viewCarryover ? "No earlier cotton check-ins need review." : "No cotton check-ins yet. Use New check-in to add a truck."}
@@ -1440,11 +1413,6 @@ export default function SiteCheckinPage() {
               <select style={modalInputStyle} value={newCheckin.equipment_type ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, equipment_type: event.target.value as "V" | "F" || null })}>
                 <option value="">Select</option><option value="V">Van</option><option value="F">Flatbed</option>
-              </select></label>
-            <label style={modalLabelStyle}>Sub-location
-              <select style={modalInputStyle} value={newCheckin.sub_location} onChange={(event) =>
-                setNewCheckin((current) => current && { ...current, sub_location: event.target.value })}>
-                {site.subLocations.map((location) => <option key={location} value={location}>{location}</option>)}
               </select></label>
             <label style={{ ...modalLabelStyle, gridColumn: "1 / -1" }}>Comment
               <input style={modalInputStyle} value={newCheckin.comment_1 ?? ""} onChange={(event) =>

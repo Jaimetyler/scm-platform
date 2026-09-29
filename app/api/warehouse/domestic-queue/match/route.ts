@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 
 export const runtime = "nodejs";
 
@@ -28,17 +29,23 @@ export async function GET(req: NextRequest) {
     const params = new URL(req.url).searchParams;
     const id = text(params.get("id"));
     let direction = text(params.get("movementDirection"));
+    let terminal = text(params.get("terminal")).toUpperCase();
+    let siteCode = text(params.get("siteCode"));
     let reference = text(params.get("referenceNumber")).toUpperCase();
     if (id) {
       if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) return NextResponse.json({ ok: false, error: "Invalid check-in" }, { status: 400 });
       const { data: row, error } = await database().from("inbound_checkin_rows")
-        .select("id,material_type,movement_direction,reference_number").eq("id", id).single();
+        .select("id,terminal,site_code,material_type,movement_direction,reference_number").eq("id", id).single();
       if (error || !row || !["lumber", "other"].includes(row.material_type)) {
         return NextResponse.json({ ok: false, error: "Check-in not found" }, { status: 404 });
       }
+      terminal = row.terminal;
+      siteCode = row.site_code;
       direction = row.movement_direction;
       reference = text(row.reference_number).toUpperCase();
-    } else if (!CHECKIN_SITES.some((site) => site.terminal === text(params.get("terminal")).toUpperCase() && site.siteCode === text(params.get("siteCode")))) {
+    }
+    const configuredSite = CHECKIN_SITES.find((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("lumber"));
+    if (!configuredSite) {
       return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
     }
     if (reference.length < 3 || reference.length > 200 || !["pickup", "delivery"].includes(direction)) {
@@ -96,6 +103,10 @@ export async function GET(req: NextRequest) {
       });
       if (!full.ok) throw new Error(`Could not verify McLeod order (${full.status})`);
       const order = await full.json() as Record<string, unknown>;
+      let yardOrder;
+      try { yardOrder = await lookupMcleodGateOrder(match.orderId, configuredSite.terminal, configuredSite.siteName); }
+      catch { return null; }
+      if (yardOrder.direction !== match.direction || yardOrder.actualDeparture) return null;
       if (text(order.revenue_code_id).toUpperCase() !== "MAIN" ||
           !text(order[matchedField]).toUpperCase().includes(reference)) return null;
       const customer = order.customer as Record<string, unknown> | undefined;

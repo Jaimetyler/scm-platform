@@ -22,7 +22,7 @@ function requestUser(req: NextRequest) {
 }
 
 function validSite(terminal: string, siteCode: string) {
-  return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode);
+  return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.containers);
 }
 
 export async function GET(req: NextRequest) {

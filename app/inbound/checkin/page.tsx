@@ -4,8 +4,9 @@ import PlatformPanel from "@/components/platform/PlatformPanel";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
 export default function InboundCheckinSelectorPage() {
-  const savSites = CHECKIN_SITES.filter((site) => site.terminal === "SAV");
-  const houSites = CHECKIN_SITES.filter((site) => site.terminal === "HOU");
+  const savSites = CHECKIN_SITES.filter((site) => site.terminal === "SAV" && site.materials.includes("cotton"));
+  const savFreightSites = CHECKIN_SITES.filter((site) => site.terminal === "SAV" && site.materials.includes("lumber"));
+  const houSites = CHECKIN_SITES.filter((site) => site.terminal === "HOU" && site.materials.includes("cotton"));
 
   return (
     <main style={{ maxWidth: 1560, margin: "0 auto" }}>
@@ -33,6 +34,13 @@ export default function InboundCheckinSelectorPage() {
           </div>
 
           <div style={cardGridStyle}>
+            {savFreightSites.map((site) => (
+              <Link key={`${site.terminalSlug}-${site.siteCode}-freight`}
+                href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic`} style={siteCardStyle}>
+                <div style={siteCodeStyle}>{site.siteCode}</div>
+                <div style={siteNameStyle}>{site.siteName} · Lumber / FAK & Intermodal</div>
+              </Link>
+            ))}
             {savSites.map((site) => (
               <Link
                 key={`${site.terminalSlug}-${site.siteCode}`}
@@ -41,9 +49,6 @@ export default function InboundCheckinSelectorPage() {
               >
                 <div style={siteCodeStyle}>{site.siteCode}</div>
                 <div style={siteNameStyle}>{site.siteName}</div>
-                <div style={siteMetaStyle}>
-                  Sub-locations: {site.subLocations.join(", ")}
-                </div>
               </Link>
             ))}
           </div>
@@ -64,9 +69,6 @@ export default function InboundCheckinSelectorPage() {
               >
                 <div style={siteCodeStyle}>{site.siteCode}</div>
                 <div style={siteNameStyle}>{site.siteName}</div>
-                <div style={siteMetaStyle}>
-                  Sub-locations: {site.subLocations.join(", ")}
-                </div>
               </Link>
             ))}
           </div>
@@ -122,12 +124,6 @@ const siteNameStyle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 800,
   marginBottom: 8,
-};
-
-const siteMetaStyle: React.CSSProperties = {
-  color: "#94a3b8",
-  fontSize: 13,
-  lineHeight: 1.45,
 };
 
 const linkButtonStyle: React.CSSProperties = {

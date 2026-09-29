@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import type { CSSProperties } from "react";
 
 type View = "line" | "cotton" | "domestic" | "history";
@@ -6,11 +7,12 @@ type View = "line" | "cotton" | "domestic" | "history";
 export default function DomesticFreightNav({ terminalSlug, siteCode, current }: {
   terminalSlug: string; siteCode: string; current: View;
 }) {
+  const site = getCheckinSite(terminalSlug, siteCode);
   const base = `/warehouse/gate/${terminalSlug}/${siteCode}`;
   const views: { key: View; label: string; href: string }[] = [
     { key: "line", label: "Domestic Line", href: `${base}/line` },
-    { key: "cotton", label: "Cotton", href: `/inbound/checkin/${terminalSlug}/${siteCode}` },
-    { key: "domestic", label: "Lumber & Other", href: `${base}/domestic` },
+    ...(site?.materials.includes("cotton") ? [{ key: "cotton" as const, label: "Cotton", href: `/inbound/checkin/${terminalSlug}/${siteCode}` }] : []),
+    ...(site?.materials.includes("lumber") ? [{ key: "domestic" as const, label: "Lumber & Other", href: `${base}/domestic` }] : []),
     { key: "history", label: "Domestic History", href: `${base}/history` },
   ];
   return <nav aria-label="Domestic freight views" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>

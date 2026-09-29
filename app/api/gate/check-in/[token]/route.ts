@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { createClient } from "@supabase/supabase-js";
 import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
@@ -80,7 +81,8 @@ async function getGate(token: string) {
   const { data } = await database().from("driver_checkin_sites")
     .select("id, terminal, site_code, site_name, latitude, longitude, radius_m, active")
     .eq("public_token", token).eq("active", true).maybeSingle();
-  if (!data || data.latitude === null || data.longitude === null) return null;
+  if (!data || data.latitude === null || data.longitude === null ||
+      !CHECKIN_SITES.some((site) => site.terminal === data.terminal && site.siteCode === data.site_code)) return null;
   return data as {
     id: string; terminal: "SAV" | "HOU"; site_code: string; site_name: string;
     latitude: number; longitude: number; radius_m: number; active: boolean;
@@ -113,9 +115,11 @@ export async function GET(req: NextRequest, context: { params: Promise<{ token: 
         };
       }
     }
+    const configuredSite = CHECKIN_SITES.find((site) => site.terminal === gate.terminal && site.siteCode === gate.site_code)!;
     return NextResponse.json({
       ok: true,
-      site: { terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name },
+      site: { terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name,
+        materials: configuredSite.materials, containers: configuredSite.containers },
       activeQueue,
     });
   } catch (error) {
@@ -211,10 +215,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!driverName || !["container", "domestic"].includes(checkinType)) {
       return NextResponse.json({ ok: false, error: "Choose a check-in type and enter the driver name" }, { status: 400 });
     }
+    const configuredSite = CHECKIN_SITES.find((site) => site.terminal === gate.terminal && site.siteCode === gate.site_code)!;
+    if (checkinType === "container" && !configuredSite.containers) {
+      return NextResponse.json({ ok: false, error: "Container check-in is unavailable at this site" }, { status: 400 });
+    }
     const driverPhone = clean(body?.driverPhone, 40);
     let truckingCompany = clean(body?.truckingCompany, 200);
     let movementDirection = clean(body?.movementDirection, 20).toLowerCase();
     const materialType = clean(body?.materialType, 20).toLowerCase();
+    if (checkinType === "domestic" && !configuredSite.materials.includes(materialType as "cotton" | "lumber" | "other")) {
+      return NextResponse.json({ ok: false, error: "This freight type is unavailable at this site" }, { status: 400 });
+    }
     let referenceNumber = clean(body?.referenceNumber).toUpperCase();
     const orderId = clean(body?.orderId, 60).toUpperCase();
     let destination = clean(body?.destination, 200).toUpperCase();

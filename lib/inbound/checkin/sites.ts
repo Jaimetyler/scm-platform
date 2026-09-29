@@ -6,15 +6,19 @@ export type CheckinSite = {
   siteCode: string;
   siteName: string;
   subLocations: string[];
+  materials: ("cotton" | "lumber" | "other")[];
+  containers: boolean;
 };
 
 export const CHECKIN_SITES: CheckinSite[] = [
   {
     terminal: "SAV",
     terminalSlug: "sav",
-    siteCode: "1701",
-    siteName: "Savannah - 1701",
+    siteCode: "1601",
+    siteName: "Savannah - 1601",
     subLocations: ["MAIN"],
+    materials: ["lumber", "other"],
+    containers: true,
   },
   {
     terminal: "SAV",
@@ -22,6 +26,8 @@ export const CHECKIN_SITES: CheckinSite[] = [
     siteCode: "246",
     siteName: "Savannah - 246",
     subLocations: ["MAIN"],
+    materials: ["cotton"],
+    containers: false,
   },
   {
     terminal: "SAV",
@@ -29,6 +35,8 @@ export const CHECKIN_SITES: CheckinSite[] = [
     siteCode: "984",
     siteName: "Savannah - 984",
     subLocations: ["MAIN", "982B"],
+    materials: ["cotton"],
+    containers: false,
   },
   {
     terminal: "SAV",
@@ -36,6 +44,8 @@ export const CHECKIN_SITES: CheckinSite[] = [
     siteCode: "175",
     siteName: "Savannah - 175",
     subLocations: ["MAIN"],
+    materials: ["cotton"],
+    containers: false,
   },
   {
     terminal: "HOU",
@@ -43,6 +53,8 @@ export const CHECKIN_SITES: CheckinSite[] = [
     siteCode: "5300",
     siteName: "Houston - 5300",
     subLocations: ["MAIN"],
+    materials: ["cotton", "lumber", "other"],
+    containers: true,
   },
   {
     terminal: "HOU",
@@ -50,6 +62,8 @@ export const CHECKIN_SITES: CheckinSite[] = [
     siteCode: "4331",
     siteName: "Houston - 4331",
     subLocations: ["MAIN"],
+    materials: ["cotton", "lumber", "other"],
+    containers: true,
   },
 ];
 
