@@ -12,7 +12,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Status = "waiting" | "called" | "in_door" | "working";
 type Arrival = {
-  id: string; checked_in_at: string; driver_name: string | null; movement_direction: string | null;
+  id: string; checked_in_at: string; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
   shipper: string | null; yard_status: Status | "completed" | "cancelled" | null;
   updated_at: string; matched_order_id: string | null; carrier_code?: string | null; scm_carrier?: boolean;
@@ -112,8 +112,8 @@ export default function DomesticLinePage() {
         <button style={button} onClick={() => void load()}>Refresh</button>
       </div>
       {loading ? <p>Loading arrivals…</p> : active.length === 0 ? <p>No active domestic arrivals.</p> :
-        <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 850, borderCollapse: "collapse", color: "#e2e8f0" }}>
-          <thead><tr>{["#", "Arrived", "Freight", "Move", "Driver", "Reference / mark", "Customer", "SCM / order", "Yard status", "Action"].map((name) =>
+        <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", color: "#e2e8f0" }}>
+          <thead><tr>{["#", "Arrived", "Freight", "Move", "Driver", "Trucking company", "Reference / mark", "Customer", "SCM / order", "Yard status", "Action"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{active.map((row, index) => <Fragment key={row.id}><tr style={{ background: row.id === nextWaitingId ? "rgba(34,211,238,.12)" : undefined }}>
             <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
@@ -121,6 +121,7 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.material_type === "cotton" ? "Cotton" : row.material_type === "lumber" ? "Lumber" : "Other"}</td>
             <td style={cell}>{row.movement_direction || "—"}</td>
             <td style={cell}>{row.driver_name || "Staff entry"}</td>
+            <td style={cell}>{row.trucking_company || "Company not entered"}</td>
             <td style={cell}>{row.reference_number || row.mark || "—"}</td>
             <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.scm_carrier && <strong style={{ color: "#86efac", display: "block" }}>SCM carrier</strong>}
@@ -132,7 +133,7 @@ export default function DomesticLinePage() {
                 ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>
               <button disabled={Boolean(working)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
             </div></td>
-          </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={10} style={{ ...cell, background: "#132337" }}>
+          </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={11} style={{ ...cell, background: "#132337" }}>
             <form onSubmit={(event) => { event.preventDefault(); void move(row, "checkout", cottonFields[row.id]); }}>
               <strong>Finish cotton delivery · McLeod {row.matched_order_id ? `#${row.matched_order_id}` : "order search at completion"}</strong>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
