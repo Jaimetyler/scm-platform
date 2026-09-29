@@ -19,11 +19,11 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     if (error) throw error;
     if (!booking) return NextResponse.json({ ok: false, error: "Booking not found" }, { status: 404 });
     const { data: lines, error: lineError } = await sb.from("cotton_outbound_booking_lines")
-      .select("source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse")
+      .select("id,source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse")
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
     const { data: containers, error: containerError } = await sb.from("cotton_outbound_containers")
-      .select("id,sequence_no,container_number,seal_number,chassis_number,notes,updated_at")
+      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at")
       .eq("booking_id", id).order("sequence_no");
     if (containerError) throw containerError;
     const marks = [...new Set((lines ?? []).map((line) => line.mark))];
@@ -31,6 +31,20 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,customer")
       .eq("terminal", terminal).eq("site_code", siteCode).in("mark", marks).limit(1000);
     if (inventoryError) throw inventoryError;
+    const { data: inboundRows, error: inboundError } = await sb.from("inbound_checkin_rows")
+      .select("mark,bol_bc,bale_count,yard_status")
+      .eq("terminal", terminal).eq("site_code", siteCode).eq("material_type", "cotton")
+      .eq("movement_direction", "delivery").in("mark", marks)
+      .in("yard_status", ["waiting", "called", "in_door", "working"]);
+    if (inboundError) throw inboundError;
+    const inbound = new Map<string, { bales: number; statuses: Set<string> }>();
+    for (const row of inboundRows ?? []) {
+      const mark = String(row.mark ?? "").toUpperCase();
+      const entry = inbound.get(mark) ?? { bales: 0, statuses: new Set<string>() };
+      entry.bales += Number(row.bale_count ?? row.bol_bc ?? 0);
+      if (row.yard_status) entry.statuses.add(row.yard_status);
+      inbound.set(mark, entry);
+    }
     const inventory = new Map<string, { available: number; locations: Set<string> }>();
     for (const lot of lots ?? []) {
       if (lot.inventory_status !== "active") continue;
@@ -44,6 +58,8 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     return NextResponse.json({ ok: true, booking, containers: containers ?? [], lines: (lines ?? []).map((line) => ({ ...line,
       mark_requested_total: requestedByMark.get(line.mark) ?? line.requested_bales,
       available_bales: inventory.get(line.mark)?.available ?? 0,
+      inbound_bales: inbound.get(line.mark)?.bales ?? 0,
+      inbound_statuses: [...(inbound.get(line.mark)?.statuses ?? [])],
       inventory_locations: [...(inventory.get(line.mark)?.locations ?? [])],
     })) });
   } catch (error) {

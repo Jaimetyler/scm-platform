@@ -47,16 +47,24 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: "Reload this container before saving" }, { status: 409 });
     if (!(await ownsBooking(id, terminal, siteCode)))
       return NextResponse.json({ ok: false, error: "Booking not found at this warehouse" }, { status: 404 });
+    const bookingLineId = body?.bookingLineId ? String(body.bookingLineId) : null;
+    if (bookingLineId) {
+      if (!/^[0-9a-f-]{36}$/i.test(bookingLineId)) return NextResponse.json({ ok: false, error: "Invalid mark assignment" }, { status: 400 });
+      const { data: line, error: lineError } = await database().from("cotton_outbound_booking_lines")
+        .select("id").eq("id", bookingLineId).eq("booking_id", id).maybeSingle();
+      if (lineError) throw lineError;
+      if (!line) return NextResponse.json({ ok: false, error: "That mark is not on this booking" }, { status: 400 });
+    }
     let values;
     try {
-      values = { container_number: cleanEquipment(body?.containerNumber, 20), seal_number: cleanEquipment(body?.sealNumber, 40),
+      values = { booking_line_id: bookingLineId, container_number: cleanEquipment(body?.containerNumber, 20), seal_number: cleanEquipment(body?.sealNumber, 40),
         chassis_number: cleanEquipment(body?.chassisNumber, 40), notes: cleanNotes(body?.notes), updated_by: user(req) };
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
     }
     const { data, error } = await database().from("cotton_outbound_containers").update(values)
       .eq("id", containerId).eq("booking_id", id).eq("updated_at", expectedUpdatedAt)
-      .select("id,sequence_no,container_number,seal_number,chassis_number,notes,updated_at").maybeSingle();
+      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at").maybeSingle();
     if (error) {
       const duplicate = error.code === "23505";
       return NextResponse.json({ ok: false, error: duplicate ? "That container number is already on this booking." : error.message }, { status: duplicate ? 409 : 400 });
@@ -82,7 +90,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     if (lastError) throw lastError;
     const { data, error } = await sb.from("cotton_outbound_containers")
       .insert({ booking_id: id, sequence_no: (last?.sequence_no ?? 0) + 1, updated_by: user(req) })
-      .select("id,sequence_no,container_number,seal_number,chassis_number,notes,updated_at").single();
+      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at").single();
     if (error) throw error;
     return NextResponse.json({ ok: true, container: data });
   } catch (error) {

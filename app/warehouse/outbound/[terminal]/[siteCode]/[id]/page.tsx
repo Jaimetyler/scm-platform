@@ -5,13 +5,13 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 
-type Container = { id: string; sequence_no: number; container_number: string | null; seal_number: string | null;
+type Container = { id: string; sequence_no: number; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
   chassis_number: string | null; notes: string | null; updated_at: string };
-type Line = { source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number;
-  load_by: string; shipping_order: string | null; inventory_locations: string[] };
+type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number;
+  load_by: string; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string };
-type Draft = { containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
+type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
   border: "1px solid #475569", background: "#0f172a", color: "#f8fafc" };
 const button: React.CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "1px solid #475569",
@@ -32,6 +32,10 @@ export default function CottonOutboundBookingPage() {
   const [working, setWorking] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [rollLineId, setRollLineId] = useState("");
+  const [rollBooking, setRollBooking] = useState("");
+  const [rollBales, setRollBales] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -41,7 +45,7 @@ export default function CottonOutboundBookingPage() {
       if (!response.ok) throw new Error(result.error);
       setBooking(result.booking); setContainers(result.containers); setLines(result.lines);
       setDrafts(Object.fromEntries((result.containers as Container[]).map((row) => [row.id, {
-        containerNumber: row.container_number ?? "", sealNumber: row.seal_number ?? "",
+        bookingLineId: row.booking_line_id ?? "", containerNumber: row.container_number ?? "", sealNumber: row.seal_number ?? "",
         chassisNumber: row.chassis_number ?? "", notes: row.notes ?? "",
       }])));
       setError("");
@@ -51,7 +55,7 @@ export default function CottonOutboundBookingPage() {
   useEffect(() => { void load(); }, [load]);
 
   function change(row: Container, field: keyof Draft, value: string) {
-    const nextValue = field === "notes" ? value : value.toUpperCase();
+    const nextValue = field === "notes" || field === "bookingLineId" ? value : value.toUpperCase();
     setDrafts((current) => ({ ...current, [row.id]: { ...current[row.id], [field]: nextValue } }));
     setMessage("");
   }
@@ -79,18 +83,44 @@ export default function CottonOutboundBookingPage() {
       if (!response.ok) throw new Error(result.error);
       const row = result.container as Container;
       setContainers((current) => [...current, row]);
-      setDrafts((current) => ({ ...current, [row.id]: { containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" } }));
+      setDrafts((current) => ({ ...current, [row.id]: { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" } }));
       setMessage(`Container ${row.sequence_no} added.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not add container"); }
+    finally { setWorking(""); }
+  }
+
+  async function rollLine(line: Line) {
+    setWorking(`roll-${line.id}`); setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/lines/${line.id}/rollover`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminal, siteCode, targetBookingNumber: rollBooking, bales: Number(rollBales) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setRollLineId(""); setRollBooking(""); setRollBales("");
+      setMessage(`${rollBales} bales of ${line.mark} moved to booking ${result.targetBookingNumber}.`);
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not roll mark"); }
     finally { setWorking(""); }
   }
 
   if (loading) return <main style={{ color: "#e2e8f0" }}>Loading booking…</main>;
   if (!booking) return <main><PlatformPageHeader title="Outbound Booking Not Found" actions={<Link href="/warehouse/outbound" style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
   const complete = containers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
+  const lineById = new Map(lines.map((line) => [line.id, line]));
+  const term = search.trim().toUpperCase();
+  const visibleContainers = containers.filter((row) => {
+    const assigned = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
+    return !term || [row.sequence_no, row.container_number, row.seal_number, row.chassis_number, row.notes,
+      assigned?.mark, assigned?.shipping_order].some((value) => String(value ?? "").toUpperCase().includes(term));
+  });
+  const visibleLines = lines.filter((line) => !term || [line.mark, line.shipping_order, ...line.inventory_locations]
+    .some((value) => String(value ?? "").toUpperCase().includes(term)));
   return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
-      actions={<Link href="/warehouse/outbound" style={button}>← All outbound bookings</Link>} />
+      actions={<><a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Export Excel</a>
+        <Link href="/warehouse/outbound" style={button}>← All outbound bookings</Link></>} />
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
       <span>{complete} of {containers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span>
@@ -98,15 +128,20 @@ export default function CottonOutboundBookingPage() {
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <div><h2 style={{ marginBottom: 4 }}>Container equipment</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Enter the container, seal, and chassis as each unit is assigned.</p></div>
-      <button type="button" style={button} disabled={Boolean(working)} onClick={() => void addContainer()}>{working === "add" ? "Adding…" : "+ Add container"}</button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
+      <button type="button" style={button} disabled={Boolean(working)} onClick={() => void addContainer()}>{working === "add" ? "Adding…" : "+ Add container"}</button></div>
     </div>
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse" }}><thead><tr>
-      {['#', 'Container number', 'Seal number', 'Chassis number', 'Notes', ''].map((label) => <th key={label} style={th}>{label}</th>)}
-    </tr></thead><tbody>{containers.map((row) => {
-      const draft = drafts[row.id] ?? { containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
-      const saved = draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
+      {['#', 'Mark', 'Container number', 'Seal number', 'Chassis number', 'Notes', ''].map((label) => <th key={label} style={th}>{label}</th>)}
+    </tr></thead><tbody>{visibleContainers.map((row) => {
+      const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
+      const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       return <tr key={row.id}><td style={td}><strong>{row.sequence_no}</strong></td>
+        <td style={td}><select aria-label={`Container ${row.sequence_no} mark`} style={input} value={draft.bookingLineId} onChange={(e) => change(row, "bookingLineId", e.target.value)}>
+          <option value="">Unassigned</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.mark} · {line.requested_bales} bales{line.shipping_order ? ` · SO ${line.shipping_order}` : ""}</option>)}
+        </select></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder="Chassis #" /></td>
@@ -116,10 +151,19 @@ export default function CottonOutboundBookingPage() {
 
     <PlatformPanel><h2>Marks and inventory</h2><p style={{ color: "#94a3b8" }}>Availability reflects active, unallocated inventory at this warehouse.</p>
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 850, borderCollapse: "collapse" }}><thead><tr>
-        {['Mark', 'Requested', 'Available', 'Difference', 'Load by', 'S.O.', 'Location'].map((label) => <th key={label} style={th}>{label}</th>)}</tr></thead><tbody>
-        {lines.map((line) => <tr key={line.source_row}><td style={td}>{line.mark}</td><td style={td}>{line.requested_bales}</td><td style={td}>{line.available_bales}</td>
+        {['Mark', 'Requested', 'Status', 'Available', 'Inbound', 'Difference', 'Load by', 'S.O.', 'Location', ''].map((label) => <th key={label} style={th}>{label}</th>)}</tr></thead><tbody>
+        {visibleLines.map((line) => <tr key={line.id}><td style={td}>{line.mark}</td><td style={td}>{line.requested_bales}</td>
+          <td style={td}><span style={{ color: line.available_bales >= line.mark_requested_total ? "#86efac" : line.inbound_bales > 0 ? "#fbbf24" : "#fca5a5", fontWeight: 800 }}>
+            {line.available_bales >= line.mark_requested_total ? "In warehouse" : line.inbound_bales > 0 ? "In delivery line" : line.available_bales > 0 ? "Short in warehouse" : "Not in warehouse"}
+          </span></td><td style={td}>{line.available_bales}</td><td style={td}>{line.inbound_bales || "—"}</td>
           <td style={{ ...td, color: line.available_bales < line.mark_requested_total ? "#fca5a5" : "#86efac" }}>{line.available_bales - line.mark_requested_total}</td>
-          <td style={td}>{line.load_by}</td><td style={td}>{line.shipping_order || "—"}</td><td style={td}>{line.inventory_locations.join(", ") || "—"}</td></tr>)}
+          <td style={td}>{line.load_by}</td><td style={td}>{line.shipping_order || "—"}</td><td style={td}>{line.inventory_locations.join(", ") || "—"}</td>
+          <td style={td}>{rollLineId === line.id ? <div style={{ display: "grid", gap: 6, minWidth: 180 }}>
+            <input style={input} value={rollBooking} onChange={(e) => setRollBooking(e.target.value.toUpperCase())} placeholder="New booking #" />
+            <input style={input} type="number" min={1} max={line.requested_bales} value={rollBales} onChange={(e) => setRollBales(e.target.value)} placeholder="Bales to move" />
+            <div style={{ display: "flex", gap: 6 }}><button style={button} disabled={Boolean(working)} onClick={() => void rollLine(line)}>{working === `roll-${line.id}` ? "Moving…" : "Move"}</button>
+              <button style={button} disabled={Boolean(working)} onClick={() => setRollLineId("")}>Cancel</button></div>
+          </div> : <button style={button} onClick={() => { setRollLineId(line.id); setRollBales(String(line.requested_bales)); setRollBooking(""); }}>Split / roll</button>}</td></tr>)}
       </tbody></table></div>
     </PlatformPanel>
   </main>;
