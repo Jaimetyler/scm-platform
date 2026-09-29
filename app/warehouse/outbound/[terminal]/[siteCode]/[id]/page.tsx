@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -36,6 +36,7 @@ export default function CottonOutboundBookingPage() {
   const [rollLineId, setRollLineId] = useState("");
   const [rollBooking, setRollBooking] = useState("");
   const [rollBales, setRollBales] = useState("");
+  const saveTimers = useRef<Record<string, number>>({});
 
   const load = useCallback(async () => {
     try {
@@ -53,18 +54,24 @@ export default function CottonOutboundBookingPage() {
     finally { setLoading(false); }
   }, [id, terminal, siteCode]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => () => { Object.values(saveTimers.current).forEach((timer) => window.clearTimeout(timer)); }, []);
 
   function change(row: Container, field: keyof Draft, value: string) {
     const nextValue = field === "notes" || field === "bookingLineId" ? value : value.toUpperCase();
-    setDrafts((current) => ({ ...current, [row.id]: { ...current[row.id], [field]: nextValue } }));
+    const next = { ...drafts[row.id], [field]: nextValue };
+    setDrafts((current) => ({ ...current, [row.id]: next }));
     setMessage("");
+    if (saveTimers.current[row.id]) window.clearTimeout(saveTimers.current[row.id]);
+    const wasComplete = Boolean(row.container_number && row.seal_number);
+    const isComplete = Boolean(next.containerNumber.trim() && next.sealNumber.trim());
+    if (wasComplete || isComplete) saveTimers.current[row.id] = window.setTimeout(() => void save(row, next), 700);
   }
-  async function save(row: Container) {
+  async function save(row: Container, draftToSave: Draft) {
     setWorking(row.id); setError(""); setMessage("");
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terminal, siteCode, containerId: row.id, expectedUpdatedAt: row.updated_at, ...drafts[row.id] }),
+        body: JSON.stringify({ terminal, siteCode, containerId: row.id, expectedUpdatedAt: row.updated_at, ...draftToSave }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
@@ -108,6 +115,8 @@ export default function CottonOutboundBookingPage() {
   if (loading) return <main style={{ color: "#e2e8f0" }}>Loading booking…</main>;
   if (!booking) return <main><PlatformPageHeader title="Outbound Booking Not Found" actions={<Link href="/warehouse/outbound" style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
   const complete = containers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
+  const orderedLines = [...lines].sort((a, b) => Number(b.available_bales > 0) - Number(a.available_bales > 0)
+    || a.mark.localeCompare(b.mark) || String(a.shipping_order ?? "").localeCompare(String(b.shipping_order ?? "")));
   const lineById = new Map(lines.map((line) => [line.id, line]));
   const term = search.trim().toUpperCase();
   const visibleContainers = containers.filter((row) => {
@@ -115,7 +124,7 @@ export default function CottonOutboundBookingPage() {
     return !term || [row.sequence_no, row.container_number, row.seal_number, row.chassis_number, row.notes,
       assigned?.mark, assigned?.shipping_order].some((value) => String(value ?? "").toUpperCase().includes(term));
   });
-  const visibleLines = lines.filter((line) => !term || [line.mark, line.shipping_order, ...line.inventory_locations]
+  const visibleLines = orderedLines.filter((line) => !term || [line.mark, line.shipping_order, ...line.inventory_locations]
     .some((value) => String(value ?? "").toUpperCase().includes(term)));
   return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
@@ -133,20 +142,23 @@ export default function CottonOutboundBookingPage() {
       <button type="button" style={button} disabled={Boolean(working)} onClick={() => void addContainer()}>{working === "add" ? "Adding…" : "+ Add container"}</button></div>
     </div>
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse" }}><thead><tr>
-      {['#', 'Mark', 'Container number', 'Seal number', 'Chassis number', 'Notes', ''].map((label) => <th key={label} style={th}>{label}</th>)}
+      {['#', 'Mark', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Status'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       return <tr key={row.id}><td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}><select aria-label={`Container ${row.sequence_no} mark`} style={input} value={draft.bookingLineId} onChange={(e) => change(row, "bookingLineId", e.target.value)}>
-          <option value="">Unassigned</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.mark} · {line.requested_bales} bales{line.shipping_order ? ` · SO ${line.shipping_order}` : ""}</option>)}
-        </select></td>
+        <td style={td}>{row.booking_line_id && lineById.get(row.booking_line_id) ? <><strong>{lineById.get(row.booking_line_id)!.mark}</strong>
+          <small style={{ display: "block", color: "#94a3b8", marginTop: 3 }}>{lineById.get(row.booking_line_id)!.requested_bales} bales{lineById.get(row.booking_line_id)!.available_bales > 0 ? " · in warehouse" : ""}</small></> : <span style={{ color: "#fbbf24" }}>Unassigned</span>}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
-        <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder="Chassis #" /></td>
+        <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {
+          if (terminal === "SAV" && !draft.chassisNumber) change(row, "chassisNumber", "SCMI");
+        }} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
-        <td style={td}><button type="button" style={button} disabled={saved || Boolean(working)} onClick={() => void save(row)}>{working === row.id ? "Saving…" : saved ? "Saved" : "Save"}</button></td></tr>;
+        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 800 }}>
+          {working === row.id ? "Saving…" : saved && row.container_number && row.seal_number ? "Saved" : draft.containerNumber && draft.sealNumber ? "Saving automatically…" : "Enter container + seal"}
+        </td></tr>;
     })}</tbody></table></div></PlatformPanel>
 
     <PlatformPanel><h2>Marks and inventory</h2><p style={{ color: "#94a3b8" }}>Availability reflects active, unallocated inventory at this warehouse.</p>
