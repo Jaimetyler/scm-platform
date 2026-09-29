@@ -7,6 +7,7 @@ import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
 import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
 import { lookupScmCarrier } from "@/lib/inbound/checkin/scm-carrier";
+import { backfillTruckingCompanies } from "@/lib/inbound/checkin/backfill-trucking-company";
 
 export const runtime = "nodejs";
 
@@ -47,15 +48,16 @@ export async function GET(req: NextRequest) {
 
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
-      .select("id,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
+      .select("id,terminal,site_name,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
       .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
     if (error) throw error;
+    const displayRows = await backfillTruckingCompanies(data ?? []);
     const carriers = new Map<string, { carrierCode: string | null; scmCarrier: boolean }>();
     if (line) {
-      const ids = [...new Set((data ?? []).filter((row) =>
+      const ids = [...new Set(displayRows.filter((row) =>
         ["waiting", "called", "in_door", "working"].includes(row.yard_status) && row.matched_order_id
       ).map((row) => String(row.matched_order_id)))];
       await Promise.all(ids.map(async (id) => {
@@ -63,7 +65,7 @@ export async function GET(req: NextRequest) {
         catch { /* Keep the line available when McLeod cannot supply carrier details. */ }
       }));
     }
-    return NextResponse.json({ ok: true, rows: (data ?? []).map(({ bol_photo_path, ...row }) => ({
+    return NextResponse.json({ ok: true, rows: displayRows.map(({ bol_photo_path, ...row }) => ({
       ...row, has_bol_photo: Boolean(bol_photo_path),
       ...(line && row.matched_order_id ? { carrier_code: carriers.get(String(row.matched_order_id))?.carrierCode ?? null,
         scm_carrier: carriers.get(String(row.matched_order_id))?.scmCarrier ?? false } : {}),

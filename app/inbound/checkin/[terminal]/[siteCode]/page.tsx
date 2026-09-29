@@ -993,9 +993,9 @@ export default function SiteCheckinPage() {
           </div>
         </div>
         <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
-          <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <table className="domestic-table" style={{ width: "100%", minWidth: 1300, tableLayout: "fixed", borderCollapse: "collapse" }}>
             <colgroup>
-              {[5, 11, 12, 15, 12, 7, 8, 10, 10, 10].map((width, index) => (
+              {[5, 9, 11, 13, 13, 12, 7, 7, 8, 8, 7].map((width, index) => (
                 <col key={index} style={{ width: `${width}%` }} />
               ))}
             </colgroup>
@@ -1005,6 +1005,7 @@ export default function SiteCheckinPage() {
                 <th style={thStyle}>Arrival</th>
                 <th style={thStyle}>Mark *</th>
                 <th style={thStyle}>Customer *</th>
+                <th style={thStyle}>Trucking company</th>
                 <th style={thStyle}><span style={baleHeaderStyle}><span>BOL bales</span><span>Unloaded</span></span></th>
                 <th style={thStyle}>Equipment *</th>
                 <th style={thStyle}>Sub-Loc *</th>
@@ -1095,8 +1096,18 @@ export default function SiteCheckinPage() {
                         disabled={isReadOnlyRow(row)}
                         placeholder="Start typing customer..."
                       />
-                      {row.trucking_company && <div className="row-secondary" title={row.trucking_company} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Carrier: {row.trucking_company}</div>}
                     </td>
+                    <td style={tdStyle}><input aria-label={`Trucking company for row ${index + 1}`}
+                      value={row.trucking_company ?? ""} placeholder="Company not entered"
+                      onChange={(event) => {
+                        const updated = applyRowUpdate(row.id, (current) => ({ ...current, trucking_company: event.target.value }));
+                        if (updated) queueSaveRow(updated);
+                      }}
+                      onBlur={() => {
+                        const latest = rowsRef.current.find((item) => item.id === row.id);
+                        if (latest) queueSaveRow(latest);
+                      }}
+                      style={cellInputStyle} disabled={isReadOnlyRow(row)} /></td>
 
                     <td style={tdStyle}>
                       <div style={baleFieldsStyle}>
@@ -1309,7 +1320,7 @@ export default function SiteCheckinPage() {
                     </td>
                   </tr>
                   {expandedIds.has(row.id) && <tr style={{ background: "#132337" }}>
-                    <td colSpan={10} style={detailsCellStyle}>
+                    <td colSpan={11} style={detailsCellStyle}>
                       <div style={detailsContentStyle}>
                         {row.checked_in_at && <span>Arrived {formatArrivalTime(row)} · {row.received_date}</span>}
                         {row.driver_name && <span>Driver: {row.driver_name}{row.driver_phone ? ` · ${row.driver_phone}` : ""}</span>}
@@ -1352,7 +1363,7 @@ export default function SiteCheckinPage() {
 
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={emptyStateStyle}>
+                  <td colSpan={11} style={emptyStateStyle}>
                     {loading
                       ? "Loading rows..."
                       : viewCarryover ? "No earlier cotton check-ins need review." : "No cotton check-ins yet. Use New check-in to add a truck."}

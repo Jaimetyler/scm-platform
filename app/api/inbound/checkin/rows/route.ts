@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
 import { verifyCottonOrder } from "@/lib/inbound/checkin/verify-cotton-order";
+import { backfillTruckingCompanies } from "@/lib/inbound/checkin/backfill-trucking-company";
 
 export const runtime = "nodejs";
 
@@ -121,12 +122,14 @@ export async function GET(req: NextRequest) {
       if (olderError) throw olderError;
       carryoverRows = (older ?? []) as CheckinRow[];
     }
+    const displayRows = await backfillTruckingCompanies((viewCarryover ? carryoverRows : (data ?? [])) as (CheckinRow & {
+      matched_order_id: string | null; trucking_company: string | null })[]);
     return NextResponse.json({
       ok: true,
       carryoverCount: carryoverRows.length,
       carryoverMissingLocation: carryoverRows.filter((row) => !row.warehouse_location?.trim()).length,
       carryoverMissingBales: carryoverRows.filter((row) => !Number(row.bale_count ?? 0)).length,
-      rows: (viewCarryover ? carryoverRows : (data ?? []) as CheckinRow[]).filter((row) =>
+      rows: displayRows.filter((row) =>
         !(row.draft_status === "draft" && !row.mark && !row.shipper &&
           !row.bol_bc && !row.bale_count && !row.warehouse_location &&
           !row.comment_1 && !row.comment_2)
