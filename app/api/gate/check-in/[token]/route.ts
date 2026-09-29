@@ -167,11 +167,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
             ? Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
             : Date.parse(order.orderDate);
           if (Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 24 * 60 * 60 * 1000) return null;
-          return { orderId, reference: order.reference, customer: order.customer, destination: order.destination,
-            materialType: order.materialType, commodity: order.commodity, mark: order.mark, baleCount: order.baleCount,
-            driverName: order.driverName, driverPhone: order.driverPhone,
-            carrierName: order.carrierName, carrierCode: order.carrierCode,
-            orderDate: order.orderDate, orderStatus: order.orderStatus };
+          return { orderId, carrierName: order.carrierName || (order.carrierCode ? `Carrier ${order.carrierCode}` : "Carrier not assigned") };
         } catch { return null; } // Search results may include other yards or incomplete orders.
       }))).filter((item) => item !== null);
       return NextResponse.json({ ok: true, matches }, { headers: { "Cache-Control": "no-store" } });
@@ -185,6 +181,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       });
       if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
       const order = await lookupMcleodGateOrder(clean(body?.orderId, 60), gate.terminal, gate.site_name);
+      if (body?.referenceNumber && !order.reference.includes(clean(body.referenceNumber).toUpperCase()))
+        return NextResponse.json({ ok: false, error: "This order does not match the reference entered." }, { status: 409 });
+      if (body?.movementDirection && order.direction !== clean(body.movementDirection, 20).toLowerCase())
+        return NextResponse.json({ ok: false, error: "This order does not match the selected pickup or delivery." }, { status: 409 });
       if (order.actualDeparture) return NextResponse.json({ ok: false,
         error: "This SCM order has already left the yard in McLeod." }, { status: 409 });
       const { data: checkedIn, error: checkError } = await database().from("inbound_checkin_rows")
