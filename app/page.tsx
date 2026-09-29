@@ -115,6 +115,11 @@ export default function Home() {
           </div>
         </Link>
 
+        <Link href="/warehouse/outbound" style={cardStylePrimary}>
+          <div style={cardTitle}>Cotton Outbound</div>
+          <div style={cardDesc}>Review bookings and compare requested marks with inventory</div>
+        </Link>
+
         <Link href="/late-fees" style={cardStyle}>
           <div style={cardTitle}>Late Fees</div>
           <div style={cardDesc}>Review late fee candidates and totals</div>
