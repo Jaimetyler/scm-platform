@@ -56,27 +56,21 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const workbook = XLSX.utils.book_new();
     const equipmentRows = (containers ?? []).map((row) => {
       const line = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
-      return { "Container #": row.sequence_no, Mark: line?.mark ?? "", "Planned bales": line?.requested_bales ?? "",
-        "Shipping order": line?.shipping_order ?? "", "Container number": row.container_number ?? "",
+      const available = line ? availability.get(line.mark)?.bales ?? 0 : 0;
+      const inboundBales = line ? inbound.get(line.mark) ?? 0 : 0;
+      const requestedForMark = line ? requested.get(line.mark) ?? line.requested_bales : 0;
+      const status = !line ? "Extra container" : available > 0 ? "In warehouse" : inboundBales > 0 ? "In delivery line" : "Not in warehouse";
+      return { "Container #": row.sequence_no, Mark: line?.mark ?? "", Status: status,
+        "Requested bales": line?.requested_bales ?? "", "Available bales": line ? available : "",
+        "Inbound line bales": line ? inboundBales : "", Difference: line ? available - requestedForMark : "",
+        "Load by": line?.load_by ?? "", "Shipping order": line?.shipping_order ?? "",
+        Location: line ? [...(availability.get(line.mark)?.locations ?? [])].join(", ") : "",
+        "Container number": row.container_number ?? "",
         "Seal number": row.seal_number ?? "", "Chassis number": row.chassis_number ?? "", Notes: row.notes ?? "" };
     });
-    const markRows = (lines ?? []).map((line) => {
-      const available = availability.get(line.mark)?.bales ?? 0;
-      const inboundBales = inbound.get(line.mark) ?? 0;
-      const requestedForMark = requested.get(line.mark) ?? line.requested_bales;
-      const status = available >= requestedForMark ? "In warehouse" : inboundBales > 0 ? "In delivery line" : available > 0 ? "Short in warehouse" : "Not in warehouse";
-      return { Mark: line.mark, "Requested bales": line.requested_bales, Status: status, "Available bales": available,
-        "Inbound line bales": inboundBales, Difference: available - requestedForMark,
-        Location: [...(availability.get(line.mark)?.locations ?? [])].join(", "), "Load by": line.load_by,
-        "Date confirmed": line.date_confirmed ? "Yes" : "No", "Shipping order": line.shipping_order ?? "",
-        "Warehouse code": line.source_warehouse_code ?? "", Warehouse: line.source_warehouse };
-    });
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentRows.length ? equipmentRows : [{ "Container #": "" }]);
-    const marksSheet = XLSX.utils.json_to_sheet(markRows);
-    equipmentSheet["!cols"] = [10, 14, 14, 18, 22, 18, 20, 30].map((wch) => ({ wch }));
-    marksSheet["!cols"] = [14, 16, 18, 16, 18, 14, 20, 14, 16, 18, 18, 42].map((wch) => ({ wch }));
-    XLSX.utils.book_append_sheet(workbook, equipmentSheet, "Containers");
-    XLSX.utils.book_append_sheet(workbook, marksSheet, "Marks");
+    equipmentSheet["!cols"] = [10, 14, 18, 16, 16, 18, 14, 14, 18, 20, 22, 18, 20, 30].map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(workbook, equipmentSheet, "Load Plan");
     const output = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
     const filename = `SCM-Outbound-${String(booking.booking_number).replace(/[^A-Za-z0-9_-]/g, "-")}.xlsx`;
     return new NextResponse(new Uint8Array(output), { headers: {

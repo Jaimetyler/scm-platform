@@ -33,9 +33,9 @@ export default function CottonOutboundBookingPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
-  const [rollLineId, setRollLineId] = useState("");
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
   const [rollBooking, setRollBooking] = useState("");
-  const [rollBales, setRollBales] = useState("");
+  const [rollQuantities, setRollQuantities] = useState<Record<string, string>>({});
   const saveTimers = useRef<Record<string, number>>({});
 
   const load = useCallback(async () => {
@@ -44,7 +44,7 @@ export default function CottonOutboundBookingPage() {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}?${query}`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      setBooking(result.booking); setContainers(result.containers); setLines(result.lines);
+      setBooking(result.booking); setContainers(result.containers); setLines(result.lines); setSelectedLines(new Set());
       setDrafts(Object.fromEntries((result.containers as Container[]).map((row) => [row.id, {
         bookingLineId: row.booking_line_id ?? "", containerNumber: row.container_number ?? "", sealNumber: row.seal_number ?? "",
         chassisNumber: row.chassis_number ?? "", notes: row.notes ?? "",
@@ -96,27 +96,34 @@ export default function CottonOutboundBookingPage() {
     finally { setWorking(""); }
   }
 
-  async function rollLine(line: Line) {
-    setWorking(`roll-${line.id}`); setError(""); setMessage("");
+  function toggleLine(line: Line) {
+    setSelectedLines((current) => {
+      const next = new Set(current);
+      if (next.has(line.id)) next.delete(line.id); else next.add(line.id);
+      return next;
+    });
+    setRollQuantities((current) => ({ ...current, [line.id]: current[line.id] || String(line.requested_bales) }));
+  }
+  async function rollSelected() {
+    const moves = [...selectedLines].map((lineId) => ({ lineId, bales: Number(rollQuantities[lineId]) }));
+    setWorking("bulk-roll"); setError(""); setMessage("");
     try {
-      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/lines/${line.id}/rollover`, {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/rollover`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terminal, siteCode, targetBookingNumber: rollBooking, bales: Number(rollBales) }),
+        body: JSON.stringify({ terminal, siteCode, targetBookingNumber: rollBooking, moves }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      setRollLineId(""); setRollBooking(""); setRollBales("");
-      setMessage(`${rollBales} bales of ${line.mark} moved to booking ${result.targetBookingNumber}.`);
+      setRollBooking(""); setRollQuantities({}); setSelectedLines(new Set());
+      setMessage(`${moves.length} mark${moves.length === 1 ? "" : "s"} moved to booking ${result.targetBookingNumber}.`);
       await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not roll mark"); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not roll selected marks"); }
     finally { setWorking(""); }
   }
 
   if (loading) return <main style={{ color: "#e2e8f0" }}>Loading booking…</main>;
   if (!booking) return <main><PlatformPageHeader title="Outbound Booking Not Found" actions={<Link href="/warehouse/outbound" style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
   const complete = containers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
-  const orderedLines = [...lines].sort((a, b) => Number(b.available_bales > 0) - Number(a.available_bales > 0)
-    || a.mark.localeCompare(b.mark) || String(a.shipping_order ?? "").localeCompare(String(b.shipping_order ?? "")));
   const lineById = new Map(lines.map((line) => [line.id, line]));
   const term = search.trim().toUpperCase();
   const visibleContainers = containers.filter((row) => {
@@ -124,8 +131,6 @@ export default function CottonOutboundBookingPage() {
     return !term || [row.sequence_no, row.container_number, row.seal_number, row.chassis_number, row.notes,
       assigned?.mark, assigned?.shipping_order].some((value) => String(value ?? "").toUpperCase().includes(term));
   });
-  const visibleLines = orderedLines.filter((line) => !term || [line.mark, line.shipping_order, ...line.inventory_locations]
-    .some((value) => String(value ?? "").toUpperCase().includes(term)));
   return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
       actions={<><a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Export Excel</a>
@@ -136,20 +141,44 @@ export default function CottonOutboundBookingPage() {
     </div>{error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}</PlatformPanel>
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <div><h2 style={{ marginBottom: 4 }}>Container equipment</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Enter the container, seal, and chassis as each unit is assigned.</p></div>
+      <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Green marks have inventory at this warehouse. Red marks have not arrived yet.</p></div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => setSearch(event.target.value)}
         placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
-      <button type="button" style={button} disabled={Boolean(working)} onClick={() => void addContainer()}>{working === "add" ? "Adding…" : "+ Add container"}</button></div>
+        <button type="button" style={button} disabled={Boolean(working)} onClick={() => void addContainer()}>{working === "add" ? "Adding…" : "+ Add container"}</button></div>
     </div>
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse" }}><thead><tr>
-      {['#', 'Mark', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Status'].map((label) => <th key={label} style={th}>{label}</th>)}
+
+    {selectedLines.size > 0 ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
+      <strong>Split / roll {selectedLines.size} selected mark{selectedLines.size === 1 ? "" : "s"}</strong>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8, margin: "10px 0" }}>
+        {[...selectedLines].map((lineId) => { const line = lineById.get(lineId); return line ? <label key={lineId} style={{ color: "#cbd5e1", fontSize: 12 }}>{line.mark} bales
+          <input type="number" min={1} max={line.requested_bales} style={input} value={rollQuantities[lineId] ?? line.requested_bales}
+            onChange={(event) => setRollQuantities((current) => ({ ...current, [lineId]: event.target.value }))} /></label> : null; })}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input style={{ ...input, width: 240 }} value={rollBooking}
+        onChange={(event) => setRollBooking(event.target.value.toUpperCase())} placeholder="Destination booking #" />
+        <button type="button" style={button} disabled={Boolean(working) || !rollBooking.trim()} onClick={() => void rollSelected()}>
+          {working === "bulk-roll" ? "Moving marks…" : "Move selected marks"}</button>
+        <button type="button" style={button} disabled={Boolean(working)} onClick={() => setSelectedLines(new Set())}>Clear selection</button></div>
+    </div> : null}
+
+    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1540, borderCollapse: "collapse" }}><thead><tr>
+      {['', '#', 'Mark', 'Requested', 'Available / inbound', 'Load by', 'S.O.', 'Location', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
+      const line = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
-      return <tr key={row.id}><td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{row.booking_line_id && lineById.get(row.booking_line_id) ? <><strong>{lineById.get(row.booking_line_id)!.mark}</strong>
-          <small style={{ display: "block", color: "#94a3b8", marginTop: 3 }}>{lineById.get(row.booking_line_id)!.requested_bales} bales{lineById.get(row.booking_line_id)!.available_bales > 0 ? " · in warehouse" : ""}</small></> : <span style={{ color: "#fbbf24" }}>Unassigned</span>}</td>
+      const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes);
+      return <tr key={row.id} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
+        <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment}
+          title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>
+        <td style={td}><strong>{row.sequence_no}</strong></td>
+        <td style={td}>{line ? <><strong style={{ color: line.available_bales > 0 ? "#4ade80" : "#f87171", fontSize: 16 }}>{line.mark}</strong>
+          <small style={{ display: "block", color: line.available_bales > 0 ? "#86efac" : line.inbound_bales > 0 ? "#fbbf24" : "#fca5a5", marginTop: 3 }}>
+            {line.available_bales > 0 ? "In warehouse" : line.inbound_bales > 0 ? "Checked into delivery line" : "Not received"}</small></> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
+        <td style={td}>{line?.requested_bales ?? "—"}</td>
+        <td style={td}>{line ? <>{line.available_bales} available{line.inbound_bales > 0 ? <small style={{ display: "block", color: "#fbbf24" }}>{line.inbound_bales} inbound</small> : null}</> : "—"}</td>
+        <td style={td}>{line?.load_by ?? "—"}</td><td style={td}>{line?.shipping_order || "—"}</td><td style={td}>{line?.inventory_locations.join(", ") || "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {
@@ -157,26 +186,9 @@ export default function CottonOutboundBookingPage() {
         }} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 800 }}>
-          {working === row.id ? "Saving…" : saved && row.container_number && row.seal_number ? "Saved" : draft.containerNumber && draft.sealNumber ? "Saving automatically…" : "Enter container + seal"}
+          {working === row.id ? "Saving…" : saved && row.container_number && row.seal_number ? "Saved" : draft.containerNumber && draft.sealNumber ? "Auto-saving…" : "Needs container + seal"}
         </td></tr>;
-    })}</tbody></table></div></PlatformPanel>
-
-    <PlatformPanel><h2>Marks and inventory</h2><p style={{ color: "#94a3b8" }}>Availability reflects active, unallocated inventory at this warehouse.</p>
-      <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 850, borderCollapse: "collapse" }}><thead><tr>
-        {['Mark', 'Requested', 'Status', 'Available', 'Inbound', 'Difference', 'Load by', 'S.O.', 'Location', ''].map((label) => <th key={label} style={th}>{label}</th>)}</tr></thead><tbody>
-        {visibleLines.map((line) => <tr key={line.id}><td style={td}>{line.mark}</td><td style={td}>{line.requested_bales}</td>
-          <td style={td}><span style={{ color: line.available_bales >= line.mark_requested_total ? "#86efac" : line.inbound_bales > 0 ? "#fbbf24" : "#fca5a5", fontWeight: 800 }}>
-            {line.available_bales >= line.mark_requested_total ? "In warehouse" : line.inbound_bales > 0 ? "In delivery line" : line.available_bales > 0 ? "Short in warehouse" : "Not in warehouse"}
-          </span></td><td style={td}>{line.available_bales}</td><td style={td}>{line.inbound_bales || "—"}</td>
-          <td style={{ ...td, color: line.available_bales < line.mark_requested_total ? "#fca5a5" : "#86efac" }}>{line.available_bales - line.mark_requested_total}</td>
-          <td style={td}>{line.load_by}</td><td style={td}>{line.shipping_order || "—"}</td><td style={td}>{line.inventory_locations.join(", ") || "—"}</td>
-          <td style={td}>{rollLineId === line.id ? <div style={{ display: "grid", gap: 6, minWidth: 180 }}>
-            <input style={input} value={rollBooking} onChange={(e) => setRollBooking(e.target.value.toUpperCase())} placeholder="New booking #" />
-            <input style={input} type="number" min={1} max={line.requested_bales} value={rollBales} onChange={(e) => setRollBales(e.target.value)} placeholder="Bales to move" />
-            <div style={{ display: "flex", gap: 6 }}><button style={button} disabled={Boolean(working)} onClick={() => void rollLine(line)}>{working === `roll-${line.id}` ? "Moving…" : "Move"}</button>
-              <button style={button} disabled={Boolean(working)} onClick={() => setRollLineId("")}>Cancel</button></div>
-          </div> : <button style={button} onClick={() => { setRollLineId(line.id); setRollBales(String(line.requested_bales)); setRollBooking(""); }}>Split / roll</button>}</td></tr>)}
-      </tbody></table></div>
+    })}</tbody></table></div>
     </PlatformPanel>
   </main>;
 }
