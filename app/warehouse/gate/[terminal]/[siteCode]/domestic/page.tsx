@@ -8,6 +8,7 @@ import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
+import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Status = "waiting" | "called" | "in_door" | "working";
@@ -303,7 +304,8 @@ export default function DomesticQueuePage() {
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Checked in · {active.length} in yard</td></tr>}
             {active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
-              <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
+              <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+                {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
               <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
               <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>

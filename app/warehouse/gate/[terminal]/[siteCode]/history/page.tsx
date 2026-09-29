@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
+import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import "@/components/warehouse/domestic-tables.css";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
@@ -15,6 +16,7 @@ type Row = {
   material_type: string; reference_number: string | null; mark: string | null;
   shipper: string | null; matched_order_id: string | null; draft_status: string;
   destination: string | null; checkin_source: string | null;
+  has_bol_photo: boolean;
 };
 
 export default function DomesticHistoryPage() {
@@ -94,7 +96,9 @@ export default function DomesticHistoryPage() {
             <td style={cell}>{time(row.checked_in_at)}</td><td style={cell}>{time(row.yard_completed_at)}</td>
             <td style={cell}><span style={statusStyle(row.yard_status)}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}</span></td><td style={cell}>{row.material_type}</td>
             <td style={cell}>{row.movement_direction || "—"}</td><td style={cell}>{row.driver_name || "Staff entry"}<span className="row-secondary">{row.checkin_source === "driver_qr" ? "Driver QR" : "Staff"}</span></td>
-            <td style={cell}>{row.reference_number || row.mark || "—"}</td><td style={cell}>{row.shipper || "—"}</td>
+            <td style={cell}>{row.reference_number || row.mark || "—"}
+              {row.has_bol_photo && <div style={{ marginTop: 5 }}><PaperworkPhotoLink checkinId={row.id} /></div>}</td>
+            <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.matched_order_id ? <>#{row.matched_order_id}<span className="row-secondary">{row.draft_status === "processed" ? "Processed in McLeod" : "Checked in"}</span></> : "—"}</td>
           </tr>)}</tbody>
         </table></div>}

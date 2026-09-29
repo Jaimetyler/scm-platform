@@ -90,7 +90,8 @@ export async function GET(req: NextRequest) {
     if (!exportFile) {
       const { data, error } = await makeQuery().range(page * pageSize, (page + 1) * pageSize - 1);
       if (error) throw error;
-      return NextResponse.json({ ok: true, rows: data ?? [], hasMore: (data?.length ?? 0) === pageSize },
+      return NextResponse.json({ ok: true, rows: (data ?? []).map((row) => ({ ...row,
+        has_bol_photo: Boolean(row.bol_photo_uploaded_at) })), hasMore: (data?.length ?? 0) === pageSize },
         { headers: { "Cache-Control": "no-store" } });
     }
 

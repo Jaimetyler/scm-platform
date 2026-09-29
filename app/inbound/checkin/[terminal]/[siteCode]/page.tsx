@@ -8,6 +8,7 @@ import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
+import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { isReadyCheckin, usesMcleodCheckin } from "@/lib/inbound/checkin/ready";
@@ -1025,6 +1026,7 @@ export default function SiteCheckinPage() {
                     style={{ background: index % 2 ? "rgba(30,41,59,0.18)" : undefined, ...rowTone(row) }}>
                     <td style={rowNumberCellStyle}>{index + 1}
                       {row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+                      {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}
                     </td>
 
                     <td style={tdStyle}>

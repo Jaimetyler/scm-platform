@@ -8,6 +8,7 @@ import PlatformPanel from "@/components/platform/PlatformPanel";
 import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
+import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Status = "waiting" | "called" | "in_door" | "working";
@@ -18,6 +19,7 @@ type Arrival = {
   updated_at: string; matched_order_id: string | null; carrier_code?: string | null; scm_carrier?: boolean;
   draft_status: string; bol_bc: number | null; bale_count: number | null;
   warehouse_location: string | null; equipment_type: string | null;
+  has_bol_photo: boolean; checkin_source: string | null;
 };
 type CottonFields = { mark: string; customer: string; bolBC: string; baleCount: string; warehouseLocation: string; equipmentType: string };
 const LABEL: Record<Status, string> = {
@@ -116,11 +118,13 @@ export default function DomesticLinePage() {
           <thead><tr>{["#", "Arrived", "Freight", "Move", "Driver", "Trucking company", "Reference / mark", "Customer", "SCM / order", "Yard status", "Action"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{active.map((row, index) => <Fragment key={row.id}><tr style={{ background: row.id === nextWaitingId ? "rgba(34,211,238,.12)" : undefined }}>
-            <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
+            <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+              {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}</td>
             <td style={cell}>{time(row.checked_in_at)}</td>
             <td style={cell}>{row.material_type === "cotton" ? "Cotton" : row.material_type === "lumber" ? "Lumber" : "Other"}</td>
             <td style={cell}>{row.movement_direction || "—"}</td>
-            <td style={cell}>{row.driver_name || "Staff entry"}</td>
+            <td style={cell}>{row.driver_name || "Staff entry"}
+              {row.checkin_source === "driver_qr" && <Link href={`/warehouse/checkin/${row.id}`} style={{ display: "block", marginTop: 4, color: "#67e8f9", fontSize: 11 }}>Driver details</Link>}</td>
             <td style={cell}>{row.trucking_company || "Company not entered"}</td>
             <td style={cell}>{row.reference_number || row.mark || "—"}</td>
             <td style={cell}>{row.shipper || "—"}</td>
