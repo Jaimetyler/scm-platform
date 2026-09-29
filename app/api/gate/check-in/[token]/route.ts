@@ -162,9 +162,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         try {
           const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
           if (order.direction !== direction || order.actualDeparture || !order.reference.includes(reference)) return null;
+          const dateMatch = order.orderDate.match(/^(\d{4})(\d{2})(\d{2})/);
+          const scheduled = dateMatch
+            ? Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
+            : Date.parse(order.orderDate);
+          if (Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 24 * 60 * 60 * 1000) return null;
           return { orderId, reference: order.reference, customer: order.customer, destination: order.destination,
             materialType: order.materialType, commodity: order.commodity, mark: order.mark, baleCount: order.baleCount,
-            driverName: order.driverName, driverPhone: order.driverPhone };
+            driverName: order.driverName, driverPhone: order.driverPhone,
+            carrierName: order.carrierName, carrierCode: order.carrierCode,
+            orderDate: order.orderDate, orderStatus: order.orderStatus };
         } catch { return null; } // Search results may include other yards or incomplete orders.
       }))).filter((item) => item !== null);
       return NextResponse.json({ ok: true, matches }, { headers: { "Cache-Control": "no-store" } });
@@ -189,7 +196,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         error: "This SCM order is already checked in at this yard." }, { status: 409 });
       return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference,
         commodity: order.commodity, materialType: order.materialType, mark: order.mark, baleCount: order.baleCount,
-        destination: order.destination, driverName: order.driverName, driverPhone: order.driverPhone });
+        destination: order.destination, driverName: order.driverName, driverPhone: order.driverPhone,
+        customer: order.customer, carrierName: order.carrierName, carrierCode: order.carrierCode,
+        orderDate: order.orderDate, orderStatus: order.orderStatus });
     }
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {

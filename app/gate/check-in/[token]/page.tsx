@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 
 type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string };
 type ReferenceMatch = { orderId: string; reference: string; customer: string; destination: string;
-  materialType: string | null; commodity: string; mark: string; baleCount: string; driverName: string; driverPhone: string };
+  materialType: string | null; commodity: string; mark: string; baleCount: string; driverName: string; driverPhone: string;
+  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string };
 
 type FormState = {
   checkinType: string;
@@ -79,6 +80,7 @@ export default function DriverCheckinPage() {
   const [orderReady, setOrderReady] = useState(false);
   const [orderMessage, setOrderMessage] = useState("");
   const [orderCommodity, setOrderCommodity] = useState("");
+  const [selectedOrder, setSelectedOrder] = useState<ReferenceMatch | null>(null);
   const [referenceMatches, setReferenceMatches] = useState<ReferenceMatch[]>([]);
   const [referenceSearching, setReferenceSearching] = useState(false);
   const referenceRequest = useRef(0);
@@ -142,7 +144,7 @@ export default function DriverCheckinPage() {
       setReferenceMatches([]);
       setOrderMessage("");
       setReferenceSearching(false);
-      if (orderReady) setOrderReady(false);
+      if (orderReady) { setOrderReady(false); setSelectedOrder(null); }
     }
     setForm((current) => ({ ...current, [field]: value,
       ...((field === "movementDirection" || field === "referenceNumber") && orderReady ? { orderId: "" } : {}) }));
@@ -193,6 +195,7 @@ export default function DriverCheckinPage() {
         destination: match.destination || current.destination, driverName, driverPhone };
     });
     setOrderCommodity(match.commodity);
+    setSelectedOrder(match);
     setOrderReady(true);
     setOrderMessage(`SCM order #${match.orderId} found. Please verify the details below.`);
   }
@@ -229,6 +232,11 @@ export default function DriverCheckinPage() {
           driverName, driverPhone };
       });
       setOrderCommodity(result.commodity || "");
+      setSelectedOrder({ orderId: form.orderId.trim(), reference: result.reference, customer: result.customer || "",
+        destination: result.destination || "", materialType: result.materialType || null, commodity: result.commodity || "",
+        mark: result.mark || "", baleCount: result.baleCount || "", driverName: result.driverName || "",
+        driverPhone: result.driverPhone || "", carrierName: result.carrierName || "", carrierCode: result.carrierCode || "",
+        orderDate: result.orderDate || "", orderStatus: result.orderStatus || "" });
       referenceRequest.current++;
       setReferenceMatches([]);
       setOrderReady(true);
@@ -331,7 +339,7 @@ export default function DriverCheckinPage() {
           {form.checkinType === "domestic" ? <>
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
-              onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
+              onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity(""); setSelectedOrder(null);
                 referenceRequest.current++; setReferenceMatches([]); setReferenceSearching(false);
                 const previousAuto = autoDriverRef.current;
                 setForm((current) => ({
@@ -364,10 +372,18 @@ export default function DriverCheckinPage() {
               <option value="lumber">Lumber</option>
               <option value="other">Other / FAK</option>
             </select>
-            {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>McLeod commodity: {orderCommodity || "not listed"}. Confirm the material matches your paperwork.</small>}
+            {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>Order commodity: {orderCommodity || "not listed"}. Confirm the material matches your paperwork.</small>}
           </label>
           {orderReady && <div style={labelStyle}>Reference number
             <div style={inputStyle}>{form.referenceNumber}</div>
+          </div>}
+          {orderReady && selectedOrder && <div style={{ ...noticeStyle, gridColumn: "1 / -1", color: "#cbd5e1" }}>
+            <strong>SCM order #{selectedOrder.orderId}</strong>
+            <div>Trucking company: {selectedOrder.carrierName || (selectedOrder.carrierCode ? `Carrier code ${selectedOrder.carrierCode}` : "Not assigned")}</div>
+            <div>Customer: {selectedOrder.customer || "Not listed"}</div>
+            <div>Order date: {formatOrderDate(selectedOrder.orderDate)} · Status: {selectedOrder.orderStatus || "Unavailable"}</div>
+            <div>Destination: {selectedOrder.destination || "Not listed"}</div>
+            <div>Driver on order: {selectedOrder.driverName || "Not listed"}{selectedOrder.driverPhone ? ` · ${selectedOrder.driverPhone}` : ""}</div>
           </div>}
           {!orderReady && <div style={{ gridColumn: "1 / -1" }}>
             <Field label="Reference number *" value={form.referenceNumber}
@@ -378,7 +394,15 @@ export default function DriverCheckinPage() {
             {!form.orderId.trim() && orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
             {referenceMatches.map((match) => <button key={match.orderId} type="button" style={{ ...buttonStyle, textAlign: "left", marginTop: 8 }}
               onClick={() => chooseReferenceMatch(match)}>
-              #{match.orderId} · {match.customer} · {match.reference}
+              <strong>#{match.orderId} · {match.customer} · {match.reference}</strong>
+              <span style={{ display: "block", marginTop: 5, fontSize: 13, fontWeight: 500 }}>
+                {match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}
+              </span>
+              <span style={{ display: "block", marginTop: 4, fontSize: 13, fontWeight: 500 }}>
+                Destination: {match.destination || "Not listed"} · Driver: {match.driverName || "Not listed"}
+                {match.driverPhone ? ` · ${match.driverPhone}` : ""}
+              </span>
             </button>)}
           </div>}
           {form.movementDirection === "pickup" ? (
@@ -427,6 +451,11 @@ function Field(props: {
       onChange={(event) => props.onChange(event.target.value)} style={inputStyle}
       inputMode={props.inputMode} autoComplete={props.autoComplete} autoCapitalize={props.autoCapitalize} />
   </label>;
+}
+
+function formatOrderDate(value: string) {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
+  return match ? `${match[2]}/${match[3]}/${match[1]}` : value || "Unavailable";
 }
 
 const shellStyle: React.CSSProperties = { maxWidth: 620, margin: "0 auto", padding: "12px 0 40px" };

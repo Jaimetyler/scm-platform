@@ -74,7 +74,26 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   const driverName = String(movement?.override_driver_nm ?? "").trim();
   const driverPhone = String(movement?.override_drvr_cell ?? "").trim();
   const stop = (pickups[0] ?? deliveries[0]) as Record<string, unknown>;
+  const carrierCode = String(movement?.carrier_id ?? movement?.vendor_id ?? movement?.override_payee_id ?? order.vendor_id ?? "").trim();
+  const named = (value: unknown) => value && typeof value === "object"
+    ? String((value as Record<string, unknown>).name ?? "").trim() : "";
+  let carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
+    named(order.carrier) || named(order.vendor) ||
+    String(movement?.carrier_name ?? movement?.vendor_name ?? order.carrier_name ?? "").trim();
+  if (!carrierName && carrierCode) {
+    for (const path of ["carriers", "vendors"]) {
+      try {
+        const carrierResponse = await fetch(`${base}/${path}/${encodeURIComponent(carrierCode)}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
+        });
+        if (carrierResponse.ok) carrierName = named(await carrierResponse.json());
+        if (carrierName) break;
+      } catch { /* The order can still be used when the carrier endpoint is unavailable. */ }
+    }
+  }
+  const orderDate = String(stop.sched_arrive_early ?? stop.sched_arrive_late ?? order.ordered_date ?? "").trim();
+  const orderStatus = String(order.__statusDescr ?? movement?.__statusDescr ?? order.status ?? "").trim();
   return { direction, reference, customer, commodity, materialType, mark, baleCount,
-    destination, driverName, driverPhone,
+    destination, driverName, driverPhone, carrierName, carrierCode, orderDate, orderStatus,
     stopId: String(stop.id ?? ""), actualArrival: String(stop.actual_arrival ?? ""), actualDeparture: String(stop.actual_departure ?? "") };
 }
