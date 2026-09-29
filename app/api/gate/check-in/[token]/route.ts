@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
+import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 
 export const runtime = "nodejs";
 
@@ -128,6 +129,46 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
 
     const { body, photo } = await requestBody(req);
+    if (body?.action === "lookupReference") {
+      const verified = verifyGateLocation({
+        gate: { latitude: gate.latitude, longitude: gate.longitude, radiusMeters: gate.radius_m },
+        driver: { latitude: Number(body?.location?.latitude), longitude: Number(body?.location?.longitude),
+          accuracyMeters: Number(body?.location?.accuracyMeters), capturedAt: clean(body?.location?.capturedAt, 40) },
+      });
+      if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
+      const reference = clean(body?.referenceNumber, 120).toUpperCase();
+      const direction = clean(body?.movementDirection, 20).toLowerCase();
+      if (reference.length < 3 || !["pickup", "delivery"].includes(direction))
+        return NextResponse.json({ ok: false, error: "Choose pickup or delivery and enter at least 3 reference characters." }, { status: 400 });
+      const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
+      const apiToken = process.env.MCLEOD_AUTH_TOKEN;
+      if (!base || !apiToken) throw new Error("McLeod connection is not configured");
+      const field = direction === "pickup" ? "blnum" : "consignee_refno";
+      const query = new URLSearchParams({ [`orders.${field}`]: `*${reference.replace(/\*/g, "")}*`, recordLength: "200" });
+      const response = await fetch(`${base}/orders/search?${query}`, {
+        headers: { Authorization: `Bearer ${apiToken}`, Accept: "application/json" }, cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`McLeod search failed (${response.status})`);
+      const results = extractSearchOrders(await response.json());
+      if (!results) throw new Error("McLeod returned an unexpected search response");
+      if (results.length >= 200) throw new Error("Too many possible orders. Enter a longer reference number.");
+      const ids = [...new Set(results.filter((item) => {
+        const order = item as Record<string, unknown>;
+        return clean(order[field], 500).toUpperCase().includes(reference) &&
+          clean(order.revenue_code_id, 20).toUpperCase() === "MAIN";
+      }).map((item) => clean((item as Record<string, unknown>).id, 60)))].filter(Boolean);
+      if (ids.length > 20) throw new Error("Too many possible orders. Enter a longer reference number.");
+      const matches = (await Promise.all(ids.map(async (orderId) => {
+        try {
+          const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
+          if (order.direction !== direction || order.actualDeparture || !order.reference.includes(reference)) return null;
+          return { orderId, reference: order.reference, customer: order.customer, destination: order.destination,
+            materialType: order.materialType, commodity: order.commodity, mark: order.mark, baleCount: order.baleCount,
+            driverName: order.driverName, driverPhone: order.driverPhone };
+        } catch { return null; } // Search results may include other yards or incomplete orders.
+      }))).filter((item) => item !== null);
+      return NextResponse.json({ ok: true, matches }, { headers: { "Cache-Control": "no-store" } });
+    }
     if (body?.action === "lookupOrder") {
       const location = body?.location;
       const verified = verifyGateLocation({

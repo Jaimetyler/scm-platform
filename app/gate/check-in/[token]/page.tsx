@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string };
+type ReferenceMatch = { orderId: string; reference: string; customer: string; destination: string;
+  materialType: string | null; commodity: string; mark: string; baleCount: string; driverName: string; driverPhone: string };
 
 type FormState = {
   checkinType: string;
@@ -77,6 +79,9 @@ export default function DriverCheckinPage() {
   const [orderReady, setOrderReady] = useState(false);
   const [orderMessage, setOrderMessage] = useState("");
   const [orderCommodity, setOrderCommodity] = useState("");
+  const [referenceMatches, setReferenceMatches] = useState<ReferenceMatch[]>([]);
+  const [referenceSearching, setReferenceSearching] = useState(false);
+  const referenceRequest = useRef(0);
   const [error, setError] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
   const autoDriverRef = useRef({ name: "", phone: "" });
@@ -132,7 +137,64 @@ export default function DriverCheckinPage() {
 
   function change(field: keyof FormState, value: string) {
     setError("");
-    setForm((current) => ({ ...current, [field]: value }));
+    if (field === "referenceNumber" || field === "movementDirection") {
+      referenceRequest.current++;
+      setReferenceMatches([]);
+      setOrderMessage("");
+      setReferenceSearching(false);
+      if (orderReady) setOrderReady(false);
+    }
+    setForm((current) => ({ ...current, [field]: value,
+      ...((field === "movementDirection" || field === "referenceNumber") && orderReady ? { orderId: "" } : {}) }));
+  }
+
+  async function findReference() {
+    if (form.orderId.trim() || orderReady || form.referenceNumber.trim().length < 3 ||
+        !form.movementDirection || referenceSearching) return;
+    const requestId = ++referenceRequest.current;
+    setReferenceSearching(true);
+    setOrderMessage("");
+    try {
+      const position = await currentPosition();
+      const response = await fetch(`/api/gate/check-in/${token}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "lookupReference", referenceNumber: form.referenceNumber.trim(),
+          movementDirection: form.movementDirection, location: {
+            latitude: position.coords.latitude, longitude: position.coords.longitude,
+            accuracyMeters: position.coords.accuracy, capturedAt: new Date(position.timestamp).toISOString(),
+          } }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok) throw new Error(result.error || `Reference search failed (HTTP ${response.status})`);
+      if (requestId !== referenceRequest.current) return;
+      setReferenceMatches(result.matches || []);
+      setOrderMessage(result.matches?.length ? "Choose your order below to fill in the check-in details." :
+        "No SCM order found for this reference. Continue with the details from your paperwork.");
+    } catch (reason) {
+      if (requestId === referenceRequest.current) setOrderMessage(reason instanceof Error ? reason.message : "Could not search this reference");
+    } finally {
+      if (requestId === referenceRequest.current) setReferenceSearching(false);
+    }
+  }
+
+  function chooseReferenceMatch(match: ReferenceMatch) {
+    referenceRequest.current++;
+    setReferenceMatches([]);
+    setForm((current) => {
+      const driverName = current.driverName || match.driverName || "";
+      const driverPhone = current.driverPhone || match.driverPhone || "";
+      autoDriverRef.current = {
+        name: current.driverName ? "" : driverName,
+        phone: current.driverPhone ? "" : driverPhone,
+      };
+      return { ...current, orderId: match.orderId, referenceNumber: match.reference,
+        materialType: match.materialType || current.materialType, mark: match.mark || current.mark,
+        bolBaleCount: match.baleCount || current.bolBaleCount,
+        destination: match.destination || current.destination, driverName, driverPhone };
+    });
+    setOrderCommodity(match.commodity);
+    setOrderReady(true);
+    setOrderMessage(`SCM order #${match.orderId} found. Please verify the details below.`);
   }
 
   useEffect(() => {
@@ -167,6 +229,8 @@ export default function DriverCheckinPage() {
           driverName, driverPhone };
       });
       setOrderCommodity(result.commodity || "");
+      referenceRequest.current++;
+      setReferenceMatches([]);
       setOrderReady(true);
       setOrderMessage(`SCM order found: ${result.direction}. Please verify the details below.`);
     } catch (reason) {
@@ -268,6 +332,7 @@ export default function DriverCheckinPage() {
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
               onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
+                referenceRequest.current++; setReferenceMatches([]); setReferenceSearching(false);
                 const previousAuto = autoDriverRef.current;
                 setForm((current) => ({
                 ...current, orderId: value.toUpperCase(), movementDirection: "", referenceNumber: "", materialType: "",
@@ -301,12 +366,21 @@ export default function DriverCheckinPage() {
             </select>
             {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>McLeod commodity: {orderCommodity || "not listed"}. Confirm the material matches your paperwork.</small>}
           </label>
-          {orderReady && <div style={labelStyle}>McLeod {form.movementDirection === "pickup" ? "B/L number" : "consignee reference"}
+          {orderReady && <div style={labelStyle}>Reference number
             <div style={inputStyle}>{form.referenceNumber}</div>
           </div>}
-          {!orderReady && <Field
-            label={form.movementDirection === "pickup" ? "B/L number (McLeod BLNUM) *" : form.movementDirection === "delivery" ? "Consignee reference (McLeod) *" : "Reference number *"}
-            value={form.referenceNumber} onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />}
+          {!orderReady && <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Reference number *" value={form.referenceNumber}
+              onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
+            {!form.orderId.trim() && <button type="button" style={{ ...buttonStyle, marginTop: 8 }}
+              disabled={referenceSearching || form.referenceNumber.trim().length < 3 || !form.movementDirection}
+              onClick={() => void findReference()}>{referenceSearching ? "Searching…" : "Find order by reference"}</button>}
+            {!form.orderId.trim() && orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
+            {referenceMatches.map((match) => <button key={match.orderId} type="button" style={{ ...buttonStyle, textAlign: "left", marginTop: 8 }}
+              onClick={() => chooseReferenceMatch(match)}>
+              #{match.orderId} · {match.customer} · {match.reference}
+            </button>)}
+          </div>}
           {form.movementDirection === "pickup" ? (
             <Field label="Destination *" value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
           ) : null}
