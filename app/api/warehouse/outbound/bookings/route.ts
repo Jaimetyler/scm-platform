@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     if (!(file instanceof File) || file.size > 4 * 1024 * 1024 || !/\.xlsx$/i.test(file.name))
       return NextResponse.json({ ok: false, error: "Choose a Bunge .xlsx file under 4 MB." }, { status: 400 });
     const booking = parseBungeBooking(Buffer.from(await file.arrayBuffer()));
-    const mismatches = booking.lines.filter((line) => !warehouseMatchesSite(line.warehouse, terminal, siteCode));
+    const mismatches = booking.lines.filter((line) => !warehouseMatchesSite(line.warehouse, terminal, siteCode, booking.warehouseDetails[line.warehouseCode]));
     if (mismatches.length) return NextResponse.json({ ok: false,
       error: `The request lists ${booking.warehouses.join(", ")}. It does not match ${site.siteName}; no booking was saved.` }, { status: 409 });
     if (booking.warnings.length) return NextResponse.json({ ok: false,
