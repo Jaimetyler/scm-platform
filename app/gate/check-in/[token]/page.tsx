@@ -82,6 +82,7 @@ export default function DriverCheckinPage() {
   const [referenceMatches, setReferenceMatches] = useState<ReferenceMatch[]>([]);
   const [referenceSearching, setReferenceSearching] = useState(false);
   const referenceRequest = useRef(0);
+  const orderRequest = useRef(0);
   const [error, setError] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
   const autoDriverRef = useRef({ name: "", phone: "" });
@@ -138,6 +139,7 @@ export default function DriverCheckinPage() {
   function change(field: keyof FormState, value: string) {
     setError("");
     if (field === "referenceNumber" || field === "movementDirection") {
+      orderRequest.current++;
       referenceRequest.current++;
       setReferenceMatches([]);
       setOrderMessage("");
@@ -189,7 +191,8 @@ export default function DriverCheckinPage() {
 
   async function findOrder(selectedId?: string, referenceNumber?: string, movementDirection?: string) {
     const orderId = selectedId || form.orderId.trim();
-    if (!orderId || lookingUp) return;
+    if (!orderId || (orderReady && orderId === form.orderId.trim())) return;
+    const requestId = ++orderRequest.current;
     setLookingUp(true);
     setOrderMessage("");
     try {
@@ -203,6 +206,7 @@ export default function DriverCheckinPage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.ok) throw new Error(result.error || `Could not find this order (HTTP ${response.status})`);
+      if (requestId !== orderRequest.current) return;
       setForm((current) => {
         const driverName = current.driverName || result.driverName || "";
         const driverPhone = current.driverPhone || result.driverPhone || "";
@@ -222,9 +226,10 @@ export default function DriverCheckinPage() {
       setOrderReady(true);
       setOrderMessage(`SCM order found: ${result.direction}. Please verify the details below.`);
     } catch (reason) {
+      if (requestId !== orderRequest.current) return;
       setOrderReady(false);
       setOrderMessage(reason instanceof Error ? reason.message : "Could not find this order");
-    } finally { setLookingUp(false); }
+    } finally { if (requestId === orderRequest.current) setLookingUp(false); }
   }
 
   async function submit(event: FormEvent) {
@@ -321,6 +326,7 @@ export default function DriverCheckinPage() {
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
               onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
+                orderRequest.current++; setLookingUp(false);
                 referenceRequest.current++; setReferenceMatches([]); setReferenceSearching(false);
                 const previousAuto = autoDriverRef.current;
                 setForm((current) => ({
@@ -328,10 +334,9 @@ export default function DriverCheckinPage() {
                 mark: "", bolBaleCount: "", destination: "",
                 driverName: previousAuto.name && current.driverName === previousAuto.name ? "" : current.driverName,
                 driverPhone: previousAuto.phone && current.driverPhone === previousAuto.phone ? "" : current.driverPhone,
-              })); autoDriverRef.current = { name: "", phone: "" }; }} autoCapitalize="characters" optional />
-            <button type="button" disabled={!form.orderId.trim() || lookingUp} style={{ ...buttonStyle, marginTop: 8 }} onClick={() => void findOrder()}>
-              {lookingUp ? "Finding order…" : "Find my order"}
-            </button>
+              })); autoDriverRef.current = { name: "", phone: "" }; }}
+              onBlur={() => void findOrder()} autoCapitalize="characters" optional />
+            {lookingUp && <p role="status" style={bodyStyle}>Finding your SCM order…</p>}
             {orderMessage && <p role={orderReady ? "status" : "alert"} style={{ ...bodyStyle, color: orderReady ? "#86efac" : "#fca5a5" }}>{orderMessage}</p>}
             <small style={{ color: "#94a3b8" }}>Enter your SCM number first if you have it. Otherwise, use the reference from your paperwork.</small>
           </div>
@@ -349,10 +354,9 @@ export default function DriverCheckinPage() {
           </div>}
           {!orderReady && <div style={{ gridColumn: "1 / -1" }}>
             <Field label="Reference number *" value={form.referenceNumber}
-              onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
-            <button type="button" style={{ ...buttonStyle, marginTop: 8 }}
-              disabled={referenceSearching || form.referenceNumber.trim().length < 3 || !form.movementDirection}
-              onClick={() => void findReference()}>{referenceSearching ? "Searching…" : "Find order by reference"}</button>
+              onChange={(value) => change("referenceNumber", value.toUpperCase())}
+              onBlur={() => void findReference()} autoCapitalize="characters" />
+            {referenceSearching && <p role="status" style={bodyStyle}>Searching for your reference…</p>}
             {orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
           </div>}
           </> : null}
@@ -390,7 +394,8 @@ export default function DriverCheckinPage() {
           </small>
         </label> : null}
 
-        {form.checkinType ? <button type="submit" disabled={submitting} style={{ ...buttonStyle, opacity: submitting ? .65 : 1 }}>
+        {form.checkinType ? <button type="submit" disabled={submitting || lookingUp || referenceSearching || referenceMatches.length > 0}
+          style={{ ...buttonStyle, opacity: submitting || lookingUp || referenceSearching ? .65 : 1 }}>
           {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
         </button> : null}
         <p style={privacyStyle}>Your location is used to confirm this check-in at the yard and is saved with the arrival record.</p>
@@ -425,11 +430,11 @@ function Choice({ selected, title, detail, onClick }: { selected: boolean; title
 
 function Field(props: {
   label: string; value: string; onChange: (value: string) => void;
-  inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean;
+  onBlur?: () => void; inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean;
 }) {
   return <label style={labelStyle}>{props.label}
     <input required={!props.optional && props.label.endsWith("*")} value={props.value}
-      onChange={(event) => props.onChange(event.target.value)} style={inputStyle}
+      onChange={(event) => props.onChange(event.target.value)} onBlur={props.onBlur} style={inputStyle}
       inputMode={props.inputMode} autoComplete={props.autoComplete} autoCapitalize={props.autoCapitalize} />
   </label>;
 }

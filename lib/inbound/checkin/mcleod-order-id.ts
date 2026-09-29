@@ -40,15 +40,16 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== "MAIN")
     throw new Error(`SCM order ${orderId} is not a MAIN revenue code order. Check in using the reference from your paperwork.`);
   const stops = Array.isArray(order.stops) ? order.stops : [];
-  const city = terminal === "SAV" ? "SAVANNAH" : "HOUSTON";
   const siteWords = siteName.toUpperCase().match(/\b\d{3,}\b/g) ?? [];
   function atSite(stop: Record<string, unknown>) {
     const location = stop.location && typeof stop.location === "object" ? stop.location as Record<string, unknown> : {};
     const name = String(location.name ?? stop.location_name ?? "").toUpperCase();
-    const address = String(location.address ?? location.address1 ?? stop.address ?? "").toUpperCase();
-    const stopCity = String(location.city ?? stop.city ?? "").toUpperCase();
+    const address = [location.address, location.address1, location.address2, stop.address,
+      location.code, location.id].map((value) => String(value ?? "")).join(" ").toUpperCase();
     const scm = /\bSCM\b|SUPPLY CHAIN|SAVANNAH WAREHOUSE|HOUSTON WAREHOUSE/.test(name);
-    return scm && (name.includes(city) || stopCity.includes(city) || siteWords.some((word) => name.includes(word) || address.includes(word)));
+    // Every terminal has multiple yards. A city match alone could link a
+    // 5300 order to 4331 (or one Savannah site to another).
+    return scm && siteWords.some((word) => new RegExp(`(^|\\D)${word}(\\D|$)`).test(`${name} ${address}`));
   }
   const pickups = stops.filter((stop: Record<string, unknown>) => stop.stop_type === "PU" && atSite(stop));
   const deliveries = stops.filter((stop: Record<string, unknown>) => stop.stop_type === "SO" && atSite(stop));

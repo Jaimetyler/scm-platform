@@ -30,7 +30,7 @@ type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialTyp
   referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
   destination: string; notes: string; orderId: string };
 function blankDraft(id: string): Draft {
-  return { id, movementDirection: "delivery", materialType: "lumber", referenceNumber: "", customer: "",
+  return { id, movementDirection: "pickup", materialType: "lumber", referenceNumber: "", customer: "",
     driverName: "", driverPhone: "", truckingCompany: "", destination: "", notes: "", orderId: "" };
 }
 const LABEL: Record<Status, string> = {

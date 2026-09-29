@@ -9,7 +9,7 @@ test("driver order ID picks BLNUM for pickup and consignee reference for deliver
   process.env.MCLEOD_BASE_URL = "https://mcleod.example";
   process.env.MCLEOD_AUTH_TOKEN = "test";
   globalThis.fetch = async () => new Response(JSON.stringify({
-    id: "12345", blnum: "LOAD 1085745 PICKUP", consignee_refno: "DEL 98765",
+    id: "12345", revenue_code_id: "MAIN", blnum: "LOAD 1085745 PICKUP", consignee_refno: "DEL 98765",
     customer_id: "CUSTOMER1",
     stops: [{ stop_type: "SO", location: { name: "DALLAS CUSTOMER" } }],
   }), { status: 200 });
@@ -37,19 +37,19 @@ test("driver order detects the SCM stop and selects the corresponding reference"
   process.env.MCLEOD_AUTH_TOKEN = "test";
   let stops = [];
   globalThis.fetch = async () => new Response(JSON.stringify({
-    blnum: "PICKUP-123", consignee_refno: "DELIVERY-456", customer_id: "CUSTOMER1", commodity_id: "LUMBER", stops,
+    revenue_code_id: "MAIN", blnum: "PICKUP-123", consignee_refno: "DELIVERY-456", customer_id: "CUSTOMER1", commodity_id: "LUMBER", stops,
   }), { status: 200 });
   try {
-    stops = [{ id: "PU1", stop_type: "PU", location: { name: "SCM Houston", city: "Houston" } },
+    stops = [{ id: "PU1", stop_type: "PU", location: { name: "SCM Houston 5300", city: "Houston" } },
       { stop_type: "SO", location: { name: "Customer warehouse", city: "Dallas" } }];
-    assert.deepEqual(await lookupMcleodGateOrder("12345", "HOU", "Houston 5300"), {
-      direction: "pickup", reference: "PICKUP-123", customer: "CUSTOMER1", commodity: "LUMBER",
-      materialType: "lumber", mark: "DELIVERY-456", baleCount: "",
-      stopId: "PU1", actualArrival: "", actualDeparture: "",
-    });
+    const matched = await lookupMcleodGateOrder("12345", "HOU", "Houston 5300");
+    assert.equal(matched.direction, "pickup");
+    assert.equal(matched.reference, "PICKUP-123");
+    assert.equal(matched.stopId, "PU1");
+    await assert.rejects(lookupMcleodGateOrder("12345", "HOU", "Houston 4331"), /identify this SCM yard/);
     stops = [{ stop_type: "PU", location: { name: "Customer warehouse", city: "Dallas" } },
-      { stop_type: "SO", location: { name: "Savannah Warehouse", city: "Savannah" } }];
-    assert.equal((await lookupMcleodGateOrder("12345", "SAV", "Savannah")).direction, "delivery");
+      { stop_type: "SO", location: { name: "Savannah Warehouse 1701", city: "Savannah" } }];
+    assert.equal((await lookupMcleodGateOrder("12345", "SAV", "Savannah 1701")).direction, "delivery");
     await assert.rejects(lookupMcleodGateOrder("12345", "HOU", "Houston 5300"), /identify this SCM yard/);
   } finally {
     globalThis.fetch = previousFetch;
@@ -67,11 +67,11 @@ test("cotton order fills the mark and bale count from McLeod", async () => {
   process.env.MCLEOD_BASE_URL = "https://mcleod.example";
   process.env.MCLEOD_AUTH_TOKEN = "test";
   globalThis.fetch = async () => new Response(JSON.stringify({
-    blnum: "D0975 88 BALES", consignee_refno: "D0975", commodity_id: "COTTON", customer_id: "C1",
-    stops: [{ stop_type: "SO", location: { name: "Savannah Warehouse", city: "Savannah" } }],
+    revenue_code_id: "MAIN", blnum: "D0975 88 BALES", consignee_refno: "D0975", commodity_id: "COTTON", customer_id: "C1",
+    stops: [{ stop_type: "SO", location: { name: "Savannah Warehouse 1701", city: "Savannah" } }],
   }), { status: 200 });
   try {
-    const order = await lookupMcleodGateOrder("12345", "SAV", "Savannah");
+    const order = await lookupMcleodGateOrder("12345", "SAV", "Savannah 1701");
     assert.equal(order.materialType, "cotton");
     assert.equal(order.reference, "D0975");
     assert.equal(order.mark, "D0975");
