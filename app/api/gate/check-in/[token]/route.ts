@@ -37,6 +37,7 @@ async function requestBody(req: NextRequest) {
         checkinType: form.get("checkinType"),
         driverName: form.get("driverName"),
         driverPhone: form.get("driverPhone"),
+        truckingCompany: form.get("truckingCompany"),
         movementDirection: form.get("movementDirection"),
         materialType: form.get("materialType"),
         orderId: form.get("orderId"),
@@ -211,6 +212,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       return NextResponse.json({ ok: false, error: "Choose a check-in type and enter the driver name" }, { status: 400 });
     }
     const driverPhone = clean(body?.driverPhone, 40);
+    let truckingCompany = clean(body?.truckingCompany, 200);
     let movementDirection = clean(body?.movementDirection, 20).toLowerCase();
     const materialType = clean(body?.materialType, 20).toLowerCase();
     let referenceNumber = clean(body?.referenceNumber).toUpperCase();
@@ -220,7 +222,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     const bolBaleCount = materialType === "cotton"
       ? positiveInteger(body?.bolBaleCount ?? body?.bolBC)
       : null;
-    if (checkinType === "domestic" && (!driverPhone ||
+    if (checkinType === "domestic" && (!driverPhone || !truckingCompany ||
         !["cotton", "lumber", "other"].includes(materialType) ||
         (!referenceNumber && !orderId) ||
         (materialType === "cotton" && (!mark || !bolBaleCount)))) {
@@ -326,6 +328,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       }
       referenceNumber ||= order.reference;
       if (order.direction === "pickup") destination ||= order.destination;
+      truckingCompany = order.carrierName || truckingCompany;
       matchedCustomer = order.customer;
     }
     if (!["pickup", "delivery"].includes(movementDirection) || (movementDirection === "pickup" && !destination)) {
@@ -362,7 +365,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       driver_checkin_site_id: gate.id,
       driver_name: driverName,
       driver_phone: driverPhone,
-      trucking_company: null,
+      trucking_company: truckingCompany || null,
       driver_latitude: latitude,
       driver_longitude: longitude,
       driver_accuracy_m: accuracyMeters,

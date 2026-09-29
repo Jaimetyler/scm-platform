@@ -320,6 +320,7 @@ export default function SiteCheckinPage() {
           setNewCheckin((current) => current && current.id === newCheckin.id && current.mark === newCheckin.mark
             ? { ...current, shipper: current.shipper || match.customer,
               driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone,
+              trucking_company: match.carrierName || current.trucking_company,
               bol_bc: current.bol_bc || match.bolBC, matched_order_id: match.orderId } : current);
         }
       } catch (error) {
@@ -348,6 +349,7 @@ export default function SiteCheckinPage() {
           mark: newCheckin.mark, shipper: newCheckin.shipper, bolBC: newCheckin.bol_bc,
           equipmentType: newCheckin.equipment_type, comment1: newCheckin.comment_1,
           driverName: newCheckin.driver_name, driverPhone: newCheckin.driver_phone,
+          truckingCompany: newCheckin.trucking_company,
           matchedOrderId: newCheckin.matched_order_id,
         }),
       });
@@ -597,6 +599,7 @@ export default function SiteCheckinPage() {
           comment1: row.comment_1,
           comment2: row.comment_2,
           matchedOrderId: row.matched_order_id,
+          truckingCompany: row.trucking_company,
         }),
       });
 
@@ -680,6 +683,7 @@ export default function SiteCheckinPage() {
       mark: match.mark,
       shipper: row.shipper || match.customer,
       bol_bc: row.bol_bc || match.bolBC,
+      trucking_company: match.carrierName || row.trucking_company,
       matched_order_id: !row.bol_bc || !match.bolBC || row.bol_bc === match.bolBC ? match.orderId : null,
     }));
     if (updated) queueSaveRow(updated);
@@ -702,6 +706,7 @@ export default function SiteCheckinPage() {
           equipmentType: row.equipment_type,
           comment1: row.comment_1, comment2: row.comment_2,
           matchedOrderId: row.matched_order_id,
+          truckingCompany: row.trucking_company,
         }),
       });
       const data = await res.json();
@@ -1090,6 +1095,7 @@ export default function SiteCheckinPage() {
                         disabled={isReadOnlyRow(row)}
                         placeholder="Start typing customer..."
                       />
+                      {row.trucking_company && <div className="row-secondary" title={row.trucking_company} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Carrier: {row.trucking_company}</div>}
                     </td>
 
                     <td style={tdStyle}>
@@ -1307,6 +1313,7 @@ export default function SiteCheckinPage() {
                       <div style={detailsContentStyle}>
                         {row.checked_in_at && <span>Arrived {formatArrivalTime(row)} · {row.received_date}</span>}
                         {row.driver_name && <span>Driver: {row.driver_name}{row.driver_phone ? ` · ${row.driver_phone}` : ""}</span>}
+                        {row.trucking_company && <span>Trucking company: {row.trucking_company}</span>}
                         {row.identity_corrected_at && <span>Identity corrected</span>}
                         {row.checkin_source === "driver_qr" && <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer" style={detailLinkStyle}>
                           QR driver details · {row.movement_direction ?? "delivery"}
@@ -1387,7 +1394,8 @@ export default function SiteCheckinPage() {
                 {newMatches.map((match) => <button type="button" key={match.orderId} style={{ ...toolbarButtonStyle, textAlign: "left" }}
                   onClick={() => { setNewCheckin((current) => current && { ...current, mark: match.mark,
                     shipper: match.customer, bol_bc: match.bolBC || current.bol_bc, matched_order_id: match.orderId,
-                    driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone });
+                    driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone,
+                    trucking_company: match.carrierName || current.trucking_company });
                     setNewError(""); }}>
                   <strong>#{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C</strong>
                   <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
@@ -1412,6 +1420,9 @@ export default function SiteCheckinPage() {
             <label style={modalLabelStyle}>Driver phone
               <input type="tel" style={modalInputStyle} value={newCheckin.driver_phone ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, driver_phone: event.target.value })} placeholder="Confirm phone number" /></label>
+            <label style={{ ...modalLabelStyle, gridColumn: "1 / -1" }}>Trucking company
+              <input style={modalInputStyle} value={newCheckin.trucking_company ?? ""} onChange={(event) =>
+                setNewCheckin((current) => current && { ...current, trucking_company: event.target.value })} placeholder="Carrier name" /></label>
             <label style={modalLabelStyle}>Equipment
               <select style={modalInputStyle} value={newCheckin.equipment_type ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, equipment_type: event.target.value as "V" | "F" || null })}>

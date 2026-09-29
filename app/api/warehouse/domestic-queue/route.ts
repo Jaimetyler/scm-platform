@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
-      .select("id,updated_at,checked_in_at,driver_name,driver_phone,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
+      .select("id,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
       .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
@@ -86,12 +86,13 @@ export async function POST(req: NextRequest) {
     const orderId = String(body?.orderId ?? "").trim();
     const driverName = String(body?.driverName ?? "").trim();
     const driverPhone = String(body?.driverPhone ?? "").trim();
+    let truckingCompany = String(body?.truckingCompany ?? "").trim();
     let destination = String(body?.destination ?? "").trim().toUpperCase();
     const location = String(body?.warehouseLocation ?? "").trim().toUpperCase();
     const notes = String(body?.notes ?? "").trim();
     if (!site || !["pickup", "delivery"].includes(direction) || !["lumber", "other"].includes(material) ||
         (!reference && !orderId) || reference.length > 200 || customer.length > 200 || driverName.length > 120 ||
-        driverPhone.length > 40 || destination.length > 200 || location.length > 120 || notes.length > 500) {
+        driverPhone.length > 40 || truckingCompany.length > 200 || destination.length > 200 || location.length > 120 || notes.length > 500) {
       return NextResponse.json({ ok: false, error: "Enter a valid site, move, material, and reference" }, { status: 400 });
     }
     if (orderId) {
@@ -106,6 +107,8 @@ export async function POST(req: NextRequest) {
       reference ||= order.reference;
       customer = order.customer;
       material = order.materialType || material;
+      try { truckingCompany = (await lookupMcleodGateOrder(orderId, site.terminal, site.siteName)).carrierName || truckingCompany; }
+      catch { /* Keep the company entered by staff if the yard lookup is incomplete. */ }
       if (direction === "pickup" && !destination && order.destination) {
         destination = order.destination;
       }
@@ -119,6 +122,7 @@ export async function POST(req: NextRequest) {
       movement_direction: direction, material_type: material, reference_number: reference,
       shipper: customer || null, matched_order_id: orderId || null,
       driver_name: driverName || null, driver_phone: driverPhone || null,
+      trucking_company: truckingCompany || null,
       destination: direction === "pickup" ? destination || null : null,
       warehouse_location: location || null, comment_1: notes || null, verified: false,
     }).select("id").single();
@@ -232,11 +236,11 @@ export async function PATCH(req: NextRequest) {
       if (existing.updated_at !== body.expectedUpdatedAt) return NextResponse.json({ ok: false, error: "This row changed. Refresh before saving." }, { status: 409 });
       if (body.action === "edit_field") {
         const field = String(body.field ?? "");
-        if (!["reference_number", "warehouse_location", "comment_1", "driver_name", "driver_phone"].includes(field)) {
+        if (!["reference_number", "warehouse_location", "comment_1", "driver_name", "driver_phone", "trucking_company"].includes(field)) {
           return NextResponse.json({ ok: false, error: "Invalid sheet field" }, { status: 400 });
         }
         const value = String(body.value ?? "").trim();
-        const normalized = ["driver_name", "driver_phone", "comment_1"].includes(field) ? value : value.toUpperCase();
+        const normalized = ["driver_name", "driver_phone", "trucking_company", "comment_1"].includes(field) ? value : value.toUpperCase();
         const maxLength = field === "driver_name" ? 120 : field === "driver_phone" ? 40 : field === "comment_1" ? 500 : 200;
         if ((field === "reference_number" && !normalized) || normalized.length > maxLength) {
           return NextResponse.json({ ok: false, error: "Enter a valid value" }, { status: 400 });
@@ -246,7 +250,7 @@ export async function PATCH(req: NextRequest) {
           ...(changedReference && existing.matched_order_id ? { matched_order_id: null, shipper: null } : {}) };
         const { data, error } = await sb.from("inbound_checkin_rows").update(updates)
           .eq("id", id).eq("updated_at", body.expectedUpdatedAt)
-          .select("id,updated_at,reference_number,warehouse_location,comment_1,driver_name,driver_phone,shipper,matched_order_id").maybeSingle();
+        .select("id,updated_at,reference_number,warehouse_location,comment_1,driver_name,driver_phone,trucking_company,shipper,matched_order_id").maybeSingle();
         if (error) throw error;
         if (!data) return NextResponse.json({ ok: false, error: "This row changed. Refresh before saving." }, { status: 409 });
         return NextResponse.json({ ok: true, row: data });
@@ -256,6 +260,7 @@ export async function PATCH(req: NextRequest) {
       let canonicalReference: string | null = null;
       let matchedDestination: string | null = null;
       let matchedMaterial: string | null = null;
+      let matchedCarrier: string | null = null;
       if (body.action === "match_order") {
         orderId = String(body.orderId ?? "").trim();
         const order = await lookupMcleodOrderById(orderId, existing.movement_direction);
@@ -268,13 +273,17 @@ export async function PATCH(req: NextRequest) {
         canonicalReference = order.reference;
         matchedDestination = existing.movement_direction === "pickup" && !existing.destination ? order.destination : null;
         matchedMaterial = order.materialType;
+        const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
+        try { matchedCarrier = (await lookupMcleodGateOrder(orderId, site.terminal, site.siteName)).carrierName || null; }
+        catch { /* Keep the recorded company when the yard lookup is incomplete. */ }
       }
       if (!customer || customer.length > 200) return NextResponse.json({ ok: false, error: "Enter a customer" }, { status: 400 });
       const { data, error } = await sb.from("inbound_checkin_rows")
         .update({ shipper: customer, matched_order_id: orderId,
           ...(canonicalReference ? { reference_number: canonicalReference } : {}),
           ...(matchedDestination ? { destination: matchedDestination } : {}),
-          ...(matchedMaterial ? { material_type: matchedMaterial } : {}) })
+          ...(matchedMaterial ? { material_type: matchedMaterial } : {}),
+          ...(matchedCarrier ? { trucking_company: matchedCarrier } : {}) })
         .eq("id", id).eq("updated_at", body.expectedUpdatedAt)
         .select("id,updated_at,shipper,matched_order_id").maybeSingle();
       if (error) throw error;

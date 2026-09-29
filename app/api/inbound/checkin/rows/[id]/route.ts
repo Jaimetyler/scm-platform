@@ -66,6 +66,7 @@ type CheckinRow = {
   received_date: string | null;
   mark: string | null;
   shipper: string | null;
+  trucking_company?: string | null;
   bol_bc: number | null;
   bale_count: number | null;
   warehouse_location: string | null;
@@ -132,6 +133,7 @@ export async function PATCH(
       received_date: normalizeDate(body?.receivedDate !== undefined ? body.receivedDate : existing.received_date),
       mark: cleanText(body?.mark !== undefined ? body.mark : existing.mark).toUpperCase() || null,
       shipper: cleanText(body?.shipper !== undefined ? body.shipper : existing.shipper).toUpperCase() || null,
+      trucking_company: cleanText(body?.truckingCompany !== undefined ? body.truckingCompany : existing.trucking_company) || null,
       bol_bc: normalizePositiveInteger(body?.bolBC !== undefined ? body.bolBC : existing.bol_bc),
       bale_count: normalizePositiveInteger(body?.baleCount !== undefined ? body.baleCount : existing.bale_count),
       warehouse_location:
@@ -167,6 +169,9 @@ export async function PATCH(
     }
 
     const requestedOrderId = cleanText(body?.matchedOrderId);
+    if ((merged.trucking_company?.length ?? 0) > 200) {
+      return NextResponse.json({ ok: false, error: "Trucking company is too long" }, { status: 400 });
+    }
     const identityChanged = existing.mark !== merged.mark || existing.bol_bc !== merged.bol_bc;
     const matchedOrderId = requestedOrderId || (identityChanged ? "" : cleanText(existing.matched_order_id));
     if (matchedOrderId && (identityChanged || matchedOrderId !== cleanText(existing.matched_order_id))) {
@@ -202,6 +207,7 @@ export async function PATCH(
       received_date: merged.received_date,
       mark: merged.mark,
       shipper: merged.shipper,
+      trucking_company: merged.trucking_company,
       matched_order_id: matchedOrderId || null,
       bol_bc: merged.bol_bc,
       bale_count: merged.bale_count,

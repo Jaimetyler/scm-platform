@@ -10,6 +10,7 @@ type FormState = {
   checkinType: string;
   driverName: string;
   driverPhone: string;
+  truckingCompany: string;
   movementDirection: string;
   materialType: string;
   orderId: string;
@@ -20,7 +21,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  checkinType: "", driverName: "", driverPhone: "", movementDirection: "", materialType: "",
+  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", movementDirection: "", materialType: "",
   orderId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "",
 };
 
@@ -148,7 +149,7 @@ export default function DriverCheckinPage() {
   }
 
   async function findReference() {
-    if (form.orderId.trim() || orderReady || form.referenceNumber.trim().length < 3 ||
+    if (orderReady || form.referenceNumber.trim().length < 3 ||
         !form.movementDirection || referenceSearching) return;
     const requestId = ++referenceRequest.current;
     setReferenceSearching(true);
@@ -210,6 +211,7 @@ export default function DriverCheckinPage() {
           phone: current.driverPhone ? "" : driverPhone,
         };
         return { ...current, orderId, movementDirection: result.direction, referenceNumber: result.reference,
+          truckingCompany: result.carrierName || current.truckingCompany,
           materialType: result.materialType || "", mark: result.mark || "", bolBaleCount: result.baleCount || "",
           destination: result.direction === "pickup" ? result.destination || "" : "",
           driverName, driverPhone };
@@ -239,6 +241,7 @@ export default function DriverCheckinPage() {
       request.set("checkinType", form.checkinType);
       request.set("driverName", form.driverName);
       request.set("driverPhone", form.driverPhone);
+      request.set("truckingCompany", form.truckingCompany);
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
       request.set("orderId", orderReady ? form.orderId : "");
@@ -330,12 +333,10 @@ export default function DriverCheckinPage() {
               {lookingUp ? "Finding order…" : "Find my order"}
             </button>
             {orderMessage && <p role={orderReady ? "status" : "alert"} style={{ ...bodyStyle, color: orderReady ? "#86efac" : "#fca5a5" }}>{orderMessage}</p>}
-            <small style={{ color: "#94a3b8" }}>No SCM number? Fill in the details from your paperwork below.</small>
+            <small style={{ color: "#94a3b8" }}>Enter your SCM number first if you have it. Otherwise, use the reference from your paperwork.</small>
           </div>
           </> : null}
-          <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
           {form.checkinType === "domestic" ? <>
-          <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
           <label style={labelStyle}>Pickup or delivery? *
             <select required disabled={orderReady} value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
               <option value="">Select</option>
@@ -343,6 +344,22 @@ export default function DriverCheckinPage() {
               <option value="pickup">Pickup</option>
             </select>
           </label>
+          {orderReady && <div style={labelStyle}>Reference number
+            <div style={inputStyle}>{form.referenceNumber}</div>
+          </div>}
+          {!orderReady && <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Reference number *" value={form.referenceNumber}
+              onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
+            <button type="button" style={{ ...buttonStyle, marginTop: 8 }}
+              disabled={referenceSearching || form.referenceNumber.trim().length < 3 || !form.movementDirection}
+              onClick={() => void findReference()}>{referenceSearching ? "Searching…" : "Find order by reference"}</button>
+            {orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
+          </div>}
+          </> : null}
+          <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
+          {form.checkinType === "domestic" ? <>
+          <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
+          <Field label="Trucking company *" value={form.truckingCompany} onChange={(value) => change("truckingCompany", value)} />
           <label style={labelStyle}>Material *
             <select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
               <option value="">Select</option>
@@ -352,17 +369,6 @@ export default function DriverCheckinPage() {
             </select>
             {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>Order commodity: {orderCommodity || "not listed"}. Confirm the material matches your paperwork.</small>}
           </label>
-          {orderReady && <div style={labelStyle}>Reference number
-            <div style={inputStyle}>{form.referenceNumber}</div>
-          </div>}
-          {!orderReady && <div style={{ gridColumn: "1 / -1" }}>
-            <Field label="Reference number *" value={form.referenceNumber}
-              onChange={(value) => change("referenceNumber", value.toUpperCase())} autoCapitalize="characters" />
-            {!form.orderId.trim() && <button type="button" style={{ ...buttonStyle, marginTop: 8 }}
-              disabled={referenceSearching || form.referenceNumber.trim().length < 3 || !form.movementDirection}
-              onClick={() => void findReference()}>{referenceSearching ? "Searching…" : "Find order by reference"}</button>}
-            {!form.orderId.trim() && orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
-          </div>}
           {form.movementDirection === "pickup" ? (
             <Field label="Destination *" value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
           ) : null}

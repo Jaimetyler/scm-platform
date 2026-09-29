@@ -1,7 +1,6 @@
 const PRIVATE_DRIVER_FIELDS = new Set([
   "driver_phone",
   "driver_name",
-  "trucking_company",
   "driver_latitude",
   "driver_longitude",
   "driver_accuracy_m",

@@ -159,6 +159,7 @@ export async function POST(req: NextRequest) {
     const matchedOrderId = cleanText(body?.matchedOrderId);
     const driverName = cleanText(body?.driverName);
     const driverPhone = cleanText(body?.driverPhone);
+    const truckingCompany = cleanText(body?.truckingCompany);
 
     if (clientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
       return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
@@ -176,8 +177,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (driverName.length > 120 || driverPhone.length > 40) {
-      return NextResponse.json({ ok: false, error: "Driver name or phone is too long" }, { status: 400 });
+    if (driverName.length > 120 || driverPhone.length > 40 || truckingCompany.length > 200) {
+      return NextResponse.json({ ok: false, error: "Driver or trucking company details are too long" }, { status: 400 });
     }
     if (matchedOrderId) await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true);
 
@@ -196,6 +197,7 @@ export async function POST(req: NextRequest) {
       shipper,
       driver_name: driverName || null,
       driver_phone: driverPhone || null,
+      trucking_company: truckingCompany || null,
       matched_order_id: matchedOrderId || null,
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),

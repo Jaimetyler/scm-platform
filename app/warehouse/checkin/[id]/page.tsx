@@ -20,7 +20,7 @@ export default async function DriverCheckinDetailsPage({
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const { data: row, error } = await database().from("inbound_checkin_rows")
-    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, matched_order_id, checked_in_at, driver_name, driver_phone, gate_location_verified_at, driver_distance_m, bol_photo_path")
+    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path")
     .eq("id", id)
     .eq("checkin_source", "driver_qr")
     .maybeSingle();
@@ -39,6 +39,7 @@ export default async function DriverCheckinDetailsPage({
       <PlatformPanel>
         <div style={detailsGridStyle}>
           <Detail label="Driver" value={row.driver_name || "—"} />
+          <Detail label="Trucking company" value={row.trucking_company || "—"} />
           <Detail label="Phone" value={row.driver_phone ? <a href={`tel:${row.driver_phone}`} style={phoneStyle}>{row.driver_phone}</a> : "—"} />
           <Detail label="SCM order number" value={row.matched_order_id || "—"} />
           <Detail label="Material" value={String(row.material_type ?? "cotton").toUpperCase()} />

@@ -13,7 +13,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 type Status = "waiting" | "called" | "in_door" | "working";
 type YardStatus = Status | "completed" | "cancelled" | null;
 type Row = {
-  id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null;
+  id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null; trucking_company: string | null;
   movement_direction: string; material_type: string; reference_number: string;
   destination: string | null; shipper: string | null; matched_order_id: string | null;
   comment_1: string | null; mark: string | null; bol_bc: number | null;
@@ -26,11 +26,11 @@ type Match = { orderId: string; customerId: string; customerName: string; value:
   carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
   driverName: string; driverPhone: string };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
-  referenceNumber: string; customer: string; driverName: string; driverPhone: string;
+  referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
   destination: string; notes: string; orderId: string };
 function blankDraft(id: string): Draft {
   return { id, movementDirection: "delivery", materialType: "lumber", referenceNumber: "", customer: "",
-    driverName: "", driverPhone: "", destination: "", notes: "", orderId: "" };
+    driverName: "", driverPhone: "", truckingCompany: "", destination: "", notes: "", orderId: "" };
 }
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
@@ -131,6 +131,7 @@ export default function DomesticQueuePage() {
                 customer: match.customerName || match.customerId || item.customer, orderId: match.orderId,
                 materialType: match.materialType || item.materialType,
                 driverName: item.driverName || match.driverName, driverPhone: item.driverPhone || match.driverPhone,
+                truckingCompany: match.carrierName || item.truckingCompany,
                 destination: match.direction === "pickup" ? match.destination || item.destination : item.destination,
               } : item));
           }
@@ -205,7 +206,7 @@ export default function DomesticQueuePage() {
     finally { setWorking(""); }
   }
 
-  async function saveField(row: Row, field: "reference_number" | "comment_1" | "driver_name" | "driver_phone", value: string) {
+  async function saveField(row: Row, field: "reference_number" | "comment_1" | "driver_name" | "driver_phone" | "trucking_company", value: string) {
     const nextValue = field === "reference_number" ? value.trim().toUpperCase() : value.trim();
     if (!site || editingId !== row.id || nextValue === String(row[field] ?? "")) return;
     setWorking(row.id);
@@ -243,6 +244,7 @@ export default function DomesticQueuePage() {
       customer: match.customerName || match.customerId || row.customer,
       materialType: match.materialType || row.materialType,
       driverName: row.driverName || match.driverName, driverPhone: row.driverPhone || match.driverPhone,
+      truckingCompany: match.carrierName || row.truckingCompany,
       destination: match.direction === "pickup" ? match.destination || row.destination : row.destination,
     } : row));
   }
@@ -297,7 +299,7 @@ export default function DomesticQueuePage() {
           <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0" }}>
             <colgroup>{[5, 8, 7, 7, 20, 15, 16, 8, 6, 8].map((width, index) =>
               <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
-            <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Driver / phone", "Destination", "Notes", "Status / action"].map((label) =>
+            <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Company / driver", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Checked in · {active.length} in yard</td></tr>}
             {active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
@@ -314,12 +316,15 @@ export default function DomesticQueuePage() {
                 onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} /></td>
               <td style={cell}>{editingId === row.id
                 ? <div style={driverFields}>
+                    <input key={row.updated_at + "-carrier"} aria-label="Trucking company" defaultValue={row.trucking_company ?? ""} placeholder="Trucking company"
+                      onBlur={(event) => void saveField(row, "trucking_company", event.target.value)} style={sheetInput} />
                     <input key={row.updated_at + "-name"} aria-label="Driver name" defaultValue={row.driver_name ?? ""} placeholder="Driver name"
                       onBlur={(event) => void saveField(row, "driver_name", event.target.value)} style={sheetInput} />
                     <input key={row.updated_at + "-phone"} aria-label="Driver phone" type="tel" defaultValue={row.driver_phone ?? ""} placeholder="Phone number"
                       onBlur={(event) => void saveField(row, "driver_phone", event.target.value)} style={sheetInput} />
                   </div>
-                : <><div style={singleLine} title={row.driver_name || "Driver not entered"}>{row.driver_name || "Driver not entered"}</div>
+                : <><div style={singleLine} title={row.trucking_company || "Company not entered"}><strong>{row.trucking_company || "Company not entered"}</strong></div>
+                    <div style={singleLine} title={row.driver_name || "Driver not entered"}>{row.driver_name || "Driver not entered"}</div>
                     <span className="row-secondary">{row.driver_phone || "No phone number"}</span></>}</td>
               <td style={cell}><div style={singleLine} title={row.destination || ""}>{row.destination || "—"}</div></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
@@ -403,6 +408,8 @@ export default function DomesticQueuePage() {
             <input style={modalInput} value={draft.driverName} onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver name" /></label>
           <label style={modalLabel}>Driver phone
             <input type="tel" style={modalInput} value={draft.driverPhone} onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone number" /></label>
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Trucking company
+            <input style={modalInput} value={draft.truckingCompany} onChange={(event) => editDraft(draft.id, { truckingCompany: event.target.value })} placeholder="Carrier name" /></label>
           {draft.movementDirection === "pickup" && <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Destination
             <input style={modalInput} value={draft.destination} onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" /></label>}
           <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Notes
