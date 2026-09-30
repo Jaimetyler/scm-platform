@@ -38,24 +38,26 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       .eq("terminal", terminal).eq("site_code", siteCode).in("mark", marks).limit(1000);
     if (inventoryError) throw inventoryError;
     const { data: inboundRows, error: inboundError } = await sb.from("inbound_checkin_rows")
-      .select("mark,bol_bc,bale_count,yard_status")
+      .select("mark,bol_bc,bale_count,driver_reported_bales,yard_status")
       .eq("terminal", terminal).eq("site_code", siteCode).eq("material_type", "cotton")
       .eq("movement_direction", "delivery").in("mark", marks)
-      .in("yard_status", ["waiting", "called", "in_door", "working"]);
+      .in("yard_status", ["waiting", "called", "in_door", "working"])
+      .in("draft_status", ["draft", "checked_in", "ready", "processing", "failed"]);
     if (inboundError) throw inboundError;
     const inbound = new Map<string, { bales: number; statuses: Set<string> }>();
     for (const row of inboundRows ?? []) {
       const mark = String(row.mark ?? "").toUpperCase();
       const entry = inbound.get(mark) ?? { bales: 0, statuses: new Set<string>() };
-      entry.bales += Number(row.bale_count ?? row.bol_bc ?? 0);
+      entry.bales += Number(row.bale_count ?? row.driver_reported_bales ?? row.bol_bc ?? 0);
       if (row.yard_status) entry.statuses.add(row.yard_status);
       inbound.set(mark, entry);
     }
-    const inventory = new Map<string, { available: number; locations: Set<string> }>();
+    const inventory = new Map<string, { available: number; warehouse: number; locations: Set<string> }>();
     for (const lot of lots ?? []) {
-      if (lot.inventory_status !== "active") continue;
-      const entry = inventory.get(lot.mark) ?? { available: 0, locations: new Set<string>() };
-      entry.available += Math.max(0, lot.current_bales - lot.allocated_bales);
+      if (!["active", "on_hold"].includes(lot.inventory_status)) continue;
+      const entry = inventory.get(lot.mark) ?? { available: 0, warehouse: 0, locations: new Set<string>() };
+      entry.warehouse += Number(lot.current_bales);
+      if (lot.inventory_status === "active") entry.available += Math.max(0, lot.current_bales - lot.allocated_bales);
       if (lot.warehouse_location) entry.locations.add(lot.warehouse_location);
       inventory.set(lot.mark, entry);
     }
@@ -69,6 +71,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }), lines: (lines ?? []).map((line) => ({ ...line,
       mark_requested_total: requestedByMark.get(line.mark) ?? line.requested_bales,
       available_bales: inventory.get(line.mark)?.available ?? 0,
+      warehouse_bales: inventory.get(line.mark)?.warehouse ?? 0,
       inbound_bales: inbound.get(line.mark)?.bales ?? 0,
       inbound_statuses: [...(inbound.get(line.mark)?.statuses ?? [])],
       inventory_locations: [...(inventory.get(line.mark)?.locations ?? [])],

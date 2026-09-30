@@ -6,12 +6,13 @@ import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/details";
 
+import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
 type Container = { id: string; sequence_no: number; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
   chassis_number: string | null; notes: string | null; updated_at: string; split_transfer_id: string | null;
   split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
-type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number;
+type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
   load_by: string; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
@@ -49,25 +50,29 @@ export default function CottonOutboundBookingPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [rollMode, setRollMode] = useState(false);
   const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
   const [rollBooking, setRollBooking] = useState("");
   const [rollQuantities, setRollQuantities] = useState<Record<string, string>>({});
+  const [newMark, setNewMark] = useState<{ requestId: string; mark: string; bales: string; shippingOrder: string } | null>(null);
+  const [markError, setMarkError] = useState("");
   const [editingDetails, setEditingDetails] = useState(false);
   const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserve?: { containers: Record<string, Container>; drafts: Record<string, Draft> }) => {
     try {
       const query = new URLSearchParams({ terminal, siteCode });
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}?${query}`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      setBooking(result.booking); setContainers(result.containers); setLines(result.lines); setSelectedLines(new Set());
+      setBooking(result.booking); setContainers((result.containers as Container[]).map((row) => preserve?.containers[row.id] ?? row)); setLines(result.lines); setSelectedLines(new Set());
       setDrafts(Object.fromEntries((result.containers as Container[]).map((row) => [row.id, {
         bookingLineId: row.booking_line_id ?? "", containerNumber: row.container_number ?? "", sealNumber: row.seal_number ?? "",
         chassisNumber: row.chassis_number ?? "", notes: row.notes ?? "",
+        ...preserve?.drafts[row.id],
       }])));
       setError("");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load booking"); }
@@ -102,19 +107,30 @@ export default function CottonOutboundBookingPage() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save container"); }
     finally { setWorking(""); }
   }
-  async function addContainer() {
-    setWorking("add"); setError(""); setMessage("");
+  function pendingEquipment() {
+    const dirty = containers.filter((row) => {
+      const draft = drafts[row.id];
+      return draft && (draft.bookingLineId !== (row.booking_line_id ?? "") || draft.containerNumber !== (row.container_number ?? "") ||
+        draft.sealNumber !== (row.seal_number ?? "") || draft.chassisNumber !== (row.chassis_number ?? "") || draft.notes !== (row.notes ?? ""));
+    });
+    return { containers: Object.fromEntries(dirty.map((row) => [row.id, row])), drafts: Object.fromEntries(dirty.map((row) => [row.id, drafts[row.id]])) };
+  }
+  async function addMark(event: React.FormEvent) {
+    event.preventDefault();
+    if (!newMark || !booking || working) return;
+    setWorking("add-mark"); setMarkError(""); setMessage("");
+    const preserve = pendingEquipment();
     try {
-      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terminal, siteCode }),
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/lines`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminal, siteCode, expectedUpdatedAt: booking.updated_at, ...newMark, bales: Number(newMark.bales) }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
-      const row = result.container as Container;
-      setContainers((current) => [...current, row]);
-      setDrafts((current) => ({ ...current, [row.id]: { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" } }));
-      setMessage(`Container ${row.sequence_no} added.`);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not add container"); }
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not add mark");
+      setNewMark(null); setSearch("");
+      await load(preserve);
+      setMessage(`${newMark.mark.trim().toUpperCase()} added to booking with ${newMark.bales} requested bales.`);
+    } catch (reason) { setMarkError(reason instanceof Error ? reason.message : "Could not add mark"); }
     finally { setWorking(""); }
   }
 
@@ -128,6 +144,7 @@ export default function CottonOutboundBookingPage() {
   }
   async function rollSelected() {
     const moves = [...selectedLines].map((lineId) => ({ lineId, bales: Number(rollQuantities[lineId]) }));
+    const preserve = pendingEquipment();
     setWorking("bulk-roll"); setError(""); setMessage("");
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/rollover`, {
@@ -136,9 +153,9 @@ export default function CottonOutboundBookingPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      setRollBooking(""); setRollQuantities({}); setSelectedLines(new Set());
+      setRollBooking(""); setRollQuantities({}); setSelectedLines(new Set()); setRollMode(false);
       setMessage(`${moves.length} mark${moves.length === 1 ? "" : "s"} moved to booking ${result.targetBookingNumber}.`);
-      await load();
+      await load(preserve);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not roll selected marks"); }
     finally { setWorking(""); }
   }
@@ -213,8 +230,9 @@ export default function CottonOutboundBookingPage() {
       {booking.vessel ? <span><strong>Vessel</strong> {booking.vessel}</span> : null}
       <button type="button" style={button} disabled={Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
       <input ref={requestInput} type="file" accept=".xlsx" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />
-      <button type="button" style={button} disabled={Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>{working === "import-details" ? "Reading request…" : "Import dates from Excel"}</button>
+      <button type="button" style={button} disabled={Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>{working === "import-details" ? "Reading request…" : "Update sailing details from booking request"}</button>
     </div>
+    <p style={{ color: "#94a3b8", fontSize: 12, margin: "10px 0 0" }}>Upload this booking’s customer request (.xlsx) to review ERD, doc cutoff, cutoff, and vessel before saving.</p>
     {editingDetails ? <form onSubmit={(event) => void saveDetails(event)} style={{ marginTop: 16 }}>
       {importedDateNotes.length ? <p style={{ color: "#fbbf24", fontSize: 12 }}>{importedDateNotes.join(" · ")}</p> : null}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
@@ -229,31 +247,33 @@ export default function CottonOutboundBookingPage() {
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}</PlatformPanel>
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Green marks have inventory at this warehouse. Red marks have not arrived yet.</p></div>
+      <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Badges show receiving status. Green bale counts match the requested quantity.</p></div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => setSearch(event.target.value)}
         placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
-        <button type="button" style={button} disabled={Boolean(working)} onClick={() => void addContainer()}>{working === "add" ? "Adding…" : "+ Add container"}</button></div>
+        <button type="button" style={button} disabled={Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
+        <button type="button" style={button} disabled={Boolean(working) || rollMode} onClick={() => { setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
 
-    {selectedLines.size > 0 ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
+    {rollMode ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
       <strong>Split / roll {selectedLines.size} selected mark{selectedLines.size === 1 ? "" : "s"}</strong>
+      <p style={{ color: "#cbd5e1", fontSize: 13, margin: "8px 0" }}>Select marks below, enter the destination booking, then move them. Adjust each selected quantity for a partial split. Marks with equipment entered must have that equipment cleared first.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8, margin: "10px 0" }}>
         {[...selectedLines].map((lineId) => { const line = lineById.get(lineId); return line ? <label key={lineId} style={{ color: "#cbd5e1", fontSize: 12 }}>{line.mark} bales
           <input type="number" min={1} max={line.requested_bales} style={input} value={rollQuantities[lineId] ?? line.requested_bales}
             onChange={(event) => setRollQuantities((current) => ({ ...current, [lineId]: event.target.value }))} /></label> : null; })}
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input style={{ ...input, width: 240 }} value={rollBooking}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Destination booking number" style={{ ...input, width: 240 }} value={rollBooking}
         onChange={(event) => setRollBooking(event.target.value.toUpperCase())} placeholder="Destination booking #" />
-        <button type="button" style={button} disabled={Boolean(working) || !rollBooking.trim()} onClick={() => void rollSelected()}>
+        <button type="button" style={button} disabled={Boolean(working) || !rollBooking.trim() || selectedLines.size === 0} onClick={() => void rollSelected()}>
           {working === "bulk-roll" ? "Moving marks…" : "Move selected marks"}</button>
-        <button type="button" style={button} disabled={Boolean(working)} onClick={() => setSelectedLines(new Set())}>Clear selection</button></div>
+        <button type="button" style={button} disabled={Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
     </div> : null}
 
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse" }}><thead><tr>
-      {['', '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
+      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
-        <td style={td} /><td style={td}>{row.sequence_no}</td>
+        {rollMode && <td style={td} />}<td style={td}>{row.sequence_no}</td>
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
         <td style={td} colSpan={4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
@@ -265,10 +285,10 @@ export default function CottonOutboundBookingPage() {
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes);
       return <tr key={row.id} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
-        <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment}
-          title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>
+        {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment}
+          title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <strong style={{ fontSize: 16 }}>{line.mark}</strong> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
+        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges(line).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: `1px solid ${badge.color}55`, borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div></> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
         <td style={td}>{line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
@@ -281,5 +301,19 @@ export default function CottonOutboundBookingPage() {
         </td></tr>;
     })}</tbody></table></div>
     </PlatformPanel>
+    {newMark && <div role="dialog" aria-modal="true" aria-labelledby="add-mark-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>
+      <form onSubmit={(event) => void addMark(event)} style={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460, boxSizing: "border-box" }}>
+        <h2 id="add-mark-title" style={{ marginTop: 0 }}>Add mark to booking</h2>
+        <p style={{ color: "#94a3b8", fontSize: 13 }}>Add the mark and requested bales to booking {booking.booking_number}. Container details can be entered on its row afterward.</p>
+        {markError && <p role="alert" style={{ color: "#fca5a5" }}>{markError}</p>}
+        <div style={{ display: "grid", gap: 14 }}>
+          <label>Mark<input autoFocus required maxLength={80} value={newMark.mark} disabled={Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, mark: event.target.value.toUpperCase() })} /></label>
+          <label>Requested bales<input required type="number" min={1} max={1000000} step={1} value={newMark.bales} disabled={Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, bales: event.target.value })} /></label>
+          <label>Shipping order (optional)<input maxLength={200} value={newMark.shippingOrder} disabled={Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, shippingOrder: event.target.value })} /></label>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 20 }}><button type="submit" disabled={Boolean(working)} style={button}>{working === "add-mark" ? "Adding mark…" : "Add mark"}</button>
+          <button type="button" disabled={Boolean(working)} onClick={() => setNewMark(null)} style={button}>Cancel</button></div>
+      </form>
+    </div>}
   </main>;
 }

@@ -39,9 +39,10 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const [{ data: lots, error: lotError }, { data: inboundRows, error: inboundError }] = await Promise.all([
       sb.from("warehouse_inventory_lots").select("mark,current_bales,allocated_bales,inventory_status,warehouse_location")
         .eq("terminal", terminal).eq("site_code", siteCode).in("mark", marks),
-      sb.from("inbound_checkin_rows").select("mark,bol_bc,bale_count,yard_status")
+      sb.from("inbound_checkin_rows").select("mark,bol_bc,bale_count,driver_reported_bales,yard_status")
         .eq("terminal", terminal).eq("site_code", siteCode).eq("material_type", "cotton").eq("movement_direction", "delivery")
-        .in("mark", marks).in("yard_status", ["waiting", "called", "in_door", "working"]),
+        .in("mark", marks).in("yard_status", ["waiting", "called", "in_door", "working"])
+        .in("draft_status", ["draft", "checked_in", "ready", "processing", "failed"]),
     ]);
     if (lotError) throw lotError;
     if (inboundError) throw inboundError;
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       availability.set(lot.mark, entry);
     }
     const inbound = new Map<string, number>();
-    for (const row of inboundRows ?? []) inbound.set(row.mark, (inbound.get(row.mark) ?? 0) + Number(row.bale_count ?? row.bol_bc ?? 0));
+    for (const row of inboundRows ?? []) inbound.set(row.mark, (inbound.get(row.mark) ?? 0) + Number(row.bale_count ?? row.driver_reported_bales ?? row.bol_bc ?? 0));
     const requested = new Map<string, number>();
     for (const line of lines ?? []) requested.set(line.mark, (requested.get(line.mark) ?? 0) + line.requested_bales);
     const workbook = XLSX.utils.book_new();

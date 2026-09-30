@@ -80,25 +80,3 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save container" }, { status: 500 });
   }
 }
-
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await context.params;
-    const body = await req.json();
-    const terminal = String(body?.terminal ?? "").toUpperCase();
-    const siteCode = String(body?.siteCode ?? "");
-    if (!/^[0-9a-f-]{36}$/i.test(id) || !validSite(terminal, siteCode) || !(await ownsBooking(id, terminal, siteCode)))
-      return NextResponse.json({ ok: false, error: "Booking not found at this warehouse" }, { status: 404 });
-    const sb = database();
-    const { data: last, error: lastError } = await sb.from("cotton_outbound_containers").select("sequence_no")
-      .eq("booking_id", id).order("sequence_no", { ascending: false }).limit(1).maybeSingle();
-    if (lastError) throw lastError;
-    const { data, error } = await sb.from("cotton_outbound_containers")
-      .insert({ booking_id: id, sequence_no: (last?.sequence_no ?? 0) + 1, updated_by: user(req) })
-      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at").single();
-    if (error) throw error;
-    return NextResponse.json({ ok: true, container: data });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not add container" }, { status: 500 });
-  }
-}
