@@ -70,3 +70,24 @@ test("bulk full/partial splits conserve bales, keep partial rows, and never reus
     assert.equal((await db.query("select count(*)::int as n from cotton_outbound_bookings where booking_number='INVALID-001'")).rows[0].n, 0);
   } finally { await db.close(); }
 });
+
+test("sailing detail imports save atomically with the draft and preserve date-only precision", async () => {
+  const db = await database();
+  try {
+    await apply(db);
+    await db.exec(await migration("036_outbound_import_sailing_details.sql"));
+    const lines = JSON.stringify([{ mark: 'MARK-A', sourceRow: 1, bales: 90, loadBy: '2026-09-11', confirmed: true, warehouse: 'Savannah 984' }]);
+    const details = JSON.stringify({ erd: '2026-09-11', doc_cutoff: '2026-09-16T00:00', cutoff: '2026-09-18T00:00',
+      doc_cutoff_has_time: false, cutoff_has_time: false, vessel: 'OOCL GUANGZHOU / 178 E' });
+    const sql = "select create_cotton_outbound_booking_draft_with_details('SAV','984','Savannah 984','Bunge',$1,'',1,90,'test.xlsx',$2::jsonb,$3::jsonb) as id";
+    const { rows } = await db.query(sql, ['IMPORT-001', lines, details]);
+    const booking = (await db.query("select vessel,erd::text,doc_cutoff_has_time,cutoff_has_time from cotton_outbound_bookings where id=$1", [rows[0].id])).rows[0];
+    assert.equal(booking.vessel, 'OOCL GUANGZHOU / 178 E');
+    assert.equal(booking.erd, '2026-09-11');
+    assert.equal(booking.doc_cutoff_has_time, false);
+    assert.equal(booking.cutoff_has_time, false);
+    assert.equal((await db.query('select count(*)::int as n from cotton_outbound_containers where booking_id=$1 and booking_line_id is not null', [rows[0].id])).rows[0].n, 1);
+    await assert.rejects(db.query(sql, ['IMPORT-BAD', lines, JSON.stringify({ cutoff: 'invalid-date' })]));
+    assert.equal((await db.query("select count(*)::int as n from cotton_outbound_bookings where booking_number='IMPORT-BAD'")).rows[0].n, 0);
+  } finally { await db.close(); }
+});

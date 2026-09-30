@@ -14,8 +14,15 @@ export function normalizeBookingDetails(body: Record<string, unknown>) {
   if (body.vessel != null && typeof body.vessel !== "string") throw new Error("Enter a vessel name.");
   const vessel = String(body.vessel ?? "").trim();
   if (vessel.length > 200) throw new Error("Vessel must be 200 characters or fewer.");
-  return { erd: dateValue(body.erd, "ERD"), doc_cutoff: dateValue(body.docCutoff, "Doc cutoff", true),
-    cutoff: dateValue(body.cutoff, "Cutoff", true), vessel: vessel || null };
+  function cutoffValue(value: unknown, label: string) {
+    const hasTime = typeof value === "string" && value.includes("T");
+    const parsed = dateValue(value, label, hasTime);
+    return { value: parsed && !hasTime ? `${parsed}T00:00` : parsed, hasTime };
+  }
+  const doc = cutoffValue(body.docCutoff, "Doc cutoff");
+  const cargo = cutoffValue(body.cutoff, "Cutoff");
+  return { erd: dateValue(body.erd, "ERD"), doc_cutoff: doc.value, doc_cutoff_has_time: doc.hasTime,
+    cutoff: cargo.value, cutoff_has_time: cargo.hasTime, vessel: vessel || null };
 }
 
 export function bookingDateInput(value: string | null | undefined, withTime = false) {

@@ -1,4 +1,6 @@
-import * as XLSX from "xlsx";
+import * as XlsxModule from "xlsx/xlsx.mjs";
+import type * as XlsxTypes from "xlsx";
+const XLSX = XlsxModule as typeof XlsxTypes;
 
 export type OutboundLine = {
   mark: string; loadBy: string; confirmed: boolean; shippingOrder: string;
@@ -6,13 +8,12 @@ export type OutboundLine = {
 };
 export type BungeBooking = {
   bookingNumber: string; customerReference: string; customer: string;
+  erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
+  sourceDates: { label: string; value: string }[]; detailNotes: string[];
   containers: number | null; totalBales: number; lines: OutboundLine[];
   warehouses: string[]; warehouseDetails: Record<string, string>; warnings: string[];
 };
 
-function value(sheet: XLSX.WorkSheet, address: string) {
-  return String(sheet[address]?.v ?? "").trim();
-}
 function positive(value: string, field: string, row: number) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`Row ${row}: invalid ${field}`);
@@ -36,7 +37,7 @@ function date(value: unknown, row: number) {
 function normalized(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ").replace(/[:.]+$/, "").toUpperCase();
 }
-function sheetRows(sheet: XLSX.WorkSheet) {
+function sheetRows(sheet: XlsxTypes.WorkSheet) {
   return XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: "" });
 }
 function findLabel(rows: unknown[][], labels: string[], maxRows = rows.length) {
@@ -63,8 +64,79 @@ function headerColumn(row: unknown[], labels: string[]) {
   return index >= 0 ? index : null;
 }
 
+// Footer labels move between Bunge layouts. Stop at the next label instead of consuming its value.
+function labeledCell(sheet: XlsxTypes.WorkSheet, rows: unknown[][], labels: string[]) {
+  const found = findLabel(rows, labels);
+  if (!found) return null;
+  for (let offset = 1; offset <= 12; offset++) {
+    const col = found.col + offset;
+    const raw = rows[found.row]?.[col];
+    const text = String(raw ?? "").trim();
+    if (!text) continue;
+    if (/:$/.test(text)) return null;
+    return sheet[XLSX.utils.encode_cell({ r: found.row, c: col })] ?? { v: raw };
+  }
+  return null;
+}
+function detailDate(cell: XlsxTypes.CellObject | null, label: string) {
+  if (!cell || String(cell.v ?? "").trim() === "") return null;
+  let year: number, month: number, day: number, hour = 0, minute = 0, hasTime = false;
+  if (typeof cell.v === "number") {
+    const parsed = XLSX.SSF.parse_date_code(cell.v);
+    if (!parsed) throw new Error(`Invalid ${label} date in booking request.`);
+    ({ y: year, m: month, d: day, H: hour, M: minute } = parsed);
+    hasTime = parsed.H !== 0 || parsed.M !== 0 || parsed.S !== 0 || /[hs]/i.test(String(cell.z ?? ""));
+  } else {
+    const text = String(cell.v).trim();
+    if (/^(?:N\/?A|TBD|TBA|-)$/i.test(text)) return null;
+    const match = text.match(/^(\d{1,4})[/-](\d{1,2})[/-](\d{2,4})(?:[ T]+(\d{1,2}):(\d{2})(?:\s*(AM|PM))?)?$/i);
+    if (!match) throw new Error(`Invalid ${label} date in booking request.`);
+    [year, month, day] = match[1].length === 4
+      ? [Number(match[1]), Number(match[2]), Number(match[3])]
+      : [Number(match[3]), Number(match[1]), Number(match[2])];
+    if (year < 100) year += 2000;
+    hasTime = match[4] !== undefined;
+    hour = Number(match[4] ?? 0); minute = Number(match[5] ?? 0);
+    if (match[6]) {
+      if (hour < 1 || hour > 12) throw new Error(`Invalid ${label} time in booking request.`);
+      hour = hour % 12 + (match[6].toUpperCase() === "PM" ? 12 : 0);
+    }
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  if (year < 1900 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day ||
+      parsed.getUTCHours() !== hour || parsed.getUTCMinutes() !== minute)
+    throw new Error(`Invalid ${label} date in booking request.`);
+  return parsed.toISOString().slice(0, hasTime ? 16 : 10);
+}
+function sailingDetails(sheet: XlsxTypes.WorkSheet, rows: unknown[][]) {
+  const erd = detailDate(labeledCell(sheet, rows, ["ERD", "Earliest Receiving Date", "Early Receiving Date"]), "ERD")?.slice(0, 10) ?? null;
+  const sourceDates = [
+    { label: "C/O", aliases: ["C/O"] },
+    { label: "Port Cut", aliases: ["Port Cut", "Port Cutoff", "Port Cut-off"] },
+    { label: "Ramp Cut", aliases: ["Ramp Cut", "Ramp Cutoff", "Ramp Cut-off"] },
+  ].flatMap(({ label, aliases }) => {
+    const value = detailDate(labeledCell(sheet, rows, aliases), label);
+    return value ? [{ label, value }] : [];
+  });
+  const unique = new Map<string, string>();
+  for (const { value } of sourceDates) {
+    const key = value.length === 10 ? `${value}T00:00` : value;
+    if (!unique.has(key) || value.includes("T")) unique.set(key, value);
+  }
+  const distinct = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value);
+  const explicitDoc = detailDate(labeledCell(sheet, rows, ["Doc Cut", "Doc Cutoff", "Doc Cut-off", "Documentation Cutoff"]), "Doc cutoff");
+  const explicitCut = detailDate(labeledCell(sheet, rows, ["Cutoff", "Cut-off", "Cargo Cutoff", "Cargo Cut-off"]), "Cutoff");
+  const docCutoff = explicitDoc ?? (distinct.length > 1 ? distinct[0] : null);
+  const cutoff = explicitCut ?? distinct.at(-1) ?? null;
+  const rawVessel = labeledCell(sheet, rows, ["Vessel/Voyage", "Vessel / Voyage", "Vessel", "Vessel Name"]);
+  const vessel = String(rawVessel?.v ?? "").trim() || null;
+  const detailNotes = distinct.length > 2 ? ["The request has more than two distinct cutoff dates. Review the earlier doc cutoff and later cutoff before saving."] : [];
+  if (!explicitDoc && distinct.length > 1) detailNotes.push("Doc cutoff uses the earlier source date; Cutoff uses the later source date.");
+  return { erd, docCutoff, cutoff, vessel, sourceDates, detailNotes };
+}
+
 export function parseBungeBooking(buffer: Buffer): BungeBooking {
-  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false, cellNF: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) throw new Error("The workbook has no readable worksheet.");
   const rows = sheetRows(sheet);
@@ -128,7 +200,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
       warehouseDetails[code] = rows[row].slice(1).map((cell) => String(cell ?? "").trim()).filter(Boolean).join(" ");
     }
   }
-  return { bookingNumber, customerReference, customer, containers, totalBales, lines,
+  return { ...sailingDetails(sheet, rows), bookingNumber, customerReference, customer, containers, totalBales, lines,
     warehouses: [...new Set(lines.map((line) => line.warehouse))], warehouseDetails, warnings };
 }
 export function warehouseMatchesSite(warehouse: string, terminal: string, siteCode: string, detail = "") {
