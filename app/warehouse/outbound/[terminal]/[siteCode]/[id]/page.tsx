@@ -4,13 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/details";
 
 type Container = { id: string; sequence_no: number; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
-  chassis_number: string | null; notes: string | null; updated_at: string };
+  chassis_number: string | null; notes: string | null; updated_at: string; split_transfer_id: string | null;
+  split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number;
   load_by: string; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { id: string; booking_number: string; customer: string; customer_reference: string | null;
-  requested_bales: number; planned_containers: number | null; site_name: string; status: string };
+  requested_bales: number; planned_containers: number | null; site_name: string; status: string; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
   border: "1px solid #475569", background: "#0f172a", color: "#f8fafc" };
@@ -36,6 +38,8 @@ export default function CottonOutboundBookingPage() {
   const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
   const [rollBooking, setRollBooking] = useState("");
   const [rollQuantities, setRollQuantities] = useState<Record<string, string>>({});
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
   const saveTimers = useRef<Record<string, number>>({});
 
   const load = useCallback(async () => {
@@ -57,6 +61,7 @@ export default function CottonOutboundBookingPage() {
   useEffect(() => () => { Object.values(saveTimers.current).forEach((timer) => window.clearTimeout(timer)); }, []);
 
   function change(row: Container, field: keyof Draft, value: string) {
+    if (row.split_transfer_id) return;
     const nextValue = field === "notes" || field === "bookingLineId" ? value : value.toUpperCase();
     const next = { ...drafts[row.id], [field]: nextValue };
     setDrafts((current) => ({ ...current, [row.id]: next }));
@@ -67,6 +72,7 @@ export default function CottonOutboundBookingPage() {
     if (wasComplete || isComplete) saveTimers.current[row.id] = window.setTimeout(() => void save(row, next), 700);
   }
   async function save(row: Container, draftToSave: Draft) {
+    if (row.split_transfer_id) return;
     setWorking(row.id); setError(""); setMessage("");
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
@@ -121,24 +127,64 @@ export default function CottonOutboundBookingPage() {
     finally { setWorking(""); }
   }
 
+  function editDetails() {
+    if (!booking) return;
+    setDetails({ erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, true),
+      cutoff: bookingDateInput(booking.cutoff, true), vessel: booking.vessel ?? "" });
+    setEditingDetails(true);
+  }
+  async function saveDetails(event: React.FormEvent) {
+    event.preventDefault();
+    setWorking("details"); setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminal, siteCode, expectedUpdatedAt: booking?.updated_at, ...details }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setBooking(result.booking); setEditingDetails(false); setMessage("Booking details updated.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update booking details"); }
+    finally { setWorking(""); }
+  }
+
   if (loading) return <main style={{ color: "#e2e8f0" }}>Loading booking…</main>;
   if (!booking) return <main><PlatformPageHeader title="Outbound Booking Not Found" actions={<Link href="/warehouse/outbound" style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
-  const complete = containers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
+  const activeContainers = containers.filter((row) => !row.split_transfer_id);
+  const complete = activeContainers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
   const lineById = new Map(lines.map((line) => [line.id, line]));
   const term = search.trim().toUpperCase();
   const visibleContainers = containers.filter((row) => {
     const assigned = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
     return !term || [row.sequence_no, row.container_number, row.seal_number, row.chassis_number, row.notes,
-      assigned?.mark, assigned?.shipping_order].some((value) => String(value ?? "").toUpperCase().includes(term));
-  });
+      assigned?.mark, assigned?.shipping_order, row.split?.mark, row.split?.target_booking_number].some((value) => String(value ?? "").toUpperCase().includes(term));
+  }).sort((a, b) => Number(Boolean(a.split_transfer_id)) - Number(Boolean(b.split_transfer_id)) || a.sequence_no - b.sequence_no);
   return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
       actions={<><a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Export Excel</a>
         <Link href="/warehouse/outbound" style={button}>← All outbound bookings</Link></>} />
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
-      <span>{complete} of {containers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span>
-    </div>{error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}</PlatformPanel>
+      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span>
+    </div>
+    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center", marginTop: 18 }}>
+      <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>
+      <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, true)}</span>
+      <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, true)}</span>
+      {booking.vessel ? <span><strong>Vessel</strong> {booking.vessel}</span> : null}
+      <button type="button" style={button} disabled={Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
+    </div>
+    {editingDetails ? <form onSubmit={(event) => void saveDetails(event)} style={{ marginTop: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+        <label>ERD<input type="date" style={input} value={details.erd} onChange={(event) => setDetails((current) => ({ ...current, erd: event.target.value }))} /></label>
+        <label>Doc cutoff<input type="datetime-local" style={input} value={details.docCutoff} onChange={(event) => setDetails((current) => ({ ...current, docCutoff: event.target.value }))} /></label>
+        <label>Cutoff<input type="datetime-local" style={input} value={details.cutoff} onChange={(event) => setDetails((current) => ({ ...current, cutoff: event.target.value }))} /></label>
+        <label>Vessel<input style={input} maxLength={200} value={details.vessel} onChange={(event) => setDetails((current) => ({ ...current, vessel: event.target.value }))} /></label>
+      </div><p style={{ color: "#94a3b8", fontSize: 12 }}>Dates and times are local to {booking.site_name}.</p>
+      <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={Boolean(working)}>{working === "details" ? "Saving…" : "Save details"}</button>
+        <button style={button} type="button" disabled={Boolean(working)} onClick={() => setEditingDetails(false)}>Cancel</button></div>
+    </form> : null}
+    {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}</PlatformPanel>
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Green marks have inventory at this warehouse. Red marks have not arrived yet.</p></div>
@@ -161,9 +207,16 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={Boolean(working)} onClick={() => setSelectedLines(new Set())}>Clear selection</button></div>
     </div> : null}
 
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1540, borderCollapse: "collapse" }}><thead><tr>
-      {['', '#', 'Mark', 'Requested', 'Available / inbound', 'Load by', 'S.O.', 'Location', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
+    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1440, borderCollapse: "collapse" }}><thead><tr>
+      {['', '#', 'Mark', 'Requested', 'Bales / inbound', 'S.O.', 'Location', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
+      if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
+        <td style={td} /><td style={td}>{row.sequence_no}</td>
+        <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
+        <td style={td}>{row.split?.bales ?? "—"}</td>
+        <td style={td} colSpan={7}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
+        <td style={{ ...td, fontSize: 12, fontWeight: 800 }}>Locked</td>
+      </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
       const line = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
@@ -177,8 +230,8 @@ export default function CottonOutboundBookingPage() {
           <small style={{ display: "block", color: line.available_bales > 0 ? "#86efac" : line.inbound_bales > 0 ? "#fbbf24" : "#fca5a5", marginTop: 3 }}>
             {line.available_bales > 0 ? "In warehouse" : line.inbound_bales > 0 ? "Checked into delivery line" : "Not received"}</small></> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
         <td style={td}>{line?.requested_bales ?? "—"}</td>
-        <td style={td}>{line ? <>{line.available_bales} available{line.inbound_bales > 0 ? <small style={{ display: "block", color: "#fbbf24" }}>{line.inbound_bales} inbound</small> : null}</> : "—"}</td>
-        <td style={td}>{line?.load_by ?? "—"}</td><td style={td}>{line?.shipping_order || "—"}</td><td style={td}>{line?.inventory_locations.join(", ") || "—"}</td>
+        <td style={td}>{line ? <>{line.available_bales}{line.inbound_bales > 0 ? <small style={{ display: "block", color: "#fbbf24" }}>{line.inbound_bales} inbound</small> : null}</> : "—"}</td>
+        <td style={td}>{line?.shipping_order || "—"}</td><td style={td}>{line?.inventory_locations.join(", ") || "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {

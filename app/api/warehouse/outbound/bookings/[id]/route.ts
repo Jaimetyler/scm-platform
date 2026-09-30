@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 export const runtime = "nodejs";
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -23,9 +24,14 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
     const { data: containers, error: containerError } = await sb.from("cotton_outbound_containers")
-      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at")
+      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id")
       .eq("booking_id", id).order("sequence_no");
     if (containerError) throw containerError;
+    const { data: transfers, error: transferError } = await sb.from("cotton_outbound_booking_transfers")
+      .select("id,mark,bales,target_booking_id,target:cotton_outbound_bookings!target_booking_id(booking_number)")
+      .eq("source_booking_id", id);
+    if (transferError) throw transferError;
+    const transferById = new Map((transfers ?? []).map((transfer) => [transfer.id, transfer]));
     const marks = [...new Set((lines ?? []).map((line) => line.mark))];
     const { data: lots, error: inventoryError } = await sb.from("warehouse_inventory_lots")
       .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,customer")
@@ -55,7 +61,12 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     }
     const requestedByMark = new Map<string, number>();
     for (const line of lines ?? []) requestedByMark.set(line.mark, (requestedByMark.get(line.mark) ?? 0) + line.requested_bales);
-    return NextResponse.json({ ok: true, booking, containers: containers ?? [], lines: (lines ?? []).map((line) => ({ ...line,
+    return NextResponse.json({ ok: true, booking, containers: (containers ?? []).map((row) => {
+      const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
+      const target = transfer?.target as unknown as { booking_number: string } | null;
+      return { ...row, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
+        target_booking_id: transfer.target_booking_id, target_booking_number: target?.booking_number ?? "—" } : null };
+    }), lines: (lines ?? []).map((line) => ({ ...line,
       mark_requested_total: requestedByMark.get(line.mark) ?? line.requested_bales,
       available_bales: inventory.get(line.mark)?.available ?? 0,
       inbound_bales: inbound.get(line.mark)?.bales ?? 0,
@@ -64,5 +75,32 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     })) });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load booking" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await context.params;
+    const body = await req.json();
+    const terminal = String(body?.terminal ?? "").toUpperCase();
+    const siteCode = String(body?.siteCode ?? "");
+    if (!/^[0-9a-f-]{36}$/i.test(id) || !CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton")))
+      return NextResponse.json({ ok: false, error: "Unknown booking or warehouse" }, { status: 400 });
+    const expectedUpdatedAt = String(body?.expectedUpdatedAt ?? "");
+    if (!expectedUpdatedAt || Number.isNaN(Date.parse(expectedUpdatedAt)))
+      return NextResponse.json({ ok: false, error: "Reload the booking before editing details" }, { status: 409 });
+    let values;
+    try { values = normalizeBookingDetails(body); }
+    catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid booking details" }, { status: 400 }); }
+    const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) throw new Error("Missing Supabase environment variables");
+    const { data, error } = await createClient(url, key).from("cotton_outbound_bookings").update(values)
+      .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("updated_at", expectedUpdatedAt).select("*").maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ ok: false, error: "This booking changed or is no longer at this warehouse. Reload and review it." }, { status: 409 });
+    return NextResponse.json({ ok: true, booking: data });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not update booking details" }, { status: 500 });
   }
 }

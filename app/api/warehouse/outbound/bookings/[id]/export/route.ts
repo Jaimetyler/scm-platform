@@ -25,11 +25,15 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const [{ data: lines, error: lineError }, { data: containers, error: containerError }] = await Promise.all([
       sb.from("cotton_outbound_booking_lines").select("id,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse")
         .eq("booking_id", id).order("source_row"),
-      sb.from("cotton_outbound_containers").select("sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes")
+      sb.from("cotton_outbound_containers").select("sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,split_transfer_id")
         .eq("booking_id", id).order("sequence_no"),
     ]);
     if (lineError) throw lineError;
     if (containerError) throw containerError;
+    const { data: transfers, error: transferError } = await sb.from("cotton_outbound_booking_transfers")
+      .select("id,mark,bales,target:cotton_outbound_bookings!target_booking_id(booking_number)").eq("source_booking_id", id);
+    if (transferError) throw transferError;
+    const transferById = new Map((transfers ?? []).map((transfer) => [transfer.id, transfer]));
     const lineById = new Map((lines ?? []).map((line) => [line.id, line]));
     const marks = [...new Set((lines ?? []).map((line) => line.mark))];
     const [{ data: lots, error: lotError }, { data: inboundRows, error: inboundError }] = await Promise.all([
@@ -54,23 +58,36 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const requested = new Map<string, number>();
     for (const line of lines ?? []) requested.set(line.mark, (requested.get(line.mark) ?? 0) + line.requested_bales);
     const workbook = XLSX.utils.book_new();
-    const equipmentRows = (containers ?? []).map((row) => {
+    const equipmentRows = [...(containers ?? [])]
+      .sort((a, b) => Number(Boolean(a.split_transfer_id)) - Number(Boolean(b.split_transfer_id)) || a.sequence_no - b.sequence_no).map((row) => {
+      const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
+      const target = transfer?.target as unknown as { booking_number: string } | null;
+      if (row.split_transfer_id) return { "Container #": row.sequence_no, Mark: transfer?.mark ?? "Moved mark",
+        Status: `Split to booking ${target?.booking_number ?? "—"}`, "Requested bales": transfer?.bales ?? "", "Bales in warehouse": "",
+        "Inbound line bales": "", Difference: "", "Shipping order": "", Location: "", "Container number": "", "Seal number": "", "Chassis number": "", Notes: "Locked" };
       const line = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
       const available = line ? availability.get(line.mark)?.bales ?? 0 : 0;
       const inboundBales = line ? inbound.get(line.mark) ?? 0 : 0;
       const requestedForMark = line ? requested.get(line.mark) ?? line.requested_bales : 0;
       const status = !line ? "Extra container" : available > 0 ? "In warehouse" : inboundBales > 0 ? "In delivery line" : "Not in warehouse";
       return { "Container #": row.sequence_no, Mark: line?.mark ?? "", Status: status,
-        "Requested bales": line?.requested_bales ?? "", "Available bales": line ? available : "",
+        "Requested bales": line?.requested_bales ?? "", "Bales in warehouse": line ? available : "",
         "Inbound line bales": line ? inboundBales : "", Difference: line ? available - requestedForMark : "",
-        "Load by": line?.load_by ?? "", "Shipping order": line?.shipping_order ?? "",
+        "Shipping order": line?.shipping_order ?? "",
         Location: line ? [...(availability.get(line.mark)?.locations ?? [])].join(", ") : "",
         "Container number": row.container_number ?? "",
         "Seal number": row.seal_number ?? "", "Chassis number": row.chassis_number ?? "", Notes: row.notes ?? "" };
     });
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentRows.length ? equipmentRows : [{ "Container #": "" }]);
-    equipmentSheet["!cols"] = [10, 14, 18, 16, 16, 18, 14, 14, 18, 20, 22, 18, 20, 30].map((wch) => ({ wch }));
+    equipmentSheet["!cols"] = [10, 14, 30, 16, 18, 18, 14, 18, 20, 22, 18, 20, 30].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(workbook, equipmentSheet, "Load Plan");
+    const detailsSheet = XLSX.utils.aoa_to_sheet([
+      ["Booking", booking.booking_number], ["Warehouse", booking.site_name], ["Customer", booking.customer],
+      ["ERD", booking.erd ?? ""], ["Doc cutoff", booking.doc_cutoff?.replace("T", " ") ?? ""],
+      ["Cutoff", booking.cutoff?.replace("T", " ") ?? ""], ["Vessel", booking.vessel ?? ""],
+    ]);
+    detailsSheet["!cols"] = [{ wch: 18 }, { wch: 45 }];
+    XLSX.utils.book_append_sheet(workbook, detailsSheet, "Booking Details");
     const output = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
     const filename = `SCM-Outbound-${String(booking.booking_number).replace(/[^A-Za-z0-9_-]/g, "-")}.xlsx`;
     return new NextResponse(new Uint8Array(output), { headers: {

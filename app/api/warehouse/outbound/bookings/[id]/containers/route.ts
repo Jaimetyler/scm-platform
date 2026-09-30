@@ -47,6 +47,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: "Reload this container before saving" }, { status: 409 });
     if (!(await ownsBooking(id, terminal, siteCode)))
       return NextResponse.json({ ok: false, error: "Booking not found at this warehouse" }, { status: 404 });
+    const { data: current, error: currentError } = await database().from("cotton_outbound_containers")
+      .select("split_transfer_id").eq("id", containerId).eq("booking_id", id).maybeSingle();
+    if (currentError) throw currentError;
+    if (!current) return NextResponse.json({ ok: false, error: "Container not found" }, { status: 404 });
+    if (current.split_transfer_id) return NextResponse.json({ ok: false, error: "This mark was split to another booking. Its history row is locked." }, { status: 409 });
     const bookingLineId = body?.bookingLineId ? String(body.bookingLineId) : null;
     if (bookingLineId) {
       if (!/^[0-9a-f-]{36}$/i.test(bookingLineId)) return NextResponse.json({ ok: false, error: "Invalid mark assignment" }, { status: 400 });
@@ -63,7 +68,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
     }
     const { data, error } = await database().from("cotton_outbound_containers").update(values)
-      .eq("id", containerId).eq("booking_id", id).eq("updated_at", expectedUpdatedAt)
+      .eq("id", containerId).eq("booking_id", id).eq("updated_at", expectedUpdatedAt).is("split_transfer_id", null)
       .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at").maybeSingle();
     if (error) {
       const duplicate = error.code === "23505";
