@@ -28,3 +28,13 @@ test('schedule groups keep today/upcoming/past and missing dates distinct', () =
   assert.equal(groupBookings(items, 'customer', now)[0][1].length, 4);
   assert.deepEqual(groupBookings([booking({ vessel: null }), booking()], 'vessel', now).map(([name]) => name), ['OOCL TEST', 'Vessel needed']);
 });
+
+test('ERD filtering is independent of cutoffs, preserves warehouse-local day, and groups by receiving date', () => {
+  const item = booking({ erd: '2026-09-30', cutoff: '2026-10-05' });
+  assert.equal(deadlineMatches(item, 'today', now, 'erd'), true);
+  assert.equal(deadlineMatches(item, 'today', now), false);
+  assert.equal(deadlineMatches(item, 'past', now, 'erd'), false);
+  assert.equal(deadlineMatches(booking({ erd: '2026-10-07' }), 'upcoming', now, 'erd'), true);
+  assert.equal(deadlineMatches(booking({ erd: null }), 'today', now, 'erd'), false);
+  assert.deepEqual(groupBookings([booking({ erd: '2026-10-01' }), item, booking()], 'erd').map(([name]) => name), ['2026-09-30', '2026-10-01', 'ERD needed']);
+});

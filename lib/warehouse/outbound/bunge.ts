@@ -3,8 +3,8 @@ import type * as XlsxTypes from "xlsx";
 const XLSX = XlsxModule as typeof XlsxTypes;
 
 export type OutboundLine = {
-  mark: string; loadBy: string; confirmed: boolean; shippingOrder: string;
-  warehouse: string; warehouseCode: string; bales: number; sourceRow: number;
+  mark: string; loadBy: string | null; confirmed: boolean; shippingOrder: string;
+  warehouse: string; warehouseCode: string; bales: number; sourceRow: number; loadSource?: "warehouse" | "source_load";
 };
 export type BungeBooking = {
   bookingNumber: string; customerReference: string; customer: string;
@@ -19,19 +19,10 @@ function positive(value: string, field: string, row: number) {
   if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`Row ${row}: invalid ${field}`);
   return number;
 }
-function date(value: unknown, row: number) {
-  if (typeof value === "number") {
-    const parsed = XLSX.SSF.parse_date_code(value);
-    if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
-  }
-  const text = String(value ?? "").trim();
-  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (!match) throw new Error(`Row ${row}: invalid load-by date`);
-  const year = Number(match[3]) < 100 ? 2000 + Number(match[3]) : Number(match[3]);
-  const result = new Date(Date.UTC(year, Number(match[1]) - 1, Number(match[2])));
-  if (result.getUTCFullYear() !== year || result.getUTCMonth() + 1 !== Number(match[1]) || result.getUTCDate() !== Number(match[2]))
-    throw new Error(`Row ${row}: invalid load-by date`);
-  return result.toISOString().slice(0, 10);
+// Legacy load-by dates do not control our receiving/loading window.
+function loadByDate(value: unknown) {
+  try { return detailDate({ v: value } as XlsxTypes.CellObject, "load-by")?.slice(0, 10) ?? null; }
+  catch { return null; }
 }
 
 function normalized(value: unknown) {
@@ -103,19 +94,25 @@ function detailDate(cell: XlsxTypes.CellObject | null, label: string) {
     }
   }
   const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute));
-  if (year < 1900 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day ||
+  if (year < 1900 || year > 9999 || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day ||
       parsed.getUTCHours() !== hour || parsed.getUTCMinutes() !== minute)
     throw new Error(`Invalid ${label} date in booking request.`);
   return parsed.toISOString().slice(0, hasTime ? 16 : 10);
 }
 function sailingDetails(sheet: XlsxTypes.WorkSheet, rows: unknown[][]) {
-  const erd = detailDate(labeledCell(sheet, rows, ["ERD", "Earliest Receiving Date", "Early Receiving Date"]), "ERD")?.slice(0, 10) ?? null;
+  const detailNotes: string[] = [];
+  function capturedDate(aliases: string[], label: string) {
+    const cell = labeledCell(sheet, rows, aliases);
+    try { return detailDate(cell, label); }
+    catch { detailNotes.push(`${label} could not be read (${String(cell?.v ?? "").slice(0, 100)}). Enter or confirm it before importing.`); return null; }
+  }
+  const erd = capturedDate(["ERD", "Earliest Receiving Date", "Early Receiving Date"], "ERD")?.slice(0, 10) ?? null;
   const sourceDates = [
     { label: "C/O", aliases: ["C/O"] },
     { label: "Port Cut", aliases: ["Port Cut", "Port Cutoff", "Port Cut-off"] },
     { label: "Ramp Cut", aliases: ["Ramp Cut", "Ramp Cutoff", "Ramp Cut-off"] },
   ].flatMap(({ label, aliases }) => {
-    const value = detailDate(labeledCell(sheet, rows, aliases), label);
+    const value = capturedDate(aliases, label);
     return value ? [{ label, value }] : [];
   });
   const unique = new Map<string, string>();
@@ -124,13 +121,13 @@ function sailingDetails(sheet: XlsxTypes.WorkSheet, rows: unknown[][]) {
     if (!unique.has(key) || value.includes("T")) unique.set(key, value);
   }
   const distinct = [...unique].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value);
-  const explicitDoc = detailDate(labeledCell(sheet, rows, ["Doc Cut", "Doc Cutoff", "Doc Cut-off", "Documentation Cutoff"]), "Doc cutoff");
-  const explicitCut = detailDate(labeledCell(sheet, rows, ["Cutoff", "Cut-off", "Cargo Cutoff", "Cargo Cut-off"]), "Cutoff");
+  const explicitDoc = capturedDate(["Doc Cut", "Doc Cutoff", "Doc Cut-off", "Documentation Cutoff"], "Doc cutoff");
+  const explicitCut = capturedDate(["Cutoff", "Cut-off", "Cargo Cutoff", "Cargo Cut-off"], "Cutoff");
   const docCutoff = explicitDoc ?? (distinct.length > 1 ? distinct[0] : null);
   const cutoff = explicitCut ?? distinct.at(-1) ?? null;
   const rawVessel = labeledCell(sheet, rows, ["Vessel/Voyage", "Vessel / Voyage", "Vessel", "Vessel Name"]);
   const vessel = String(rawVessel?.v ?? "").trim() || null;
-  const detailNotes = distinct.length > 2 ? ["The request has more than two distinct cutoff dates. Review the earlier doc cutoff and later cutoff before saving."] : [];
+  if (distinct.length > 2) detailNotes.push("The request has more than two distinct cutoff dates. Review the earlier doc cutoff and later cutoff before saving.");
   if (!explicitDoc && distinct.length > 1) detailNotes.push("Doc cutoff uses the earlier source date; Cutoff uses the later source date.");
   return { erd, docCutoff, cutoff, vessel, sourceDates, detailNotes };
 }
@@ -149,15 +146,15 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
     const loadBy = headerColumn(rows[row], ["Load By", "Load Date"]);
     const warehouse = headerColumn(rows[row], ["Warehouse", "Warehouse Name"]);
     const bales = headerColumn(rows[row], ["Bales", "Bale Count", "Bales Requested"]);
-    if (mark !== null && loadBy !== null && warehouse !== null && bales !== null) {
+    if (mark !== null && warehouse !== null && bales !== null) {
       headerRow = row;
-      columns = { mark, loadBy, warehouse, bales,
+      columns = { mark, loadBy: loadBy ?? -1, warehouse, bales,
         confirmed: headerColumn(rows[row], ["Conf", "Confirmed"]) ?? -1,
         shippingOrder: headerColumn(rows[row], ["S.O", "S.O.", "Shipping Order", "Shipping Order #"]) ?? -1 };
       break;
     }
   }
-  if (!columns) throw new Error("Could not find the Mark, Load By, Warehouse, and Bales columns.");
+  if (!columns) throw new Error("Could not find the Mark, Warehouse, and Bales columns.");
 
   const bookingNumber = nearbyValue(rows, ["Booking #", "Booking Number"], headerRow).toUpperCase();
   if (!/^[A-Z0-9_/-]{3,40}$/.test(bookingNumber)) throw new Error("Missing or invalid booking number.");
@@ -176,7 +173,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
     if (!/^[A-Z0-9][A-Z0-9 ./-]{0,79}$/i.test(mark)) throw new Error(`Row ${row + 1}: invalid mark`);
     const shippingCells = columns.shippingOrder >= 0
       ? rows[row].slice(columns.shippingOrder, columns.warehouse).map((cell) => String(cell ?? "").trim()).filter(Boolean) : [];
-    lines.push({ mark, loadBy: date(rows[row]?.[columns.loadBy], row + 1),
+    lines.push({ mark, loadBy: loadByDate(rows[row]?.[columns.loadBy]),
       confirmed: columns.confirmed >= 0 && normalized(rows[row]?.[columns.confirmed]) === "Y",
       shippingOrder: shippingCells[0] ?? "", warehouseCode: shippingCells[1] ?? "",
       warehouse, bales: positive(balesRaw, "bale count", row + 1), sourceRow: row + 1 });
@@ -207,4 +204,9 @@ export function warehouseMatchesSite(warehouse: string, terminal: string, siteCo
   const text = `${warehouse} ${detail}`.toUpperCase();
   const city = terminal === "SAV" ? /SAVANNAH|GARDEN CITY|PORT WENTWORTH/ : /HOUSTON|BAYTOWN/;
   return city.test(text) && new RegExp(`(^|\\D)${siteCode}(\\D|$)`).test(text);
+}
+
+export function classifyBookingLoads(booking: BungeBooking, terminal: string, siteCode: string) {
+  return booking.lines.map((line) => ({ ...line, loadSource: warehouseMatchesSite(line.warehouse, terminal, siteCode,
+    booking.warehouseDetails[line.warehouseCode]) ? "warehouse" as const : "source_load" as const }));
 }

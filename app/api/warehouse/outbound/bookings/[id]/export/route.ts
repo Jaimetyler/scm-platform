@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     if (bookingError) throw bookingError;
     if (!booking) return NextResponse.json({ ok: false, error: "Booking not found" }, { status: 404 });
     const [{ data: lines, error: lineError }, { data: containers, error: containerError }] = await Promise.all([
-      sb.from("cotton_outbound_booking_lines").select("id,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse")
+      sb.from("cotton_outbound_booking_lines").select("id,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse,line_status,load_source,status_note")
         .eq("booking_id", id).order("source_row"),
       sb.from("cotton_outbound_containers").select("sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,split_transfer_id")
         .eq("booking_id", id).order("sequence_no"),
@@ -59,8 +59,12 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     const requested = new Map<string, number>();
     for (const line of lines ?? []) requested.set(line.mark, (requested.get(line.mark) ?? 0) + line.requested_bales);
     const workbook = XLSX.utils.book_new();
+    const rowRank = (row: { booking_line_id: string | null; split_transfer_id: string | null }) => {
+      const line = lineById.get(row.booking_line_id ?? "");
+      return row.split_transfer_id ? 4 : line?.line_status === "cancelled" ? 3 : line?.line_status === "on_hold" ? 2 : line?.load_source === "source_load" ? 1 : 0;
+    };
     const equipmentRows = [...(containers ?? [])]
-      .sort((a, b) => Number(Boolean(a.split_transfer_id)) - Number(Boolean(b.split_transfer_id)) || a.sequence_no - b.sequence_no).map((row) => {
+      .sort((a, b) => rowRank(a) - rowRank(b) || a.sequence_no - b.sequence_no).map((row) => {
       const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
       const target = transfer?.target as unknown as { booking_number: string } | null;
       if (row.split_transfer_id) return { "Container #": row.sequence_no, Mark: transfer?.mark ?? "Moved mark",
@@ -70,14 +74,14 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       const available = line ? availability.get(line.mark)?.bales ?? 0 : 0;
       const inboundBales = line ? inbound.get(line.mark) ?? 0 : 0;
       const requestedForMark = line ? requested.get(line.mark) ?? line.requested_bales : 0;
-      const status = !line ? "Extra container" : available > 0 ? "In warehouse" : inboundBales > 0 ? "In delivery line" : "Not in warehouse";
+      const status = !line ? "Extra container" : line.line_status === "cancelled" ? "Cancelled" : line.line_status === "on_hold" ? "On hold" : line.load_source === "source_load" ? "Source load" : available > 0 ? "In warehouse" : inboundBales > 0 ? "In delivery line" : "Not in warehouse";
       return { "Container #": row.sequence_no, Mark: line?.mark ?? "", Status: status,
         "Requested bales": line?.requested_bales ?? "", "Bales in warehouse": line ? available : "",
         "Inbound line bales": line ? inboundBales : "", Difference: line ? available - requestedForMark : "",
         "Shipping order": line?.shipping_order ?? "",
         Location: line ? [...(availability.get(line.mark)?.locations ?? [])].join(", ") : "",
         "Container number": row.container_number ?? "",
-        "Seal number": row.seal_number ?? "", "Chassis number": row.chassis_number ?? "", Notes: row.notes ?? "" };
+        "Seal number": row.seal_number ?? "", "Chassis number": row.chassis_number ?? "", Notes: [line?.status_note, row.notes].filter(Boolean).join(" · ") };
     });
     const equipmentSheet = XLSX.utils.json_to_sheet(equipmentRows.length ? equipmentRows : [{ "Container #": "" }]);
     equipmentSheet["!cols"] = [10, 14, 30, 16, 18, 18, 14, 18, 20, 22, 18, 20, 30].map((wch) => ({ wch }));

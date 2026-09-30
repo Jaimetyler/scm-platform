@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import XLSX from 'xlsx';
-import { parseBungeBooking } from '../lib/warehouse/outbound/bunge.ts';
+import { parseBungeBooking, classifyBookingLoads } from '../lib/warehouse/outbound/bunge.ts';
 
 function request(footer) {
   const sheet = XLSX.utils.aoa_to_sheet([
@@ -52,12 +52,30 @@ test('explicit document/cargo labels take precedence and retain AM/PM times', ()
   assert.equal(booking.cutoff, '2026-09-18T08:30');
 });
 
-test('numeric Excel dates work and impossible dates fail instead of shifting silently', () => {
+test('numeric Excel dates work and impossible sailing dates require review instead of shifting silently', () => {
   const serial = (Date.UTC(2026, 8, 11) - Date.UTC(1899, 11, 30)) / 86400000;
   const booking = parseBungeBooking(request([['ERD:', serial], ['C/O:', serial + 0.5], ['Port Cut:', serial + 2 + 0.75]]));
   assert.equal(booking.erd, '2026-09-11');
   assert.equal(booking.docCutoff, '2026-09-11T12:00');
   assert.equal(booking.cutoff, '2026-09-13T18:00');
-  assert.throws(() => parseBungeBooking(request([['ERD:', '02/30/2026']])), /Invalid ERD/);
-  assert.throws(() => parseBungeBooking(request([['Port Cut:', '09/18/2026 25:00']])), /Invalid Port Cut/);
+  const invalidErd = parseBungeBooking(request([['ERD:', '02/30/2026']]));
+  assert.equal(invalidErd.erd, null); assert.ok(invalidErd.detailNotes.some(note => note.includes('ERD could not be read')));
+  const invalidCut = parseBungeBooking(request([['Port Cut:', '09/18/2026 25:00']]));
+  assert.equal(invalidCut.cutoff, null); assert.ok(invalidCut.detailNotes.some(note => note.includes('Port Cut could not be read')));
+});
+
+test('load-by dates can be old, malformed, empty, or absent and other locations become source loads', () => {
+  const original = request([['ERD:', '10/01/2026']]);
+  for (const loadBy of ['1/1/1999', 'TBD', '02/30/2026', 'strange date', '']) {
+    const wb = XLSX.read(original, { type: 'buffer' });
+    wb.Sheets.Sheet1.B5 = { t: 's', v: loadBy };
+    const parsed = parseBungeBooking(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+    assert.equal(parsed.lines[0].loadBy, loadBy === '1/1/1999' ? '1999-01-01' : null);
+    assert.equal(parsed.erd, '2026-10-01');
+    assert.equal(classifyBookingLoads(parsed, 'SAV', '984')[0].loadSource, 'warehouse');
+    assert.equal(classifyBookingLoads(parsed, 'HOU', '900')[0].loadSource, 'source_load');
+  }
+  const wb = XLSX.read(original, { type: 'buffer' });
+  delete wb.Sheets.Sheet1.B4;
+  assert.equal(parseBungeBooking(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })).lines[0].loadBy, null);
 });

@@ -3,9 +3,10 @@ export type DashboardBooking = {
   customer_reference: string | null; requested_bales: number; planned_containers: number | null; status: string;
   erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null;
   doc_cutoff_has_time: boolean; cutoff_has_time: boolean;
+  missing_marks?: number; source_loads?: number; held_marks?: number; source_arrivals?: number;
 };
 export type DeadlineView = "all" | "today" | "upcoming" | "past";
-export type BookingGroup = "schedule" | "customer" | "vessel";
+export type BookingGroup = "schedule" | "customer" | "vessel" | "erd";
 
 export function warehouseNow(terminal: string, now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: terminal === "HOU" ? "America/Chicago" : "America/New_York",
@@ -17,13 +18,13 @@ function deadlines(booking: DashboardBooking) {
   return [{ value: booking.doc_cutoff, hasTime: booking.doc_cutoff_has_time }, { value: booking.cutoff, hasTime: booking.cutoff_has_time }]
     .filter((item) => Boolean(item.value));
 }
-export function deadlineMatches(booking: DashboardBooking, view: DeadlineView, now = new Date()) {
+export function deadlineMatches(booking: DashboardBooking, view: DeadlineView, now = new Date(), basis: "cutoff" | "erd" = "cutoff") {
   if (view === "all") return true;
   const local = warehouseNow(booking.terminal, now);
   const today = local.slice(0, 10);
   const end = new Date(`${today}T00:00:00Z`);
   end.setUTCDate(end.getUTCDate() + 7);
-  return deadlines(booking).some(({ value, hasTime }) => {
+  return (basis === "erd" ? [{ value: booking.erd, hasTime: false }].filter((item) => Boolean(item.value)) : deadlines(booking)).some(({ value, hasTime }) => {
     const date = value!.slice(0, 10);
     if (view === "today") return date === today;
     if (view === "past") return date < today || (hasTime !== false && date === today && value!.replace(" ", "T").slice(0, 16) < local);
@@ -38,7 +39,7 @@ export function bookingSchedule(booking: DashboardBooking, now = new Date()) {
 export function groupBookings(bookings: DashboardBooking[], group: BookingGroup, now = new Date()) {
   const result = new Map<string, DashboardBooking[]>();
   for (const booking of bookings) {
-    const key = group === "customer" ? booking.customer || "Customer needed" : group === "vessel" ? booking.vessel || "Vessel needed" : bookingSchedule(booking, now);
+    const key = group === "erd" ? booking.erd?.slice(0, 10) || "ERD needed" : group === "customer" ? booking.customer || "Customer needed" : group === "vessel" ? booking.vessel || "Vessel needed" : bookingSchedule(booking, now);
     result.set(key, [...(result.get(key) ?? []), booking]);
   }
   const order = ["Today", "Upcoming", "Past cutoff", "Dates needed"];

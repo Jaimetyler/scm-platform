@@ -1,4 +1,5 @@
 "use client";
+import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
@@ -976,6 +977,7 @@ export default function SiteCheckinPage() {
 
       <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="cotton" />
 
+      <SourceLoadAlerts terminal={site.terminal} siteCode={site.siteCode} />
       <PlatformPanel style={{ padding: 16 }}>
         <div style={gridToolbarStyle}>
           <div>

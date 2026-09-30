@@ -1,4 +1,5 @@
 "use client";
+import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useState } from "react";
@@ -111,6 +112,7 @@ export default function DomesticLinePage() {
     <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="line" />
     {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
     {notice && <p role="status" style={{ color: "#86efac" }}>{notice}</p>}
+      <SourceLoadAlerts terminal={site.terminal} siteCode={site.siteCode} />
     <PlatformPanel>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <strong>{waiting} waiting · {active.length} active</strong>

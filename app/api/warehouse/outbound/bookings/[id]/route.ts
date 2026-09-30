@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     if (error) throw error;
     if (!booking) return NextResponse.json({ ok: false, error: "Booking not found" }, { status: 404 });
     const { data: lines, error: lineError } = await sb.from("cotton_outbound_booking_lines")
-      .select("id,source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse")
+      .select("id,source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse,line_status,load_source,status_note,status_changed_at,status_changed_by")
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
     const { data: containers, error: containerError } = await sb.from("cotton_outbound_containers")
@@ -62,13 +62,17 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       inventory.set(lot.mark, entry);
     }
     const requestedByMark = new Map<string, number>();
-    for (const line of lines ?? []) requestedByMark.set(line.mark, (requestedByMark.get(line.mark) ?? 0) + line.requested_bales);
+    for (const line of (lines ?? []).filter((line) => line.line_status === "active" && line.load_source === "warehouse")) requestedByMark.set(line.mark, (requestedByMark.get(line.mark) ?? 0) + line.requested_bales);
+    const { data: alerts, error: alertError } = await sb.from("cotton_outbound_source_arrivals")
+      .select("line_id,arrival_site_name,checkin_id").in("line_id", (lines ?? []).map((line) => line.id)).is("resolved_at", null);
+    if (alertError) throw alertError;
     return NextResponse.json({ ok: true, booking, containers: (containers ?? []).map((row) => {
       const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
       const target = transfer?.target as unknown as { booking_number: string } | null;
       return { ...row, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
         target_booking_id: transfer.target_booking_id, target_booking_number: target?.booking_number ?? "—" } : null };
     }), lines: (lines ?? []).map((line) => ({ ...line,
+      source_arrivals: (alerts ?? []).filter((alert) => alert.line_id === line.id),
       mark_requested_total: requestedByMark.get(line.mark) ?? line.requested_bales,
       available_bales: inventory.get(line.mark)?.available ?? 0,
       warehouse_bales: inventory.get(line.mark)?.warehouse ?? 0,
