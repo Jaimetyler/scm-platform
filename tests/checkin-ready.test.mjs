@@ -5,7 +5,7 @@ import { buildPostDeliveryCorrection, isReadyCheckin, usesMcleodCheckin } from "
 const complete = {
   terminal: "SAV", site_code: "MAIN", site_name: "Savannah",
   sub_location: "MAIN", received_date: "2026-09-22", mark: "TEST",
-  shipper: "CUSTOMER", bol_bc: 123, bale_count: 20,
+  shipper: "CUSTOMER", bol_bc: 123, bale_count: 123,
   warehouse_location: "A-12", equipment_type: "V", verified: false,
 };
 

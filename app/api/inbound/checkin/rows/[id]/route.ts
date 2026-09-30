@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
-import { buildPostDeliveryCorrection, isReadyCheckin } from "@/lib/inbound/checkin/ready";
+import { buildPostDeliveryCorrection, isReadyCheckin, isCompleteCheckin } from "@/lib/inbound/checkin/ready";
 import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
 import { verifyCottonOrder } from "@/lib/inbound/checkin/verify-cotton-order";
+
+import { cottonShortage, shortageAcknowledged, acknowledgeShortage, checkinActor, type ShortageFields } from "@/lib/inbound/checkin/shortage";
 
 export const runtime = "nodejs";
 
@@ -57,7 +59,7 @@ function normalizeDate(value: unknown): string | null {
   return raw || null;
 }
 
-type CheckinRow = {
+type CheckinRow = ShortageFields & {
   id: string;
   terminal: string;
   site_code: string;
@@ -74,7 +76,7 @@ type CheckinRow = {
   verified: boolean;
   comment_1: string | null;
   comment_2: string | null;
-  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed";
+  draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed" | "delivery_blocked";
   processed_at: string | null;
   movement_direction?: "pickup" | "delivery" | null;
   material_type?: "cotton" | "lumber" | "other" | null;
@@ -149,6 +151,11 @@ export async function PATCH(
       id: existing.id,
     };
 
+    if (existing.draft_status === "delivery_blocked" &&
+        ["terminal", "site_code", "site_name", "sub_location", "received_date", "mark", "shipper", "bol_bc", "bale_count", "warehouse_location", "equipment_type"].some((key) => merged[key] !== existing[key])) {
+      return NextResponse.json({ ok: false, error: "Receiving is complete with a documented shortage. Add follow-up in Notes; the McLeod delivery remains blocked." }, { status: 409 });
+    }
+
     if (correctingProcessed) {
       let correction;
       try {
@@ -175,11 +182,31 @@ export async function PATCH(
     const identityChanged = existing.mark !== merged.mark || existing.bol_bc !== merged.bol_bc;
     const matchedOrderId = requestedOrderId || (identityChanged ? "" : cleanText(existing.matched_order_id));
     if (matchedOrderId && (identityChanged || matchedOrderId !== cleanText(existing.matched_order_id))) {
-      await verifyCottonOrder(matchedOrderId, merged.mark ?? "", merged.bol_bc);
+      merged.expected_bale_count = await verifyCottonOrder(matchedOrderId, merged.mark ?? "", merged.bol_bc);
     }
 
-    const draft_status = isReadyCheckin(merged) ? "ready" : "checked_in";
-    merged.verified = draft_status === "ready";
+    if (identityChanged && !matchedOrderId) merged.expected_bale_count = null;
+    const shortage = cottonShortage(merged);
+    const at = new Date().toISOString();
+    if (body?.acknowledgeShortage === true) {
+      if (!body.expectedUpdatedAt) return NextResponse.json({ ok: false, error: "Reload before acknowledging a shortage" }, { status: 409 });
+      if (shortageAcknowledged(merged)) return NextResponse.json({ ok: false, error: "The current shortage has already been acknowledged" }, { status: 409 });
+      try { Object.assign(merged, acknowledgeShortage(merged, body.shortageNote, checkinActor(req.headers.get("authorization")), at));
+        merged.comment_1 = [merged.comment_1, `Shortage acknowledged: ${shortage!.received} of ${shortage!.expected} bales. ${merged.shortage_note}`].filter(Boolean).join("\n"); }
+      catch (error) { return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 400 }); }
+    }
+    if (body?.customerNotified === true) {
+      if (!body.expectedUpdatedAt || !shortageAcknowledged(merged)) return NextResponse.json({ ok: false, error: "Acknowledge the current shortage before recording customer notification" }, { status: 400 });
+      const followup = cleanText(body.notificationNote);
+      if (!followup || followup.length > 2000) return NextResponse.json({ ok: false, error: "Enter a customer notification note (up to 2,000 characters)" }, { status: 400 });
+      if (merged.customer_notified_at) return NextResponse.json({ ok: false, error: "Customer notification has already been recorded" }, { status: 409 });
+      merged.customer_notified_at = at;
+      merged.customer_notified_by = checkinActor(req.headers.get("authorization"));
+      merged.comment_1 = [merged.comment_1, `Customer notified: ${followup}`].filter(Boolean).join("\n");
+    }
+    const draft_status = shortage && shortageAcknowledged(merged) && isCompleteCheckin(merged)
+      ? "delivery_blocked" : isReadyCheckin(merged) ? "ready" : "checked_in";
+    merged.verified = ["ready", "delivery_blocked"].includes(draft_status);
     const identityCorrected = Boolean(existing.checked_in_at) && (
       existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
       existing.bol_bc !== merged.bol_bc
@@ -191,7 +218,7 @@ export async function PATCH(
       existing.equipment_type !== merged.equipment_type ||
       existing.received_date !== merged.received_date
     );
-    const verified_at = draft_status === "ready"
+    const verified_at = merged.verified
       ? !correctedAfterFailure && existing.verified_at
         ? existing.verified_at
         : new Date().toISOString()
@@ -209,6 +236,14 @@ export async function PATCH(
       shipper: merged.shipper,
       trucking_company: merged.trucking_company,
       matched_order_id: matchedOrderId || null,
+      expected_bale_count: merged.expected_bale_count,
+      shortage_acknowledged_at: merged.shortage_acknowledged_at,
+      shortage_acknowledged_by: merged.shortage_acknowledged_by,
+      shortage_expected_bales: merged.shortage_expected_bales,
+      shortage_received_bales: merged.shortage_received_bales,
+      shortage_note: merged.shortage_note,
+      customer_notified_at: merged.customer_notified_at,
+      customer_notified_by: merged.customer_notified_by,
       bol_bc: merged.bol_bc,
       bale_count: merged.bale_count,
       warehouse_location: merged.warehouse_location,
@@ -221,7 +256,7 @@ export async function PATCH(
       yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
       verified_at,
       identity_corrected_at: identityCorrected ? new Date().toISOString() : existing.identity_corrected_at,
-      processing_error: null,
+      processing_error: shortage ? "Bale shortage: McLeod delivery cannot be posted. Notify the customer and record follow-up in Notes." : null,
     };
 
     const { data, error } = await sb
@@ -229,7 +264,7 @@ export async function PATCH(
       .update(updatePayload)
       .eq("id", id)
       .eq("updated_at", existing.updated_at)
-      .in("draft_status", ["draft", "checked_in", "ready", "failed"])
+      .in("draft_status", ["draft", "checked_in", "ready", "failed", "delivery_blocked"])
       .select("*")
       .maybeSingle();
 

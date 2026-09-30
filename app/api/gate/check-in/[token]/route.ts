@@ -6,6 +6,8 @@ import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/check
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 
+import { cottonShortage } from "@/lib/inbound/checkin/shortage";
+
 export const runtime = "nodejs";
 
 function database() {
@@ -46,6 +48,7 @@ async function requestBody(req: NextRequest) {
         destination: form.get("destination"),
         mark: form.get("mark"),
         bolBaleCount: form.get("bolBaleCount"),
+        balesOnTruck: form.get("balesOnTruck"),
         location: {
           latitude: form.get("latitude"),
           longitude: form.get("longitude"),
@@ -323,6 +326,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // Resolve a driver's SCM order number only after the gate GPS check has
     // passed. Do not return McLeod order details to the public browser.
     let matchedCustomer: string | null = null;
+    let expectedBales: number | null = null;
+    const reportedRaw = String(body?.balesOnTruck ?? "").trim();
+    const reportedBales = reportedRaw === "" ? null : Number(reportedRaw);
+    if (reportedBales !== null && (!Number.isSafeInteger(reportedBales) || reportedBales < 0)) return NextResponse.json({ ok: false, error: "Enter a whole number of bales on the truck" }, { status: 400 });
     if (orderId) {
       const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
       if (order.actualDeparture) return NextResponse.json({ ok: false,
@@ -341,6 +348,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       if (order.direction === "pickup") destination ||= order.destination;
       truckingCompany = order.carrierName || truckingCompany;
       matchedCustomer = order.customer;
+      expectedBales = materialType === "cotton" ? positiveInteger(order.baleCount) : null;
+      if (materialType === "cotton" && movementDirection === "delivery") {
+        const date = String(order.orderDate ?? "").trim();
+        const iso = date.replace(/^(\d{4})(\d{2})(\d{2}).*/, "$1-$2-$3").slice(0, 10);
+        const age = Math.abs(Date.parse(iso) - Date.parse(warehouseDate(checkedInAt, gate.terminal)));
+        if (!date || !Number.isFinite(age) || age > 45 * 86400000 || /delivered|completed|cancelled|canceled/i.test(order.orderStatus))
+          return NextResponse.json({ ok: false, error: "This cotton order is historical or has no current delivery date. Check in without an SCM order number and speak with warehouse staff." }, { status: 409 });
+      }
     }
     if (!["pickup", "delivery"].includes(movementDirection) || (movementDirection === "pickup" && !destination)) {
       return NextResponse.json({ ok: false, error: "Enter the destination for a pickup or choose pickup or delivery" }, { status: 400 });
@@ -361,6 +376,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       mark,
       shipper: matchedCustomer,
       matched_order_id: orderId || null,
+      expected_bale_count: expectedBales,
+      driver_reported_bales: materialType === "cotton" ? reportedBales : null,
       bol_bc: bolBaleCount,
       bale_count: null,
       warehouse_location: null,
@@ -385,10 +402,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     };
 
     let { data, error } = await sb.from("inbound_checkin_rows").insert(insertPayload)
-      .select("id, terminal, site_code, site_name, checked_in_at").single();
+      .select("id, terminal, site_code, site_name, checked_in_at, movement_direction, material_type, bol_bc, bale_count, expected_bale_count, driver_reported_bales").single();
     if (error?.code === "23505") {
       const { data: existing } = await sb.from("inbound_checkin_rows")
-        .select("id, terminal, site_code, site_name, checked_in_at")
+        .select("id, terminal, site_code, site_name, checked_in_at, movement_direction, material_type, bol_bc, bale_count, expected_bale_count, driver_reported_bales")
         .eq("id", clientId).eq("driver_checkin_site_id", gate.id).maybeSingle();
       if (existing) {
         data = existing;
@@ -414,7 +431,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       }
     }
 
-    return NextResponse.json({ ok: true, checkin: data, photoSaved });
+    return NextResponse.json({ ok: true, checkin: data, photoSaved, shortage: data ? cottonShortage(data) : null });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed" }, { status: 500 });
   }

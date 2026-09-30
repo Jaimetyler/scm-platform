@@ -18,11 +18,12 @@ type FormState = {
   destination: string;
   mark: string;
   bolBaleCount: string;
+  balesOnTruck: string;
 };
 
 const EMPTY_FORM: FormState = {
   checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", movementDirection: "", materialType: "",
-  orderId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "",
+  orderId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "", balesOnTruck: "",
 };
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -86,6 +87,7 @@ export default function DriverCheckinPage() {
   const [error, setError] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
   const autoDriverRef = useRef({ name: "", phone: "" });
+  const [shortage, setShortage] = useState<{ expected: number; received: number; missing: number } | null>(null);
   const [complete, setComplete] = useState(false);
   const [bolPhoto, setBolPhoto] = useState<File | null>(null);
   const [photoSaved, setPhotoSaved] = useState(false);
@@ -254,6 +256,7 @@ export default function DriverCheckinPage() {
       request.set("destination", form.destination);
       request.set("mark", form.mark);
       request.set("bolBaleCount", form.bolBaleCount);
+      request.set("balesOnTruck", form.balesOnTruck);
       request.set("latitude", String(position.coords.latitude));
       request.set("longitude", String(position.coords.longitude));
       request.set("accuracyMeters", String(position.coords.accuracy));
@@ -268,6 +271,7 @@ export default function DriverCheckinPage() {
       setQueuePosition(result.queue === true ? Number(result.position) : null);
       setQueueSiteName(result.siteName || site.siteName);
       setQueuedDriverName(result.driverName || form.driverName);
+      setShortage(result.shortage || null);
       setPhotoSaved(result.photoSaved === true);
       setPhotoFailed(Boolean(bolPhoto) && result.photoSaved !== true);
       setComplete(true);
@@ -298,6 +302,11 @@ export default function DriverCheckinPage() {
           <p style={bodyStyle}>{queuedDriverName ? `${queuedDriverName}, this is your` : "Your"} current place in the container line at {queueSiteName || site.siteName}.</p>
           <p style={{ ...bodyStyle, color: "#fbbf24" }}>This phone cannot check in another container driver until warehouse staff completes or removes this entry.</p>
         </> : <p style={bodyStyle}>Your arrival was sent to {site.siteName}. Warehouse staff can now see your load.</p>}
+        {shortage && <div role="alert" style={{ border: "2px solid #fbbf24", padding: 18, borderRadius: 10, color: "#fde68a", marginTop: 20 }}>
+          <strong>Your load is {shortage.missing} bale{shortage.missing === 1 ? "" : "s"} short</strong>
+          <p>Expected {shortage.expected} · Reported {shortage.received}</p>
+          <p>Your check-in was saved. Please speak with warehouse staff about the shortage.</p>
+        </div>}
         {photoSaved ? <p style={{ ...bodyStyle, color: "#86efac" }}>Your paperwork photo was attached.</p> : null}
         {photoFailed ? <p style={{ ...bodyStyle, color: "#fbbf24" }}>Your check-in was saved, but the photo did not upload. Keep your paper BOL ready for warehouse staff.</p> : null}
         <p style={{ ...bodyStyle, color: "#67e8f9", fontWeight: 800 }}>Please follow the yard’s instructions and wait for direction.</p>
@@ -331,7 +340,7 @@ export default function DriverCheckinPage() {
                 const previousAuto = autoDriverRef.current;
                 setForm((current) => ({
                 ...current, orderId: value.toUpperCase(), movementDirection: "", referenceNumber: "", materialType: "",
-                mark: "", bolBaleCount: "", destination: "",
+                mark: "", bolBaleCount: "", balesOnTruck: "", destination: "",
                 driverName: previousAuto.name && current.driverName === previousAuto.name ? "" : current.driverName,
                 driverPhone: previousAuto.phone && current.driverPhone === previousAuto.phone ? "" : current.driverPhone,
               })); autoDriverRef.current = { name: "", phone: "" }; }}
@@ -379,6 +388,7 @@ export default function DriverCheckinPage() {
           {form.materialType === "cotton" ? <>
             <Field label="Mark *" value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
             <Field label="Bale count on BOL *" value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
+            {form.movementDirection === "delivery" && <Field label="Bales on truck (if different from BOL)" value={form.balesOnTruck} onChange={(value) => change("balesOnTruck", value.replace(/\D/g, ""))} inputMode="numeric" />}
           </> : null}
           </> : null}
         </div> : null}

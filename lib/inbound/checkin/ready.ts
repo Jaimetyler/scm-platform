@@ -1,4 +1,6 @@
-export type CheckinReadyFields = {
+import { cottonShortage, type ShortageFields } from "./shortage.ts";
+
+export type CheckinReadyFields = ShortageFields & {
   terminal?: string | null;
   site_code?: string | null;
   site_name?: string | null;
@@ -22,6 +24,10 @@ export function usesMcleodCheckin(row: CheckinReadyFields): boolean {
 }
 
 export function isReadyCheckin(row: CheckinReadyFields): boolean {
+  return isCompleteCheckin(row) && !cottonShortage(row);
+}
+
+export function isCompleteCheckin(row: CheckinReadyFields): boolean {
   if (!usesMcleodCheckin(row)) return false;
   return Boolean(
     row.terminal?.trim() && row.site_code?.trim() && row.site_name?.trim() &&
@@ -50,7 +56,7 @@ type CorrectableRow = {
 };
 
 export function buildPostDeliveryCorrection(existing: CorrectableRow, edited: CorrectableRow, at: string) {
-  if (!isReadyCheckin({ ...edited, terminal: existing.terminal,
+  if (!isCompleteCheckin({ ...edited, terminal: existing.terminal,
     site_code: existing.site_code, site_name: existing.site_name })) {
     throw new Error("Complete all required fields before saving the correction");
   }

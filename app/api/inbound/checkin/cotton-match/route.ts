@@ -1,3 +1,4 @@
+import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { NextRequest, NextResponse } from "next/server";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -7,12 +8,6 @@ import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 export const runtime = "nodejs";
 
 function value(input: unknown) { return String(input ?? "").trim(); }
-function orderDay(input: unknown) {
-  const raw = value(input);
-  const match = raw.match(/^(\d{4})(\d{2})(\d{2})/);
-  const day = match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : Date.parse(raw);
-  return Number.isFinite(day) ? day : null;
-}
 function named(input: unknown) {
   return input && typeof input === "object" ? value((input as Record<string, unknown>).name) : "";
 }
@@ -78,7 +73,7 @@ export async function GET(request: NextRequest) {
     }
     if (failedFields.length === 2) throw new Error(`McLeod could not search this mark (${failedFields.join("; ")}). Try a longer mark or enter the customer and BOL count manually.`);
     if (matches.size > 20) throw new Error("Too many matching orders. Enter a longer mark.");
-    const cutoff = Date.now() - 45 * 24 * 60 * 60 * 1000;
+    let eligibilityWarning = "";
     const verified = await Promise.all([...matches.values()].map(async (match) => {
       const response = await fetch(`${base}/orders/${encodeURIComponent(match.orderId)}`, { headers, cache: "no-store" });
       if (!response.ok) throw new Error(`Could not verify McLeod order (${response.status})`);
@@ -86,9 +81,12 @@ export async function GET(request: NextRequest) {
       if (value(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
       const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
       const delivery = stops.find((stop) => stop.stop_type === "SO");
-      if (value(delivery?.actual_departure)) return null;
+      const eligibility = currentCottonOrder(order);
+      if (!eligibility.eligible) {
+        if (!eligibility.historical) eligibilityWarning = eligibility.reason;
+        return null;
+      }
       const scheduled = value(delivery?.sched_arrive_early || delivery?.sched_arrive_late || order.ordered_date);
-      if (scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
       const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];
       const movement = movements.find((item) => value(item.id) === value(order.curr_movement_id)) ?? movements[0];
       match.orderDate = scheduled;
@@ -110,9 +108,9 @@ export async function GET(request: NextRequest) {
       return match;
     }));
     return NextResponse.json({ ok: true, matches: verified.filter((match) => match !== null),
-      incomplete: failedFields.length > 0 || missingRevenueCode,
-      warning: failedFields.length ? `McLeod search incomplete (${failedFields.join("; ")})` :
-        missingRevenueCode ? "McLeod omitted a revenue code; verify the order manually" : "" },
+      incomplete: failedFields.length > 0 || missingRevenueCode || Boolean(eligibilityWarning),
+      warning: eligibilityWarning || (failedFields.length ? `McLeod search incomplete (${failedFields.join("; ")})` :
+        missingRevenueCode ? "McLeod omitted a revenue code; verify the order manually" : "") },
       { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: 500 });

@@ -5,7 +5,7 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
 export const runtime = "nodejs";
 
-const FIELDS = "id,terminal,site_code,site_name,sub_location,checkin_source,received_date,checked_in_at,verified_at,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,yard_status,yard_updated_by,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,mark,bol_bc,bale_count,shipper,destination,matched_order_id,draft_status,processing_error,processed_at,warehouse_location,equipment_type,verified,comment_1,comment_2,bol_photo_original_name,bol_photo_uploaded_at,created_at,updated_at";
+const FIELDS = "id,terminal,site_code,site_name,sub_location,checkin_source,received_date,checked_in_at,verified_at,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,yard_status,yard_updated_by,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,checkin_completed_at,shipper,destination,matched_order_id,draft_status,processing_error,processed_at,warehouse_location,equipment_type,verified,comment_1,comment_2,bol_photo_original_name,bol_photo_uploaded_at,created_at,updated_at";
 const HEADERS: [string, string][] = [
   ["terminal", "Terminal"], ["site_code", "Site code"], ["site_name", "Site"], ["sub_location", "Sub-location"],
   ["received_date", "Received date"], ["checked_in_at", "Arrived (UTC)"], ["verified_at", "Verified (UTC)"],
@@ -15,6 +15,10 @@ const HEADERS: [string, string][] = [
   ["driver_name", "Driver"], ["driver_phone", "Driver phone"], ["trucking_company", "Trucking company"],
   ["movement_direction", "Pickup / delivery"],
   ["material_type", "Material"], ["reference_number", "Reference"], ["mark", "Mark"],
+  ["expected_bale_count", "Expected order bales"], ["driver_reported_bales", "Driver-reported bales"],
+  ["shortage_expected_bales", "Acknowledged expected bales"], ["shortage_received_bales", "Acknowledged received bales"],
+  ["shortage_note", "Shortage note"], ["shortage_acknowledged_at", "Shortage acknowledged (UTC)"], ["shortage_acknowledged_by", "Shortage acknowledged by"],
+  ["customer_notified_at", "Customer notified (UTC)"], ["customer_notified_by", "Customer notified by"], ["checkin_completed_at", "Receiving completed (UTC)"],
   ["bol_bc", "BOL bale count"], ["bale_count", "Bales unloaded"], ["shipper", "Customer"],
   ["destination", "Destination"], ["matched_order_id", "McLeod order ID"],
   ["draft_status", "McLeod processing status"], ["processing_error", "Processing error"],

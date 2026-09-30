@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
       const { data: older, error: olderError } = await sb.from("inbound_checkin_rows")
         .select("*").eq("terminal", terminal).eq("site_code", siteCode)
         .eq("material_type", "cotton").lt("received_date", date)
-        .in("draft_status", ["checked_in", "ready", "failed"])
+        .in("draft_status", ["checked_in", "ready", "failed", "delivery_blocked"])
         .order("received_date", { ascending: false }).limit(1000);
       if (olderError) throw olderError;
       carryoverRows = (older ?? []) as CheckinRow[];
@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
     if (driverName.length > 120 || driverPhone.length > 40 || truckingCompany.length > 200) {
       return NextResponse.json({ ok: false, error: "Driver or trucking company details are too long" }, { status: 400 });
     }
-    if (matchedOrderId) await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true);
+    const expectedBales = matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true) : null;
 
     const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
     const defaultEquipment: EquipmentType =
@@ -206,6 +206,7 @@ export async function POST(req: NextRequest) {
       driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       matched_order_id: matchedOrderId || null,
+      expected_bale_count: expectedBales,
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),
       warehouse_location: cleanText(body?.warehouseLocation).toUpperCase() || null,

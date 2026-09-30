@@ -10,7 +10,12 @@ import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import "@/components/warehouse/domestic-tables.css";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
-type Row = {
+import ShortageNotice, { type ShortageAction } from "@/components/warehouse/ShortageNotice";
+import { type ShortageFields } from "@/lib/inbound/checkin/shortage";
+import { Fragment } from "react";
+
+type Row = ShortageFields & {
+  updated_at: string;
   id: string; checked_in_at: string; yard_completed_at: string | null; yard_status: string;
   driver_name: string | null; driver_phone: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
@@ -92,15 +97,20 @@ export default function DomesticHistoryPage() {
         <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse", color: "#e2e8f0" }}>
           <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver / source", "Reference / mark", "Customer", "SCM order / processing"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
-          <tbody>{rows.map((row) => <tr key={row.id}>
+          <tbody>{rows.map((row) => <Fragment key={row.id}><tr>
             <td style={cell}>{time(row.checked_in_at)}</td><td style={cell}>{time(row.yard_completed_at)}</td>
             <td style={cell}><span style={statusStyle(row.yard_status)}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}</span></td><td style={cell}>{row.material_type}</td>
             <td style={cell}>{row.movement_direction || "—"}</td><td style={cell}>{row.driver_name || "Staff entry"}<span className="row-secondary">{row.checkin_source === "driver_qr" ? "Driver QR" : "Staff"}</span></td>
             <td style={cell}>{row.reference_number || row.mark || "—"}
               {row.has_bol_photo && <div style={{ marginTop: 5 }}><PaperworkPhotoLink checkinId={row.id} /></div>}</td>
             <td style={cell}>{row.shipper || "—"}</td>
-            <td style={cell}>{row.matched_order_id ? <>#{row.matched_order_id}<span className="row-secondary">{row.draft_status === "processed" ? "Processed in McLeod" : "Checked in"}</span></> : "—"}</td>
-          </tr>)}</tbody>
+            <td style={cell}>{row.matched_order_id ? <>#{row.matched_order_id}<span className="row-secondary">{row.draft_status === "delivery_blocked" ? "Receiving complete · Delivery blocked" : row.draft_status === "processed" ? "Processed in McLeod" : "Checked in"}</span></> : "—"}</td>
+          </tr>{row.draft_status === "delivery_blocked" && <tr><td colSpan={9} style={cell}><ShortageNotice row={row} complete onAction={async (action: ShortageAction) => {
+              const response = await fetch(`/api/inbound/checkin/rows/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: row.updated_at, ...action }) });
+              const result = await response.json();
+              if (!response.ok || !result.ok) throw new Error(result.error || "Could not record notification");
+              setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...result.row } : item));
+            }} /></td></tr>}</Fragment>)}</tbody>
         </table></div>}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 16 }}>
         <button disabled={page === 0 || loading} style={button} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button>

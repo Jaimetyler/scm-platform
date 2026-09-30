@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 
-type Row = {
+import { cottonShortage, type ShortageFields } from "./shortage";
+
+type Row = ShortageFields & {
   id: string;
   created_at: string;
   checked_in_at: string | null;
@@ -39,6 +41,7 @@ export async function processCheckinRow(req: NextRequest, id: string) {
   }
 
   try {
+    if (cottonShortage(row)) throw new Error("Bale shortage - cannot post McLeod delivery");
     const response = await fetch(new URL("/api/inbound/sync", req.url), {
       method: "POST",
       headers: {
@@ -53,6 +56,7 @@ export async function processCheckinRow(req: NextRequest, id: string) {
           shipper: row.shipper,
           bolBC: String(row.bol_bc ?? ""),
           balesUnloaded: row.bale_count,
+          expectedBaleCount: row.expected_bale_count,
           location: row.warehouse_location,
           sourceSheet: row.sub_location,
           terminal: row.terminal,

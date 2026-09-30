@@ -6,6 +6,8 @@ import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/details";
 
+import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
+
 type Container = { id: string; sequence_no: number; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
   chassis_number: string | null; notes: string | null; updated_at: string; split_transfer_id: string | null;
   split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
@@ -198,6 +200,7 @@ export default function CottonOutboundBookingPage() {
   return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
       actions={<><a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Export Excel</a>
+        <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/print`} target="_blank" style={button}>Print warehouse sheet</Link>
         <Link href={backHref} style={button}>← All outbound bookings</Link></>} />
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
@@ -246,14 +249,14 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={Boolean(working)} onClick={() => setSelectedLines(new Set())}>Clear selection</button></div>
     </div> : null}
 
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1440, borderCollapse: "collapse" }}><thead><tr>
-      {['', '#', 'Mark', 'Requested', 'Bales / inbound', 'S.O.', 'Location', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
+    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse" }}><thead><tr>
+      {['', '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Save'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
         <td style={td} /><td style={td}>{row.sequence_no}</td>
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
-        <td style={td} colSpan={7}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
+        <td style={td} colSpan={4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
         <td style={{ ...td, fontSize: 12, fontWeight: 800 }}>Locked</td>
       </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
@@ -265,12 +268,8 @@ export default function CottonOutboundBookingPage() {
         <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment}
           title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <><strong style={{ color: line.available_bales > 0 ? "#4ade80" : "#f87171", fontSize: 16 }}>{line.mark}</strong>
-          <small style={{ display: "block", color: line.available_bales > 0 ? "#86efac" : line.inbound_bales > 0 ? "#fbbf24" : "#fca5a5", marginTop: 3 }}>
-            {line.available_bales > 0 ? "In warehouse" : line.inbound_bales > 0 ? "Checked into delivery line" : "Not received"}</small></> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
-        <td style={td}>{line?.requested_bales ?? "—"}</td>
-        <td style={td}>{line ? <>{line.available_bales}{line.inbound_bales > 0 ? <small style={{ display: "block", color: "#fbbf24" }}>{line.inbound_bales} inbound</small> : null}</> : "—"}</td>
-        <td style={td}>{line?.shipping_order || "—"}</td><td style={td}>{line?.inventory_locations.join(", ") || "—"}</td>
+        <td style={td}>{line ? <strong style={{ fontSize: 16 }}>{line.mark}</strong> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
+        <td style={td}>{line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {

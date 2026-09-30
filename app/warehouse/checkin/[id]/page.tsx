@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 
+import ShortageNotice from "@/components/warehouse/ShortageNotice";
+
 export const dynamic = "force-dynamic";
 
 function database() {
@@ -20,7 +22,7 @@ export default async function DriverCheckinDetailsPage({
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const { data: row, error } = await database().from("inbound_checkin_rows")
-    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path")
+    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, bale_count, expected_bale_count, driver_reported_bales, shortage_acknowledged_at, shortage_acknowledged_by, shortage_expected_bales, shortage_received_bales, shortage_note, customer_notified_at, customer_notified_by, comment_1, comment_2, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path")
     .eq("id", id)
     .eq("checkin_source", "driver_qr")
     .maybeSingle();
@@ -37,6 +39,7 @@ export default async function DriverCheckinDetailsPage({
         actions={<Link href={isCotton ? `/inbound/checkin/${terminalSlug}/${row.site_code}` : `/warehouse/gate/${terminalSlug}/${row.site_code}/domestic`} style={buttonStyle}>← {isCotton ? "Cotton grid" : "Lumber & Other"}</Link>}
       />
       <PlatformPanel>
+        <ShortageNotice row={row} />
         <div style={detailsGridStyle}>
           <Detail label="Driver" value={row.driver_name || "—"} />
           <Detail label="Trucking company" value={row.trucking_company || "—"} />
@@ -53,6 +56,7 @@ export default async function DriverCheckinDetailsPage({
           <Detail label="Location verification" value={row.gate_location_verified_at ? "Verified at yard" : "Not verified"} />
           <Detail label="Distance from gate pin" value={row.driver_distance_m === null ? "—" : `${Math.round(Number(row.driver_distance_m))} meters`} />
         </div>
+        <p style={{ whiteSpace: "pre-wrap", color: "#cbd5e1" }}>{[row.comment_1, row.comment_2].filter(Boolean).join("\n")}</p>
         {row.bol_photo_path ? (
           <a href={`/api/warehouse/checkin-bol/${row.id}`} target="_blank" rel="noreferrer" style={primaryButtonStyle}>
             Open paperwork photo

@@ -1,3 +1,4 @@
+import { currentCottonOrder } from "./current-cotton-order";
 import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 
 export async function verifyCottonOrder(orderId: string, mark: string, bolBC: number | null, forNewCheckin = false) {
@@ -19,12 +20,15 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
   const references = [String(order.consignee_refno ?? ""), parsed?.[1] ?? ""];
   if (!normalizeKey(mark) || !references.some((reference) => normalizeKey(reference) === normalizeKey(mark)))
     throw new Error(`SCM order ${orderId} does not have this exact cotton mark`);
-  if (bolBC && parsed && Number(parsed[2]) !== bolBC)
+  if (bolBC && parsed && bolBC > Number(parsed[2]))
     throw new Error(`SCM order ${orderId} has a different BOL bale count`);
+  const eligibility = currentCottonOrder(order);
+  if (!eligibility.eligible) throw new Error(eligibility.reason);
   if (forNewCheckin) {
     const delivery = (Array.isArray(order.stops) ? order.stops : [])
       .find((stop: { stop_type?: string }) => stop.stop_type === "SO");
     if (String(delivery?.actual_departure ?? "").trim())
       throw new Error(`SCM order ${orderId} has already been delivered in McLeod.`);
   }
+  return parsed ? Number(parsed[2]) : null;
 }

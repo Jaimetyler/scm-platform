@@ -4,10 +4,12 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { lookupMcleodOrderById, lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
-import { isReadyCheckin } from "@/lib/inbound/checkin/ready";
+import { isCompleteCheckin } from "@/lib/inbound/checkin/ready";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
 import { lookupScmCarrier } from "@/lib/inbound/checkin/scm-carrier";
 import { backfillTruckingCompanies } from "@/lib/inbound/checkin/backfill-trucking-company";
+
+import { cottonShortage, shortageAcknowledged, acknowledgeShortage } from "@/lib/inbound/checkin/shortage";
 
 export const runtime = "nodejs";
 
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
 
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
-      .select("id,terminal,site_name,checkin_source,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
+      .select("id,terminal,site_name,checkin_source,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
       .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
@@ -162,7 +164,7 @@ export async function PATCH(req: NextRequest) {
       const departure = new Date();
       let mcleod = "no linked order";
       if (row.material_type === "cotton" && row.movement_direction === "delivery" &&
-          !["processed", "outside_carrier"].includes(row.draft_status)) {
+          !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)) {
         const cotton = body?.cotton;
         if (!cotton || body.expectedUpdatedAt !== row.updated_at ||
             !["checked_in", "ready", "failed"].includes(row.draft_status)) {
@@ -177,24 +179,32 @@ export async function PATCH(req: NextRequest) {
         const ready = { ...row, mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
           warehouse_location: location, equipment_type: equipment };
         if (!Number.isSafeInteger(baleCount) || !Number.isSafeInteger(bolBC) ||
-            !["V", "F"].includes(equipment) || !isReadyCheckin(ready)) {
+            !["V", "F"].includes(equipment) || !isCompleteCheckin(ready)) {
           return NextResponse.json({ ok: false, error: "Enter the mark, customer, BOL count, unloaded bales, equipment, and warehouse location." }, { status: 400 });
+        }
+        const shortage = cottonShortage(ready);
+        let acknowledgement = {};
+        if (shortage && !shortageAcknowledged(ready)) {
+          if (cotton.acknowledgeShortage !== true) return NextResponse.json({ ok: false, error: "Acknowledge the bale shortage with a note before finishing receiving. McLeod delivery cannot be posted." }, { status: 400 });
+          try { acknowledgement = acknowledgeShortage(ready, cotton.shortageNote, user(req), departure.toISOString()); }
+          catch (error) { return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 400 }); }
         }
         const { data: prepared, error: prepareError } = await sb.from("inbound_checkin_rows")
           .update({ mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
             warehouse_location: location, equipment_type: equipment, verified: true,
-            verified_at: departure.toISOString(), draft_status: "ready", processing_error: null })
+            verified_at: departure.toISOString(), draft_status: shortage ? "delivery_blocked" : "ready", processing_error: null, ...acknowledgement,
+            ...(shortage && cotton.shortageNote ? { comment_1: [row.comment_1, `Shortage acknowledged: ${shortage.received} of ${shortage.expected} bales. ${String(cotton.shortageNote).trim()}`].filter(Boolean).join("\n") } : {}) })
           .eq("id", id).eq("updated_at", row.updated_at)
-          .in("draft_status", ["checked_in", "ready", "failed"]).select("id").maybeSingle();
+          .in("draft_status", ["checked_in", "ready", "failed"]).select("*").maybeSingle();
         if (prepareError) throw prepareError;
         if (!prepared) return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
-        const processed = await processCheckinRow(req, id);
-        if (!processed || !["processed", "outside_carrier"].includes(processed.draft_status)) {
+        const processed = shortage ? prepared : await processCheckinRow(req, id);
+        if (!processed || !["processed", "outside_carrier", "delivery_blocked"].includes(processed.draft_status)) {
           return NextResponse.json({ ok: false, error: processed?.processing_error || "Cotton delivery was not completed in McLeod. Check-in remains in the line." }, { status: 409 });
         }
-        mcleod = processed.draft_status === "processed" ? "cotton delivery processed" : "outside carrier; no McLeod delivery";
+        mcleod = processed.draft_status === "delivery_blocked" ? "receiving complete; bale shortage blocks McLeod delivery — notify the customer" : processed.draft_status === "processed" ? "cotton delivery processed" : "outside carrier; no McLeod delivery";
       } else if (row.material_type === "cotton" && row.movement_direction === "delivery") {
-        mcleod = row.draft_status === "processed" ? "cotton delivery already processed" : "outside carrier; no McLeod delivery";
+        mcleod = row.draft_status === "delivery_blocked" ? "receiving complete; bale shortage blocks McLeod delivery — notify the customer" : row.draft_status === "processed" ? "cotton delivery already processed" : "outside carrier; no McLeod delivery";
       } else if (row.matched_order_id) {
         if (process.env.MCLEOD_SYNC_ENABLED !== "true") {
           return NextResponse.json({ ok: false, error: "McLeod writes are disabled. Check-out was not saved." }, { status: 503 });
@@ -298,6 +308,7 @@ export async function PATCH(req: NextRequest) {
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode) || !NEXT[from]?.includes(to)) {
       return NextResponse.json({ ok: false, error: "Invalid queue transition" }, { status: 400 });
     }
+    if (to === "completed") return NextResponse.json({ ok: false, error: "Use check-out to finish receiving" }, { status: 400 });
     const now = new Date().toISOString();
     const { data, error } = await database().from("inbound_checkin_rows")
       .update({ yard_status: to, [TIMESTAMP[to]]: now, yard_updated_by: user(req) })

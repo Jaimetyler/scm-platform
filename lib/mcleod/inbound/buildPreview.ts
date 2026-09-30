@@ -1,3 +1,4 @@
+import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -479,6 +480,19 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
         enriched = enrichCandidates(allCandidates, targetMark, targetBales);
         exactMarkCandidates = enriched.filter((c) => c.exactMark);
       }
+    }
+
+    if (options.strictSearch && exactMarkCandidates.length > 0) {
+      const verified = await Promise.all(exactMarkCandidates.map(async (candidate) => {
+        const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(candidate.orderId)}`, { headers: getHeaders(), cache: "no-store" });
+        if (!response.ok) throw new Error(`Could not verify current McLeod order ${candidate.orderId} (${response.status})`);
+        const order = await response.json();
+        const eligibility = currentCottonOrder(order, row.receivedDate);
+        if (!eligibility.eligible && !eligibility.historical) searchContext.incomplete.add(eligibility.reason);
+        return eligibility.eligible ? candidate : null;
+      }));
+      exactMarkCandidates = verified.filter((candidate) => candidate !== null);
+      if (searchContext.incomplete.size) throw new Error(`McLeod search incomplete (${Array.from(searchContext.incomplete).join(", ")}); review current delivery matches before processing.`);
     }
 
     if (exactMarkCandidates.length === 0) {

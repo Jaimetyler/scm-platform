@@ -11,8 +11,10 @@ import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
+import { cottonShortage, type ShortageFields } from "@/lib/inbound/checkin/shortage";
+
 type Status = "waiting" | "called" | "in_door" | "working";
-type Arrival = {
+type Arrival = ShortageFields & {
   id: string; checked_in_at: string; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
   shipper: string | null; yard_status: Status | "completed" | "cancelled" | null;
@@ -21,7 +23,7 @@ type Arrival = {
   warehouse_location: string | null; equipment_type: string | null;
   has_bol_photo: boolean; checkin_source: string | null;
 };
-type CottonFields = { mark: string; customer: string; bolBC: string; baleCount: string; warehouseLocation: string; equipmentType: string };
+type CottonFields = { mark: string; customer: string; bolBC: string; baleCount: string; warehouseLocation: string; equipmentType: string; shortageNote: string; acknowledgeShortage: boolean };
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
 };
@@ -58,13 +60,14 @@ export default function DomesticLinePage() {
 
   function openCotton(row: Arrival) {
     setCottonFields((current) => ({ ...current, [row.id]: {
+      shortageNote: "", acknowledgeShortage: false,
       mark: row.mark || "", customer: row.shipper || "", bolBC: String(row.bol_bc ?? ""),
       baleCount: String(row.bale_count ?? ""), warehouseLocation: row.warehouse_location || "",
       equipmentType: row.equipment_type || (site?.terminal === "SAV" ? "V" : ""),
     } }));
     setCottonEditId(row.id);
   }
-  function changeCotton(id: string, field: keyof CottonFields, value: string) {
+  function changeCotton(id: string, field: keyof CottonFields, value: string | boolean) {
     setCottonFields((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
   }
 
@@ -131,10 +134,10 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.scm_carrier && <strong style={{ color: "#86efac", display: "block" }}>SCM carrier</strong>}
               {row.matched_order_id ? <span>McLeod #{row.matched_order_id}</span> : "—"}
               {row.carrier_code && <small style={{ display: "block", color: "#94a3b8" }}>Carrier {row.carrier_code}</small>}</td>
-            <td style={cell}>{LABEL[row.yard_status]}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
+            <td style={cell}>{LABEL[row.yard_status]}{cottonShortage(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>{cottonShortage(row)!.missing} bales short · McLeod delivery blocked{!row.customer_notified_at && " · Notify customer"}</div>}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
             <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              <button disabled={Boolean(working)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier"].includes(row.draft_status)
-                ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>
+              <button disabled={Boolean(working)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)
+                ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>
               <button disabled={Boolean(working)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
             </div></td>
           </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={11} style={{ ...cell, background: "#132337" }}>
@@ -142,7 +145,7 @@ export default function DomesticLinePage() {
               <strong>Finish cotton delivery · McLeod {row.matched_order_id ? `#${row.matched_order_id}` : "order search at completion"}</strong>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
                 {([ ["Mark", "mark"], ["Customer", "customer"], ["BOL bale count", "bolBC"],
-                  ["Bales unloaded", "baleCount"], ["Warehouse location", "warehouseLocation"] ] as [string, keyof CottonFields][]).map(([label, field]) =>
+                  ["Bales unloaded", "baleCount"], ["Warehouse location", "warehouseLocation"] ] as [string, Exclude<keyof CottonFields, "acknowledgeShortage">][]).map(([label, field]) =>
                   <label key={field} style={{ display: "grid", gap: 5, fontSize: 12 }}>{label}
                     <input required inputMode={field === "bolBC" || field === "baleCount" ? "numeric" : "text"}
                       value={cottonFields[row.id][field]} onChange={(event) => changeCotton(row.id, field, event.target.value)} style={input} />
@@ -152,8 +155,14 @@ export default function DomesticLinePage() {
                     <option value="">Select</option><option value="V">Van</option><option value="F">Flatbed</option>
                   </select></label>
               </div>
+              {cottonShortage({ ...row, bol_bc: Number(cottonFields[row.id].bolBC) || null, bale_count: cottonFields[row.id].baleCount === "" ? null : Number(cottonFields[row.id].baleCount) }) && <div role="alert" style={{ padding: 14, marginTop: 12, border: "1px solid #d97706", borderRadius: 7, color: "#fde68a" }}>
+                <strong>Bale shortage · McLeod delivery cannot be posted</strong>
+                <p>Receiving can finish after acknowledgement. Notify the customer and record follow-up in Notes.</p>
+                <label style={{ display: "block", marginBottom: 8 }}><input type="checkbox" checked={cottonFields[row.id].acknowledgeShortage} onChange={(event) => changeCotton(row.id, "acknowledgeShortage", event.target.checked)} /> I acknowledge the bale shortage</label>
+                <label style={{ display: "grid", gap: 5 }}>Shortage note<textarea value={cottonFields[row.id].shortageNote} maxLength={2000} onChange={(event) => changeCotton(row.id, "shortageNote", event.target.value)} style={input} /></label>
+              </div>}
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button type="submit" disabled={Boolean(working)} style={primary}>{working === row.id ? "Finishing…" : "Process delivery & check out"}</button>
+                <button type="submit" disabled={Boolean(working)} style={primary}>{working === row.id ? "Finishing…" : cottonShortage({ ...row, bol_bc: Number(cottonFields[row.id].bolBC) || null, bale_count: cottonFields[row.id].baleCount === "" ? null : Number(cottonFields[row.id].baleCount) }) ? "Finish receiving & check out" : "Process delivery & check out"}</button>
                 <button type="button" disabled={Boolean(working)} style={button} onClick={() => setCottonEditId(null)}>Cancel</button>
               </div>
             </form>

@@ -1,3 +1,4 @@
+import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
@@ -275,6 +276,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Missing row" }, { status: 400 });
     }
 
+    if (row.source === "live_checkin") {
+      const expected = Number(row.expectedBaleCount ?? row.bolBC);
+      const received = Number(row.balesUnloaded);
+      if (Number.isSafeInteger(expected) && expected > 0 && Number.isSafeInteger(received) && received < expected) {
+        return validationFailure({ error: "Bale shortage - cannot post McLeod delivery", reason: "BALE_COUNT_MISMATCH", expectedBales: expected, receivedBales: received });
+      }
+    }
     const preview = (await buildPreview([row], {
       strictSearch: row.source === "live_checkin",
     }))[0] as SyncPreviewResult;
@@ -311,6 +319,10 @@ export async function POST(req: NextRequest) {
 
     const order = await getOrder(preview.matchedOrderId);
 
+    if (row.source === "live_checkin") {
+      const eligibility = currentCottonOrder(order, row.receivedDate);
+      if (!eligibility.eligible) return validationFailure({ error: eligibility.reason, reason: "HISTORICAL_OR_UNVERIFIED_ORDER", matchedOrderId: preview.matchedOrderId });
+    }
     const rowMark = resolveRowMark(row, preview);
     const orderMark = resolveOrderMark(order, preview);
 
