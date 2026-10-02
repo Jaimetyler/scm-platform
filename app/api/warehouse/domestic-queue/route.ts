@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { lookupMcleodOrderById, lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
-import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
+import { formatWarehouseTime, planLiveDeliveryActuals } from "@/lib/inbound/checkin/mcleod-time";
 import { isCompleteCheckin } from "@/lib/inbound/checkin/ready";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
 import { lookupScmCarrier } from "@/lib/inbound/checkin/scm-carrier";
@@ -215,11 +215,27 @@ export async function PATCH(req: NextRequest) {
           return NextResponse.json({ ok: false, error: "Could not confirm the matching McLeod stop. Check-out was not saved." }, { status: 409 });
         }
         if (!order.actualDeparture) {
-          const arrival = order.actualArrival || formatWarehouseTime(new Date(row.checked_in_at), site.terminal);
-          const parameters = new URLSearchParams({ arrivalDate: arrival, departureDate: formatWarehouseTime(departure, site.terminal) });
           const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
           const token = process.env.MCLEOD_AUTH_TOKEN;
           if (!base || !token) throw new Error("McLeod connection is not configured");
+          const checkedInAt = new Date(row.checked_in_at);
+          let arrival = order.actualArrival || formatWarehouseTime(checkedInAt, site.terminal);
+          let departureDate = formatWarehouseTime(departure, site.terminal);
+          if (order.direction === "delivery") {
+            const plan = planLiveDeliveryActuals({ receivedDate: warehouseDate(checkedInAt, site.terminal),
+              terminal: site.terminal, checkedInAt, verifiedAt: departure, pickups: order.pickupStops,
+              delivery: { id: order.stopId, actual_arrival: order.actualArrival, actual_departure: order.actualDeparture } });
+            if (!plan.pickup.skipped) {
+              const pickupParameters = new URLSearchParams({ arrivalDate: plan.pickup.arrivalDate, departureDate: plan.pickup.departureDate });
+              const pickupResponse = await fetch(`${base}/carrierDispatch/clearStop/${encodeURIComponent(plan.pickup.stopId)}?${pickupParameters}`, {
+                method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "text/plain" }, cache: "no-store",
+              });
+              if (!pickupResponse.ok) throw new Error(`McLeod did not save the missing pickup actuals (${pickupResponse.status}). Delivery and check-out were not saved.`);
+            }
+            arrival = plan.delivery.arrivalDate;
+            departureDate = plan.delivery.departureDate;
+          }
+          const parameters = new URLSearchParams({ arrivalDate: arrival, departureDate });
           const response = await fetch(`${base}/carrierDispatch/clearStop/${encodeURIComponent(order.stopId)}?${parameters}`, {
             method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "text/plain" }, cache: "no-store",
           });

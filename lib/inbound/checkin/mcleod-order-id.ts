@@ -154,5 +154,8 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   return { direction, reference, customer, commodity, materialType, mark, baleCount,
     destination, driverName, driverPhone, carrierName, carrierCode, orderDate, orderStatus,
     stopId: String(stop.id ?? ""), actualArrival: String(stop.actual_arrival ?? ""), actualDeparture: String(stop.actual_departure ?? ""),
-    completion: await describeMcleodCompletion(order, stop, direction) };
+    completion: await describeMcleodCompletion(order, stop, direction),
+    pickupStops: stops.filter((item: Record<string, unknown>) => item.stop_type === "PU")
+      .map((item: Record<string, unknown>) => ({ id: String(item.id ?? ""),
+        actual_arrival: String(item.actual_arrival ?? ""), actual_departure: String(item.actual_departure ?? "") })) };
 }

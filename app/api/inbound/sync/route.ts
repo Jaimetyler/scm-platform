@@ -2,7 +2,7 @@ import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
-import { formatWarehouseTime } from "@/lib/inbound/checkin/mcleod-time";
+import { planLiveDeliveryActuals } from "@/lib/inbound/checkin/mcleod-time";
 import { resolveCustomer } from "@/lib/mcleod/inbound/resolveCustomer";
 import { expectedCustomerId, isOutsideCarrierNoMatch } from "@/lib/inbound/checkin/match-outcome";
 
@@ -427,21 +427,19 @@ export async function POST(req: NextRequest) {
           reason: "INVALID_CHECKIN_TIME", matchedOrderId: preview.matchedOrderId,
         });
       }
-      if (!pickupHas) {
+      let plannedActions: ReturnType<typeof planLiveDeliveryActuals>;
+      try {
+        plannedActions = planLiveDeliveryActuals({
+          receivedDate: String(getBaseDateFromRow(row) ?? ""), terminal: row.terminal,
+          checkedInAt: arrival, verifiedAt: departure,
+          pickups: order.stops.filter((stop: McleodStop) => stop.stop_type === "PU"), delivery,
+        });
+      } catch (error) {
         return validationFailure({
-          error: "Pickup has no actual arrival/departure. Review it in McLeod before completing delivery.",
-          reason: "PICKUP_ACTUALS_MISSING", matchedOrderId: preview.matchedOrderId,
+          error: error instanceof Error ? error.message : "Could not plan pickup and delivery actuals",
+          reason: "INVALID_STOP_ACTUALS", matchedOrderId: preview.matchedOrderId,
         });
       }
-
-      const deliveryArrival = formatWarehouseTime(arrival, row.terminal);
-      const deliveryDeparture = formatWarehouseTime(departure, row.terminal);
-      const plannedActions = {
-        pickup: { skipped: true, reason: "Pickup already has actuals", stopId: pickup.id },
-        delivery: deliveryHas
-          ? { skipped: true, reason: "Delivery already has actuals", stopId: delivery.id }
-          : { skipped: false, stopId: delivery.id, arrivalDate: deliveryArrival, departureDate: deliveryDeparture },
-      };
 
       if (!isSyncEnabled()) {
         return NextResponse.json({
@@ -456,13 +454,24 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const deliveryRes = await clearCarrierStop(delivery.id, deliveryArrival, deliveryDeparture);
+      const pickupRes = plannedActions.pickup.skipped
+        ? { ok: true, status: 200, body: "Pickup already had actuals" }
+        : await clearCarrierStop(pickup.id, plannedActions.pickup.arrivalDate, plannedActions.pickup.departureDate);
+      if (!pickupRes.ok) {
+        return NextResponse.json({
+          ok: false, error: "Failed to fill missing pickup actuals; delivery was not posted",
+          reason: "PICKUP_CLEAR_STOP_FAILED", matchedOrderId: preview.matchedOrderId,
+          movementId: movement.id, plannedActions, mcleodResponse: { ok: false, pickup: pickupRes },
+        });
+      }
+      const deliveryRes = await clearCarrierStop(delivery.id,
+        plannedActions.delivery.arrivalDate, plannedActions.delivery.departureDate);
       return NextResponse.json({
         ok: deliveryRes.ok,
         error: deliveryRes.ok ? undefined : "Failed to clear delivery stop",
         reason: deliveryRes.ok ? undefined : "DELIVERY_CLEAR_STOP_FAILED",
         matchedOrderId: preview.matchedOrderId, movementId: movement.id,
-        plannedActions, mcleodResponse: { ok: deliveryRes.ok, delivery: deliveryRes },
+        plannedActions, mcleodResponse: { ok: deliveryRes.ok, pickup: pickupRes, delivery: deliveryRes },
       });
     }
 
