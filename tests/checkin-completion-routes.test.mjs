@@ -59,7 +59,7 @@ function fixture({ cotton = false, closed = true, orderStatus = "Available" } = 
       location: { name: "SCM Houston 5300", address1: "5300 Warehouse Road" } }] };
 }
 
-async function withMcleod(order, run) {
+async function withMcleod(order, run, searchResponse = () => [order]) {
   const savedFetch = globalThis.fetch;
   const keys = ["MCLEOD_BASE_URL", "MCLEOD_AUTH_TOKEN", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
@@ -67,7 +67,7 @@ async function withMcleod(order, run) {
   globalThis.fetch = async (url, init) => {
     assert.ok(!init?.method || init.method === "GET", "Search must never mutate McLeod");
     const path = new URL(url);
-    return Response.json(path.pathname.endsWith("/search") ? [order] : order);
+    return Response.json(path.pathname.endsWith("/search") ? searchResponse(path) : order);
   };
   try { await run(); } finally {
     globalThis.fetch = savedFetch;
@@ -110,6 +110,76 @@ test("active domestic result remains selectable", async () => {
     assert.equal(body.matches.length, 1);
     assert.equal(body.matches[0].completion, null);
   });
+});
+
+test("1601 BL matches survive a null consignee-reference response", async () => {
+  for (const material of ["LUMBER", "FAK"]) {
+    const order = fixture({ closed: false });
+    order.commodity_id = material;
+    order.stops[0].location = { name: "Supply Chain Management 7-3fcfs", address1: "1601 OLD AUGUSTA RD S" };
+    await withMcleod(order, async () => {
+      const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+      for (const reference of ["2168418", "1479334", "2168418 / 1479334"]) {
+        const query = new URLSearchParams({ terminal: "SAV", siteCode: "1601", movementDirection: "pickup", referenceNumber: reference });
+        const response = await GET({ url: `https://scm.test/?${query}` });
+        const body = await response.json();
+        assert.equal(response.status, 200, JSON.stringify(body));
+        assert.equal(body.matches.length, 1);
+        assert.equal(body.matches[0].orderId, "0824528");
+        assert.equal(body.matches[0].completion, null);
+        assert.equal(body.matches[0].materialType, material === "LUMBER" ? "lumber" : "other");
+      }
+    }, (url) => url.searchParams.has("orders.blnum") ? [order] : null);
+  }
+});
+
+test("a delivery match survives a null BL response", async () => {
+  const order = fixture({ closed: false });
+  order.stops[0].stop_type = "SO";
+  await withMcleod(order, async () => {
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=delivery&referenceNumber=7799F" });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].direction, "delivery");
+  }, (url) => url.searchParams.has("orders.consignee_refno") ? [order] : null);
+});
+
+test("two null results mean no match, but an unexpected object remains an error", async () => {
+  for (const payload of [null, { error: "Upstream search failed" }]) {
+    await withMcleod(fixture(), async () => {
+      const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+      const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=NOTFOUND" });
+      const body = await response.json();
+      assert.equal(response.status, payload === null ? 200 : 500);
+      if (payload === null) assert.deepEqual(body.matches, []);
+      else assert.match(body.error, /unexpected search response/);
+    }, () => payload);
+  }
+});
+
+test("an HTTP failure with a null body remains a search failure", async () => {
+  await withMcleod(fixture(), async () => {
+    globalThis.fetch = async () => Response.json(null, { status: 503 });
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=2168418" });
+    assert.equal(response.status, 500);
+    assert.match((await response.json()).error, /McLeod search failed \(503\)/);
+  });
+});
+
+test("cotton lookup also accepts an empty alternate-reference result", async () => {
+  const order = fixture({ cotton: true });
+  await withMcleod(order, async () => {
+    const { GET } = load("app/api/inbound/checkin/cotton-match/route.ts");
+    const response = await GET({ nextUrl: new URL("https://scm.test/?terminal=HOU&siteCode=5300&mark=TESTMARK") });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].completion.kind, "delivery");
+    assert.equal(body.incomplete, false);
+  }, (url) => url.searchParams.has("orders.consignee_refno") ? [order] : null);
 });
 
 test("staff create rejects completed and status-only closed orders before database write", async () => {

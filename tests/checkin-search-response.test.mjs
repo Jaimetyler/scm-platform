@@ -11,7 +11,13 @@ test("McLeod order search accepts the wrappers used elsewhere in this repo", () 
   assert.deepEqual(extractSearchOrders({ orders: [] }), []);
 });
 
-test("unfamiliar and empty responses cannot be counted as no orders", () => {
-  assert.equal(extractSearchOrders(null), null);
-  assert.equal(extractSearchOrders({ message: "unexpected" }), null);
+test("McLeod's top-level JSON null is a valid empty search result", () => {
+  assert.deepEqual(extractSearchOrders(null), []);
+});
+
+test("unknown shapes still fail instead of being counted as no orders", () => {
+  for (const payload of [undefined, "", false, {}, { data: null }, { orders: null },
+    { message: "unexpected" }, { error: "Access denied" }]) {
+    assert.equal(extractSearchOrders(payload), null);
+  }
 });

@@ -1,6 +1,8 @@
-// McLeod search responses vary between endpoints. Return null for unfamiliar
-// shapes so an incomplete search can never imply an outside carrier.
+// After a successful HTTP response, this McLeod orders/search endpoint returns
+// JSON null when a reference field has no matches (confirmed against a known BL).
+// Unknown objects and nested null wrappers still mean an incomplete search.
 export function extractSearchOrders(payload: unknown, depth = 0): unknown[] | null {
+  if (payload === null && depth === 0) return [];
   if (Array.isArray(payload)) return payload;
   if (!payload || typeof payload !== "object" || depth > 2) return null;
 
