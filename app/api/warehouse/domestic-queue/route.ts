@@ -203,6 +203,11 @@ export async function PATCH(req: NextRequest) {
           return NextResponse.json({ ok: false, error: processed?.processing_error || "Cotton delivery was not completed in McLeod. Check-in remains in the line." }, { status: 409 });
         }
         mcleod = processed.draft_status === "delivery_blocked" ? "receiving complete; bale shortage blocks McLeod delivery — notify the customer" : processed.draft_status === "processed" ? "cotton delivery processed" : "outside carrier; no McLeod delivery";
+        // The database completes the yard status atomically with an SCM cotton delivery.
+        if (processed.yard_status === "completed") {
+          return NextResponse.json({ ok: true, row: { id, yard_status: processed.yard_status,
+            yard_completed_at: processed.yard_completed_at }, mcleod });
+        }
       } else if (row.material_type === "cotton" && row.movement_direction === "delivery") {
         mcleod = row.draft_status === "delivery_blocked" ? "receiving complete; bale shortage blocks McLeod delivery — notify the customer" : row.draft_status === "processed" ? "cotton delivery already processed" : "outside carrier; no McLeod delivery";
       } else if (row.matched_order_id) {
