@@ -1,5 +1,7 @@
 "use client";
 
+import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
+import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -24,7 +26,7 @@ type Row = {
 type Match = { orderId: string; customerId: string; customerName: string; value: string;
   materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery";
   carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
-  driverName: string; driverPhone: string };
+  driverName: string; driverPhone: string; completion?: McleodCompletion | null };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
   referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
   destination: string; notes: string; orderId: string };
@@ -121,7 +123,7 @@ export default function DomesticQueuePage() {
           const found = await searchReference(draft.referenceNumber, draft.movementDirection);
           if (draftLookupKeys.current[draft.id] !== key) return;
           setDraftMatches((current) => ({ ...current, [draft.id]: found }));
-          if (found.length === 1) {
+          if (found.length === 1 && !found[0].completion) {
             const match = found[0];
             draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
             resolvedKey = draftLookupKeys.current[draft.id];
@@ -173,7 +175,7 @@ export default function DomesticQueuePage() {
     setError("");
     try {
       const found = await searchReference(row.reference_number, row.movement_direction, true);
-      if (found.length === 1) {
+      if (found.length === 1 && !found[0].completion) {
         await saveCustomer(row, found[0].customerName || found[0].customerId, found[0].orderId);
       } else setMatches((current) => ({ ...current, [row.id]: found }));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "McLeod search failed"); }
@@ -238,6 +240,7 @@ export default function DomesticQueuePage() {
   }
 
   function chooseDraftMatch(draft: Draft, match: Match) {
+    if (match.completion) return;
     draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
     setDrafts((current) => current.map((row) => row.id === draft.id ? {
       ...row, movementDirection: match.direction, referenceNumber: match.value, orderId: match.orderId,
@@ -255,6 +258,10 @@ export default function DomesticQueuePage() {
       return;
     }
     if (draftSearching[draft.id]) return;
+    if (draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion)) {
+      setError("These orders are already closed in McLeod. Verify the reference with warehouse staff.");
+      return;
+    }
     setWorking(draft.id);
     setError("");
     try {
@@ -347,7 +354,8 @@ export default function DomesticQueuePage() {
                 {editingId === row.id && <button style={inlineButton} disabled={matchWorking === row.id || working === row.id}
                   onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>}
                 {matches[row.id]?.length === 0 && <span>No matching order</span>}
-                {matches[row.id]?.map((match) => <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, textAlign: "left" }}
+                {matches[row.id]?.map((match) => match.completion ?
+                  <CompletedOrderNotice key={`${match.orderId}-${match.direction}`} orderId={match.orderId} completion={match.completion} /> : <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, textAlign: "left" }}
                   disabled={editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
                   <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
                   <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
@@ -388,8 +396,9 @@ export default function DomesticQueuePage() {
             {draftSearching[draft.id] ? "Searching McLeod…" : draft.orderId ? `SCM order #${draft.orderId} found` :
               draftMatches[draft.id]?.length === 0 ? "No SCM order found. Enter the details below." :
               (draftMatches[draft.id]?.length ?? 0) > 1 ? "Choose the matching order:" : null}
-            {!draft.orderId && draftMatches[draft.id]?.length > 1 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              {draftMatches[draft.id].map((match) => <button key={`${match.orderId}-${match.direction}`} type="button" style={{ ...button, textAlign: "left", flex: "1 1 100%" }}
+            {!draft.orderId && draftMatches[draft.id]?.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {draftMatches[draft.id].map((match) => match.completion ?
+                <CompletedOrderNotice key={`${match.orderId}-${match.direction}`} orderId={match.orderId} completion={match.completion} /> : <button key={`${match.orderId}-${match.direction}`} type="button" style={{ ...button, textAlign: "left", flex: "1 1 100%" }}
                 onClick={() => chooseDraftMatch(draft, match)}>
                 <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
                 <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
@@ -412,7 +421,7 @@ export default function DomesticQueuePage() {
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
           <button type="button" style={button} disabled={working === draft.id} onClick={() => setDrafts([])}>Cancel</button>
-          <button type="submit" style={primary} disabled={working === draft.id || draftSearching[draft.id]}>{working === draft.id ? "Checking in…" : "Check in truck"}</button>
+          <button type="submit" style={primary} disabled={working === draft.id || draftSearching[draft.id] || Boolean(draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion))}>{working === draft.id ? "Checking in…" : "Check in truck"}</button>
         </div>
       </form>
     </div>)}

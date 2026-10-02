@@ -1,4 +1,5 @@
 import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
+import { describeMcleodCompletion, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import { NextRequest, NextResponse } from "next/server";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
     const matches = new Map<string, { orderId: string; mark: string; customer: string; bolBC: number | null;
       carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
-      driverName: string; driverPhone: string }>();
+      driverName: string; driverPhone: string; completion?: McleodCompletion | null }>();
     const failedFields: string[] = [];
     let missingRevenueCode = false;
     for (const field of ["consignee_refno", "blnum"]) {
@@ -81,8 +82,9 @@ export async function GET(request: NextRequest) {
       if (value(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
       const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
       const delivery = stops.find((stop) => stop.stop_type === "SO");
+      match.completion = await describeMcleodCompletion(order, delivery, "delivery");
       const eligibility = currentCottonOrder(order);
-      if (!eligibility.eligible) {
+      if (!eligibility.eligible && !match.completion) {
         if (!eligibility.historical) eligibilityWarning = eligibility.reason;
         return null;
       }
@@ -91,6 +93,11 @@ export async function GET(request: NextRequest) {
       const movement = movements.find((item) => value(item.id) === value(order.curr_movement_id)) ?? movements[0];
       match.orderDate = scheduled;
       match.orderStatus = value(order.__statusDescr || movement?.__statusDescr || order.status);
+      if (match.completion) {
+        match.carrierName = match.completion.carrierName;
+        match.carrierCode = match.completion.carrierCode;
+        return match;
+      }
       match.carrierCode = value(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
       match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
         named(order.carrier) || named(order.vendor) || value(movement?.carrier_name || movement?.vendor_name || order.carrier_name);

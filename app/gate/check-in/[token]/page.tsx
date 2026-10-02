@@ -2,9 +2,12 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
+import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
+
 
 type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string; materials: string[]; containers: boolean };
-type ReferenceMatch = { orderId: string; carrierName: string };
+type ReferenceMatch = { orderId: string; carrierName: string; completion?: McleodCompletion | null };
 
 type FormState = {
   checkinType: string;
@@ -82,6 +85,8 @@ export default function DriverCheckinPage() {
   const [orderCommodity, setOrderCommodity] = useState("");
   const [referenceMatches, setReferenceMatches] = useState<ReferenceMatch[]>([]);
   const [referenceSearching, setReferenceSearching] = useState(false);
+  const [completedMatches, setCompletedMatches] = useState<ReferenceMatch[]>([]);
+  const [closedOnly, setClosedOnly] = useState(false);
   const referenceRequest = useRef(0);
   const orderRequest = useRef(0);
   const [error, setError] = useState("");
@@ -140,6 +145,9 @@ export default function DriverCheckinPage() {
 
   function change(field: keyof FormState, value: string) {
     setError("");
+    if (["referenceNumber", "movementDirection", "orderId", "checkinType"].includes(field)) {
+      setCompletedMatches([]); setClosedOnly(false);
+    }
     if (field === "referenceNumber" || field === "movementDirection") {
       orderRequest.current++;
       referenceRequest.current++;
@@ -171,7 +179,10 @@ export default function DriverCheckinPage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.ok) throw new Error(result.error || `Reference search failed (HTTP ${response.status})`);
       if (requestId !== referenceRequest.current) return;
-      setReferenceMatches(result.matches || []);
+      const found = (result.matches || []) as ReferenceMatch[];
+      setReferenceMatches(found.filter((match) => !match.completion));
+      setCompletedMatches(found.filter((match) => match.completion));
+      setClosedOnly(found.length > 0 && found.every((match) => match.completion));
       setOrderMessage(result.matches?.length ? "" :
         "No SCM order found for this reference. Continue with the details from your paperwork.");
     } catch (reason) {
@@ -182,6 +193,8 @@ export default function DriverCheckinPage() {
   }
 
   function chooseReferenceMatch(match: ReferenceMatch) {
+    if (match.completion) return;
+    setClosedOnly(false);
     referenceRequest.current++;
     setReferenceMatches([]);
     void findOrder(match.orderId, form.referenceNumber, form.movementDirection);
@@ -207,7 +220,13 @@ export default function DriverCheckinPage() {
         } }),
       });
       const result = await response.json().catch(() => ({}));
+      if (requestId !== orderRequest.current) return;
+      if (result.completion) {
+        setCompletedMatches([{ orderId, carrierName: result.completion.carrierName, completion: result.completion }]);
+        setClosedOnly(true);
+      }
       if (!response.ok || !result.ok) throw new Error(result.error || `Could not find this order (HTTP ${response.status})`);
+      setClosedOnly(false); setCompletedMatches([]);
       if (requestId !== orderRequest.current) return;
       setForm((current) => {
         const driverName = current.driverName || result.driverName || "";
@@ -236,6 +255,7 @@ export default function DriverCheckinPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (closedOnly) { setError("This order is already closed in McLeod. Please speak with warehouse staff."); return; }
     if (!site || submitting) return;
     setSubmitting(true);
     setError("");
@@ -334,7 +354,7 @@ export default function DriverCheckinPage() {
           {form.checkinType === "domestic" ? <>
           <div style={{ gridColumn: "1 / -1" }}>
             <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
-              onChange={(value) => { setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
+              onChange={(value) => { setCompletedMatches([]); setClosedOnly(false); setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
                 orderRequest.current++; setLookingUp(false);
                 referenceRequest.current++; setReferenceMatches([]); setReferenceSearching(false);
                 const previousAuto = autoDriverRef.current;
@@ -404,7 +424,9 @@ export default function DriverCheckinPage() {
           </small>
         </label> : null}
 
-        {form.checkinType ? <button type="submit" disabled={submitting || lookingUp || referenceSearching || referenceMatches.length > 0}
+        {completedMatches.map((match) => match.completion ?
+          <CompletedOrderNotice key={match.orderId} orderId={match.orderId} completion={match.completion} /> : null)}
+        {form.checkinType ? <button type="submit" disabled={closedOnly || submitting || lookingUp || referenceSearching || referenceMatches.length > 0}
           style={{ ...buttonStyle, opacity: submitting || lookingUp || referenceSearching ? .65 : 1 }}>
           {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
         </button> : null}

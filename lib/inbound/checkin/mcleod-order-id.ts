@@ -1,3 +1,60 @@
+export type McleodCompletion = {
+  kind: "pickup" | "delivery" | "closed" | "cancelled";
+  message: string; completedAt: string; location: string;
+  carrierName: string; carrierCode: string;
+};
+
+// A closed order is a search result, but never a selectable new arrival.
+export async function describeMcleodCompletion(
+  order: Record<string, any>, stop: Record<string, any> | undefined,
+  direction: string,
+): Promise<McleodCompletion | null> {
+  const text = (value: unknown) => String(value ?? "").trim();
+  const status = text(order.__statusDescr || order.status);
+  const departed = text(stop?.actual_departure);
+  const cancelled = /^(cancelled|canceled)$/i.test(status);
+  const closed = /^(delivered|completed|closed)$/i.test(status);
+  if (!departed && !cancelled && !closed) return null;
+  const kind = departed ? (direction === "pickup" ? "pickup" : "delivery") : cancelled ? "cancelled" : "closed";
+  const message = kind === "pickup" ? "Pickup already completed in McLeod" :
+    kind === "delivery" ? "Delivery already completed in McLeod" :
+    kind === "cancelled" ? "Order cancelled in McLeod" : "Order already closed out in McLeod";
+  const movements: Record<string, any>[] = Array.isArray(order.movements) ? order.movements : [];
+  // Do not attribute an earlier stop to the order's current carrier on a relay.
+  const movementId = text(stop?.movement_id);
+  const stopId = text(stop?.id);
+  const linked = movements.filter((item) => movementId ? text(item.id) === movementId :
+    stopId && Array.isArray(item.stops) && item.stops.some((candidate: Record<string, unknown>) => text(candidate.id) === stopId));
+  const movement = linked.length === 1 ? linked[0] :
+    !movementId && linked.length === 0 && movements.length === 1 ? movements[0] : undefined;
+  const named = (value: any) => value && typeof value === "object" ? text(value.name) : "";
+  let carrierCode = text(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id);
+  let carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
+    text(movement?.carrier_name || movement?.vendor_name);
+  // With no movement records, McLeod may provide only the order-level carrier.
+  if (!movementId && movements.length === 0) {
+    carrierCode = text(order.vendor_id);
+    carrierName = named(order.carrier) || named(order.vendor) || text(order.carrier_name);
+  }
+  const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
+  const token = process.env.MCLEOD_AUTH_TOKEN;
+  if (!carrierName && carrierCode && base && token) {
+    for (const path of ["carriers", "vendors"]) {
+      try {
+        const response = await fetch(`${base}/${path}/${encodeURIComponent(carrierCode)}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
+        });
+        if (response.ok) carrierName = named(await response.json());
+        if (carrierName) break;
+      } catch { /* Completion remains visible when carrier enrichment fails. */ }
+    }
+  }
+  const location = stop?.location && typeof stop.location === "object" ? stop.location : {};
+  return { kind, message, completedAt: departed, carrierName, carrierCode,
+    location: [location.name || stop?.location_name, location.address1 || location.address || stop?.address,
+      location.city_name || stop?.city_name, location.state || stop?.state].map(text).filter(Boolean).join(", ") };
+}
+
 export async function lookupMcleodOrderById(orderId: string, direction: string) {
   if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) throw new Error("Enter a valid McLeod order ID");
   if (direction !== "pickup" && direction !== "delivery") throw new Error("Choose pickup or delivery");
@@ -96,5 +153,6 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   const orderStatus = String(order.__statusDescr ?? movement?.__statusDescr ?? order.status ?? "").trim();
   return { direction, reference, customer, commodity, materialType, mark, baleCount,
     destination, driverName, driverPhone, carrierName, carrierCode, orderDate, orderStatus,
-    stopId: String(stop.id ?? ""), actualArrival: String(stop.actual_arrival ?? ""), actualDeparture: String(stop.actual_departure ?? "") };
+    stopId: String(stop.id ?? ""), actualArrival: String(stop.actual_arrival ?? ""), actualDeparture: String(stop.actual_departure ?? ""),
+    completion: await describeMcleodCompletion(order, stop, direction) };
 }

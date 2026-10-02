@@ -1,4 +1,8 @@
 "use client";
+
+import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
+import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
+
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
@@ -67,7 +71,7 @@ type RowUiState = {
 
 type CottonMatch = { orderId: string; mark: string; customer: string; bolBC: number | null;
   carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
-  driverName: string; driverPhone: string };
+  driverName: string; driverPhone: string; completion?: McleodCompletion | null };
 function sameMark(a: string, b: string) {
   return a.toUpperCase().replace(/[^A-Z0-9]/g, "") === b.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
@@ -254,7 +258,7 @@ export default function SiteCheckinPage() {
           const found = result.matches as CottonMatch[];
           setCottonMatches((current) => ({ ...current, [row.id]: found }));
           if (result.incomplete) setCottonWarnings((current) => ({ ...current, [row.id]: result.warning || "McLeod search incomplete" }));
-          if (!result.incomplete && found.length === 1 && found[0].customer) {
+          if (!result.incomplete && found.length === 1 && !found[0].completion && found[0].customer) {
             const match = found[0];
             const latest = rowsRef.current.find((item) => item.id === row.id);
             if (latest && (latest.mark ?? "").trim().toUpperCase() === mark &&
@@ -319,7 +323,7 @@ export default function SiteCheckinPage() {
         const found = result.matches as CottonMatch[];
         setNewMatches(found);
         setNewError(result.incomplete ? result.warning || "McLeod search incomplete; verify manually." : "");
-        if (!result.incomplete && found.length === 1 && sameMark(mark, found[0].mark) &&
+        if (!result.incomplete && found.length === 1 && !found[0].completion && sameMark(mark, found[0].mark) &&
             (!newCheckin.shipper || normalizeCustomerOption(newCheckin.shipper) === normalizeCustomerOption(found[0].customer))) {
           const match = found[0];
           setNewCheckin((current) => current && current.id === newCheckin.id && current.mark === newCheckin.mark
@@ -338,7 +342,11 @@ export default function SiteCheckinPage() {
   }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id]);
 
   async function saveNewCheckin() {
-    if (!site || !newCheckin || newSaving) return;
+    if (!site || !newCheckin || newSaving || newSearching) return;
+    if (newMatches.length > 0 && newMatches.every((match) => match.completion)) {
+      setNewError("These orders are already closed in McLeod. Verify the mark with warehouse staff.");
+      return;
+    }
     if (!newCheckin.mark?.trim() || !newCheckin.shipper?.trim() || !newCheckin.bol_bc) {
       setNewError("Enter the mark, customer, and BOL bale count.");
       return;
@@ -691,6 +699,7 @@ export default function SiteCheckinPage() {
   }
 
   function chooseCottonMatch(id: string, match: CottonMatch) {
+    if (match.completion) return;
     const updated = applyRowUpdate(id, (row) => ({ ...row,
       mark: match.mark,
       shipper: row.shipper || match.customer,
@@ -1330,13 +1339,14 @@ export default function SiteCheckinPage() {
                       ) : null}
                       {!row.matched_order_id && cottonSearching[row.id] ? <small style={orderNumberStyle}>Searching McLeod…</small> : null}
                       {!row.matched_order_id && cottonWarnings[row.id] ? <small style={{ ...gateReferenceStyle, color: "#fbbf24", fontSize: 11 }} title={cottonWarnings[row.id]}>Search incomplete · check manually</small> : null}
-                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 1 ?
+                      {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 1 && !cottonMatches[row.id][0].completion ?
                         <small style={orderNumberStyle} title="Possible order; mark needs an exact match before it is linked">Possible #{cottonMatches[row.id][0].orderId}</small> : null}
                       {!row.matched_order_id && !cottonSearching[row.id] && !cottonWarnings[row.id] && cottonMatches[row.id]?.length === 0 ?
                         <small style={gateReferenceStyle}>No order found</small> : null}
-                      {!row.matched_order_id && cottonMatches[row.id]?.length > 1 ?
+                      {!row.matched_order_id && cottonMatches[row.id]?.length > 0 ?
                         <div style={{ maxHeight: 140, overflowY: "auto" }}>
-                          {cottonMatches[row.id].map((match) => <button key={match.orderId} type="button"
+                          {cottonMatches[row.id].map((match) => match.completion ?
+                            <CompletedOrderNotice key={match.orderId} orderId={match.orderId} completion={match.completion} /> : <button key={match.orderId} type="button"
                             disabled={isReadOnlyRow(row)} onClick={() => chooseCottonMatch(row.id, match)}
                             style={{ ...smallActionButtonStyle, textAlign: "left", marginTop: 4, display: "block" }}>
                             <strong>#{match.orderId} · {match.customer || "Unknown customer"} · {match.bolBC ?? "?"} B/C</strong>
@@ -1393,7 +1403,8 @@ export default function SiteCheckinPage() {
               {newSearching ? "Searching McLeod…" : newCheckin.matched_order_id ? `SCM order #${newCheckin.matched_order_id} found` :
                 newMatches.length === 0 && (newCheckin.mark?.length ?? 0) >= 3 && !newError ? "No recent SCM order found. Enter the details below." : null}
               {!newCheckin.matched_order_id && newMatches.length > 0 && <div style={{ display: "grid", gap: 7, marginTop: 8 }}>
-                {newMatches.map((match) => <button type="button" key={match.orderId} style={{ ...toolbarButtonStyle, textAlign: "left" }}
+                {newMatches.map((match) => match.completion ?
+                  <CompletedOrderNotice key={match.orderId} orderId={match.orderId} completion={match.completion} /> : <button type="button" key={match.orderId} style={{ ...toolbarButtonStyle, textAlign: "left" }}
                   onClick={() => { setNewCheckin((current) => current && { ...current, mark: match.mark,
                     shipper: match.customer, bol_bc: match.bolBC || current.bol_bc, matched_order_id: match.orderId,
                     driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone,
@@ -1437,7 +1448,7 @@ export default function SiteCheckinPage() {
           <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>Unloaded bales and final warehouse location can be confirmed on the grid after arrival.</p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Cancel</button>
-            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || newSearching}>{newSaving ? "Checking in…" : "Check in truck"}</button>
+            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || newSearching || (newMatches.length > 0 && newMatches.every((match) => match.completion))}>{newSaving ? "Checking in…" : "Check in truck"}</button>
           </div>
         </form>
       </div>}

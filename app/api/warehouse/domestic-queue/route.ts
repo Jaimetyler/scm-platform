@@ -103,8 +103,8 @@ export async function POST(req: NextRequest) {
       const order = await lookupMcleodOrderById(orderId, direction);
       const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName);
       if (yardOrder.direction !== direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
-      if (order.actualDeparture) {
-        return NextResponse.json({ ok: false, error: "This SCM order has already left its pickup or delivery stop in McLeod." }, { status: 409 });
+      if (yardOrder.completion) {
+        return NextResponse.json({ ok: false, error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
       }
       if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
       if (reference && !order.reference.includes(reference)) {
@@ -280,6 +280,8 @@ export async function PATCH(req: NextRequest) {
         const order = await lookupMcleodOrderById(orderId, existing.movement_direction);
         const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
         const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName);
+        if (yardOrder.completion) return NextResponse.json({ ok: false,
+          error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
         if (yardOrder.direction !== existing.movement_direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
         if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
         const reference = String(existing.reference_number ?? "").trim().toUpperCase();

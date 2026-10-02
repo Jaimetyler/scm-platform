@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
-import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
+import { lookupMcleodGateOrder, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 
 export const runtime = "nodejs";
 
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
     const matches = new Map<string, { orderId: string; customerId: string; customerName: string; value: string;
       materialType: "lumber" | "other" | null; destination: string; direction: string;
       carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
-      driverName: string; driverPhone: string }>();
+      driverName: string; driverPhone: string; completion?: McleodCompletion | null }>();
     for (const set of resultSets) for (const item of set.results) {
       const order = item as Record<string, unknown>;
       const value = text(order[set.field]);
@@ -106,7 +106,8 @@ export async function GET(req: NextRequest) {
       let yardOrder;
       try { yardOrder = await lookupMcleodGateOrder(match.orderId, configuredSite.terminal, configuredSite.siteName); }
       catch { return null; }
-      if (yardOrder.direction !== match.direction || yardOrder.actualDeparture) return null;
+      if (yardOrder.direction !== match.direction) return null;
+      match.completion = yardOrder.completion;
       if (text(order.revenue_code_id).toUpperCase() !== "MAIN" ||
           !text(order[matchedField]).toUpperCase().includes(reference)) return null;
       const customer = order.customer as Record<string, unknown> | undefined;
@@ -115,9 +116,8 @@ export async function GET(req: NextRequest) {
       if (/\bCOTTON\b/.test(commodityName)) return null;
       const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
       const stop = stops.find((item) => item.stop_type === (match.direction === "pickup" ? "PU" : "SO"));
-      if (text(stop?.actual_departure)) return null;
       const scheduled = text(stop?.sched_arrive_early || stop?.sched_arrive_late || order.ordered_date);
-      if (scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
+      if (!match.completion && scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
       const delivery = stops.find((item) => item.stop_type === "SO");
       const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];
       const movement = movements.find((item) => text(item.id) === text(order.curr_movement_id)) ?? movements[0];
@@ -126,6 +126,11 @@ export async function GET(req: NextRequest) {
       match.destination = named(delivery?.location) || text(delivery?.location_name) || match.destination;
       match.orderDate = scheduled;
       match.orderStatus = text(order.__statusDescr || movement?.__statusDescr || order.status);
+      if (match.completion) {
+        match.carrierName = match.completion.carrierName;
+        match.carrierCode = match.completion.carrierCode;
+        return match;
+      }
       match.carrierCode = text(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
       match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
         named(order.carrier) || named(order.vendor) || text(movement?.carrier_name || movement?.vendor_name || order.carrier_name);

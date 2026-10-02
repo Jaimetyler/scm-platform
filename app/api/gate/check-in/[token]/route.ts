@@ -169,13 +169,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       const matches = (await Promise.all(ids.map(async (orderId) => {
         try {
           const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
-          if (order.direction !== direction || order.actualDeparture || !order.reference.includes(reference)) return null;
+          if (order.direction !== direction || !order.reference.includes(reference)) return null;
           const dateMatch = order.orderDate.match(/^(\d{4})(\d{2})(\d{2})/);
           const scheduled = dateMatch
             ? Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
             : Date.parse(order.orderDate);
-          if (Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 24 * 60 * 60 * 1000) return null;
-          return { orderId, carrierName: order.carrierName || (order.carrierCode ? `Carrier ${order.carrierCode}` : "Carrier not assigned") };
+          if (!order.completion && Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 24 * 60 * 60 * 1000) return null;
+          return { orderId, completion: order.completion,
+            carrierName: order.completion ? order.completion.carrierName :
+              order.carrierName || (order.carrierCode ? `Carrier ${order.carrierCode}` : "Carrier not assigned") };
         } catch { return null; } // Search results may include other yards or incomplete orders.
       }))).filter((item) => item !== null);
       return NextResponse.json({ ok: true, matches }, { headers: { "Cache-Control": "no-store" } });
@@ -193,8 +195,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         return NextResponse.json({ ok: false, error: "This order does not match the reference entered." }, { status: 409 });
       if (body?.movementDirection && order.direction !== clean(body.movementDirection, 20).toLowerCase())
         return NextResponse.json({ ok: false, error: "This order does not match the selected pickup or delivery." }, { status: 409 });
-      if (order.actualDeparture) return NextResponse.json({ ok: false,
-        error: "This SCM order has already left the yard in McLeod." }, { status: 409 });
+      if (order.completion) return NextResponse.json({ ok: false,
+        error: order.completion.message, completion: order.completion }, { status: 409 });
       const { data: checkedIn, error: checkError } = await database().from("inbound_checkin_rows")
         .select("id").eq("terminal", gate.terminal).eq("site_code", gate.site_code)
         .eq("movement_direction", order.direction).eq("matched_order_id", clean(body?.orderId, 60))
@@ -332,8 +334,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (reportedBales !== null && (!Number.isSafeInteger(reportedBales) || reportedBales < 0)) return NextResponse.json({ ok: false, error: "Enter a whole number of bales on the truck" }, { status: 400 });
     if (orderId) {
       const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
-      if (order.actualDeparture) return NextResponse.json({ ok: false,
-        error: "This SCM order has already left the yard in McLeod." }, { status: 409 });
+      if (order.completion) return NextResponse.json({ ok: false,
+        error: order.completion.message, completion: order.completion }, { status: 409 });
       if (order.materialType && materialType !== order.materialType) {
         return NextResponse.json({ ok: false, error: `McLeod commodity is ${order.commodity}. Check the material selection.` }, { status: 409 });
       }

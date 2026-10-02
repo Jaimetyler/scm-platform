@@ -1,4 +1,5 @@
 import { currentCottonOrder } from "./current-cotton-order";
+import { describeMcleodCompletion } from "./mcleod-order-id";
 import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 
 export async function verifyCottonOrder(orderId: string, mark: string, bolBC: number | null, forNewCheckin = false) {
@@ -22,6 +23,10 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
     throw new Error(`SCM order ${orderId} does not have this exact cotton mark`);
   if (bolBC && parsed && bolBC > Number(parsed[2]))
     throw new Error(`SCM order ${orderId} has a different BOL bale count`);
+  const deliveryStop = (Array.isArray(order.stops) ? order.stops : [])
+    .find((stop: { stop_type?: string }) => stop.stop_type === "SO");
+  const completion = await describeMcleodCompletion(order, deliveryStop, "delivery");
+  if (completion) throw new Error(completion.message);
   const eligibility = currentCottonOrder(order);
   if (!eligibility.eligible) throw new Error(eligibility.reason);
   if (forNewCheckin) {
