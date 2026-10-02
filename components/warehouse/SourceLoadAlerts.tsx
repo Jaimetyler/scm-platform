@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-type Alert = { id: string; mark: string; arrival_site_name: string;
+type Alert = { id: string; mark: string; arrival_site_name: string; arrival_terminal?: string;
   line: { booking: { id: string; booking_number: string; terminal: string; site_code: string } } };
 export default function SourceLoadAlerts({ terminal, siteCode }: { terminal?: string; siteCode?: string }) {
   const [arrivals, setArrivals] = useState<Alert[]>([]);
@@ -14,7 +14,7 @@ export default function SourceLoadAlerts({ terminal, siteCode }: { terminal?: st
         const response = await fetch(`/api/warehouse/outbound/source-arrivals${query}`, { cache: "no-store" });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error);
-        if (!disposed) { setArrivals(result.arrivals); setError(""); }
+        if (!disposed) { setArrivals((result.arrivals as Alert[]).filter((arrival) => !terminal || !!siteCode || arrival.arrival_terminal === terminal)); setError(""); }
       } catch { if (!disposed) setError("Source-load arrival alerts could not be refreshed."); }
     }
     void load();

@@ -6,7 +6,6 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
-import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
@@ -107,9 +106,7 @@ export default function DomesticLinePage() {
   });
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Domestic Line`}
-      subtitle="Cotton, lumber, and other freight in arrival order. Check out when a truck leaves the yard."
-      actions={<Link href="/warehouse/gate" style={button}>All gate sites</Link>} />
-    <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="line" />
+      subtitle="Cotton, lumber, and other freight in arrival order. Check out when a truck leaves the yard." />
     {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
     {notice && <p role="status" style={{ color: "#86efac" }}>{notice}</p>}
       <SourceLoadAlerts terminal={site.terminal} siteCode={site.siteCode} />

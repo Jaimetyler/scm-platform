@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import WarehouseRecordLocation from "@/components/warehouse/WarehouseRecordLocation";
 
 import ShortageNotice from "@/components/warehouse/ShortageNotice";
 
@@ -33,6 +34,7 @@ export default async function DriverCheckinDetailsPage({
   const isCotton = row.material_type === "cotton";
   return (
     <main style={{ maxWidth: 760, margin: "0 auto" }}>
+      <WarehouseRecordLocation terminal={row.terminal} siteCode={row.site_code} />
       <PlatformPageHeader
         title="Driver Check-In Details"
         subtitle={`${row.site_name} · ${isCotton ? row.mark || "Mark not entered" : row.reference_number || "Reference not entered"}`}

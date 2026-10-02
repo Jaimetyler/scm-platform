@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
+import { safeOutboundReturn } from "@/lib/warehouse/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -33,7 +35,7 @@ export default function CottonOutboundBookingPage() {
   const siteCode = String(params.siteCode ?? "");
   const id = String(params.id ?? "");
   const requestedReturn = queryParams.get("returnTo");
-  const backHref = requestedReturn?.startsWith("/warehouse/outbound?") ? requestedReturn : `/warehouse/outbound?terminal=${terminal}&siteCode=${siteCode}`;
+  const backHref = safeOutboundReturn(requestedReturn) ?? `/warehouse/outbound?terminal=${terminal}&siteCode=${siteCode}`;
   const [booking, setBooking] = useState<Booking | null>(null);
   const [containers, setContainers] = useState<Container[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
@@ -42,7 +44,7 @@ export default function CottonOutboundBookingPage() {
   const [working, setWorking] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useWarehouseViewState("search", "");
   const [rollMode, setRollMode] = useState(false);
   const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
   const [rollBooking, setRollBooking] = useState("");
@@ -242,7 +244,7 @@ export default function CottonOutboundBookingPage() {
     <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
       actions={<><a href={`/api/warehouse/outbound/bookings/${id}/container-info?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Send container info</a><a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Export Excel</a>
         <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/print`} target="_blank" style={button}>Print warehouse sheet</Link>
-        <Link href={backHref} style={button}>← All outbound bookings</Link></>} />
+        <Link href={backHref} style={button}>← Back to booking list</Link></>} />
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
       <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span>

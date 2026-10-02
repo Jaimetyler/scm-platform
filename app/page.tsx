@@ -73,7 +73,7 @@ export default function Home() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))",
           gap: 20,
         }}
       >
@@ -96,28 +96,12 @@ export default function Home() {
           <div style={lockedTagStyle}>Auth Required</div>
         </Link>
 
-        <Link href="/inbound" style={cardStylePrimary}>
-          <div style={cardTitle}>Inbound Cotton Processor</div>
+        <Link href="/warehouse" style={cardStylePrimary}>
+          <div style={cardTitle}>Warehouse</div>
           <div style={cardDesc}>
-            Upload and process check-in sheets into the system
+            Check-ins, inventory, outbound bookings, and history for Savannah and Houston
           </div>
-        </Link>
-
-        <Link href="/inbound/history" style={cardStyle}>
-          <div style={cardTitle}>Inbound Cotton History</div>
-          <div style={cardDesc}>Review inbound cotton records</div>
-        </Link>
-
-        <Link href="/warehouse/inventory" style={cardStylePrimary}>
-          <div style={cardTitle}>Warehouse Inventory</div>
-          <div style={cardDesc}>
-            Review marks, bale balances, locations, and booking allocations
-          </div>
-        </Link>
-
-        <Link href="/warehouse/outbound" style={cardStylePrimary}>
-          <div style={cardTitle}>Cotton Outbound</div>
-          <div style={cardDesc}>Review bookings and compare requested marks with inventory</div>
+          <div style={{ marginTop: 16, color: "#67e8f9", fontSize: 13, fontWeight: 700 }}>Open warehouse dashboard →</div>
         </Link>
 
         <Link href="/late-fees" style={cardStyle}>

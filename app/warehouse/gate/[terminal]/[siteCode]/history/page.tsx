@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
-import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
 import "@/components/warehouse/domestic-tables.css";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
@@ -27,17 +27,18 @@ type Row = ShortageFields & {
 export default function DomesticHistoryPage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
   const site = getCheckinSite(params.terminal, params.siteCode);
-  const [search, setSearch] = useState("");
-  const [from, setFrom] = useState("");
-  const [through, setThrough] = useState("");
-  const [status, setStatus] = useState("all");
-  const [filters, setFilters] = useState({ search: "", from: "", through: "", status: "all" });
-  const [page, setPage] = useState(0);
+  const [search, setSearch, searchReady] = useWarehouseViewState("search", "");
+  const [from, setFrom, fromReady] = useWarehouseViewState("from", "");
+  const [through, setThrough, throughReady] = useWarehouseViewState("through", "");
+  const [status, setStatus, statusReady] = useWarehouseViewState("status", "all");
+  const [filters, setFilters, filtersReady] = useWarehouseViewState("filters", { search: "", from: "", through: "", status: "all" });
+  const [page, setPage, pageReady] = useWarehouseViewState("page", 0);
   const [rows, setRows] = useState<Row[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const viewReady = searchReady && fromReady && throughReady && statusReady && filtersReady && pageReady;
   const query = useCallback((pageNumber: number, exportFile = false) => {
     if (!site) return "";
     const params = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, page: String(pageNumber), status: filters.status });
@@ -49,7 +50,7 @@ export default function DomesticHistoryPage() {
   }, [site, filters]);
 
   useEffect(() => {
-    if (!site) return;
+    if (!site || !viewReady) return;
     let cancelled = false;
     async function load() {
       setLoading(true);
@@ -63,7 +64,7 @@ export default function DomesticHistoryPage() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [site, query, page]);
+  }, [site, query, page, viewReady]);
 
   function apply(event: FormEvent) {
     event.preventDefault();
@@ -77,9 +78,7 @@ export default function DomesticHistoryPage() {
   }) : "—";
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Domestic History`}
-      subtitle="Search completed and removed cotton, lumber, and other freight check-ins."
-      actions={<Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line`} style={button}>Domestic Line</Link>} />
-    <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="history" />
+      subtitle="Search completed and removed cotton, lumber, and other freight check-ins." />
     <PlatformPanel>
       <form onSubmit={apply} style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, background: "rgba(30,41,59,.36)", border: "1px solid rgba(148,163,184,.12)", flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
         <label style={label}>Search driver, reference, mark, customer, or McLeod ID

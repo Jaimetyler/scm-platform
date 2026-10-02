@@ -1,0 +1,31 @@
+.warehouse-workspace { position: sticky; top: 0; z-index: 40; width: 100%; margin: 0 auto 18px; background: #0b1424; color: #e2e8f0; border: 1px solid #334155; border-radius: 12px; box-shadow: 0 8px 22px #02061755; }
+.warehouse-brand-row, .warehouse-location-row, .warehouse-main-nav, .warehouse-subnav, .warehouse-location-options, .warehouse-utilities { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.warehouse-brand-row { padding: 12px 16px; justify-content: space-between; gap: 12px; }
+.warehouse-brand { font-weight: 900; font-size: 22px; letter-spacing: -.03em; }
+.warehouse-brand span { margin-left: 10px; font-size: 13px; font-weight: 600; letter-spacing: 0; color: #cbd5e1; }
+.warehouse-utilities { gap: 14px; font-size: 12px; color: #94a3b8; }
+.warehouse-location-row { padding: 8px 12px; gap: 14px; border-top: 1px solid #263348; }
+.warehouse-sites { border-left: 1px solid #334155; padding-left: 14px; }
+.warehouse-main-nav { padding: 6px 12px; border-top: 1px solid #263348; gap: 4px; }
+.warehouse-location-options a, .warehouse-main-nav a, .warehouse-subnav a { display: inline-flex; align-items: center; padding: 7px 11px; border-radius: 6px; font-size: 13px; font-weight: 700; text-decoration: none; }
+.warehouse-workspace a:hover { color: #fff; background: #1e293b; }
+.warehouse-workspace a:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
+.warehouse-location-options a[aria-current] { background: #243b53; color: #bae6fd; }
+.warehouse-main-nav a[aria-current=page] { background: #164e63; color: #ecfeff; }
+.warehouse-subnav { padding: 6px 12px; border-top: 1px solid #263348; background: #0f1c2e; border-radius: 0 0 12px 12px; }
+.warehouse-subnav a { font-size: 12px; padding: 6px 10px; color: #cbd5e1; }
+.warehouse-subnav a[aria-current=page] { background: #334155; color: #fff; }
+.warehouse-breadcrumb { margin: 0 0 16px; color: #94a3b8; font-size: 12px; }
+.warehouse-breadcrumb a { color: #7dd3fc; }
+.warehouse-hub { max-width: 1550px; margin: 0 auto; }
+.warehouse-hub h1 { color: #f8fafc; font-size: 30px; font-weight: 800; margin: 0 0 8px; }
+.warehouse-hub p { color: #94a3b8; margin: 0 0 20px; }
+.warehouse-hub-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(260px,100%),1fr)); gap: 14px; }
+.warehouse-hub-card { display: grid; gap: 10px; padding: 22px; border: 1px solid #334155; border-radius: 12px; background: #0f172a; }
+.warehouse-hub-card:hover { border-color: #38bdf8; }
+.warehouse-hub-card strong { color: #f1f5f9; font-size: 19px; }
+.warehouse-hub-card span { color: #94a3b8; font-size: 13px; }
+.warehouse-hub-card .warehouse-hub-action { color: #7dd3fc; }
+@media (max-width: 640px) { .warehouse-workspace { position: relative; } .warehouse-sites { border-left: 0; padding-left: 0; } .warehouse-main-nav a { padding: 9px; } .warehouse-utilities { gap: 10px; } }
+@media (pointer: coarse) { .warehouse-workspace a { min-height: 44px; } }
+@media print { .warehouse-workspace, .warehouse-breadcrumb { display: none !important; } }

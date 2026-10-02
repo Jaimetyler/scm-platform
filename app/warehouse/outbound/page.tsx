@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import { useSearchParams } from "next/navigation";
+import { useWarehouseWorkspace } from "@/components/warehouse/WarehouseWorkspace";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 import CutoffInput from "@/components/warehouse/CutoffInput";
@@ -24,20 +26,43 @@ const active: React.CSSProperties = { borderColor: "#38bdf8", background: "rgba(
 function dashboardUrl(preferences: Preferences) {
   const query = new URLSearchParams();
   if (preferences.warehouse === "all") query.set("warehouse", "all");
-  else { const [terminal, siteCode] = preferences.warehouse.split(":"); query.set("terminal", terminal); query.set("siteCode", siteCode); }
+  else { const [terminal, siteCode] = preferences.warehouse.split(":"); query.set("terminal", terminal); if (siteCode === "all") query.set("warehouse", "all"); else query.set("siteCode", siteCode); }
   query.set("basis", preferences.basis); query.set("view", preferences.view); query.set("group", preferences.group);
-  if (preferences.search) query.set("q", preferences.search);
+  query.set("q", preferences.search);
   return `/warehouse/outbound?${query}`;
 }
 function validPreferences(raw: Partial<Preferences>): Preferences {
-  return { warehouse: sites.some((site) => `${site.terminal}:${site.siteCode}` === raw.warehouse) ? raw.warehouse! : "all",
+  return { warehouse: ["SAV:all", "HOU:all"].includes(raw.warehouse) || CHECKIN_SITES.some((site) => `${site.terminal}:${site.siteCode}` === raw.warehouse) ? raw.warehouse! : "all",
     view: ["today", "upcoming", "past"].includes(raw.view ?? "") ? raw.view! : "all",
     group: ["customer", "vessel", "erd"].includes(raw.group ?? "") ? raw.group! : "schedule", search: String(raw.search ?? ""), basis: raw.basis === "erd" ? "erd" : "cutoff" };
 }
 
 export default function CottonOutboundPage() {
-  const [preferences, setPreferences] = useState(defaultPreferences);
-  const [ready, setReady] = useState(false);
+  const { location, ready } = useWarehouseWorkspace();
+  const queryParams = useSearchParams();
+  const [storedPreferences, setStoredPreferences] = useState(defaultPreferences);
+  useEffect(() => {
+    try { setStoredPreferences(validPreferences(JSON.parse(localStorage.getItem(storageKey) ?? "{}"))); } catch { /* Optional. */ }
+  }, []);
+  const preferences = validPreferences({
+    ...storedPreferences,
+    warehouse: location.terminal === "all" ? "all" : `${location.terminal}:${location.siteCode}`,
+    ...(queryParams.has("basis") ? { basis: queryParams.get("basis") as Preferences["basis"] } : {}),
+    ...(queryParams.has("view") ? { view: queryParams.get("view") as DeadlineView } : {}),
+    ...(queryParams.has("group") ? { group: queryParams.get("group") as BookingGroup } : {}),
+    ...(queryParams.has("q") ? { search: queryParams.get("q") } : {}),
+  });
+  function setPreferences(update: SetStateAction<Preferences>) {
+    const next = validPreferences(typeof update === "function" ? update(preferences) : update);
+    setStoredPreferences(next);
+    window.history.replaceState(null, "", dashboardUrl(next));
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* URL state still works. */ }
+  }
+  useEffect(() => {
+    if (ready && !["basis", "view", "group", "q"].every((key) => queryParams.has(key))) {
+      window.history.replaceState(null, "", dashboardUrl(preferences));
+    }
+  }, [ready, queryParams, storedPreferences, location.terminal, location.siteCode]);
   const [bookings, setBookings] = useState<DashboardBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [limitReached, setLimitReached] = useState(false);
@@ -48,31 +73,20 @@ export default function CottonOutboundPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
+  const [importError, setImportError] = useState("");
+  const uploadRequest = useRef<AbortController | null>(null);
   const [datesConfirmed, setDatesConfirmed] = useState(false);
   const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
   useEffect(() => {
-    const restore = () => {
-      const query = new URLSearchParams(window.location.search);
-      let stored: Partial<Preferences> = {};
-      try { stored = JSON.parse(localStorage.getItem(storageKey) ?? "{}"); } catch { /* URL state still works if storage is disabled. */ }
-      const hasUrlState = query.has("warehouse") || query.has("terminal") || query.has("siteCode") || query.has("view") || query.has("group") || query.has("q") || query.has("basis");
-      setPreferences(validPreferences(hasUrlState ? {
-        warehouse: query.get("warehouse") === "all" ? "all" : `${query.get("terminal")?.toUpperCase()}:${query.get("siteCode")}`,
-        view: query.get("view") as DeadlineView, group: query.get("group") as BookingGroup, search: query.get("q") ?? "", basis: query.get("basis") === "erd" ? "erd" : "cutoff",
-      } : stored));
-      setReady(true);
-    };
-    restore();
-    window.addEventListener("popstate", restore);
     const timer = window.setInterval(() => setNow(new Date()), 60000);
-    return () => { window.removeEventListener("popstate", restore); window.clearInterval(timer); };
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (!ready) return;
-    window.history.replaceState(null, "", dashboardUrl(preferences));
-    try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { /* Preserve selection in the URL. */ }
-  }, [preferences, ready]);
+    uploadRequest.current?.abort(); uploadRequest.current = null;
+    setWorking(false); setPreview(null); setFile(null); setImportError(""); setDatesConfirmed(false);
+    return () => { uploadRequest.current?.abort(); uploadRequest.current = null; };
+  }, [location.terminal, location.siteCode]);
   const list = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
@@ -88,28 +102,45 @@ export default function CottonOutboundPage() {
     const timer = window.setInterval(() => void list(true), 30000);
     return () => window.clearInterval(timer);
   }, [list]);
-  function selectWarehouse(warehouse: string) {
-    setPreferences((current) => ({ ...current, warehouse })); setPreview(null); setFile(null); setError(""); setMessage("");
-  }
   async function upload(event: FormEvent | React.MouseEvent, save: boolean) {
     event.preventDefault();
-    if (!site || !file) return;
-    setWorking(true); setError(""); setMessage("");
+    if (working) return;
+    if (!site) { setImportError("Choose the receiving warehouse first."); return; }
+    if (!file) { setImportError("Choose a booking request file first."); return; }
+    if (!/\.xlsx$/i.test(file.name) || file.size > 4 * 1024 * 1024) {
+      setImportError("Choose a Bunge .xlsx file under 4 MB."); return;
+    }
+    const controller = new AbortController();
+    uploadRequest.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 60000);
+    setWorking(true); setImportError("");
     try {
       const body = new FormData();
       body.set("file", file); body.set("terminal", site.terminal); body.set("siteCode", site.siteCode);
       if (save) { body.set("datesConfirmed", String(datesConfirmed)); Object.entries(importDates).forEach(([key, value]) => body.set(key, value)); }
-      const response = await fetch(save ? "/api/warehouse/outbound/bookings" : "/api/warehouse/outbound/preview", { method: "POST", body });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
-      if (save) window.location.assign(`/warehouse/outbound/${site.terminalSlug}/${site.siteCode}/${result.id}?returnTo=${encodeURIComponent(dashboardUrl(preferences))}`);
-      else { setPreview(result); setDatesConfirmed(false);
-        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "" }); }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not process booking"); }
-    finally { setWorking(false); }
+      const response = await fetch(save ? "/api/warehouse/outbound/bookings" : "/api/warehouse/outbound/preview", { method: "POST", body, signal: controller.signal });
+      const result = await response.json().catch(() => { throw new Error(`The import service returned an unreadable response (${response.status}). Please try again.`); });
+      if (uploadRequest.current !== controller) return;
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not import this booking request.");
+      if (save) {
+        if (!result.id) throw new Error("The booking response did not include a booking ID. Check the booking list before retrying.");
+        window.location.assign(`/warehouse/outbound/${site.terminalSlug}/${site.siteCode}/${result.id}?returnTo=${encodeURIComponent(dashboardUrl(preferences))}`);
+      } else {
+        if (!result.booking || !Array.isArray(result.booking.lines)) throw new Error("The file could not be read as a booking request.");
+        setPreview(result); setDatesConfirmed(false);
+        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "" });
+      }
+    } catch (reason) {
+      if (uploadRequest.current === controller) setImportError(controller.signal.aborted
+        ? save ? "Saving took too long. Check the booking list before retrying; the booking may have been saved." : "Reading the file took too long. Please try again."
+        : reason instanceof Error ? reason.message : "Could not process booking");
+    } finally {
+      window.clearTimeout(timeout);
+      if (uploadRequest.current === controller) { uploadRequest.current = null; setWorking(false); }
+    }
   }
   const activeBookings = bookings.filter((item) => item.status === "draft");
-  const warehouseBookings = activeBookings.filter((item) => !site || (item.terminal === site.terminal && item.site_code === site.siteCode));
+  const warehouseBookings = activeBookings.filter((item) => (location.terminal === "all" || item.terminal === location.terminal) && (location.siteCode === "all" || item.site_code === location.siteCode));
   const stats = { all: warehouseBookings.length, today: warehouseBookings.filter((item) => deadlineMatches(item, "today", now, preferences.basis)).length,
     upcoming: warehouseBookings.filter((item) => deadlineMatches(item, "upcoming", now, preferences.basis)).length, past: warehouseBookings.filter((item) => deadlineMatches(item, "past", now, preferences.basis)).length };
   const search = preferences.search.trim().toLowerCase();
@@ -120,41 +151,28 @@ export default function CottonOutboundPage() {
 
   return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
-      actions={<><button type="button" style={button} aria-expanded={showImport} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>
-        <Link href="/warehouse/inventory" style={button}>Inventory</Link></>} />
+      actions={<button type="button" style={button} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>} />
 
-    <div aria-label="Choose warehouse" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 10, marginBottom: 20 }}>
-      {[{ key: "all", name: "All warehouses", count: activeBookings.length }, ...sites.map((item) => ({ key: `${item.terminal}:${item.siteCode}`, name: item.siteName,
-        count: activeBookings.filter((booking) => booking.terminal === item.terminal && booking.site_code === item.siteCode).length }))].map((item) =>
-        <button key={item.key} type="button" disabled={working} aria-pressed={preferences.warehouse === item.key} style={{ ...button, ...(preferences.warehouse === item.key ? active : {}), textAlign: "left", padding: 16 }} onClick={() => selectWarehouse(item.key)}>
-          <strong style={{ display: "block", marginBottom: 8 }}>{item.name}</strong><span style={{ color: "#94a3b8", fontSize: 12 }}>{loading ? "Loading…" : `${item.count} active booking${item.count === 1 ? "" : "s"}`}</span>
-        </button>)}
-    </div>
-
-    <SourceLoadAlerts />
-    <div aria-label="Filter booking dates" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-      {(["cutoff", "erd"] as const).map((basis) => <button key={basis} type="button" style={{ ...button, ...(preferences.basis === basis ? active : {}) }}
-        aria-pressed={preferences.basis === basis} onClick={() => setPreferences((current) => ({ ...current, basis }))}>{basis === "erd" ? "Filter by ERD" : "Filter by cutoffs"}</button>)}
-    </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 12, marginBottom: 22 }}>
-      {([{ key: "all", label: "Active bookings", tone: "#e2e8f0" }, { key: "today", label: preferences.basis === "erd" ? "ERD today" : "Cutoffs today", tone: "#38bdf8" },
-        { key: "upcoming", label: "Next 7 days", tone: "#4ade80" }, { key: "past", label: preferences.basis === "erd" ? "Past ERD" : "Past cutoff", tone: "#fbbf24" }] as const).map((item) =>
-        <button key={item.key} type="button" aria-pressed={preferences.view === item.key} style={{ ...button, ...(preferences.view === item.key ? active : {}), padding: 18, textAlign: "left" }}
-          onClick={() => setPreferences((current) => ({ ...current, view: item.key }))}>
-          <span style={{ display: "block", color: "#94a3b8", fontSize: 12, marginBottom: 8 }}>{item.label}</span>
-          <strong style={{ fontSize: 32, color: item.tone }}>{loading ? "—" : stats[item.key]}</strong>
-        </button>)}
-    </div>
-    {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
-    {limitReached && <p style={{ color: "#fbbf24" }}>Showing the first 1,000 bookings ordered by cutoff.</p>}
-
-    {showImport && <PlatformPanel><h2 style={{ marginTop: 0 }}>{site ? `Import to ${site.siteName}` : "Import a booking request"}</h2>
-      {site ? <form onSubmit={(event) => void upload(event, false)} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input key={preferences.warehouse} type="file" accept=".xlsx" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); }} />
-        <button style={button} disabled={!file || working}>{working ? "Reading…" : "Review Bunge request"}</button>
-      </form> : <p style={{ color: "#94a3b8" }}>Choose a warehouse card above to import its request.</p>}
-      <p style={{ color: "#94a3b8", fontSize: 12 }}>Booking dates and vessel details import with the load plan. Saving creates a draft without changing inventory.</p>
-    </PlatformPanel>}
+    {showImport && <div id="booking-import-panel" aria-label="Booking import">
+    <PlatformPanel><h2 style={{ marginTop: 0 }}>{site ? `Import to ${site.siteName}` : "Import a booking request"}</h2>
+      {!site && <div>
+        <p style={{ color: "#cbd5e1" }}>Choose the warehouse receiving this booking:</p>
+        <div aria-label="Import warehouse" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+          {sites.map((item) => <button key={`${item.terminal}:${item.siteCode}`} type="button" disabled={working} style={button}
+            onClick={() => setPreferences((current) => ({ ...current, warehouse: `${item.terminal}:${item.siteCode}` }))}>{item.siteName}</button>)}
+        </div>
+      </div>}
+      <form onSubmit={(event) => void upload(event, false)} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+        <label style={{ display: "grid", gap: 8, color: "#cbd5e1", fontSize: 13 }}>Booking request (.xlsx)
+          <input key={preferences.warehouse} type="file" accept=".xlsx" disabled={!site || working} aria-label="Booking request file"
+            onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); setDatesConfirmed(false); setImportError(""); }} />
+        </label>
+        <button style={button} disabled={!site || !file || working}>{working ? "Processing…" : "Review booking request"}</button>
+      </form>
+      {working && <p role="status" style={{ color: "#7dd3fc" }}>Processing {file?.name}…</p>}
+      {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
+      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge .xlsx files up to 4 MB. Review the marks and sailing dates before saving the draft.</p>
+    </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
       <p>{preview.booking.lines.length} marks · {preview.booking.totalBales} bales · {preview.booking.containers ?? "—"} containers</p>
       <p>Confirm the sailing dates below, or correct them before importing. Load-by dates do not control the warehouse loading window.</p>
@@ -174,11 +192,31 @@ export default function CottonOutboundPage() {
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
         {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.bales}</td><td>{line.shippingOrder}</td><td>{line.warehouse}</td><td>{line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
-      <button style={{ ...button, marginTop: 14 }} disabled={working || !datesConfirmed || !!preview.booking.warnings.length} onClick={(event) => void upload(event, true)}>Save draft booking</button>
+      <button style={{ ...button, marginTop: 14 }} disabled={working || !datesConfirmed || !!preview.booking.warnings.length} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
     </PlatformPanel>}
 
+    </div>}
+
+    {(location.siteCode === "all" || site) && <SourceLoadAlerts terminal={location.terminal === "all" ? undefined : location.terminal} siteCode={location.siteCode === "all" ? undefined : location.siteCode} />}
+    <div aria-label="Filter booking dates" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {(["cutoff", "erd"] as const).map((basis) => <button key={basis} type="button" style={{ ...button, ...(preferences.basis === basis ? active : {}) }}
+        aria-pressed={preferences.basis === basis} onClick={() => setPreferences((current) => ({ ...current, basis }))}>{basis === "erd" ? "Filter by ERD" : "Filter by cutoffs"}</button>)}
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 12, marginBottom: 22 }}>
+      {([{ key: "all", label: "Active bookings", tone: "#e2e8f0" }, { key: "today", label: preferences.basis === "erd" ? "ERD today" : "Cutoffs today", tone: "#38bdf8" },
+        { key: "upcoming", label: "Next 7 days", tone: "#4ade80" }, { key: "past", label: preferences.basis === "erd" ? "Past ERD" : "Past cutoff", tone: "#fbbf24" }] as const).map((item) =>
+        <button key={item.key} type="button" aria-pressed={preferences.view === item.key} style={{ ...button, ...(preferences.view === item.key ? active : {}), padding: 18, textAlign: "left" }}
+          onClick={() => setPreferences((current) => ({ ...current, view: item.key }))}>
+          <span style={{ display: "block", color: "#94a3b8", fontSize: 12, marginBottom: 8 }}>{item.label}</span>
+          <strong style={{ fontSize: 32, color: item.tone }}>{loading ? "—" : stats[item.key]}</strong>
+        </button>)}
+    </div>
+    {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
+    {limitReached && <p style={{ color: "#fbbf24" }}>Showing the first 1,000 bookings ordered by cutoff.</p>}
+
+
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
-      <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? "All warehouses"}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
+      <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
         {([{ key: "schedule", label: "By cutoff" }, { key: "erd", label: "By ERD" }, { key: "customer", label: "By customer" }, { key: "vessel", label: "By vessel" }] as const).map((item) =>
           <button key={item.key} type="button" aria-pressed={preferences.group === item.key} style={{ ...button, ...(preferences.group === item.key ? active : {}) }} onClick={() => setPreferences((current) => ({ ...current, group: item.key }))}>{item.label}</button>)}

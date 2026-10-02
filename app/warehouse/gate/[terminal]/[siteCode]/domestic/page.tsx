@@ -5,7 +5,6 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
-import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
@@ -278,13 +277,7 @@ export default function DomesticQueuePage() {
   return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 16px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Check-In`}
       subtitle="Lumber and other freight arrivals · check out each truck when it leaves"
-      actions={<div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Link href="/inbound/checkin" style={utilityLink}>All sites</Link>
-        <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={utilityLink}>Domestic history</Link>
-        {site.materials.includes("cotton") && <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLink}>Inventory</Link>}
-        {site.containers && <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLink}>Containers</Link>}
-      </div>} />
-    <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="domestic" />
+      />
     {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}
     {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}
     <PlatformPanel style={{ padding: 16 }}>

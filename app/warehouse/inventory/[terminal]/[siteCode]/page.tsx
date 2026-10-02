@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
+
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -58,10 +60,10 @@ export default function WarehouseInventoryPage() {
 
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("open");
-  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput, searchInputReady] = useWarehouseViewState("searchInput", "");
+  const [search, setSearch, searchReady] = useWarehouseViewState("search", "");
+  const [status, setStatus, statusReady] = useWarehouseViewState("status", "open");
+  const [page, setPage, pageReady] = useWarehouseViewState("page", 1);
   const [pageCount, setPageCount] = useState(1);
   const [totalRows, setTotalRows] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -70,8 +72,10 @@ export default function WarehouseInventoryPage() {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const viewReady = searchInputReady && searchReady && statusReady && pageReady;
+
   const loadInventory = useCallback(async () => {
-    if (!site) return;
+    if (!site || !viewReady) return;
     setLoading(true);
     setError("");
     try {
@@ -93,7 +97,7 @@ export default function WarehouseInventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [site, status, search, page]);
+  }, [site, status, search, page, viewReady]);
 
   useEffect(() => { void loadInventory(); }, [loadInventory]);
 
@@ -154,8 +158,6 @@ export default function WarehouseInventoryPage() {
         title={`${site.siteName} Inventory`}
         subtitle="Current cotton inventory by receipt lot. Booking allocations and quantity changes are saved to the inventory ledger."
         actions={<>
-          <Link href="/warehouse/inventory" style={buttonStyle}>← All Warehouses</Link>
-          <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={buttonStyle}>Check-In</Link>
           <button type="button" onClick={() => void loadInventory()} style={buttonStyle}>Refresh</button>
         </>}
       />

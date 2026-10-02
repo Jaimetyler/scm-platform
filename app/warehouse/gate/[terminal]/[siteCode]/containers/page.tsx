@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -66,10 +65,7 @@ export default function ContainerLinePage() {
     <PlatformPageHeader
       title={`${site.siteName} Container Line`}
       subtitle="Drivers appear in arrival order. Complete a driver when they leave the line."
-      actions={<>
-        <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={linkStyle}>Domestic Check-In</Link>
-        <Link href="/warehouse/gate" style={linkStyle}>QR Setup</Link>
-      </>}
+
     />
     {error ? <div style={errorStyle}>{error}</div> : null}
     <PlatformPanel>

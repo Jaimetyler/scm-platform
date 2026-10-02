@@ -2,11 +2,12 @@
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
+import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
+
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
-import DomesticFreightNav from "@/components/warehouse/DomesticFreightNav";
 import "@/components/warehouse/domestic-tables.css";
 import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
 import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
@@ -197,7 +198,7 @@ export default function SiteCheckinPage() {
   );
 
   const [rows, setRows] = useState<CheckinRow[]>([]);
-  const [viewCarryover, setViewCarryover] = useState(false);
+  const [viewCarryover, setViewCarryover, viewReady] = useWarehouseViewState("carryover", false);
   const [carryover, setCarryover] = useState({ count: 0, missingLocation: 0, missingBales: 0 });
   const dayRef = useRef("");
   const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
@@ -517,6 +518,7 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
+    if (!viewReady) return;
     editSnapshotsRef.current = {};
     setEditingProcessedIds(new Set());
     setRows([]);
@@ -527,7 +529,7 @@ export default function SiteCheckinPage() {
     }, 10000);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site?.terminal, site?.siteCode, viewCarryover]);
+  }, [site?.terminal, site?.siteCode, viewCarryover, viewReady]);
 
   function setRowUiState(id: string, state: Partial<RowUiState>) {
     setRowUi((prev) => ({
@@ -965,17 +967,9 @@ export default function SiteCheckinPage() {
       <PlatformPageHeader
         title={`${site.siteName} Check-In`}
         subtitle={viewCarryover ? "Earlier cotton check-ins needing review" : "Cotton arrivals · enter confirmed bales and location to finish a delivery"}
-        actions={
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-            <Link href="/inbound/checkin" style={utilityLinkStyle}>All sites</Link>
-            <Link href="/inbound/history" style={utilityLinkStyle}>Cotton history</Link>
-            <Link href={`/warehouse/inventory/${site.terminalSlug}/${site.siteCode}`} style={utilityLinkStyle}>Inventory</Link>
-            {site.containers && <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers`} style={utilityLinkStyle}>Containers</Link>}
-          </div>
-        }
+
       />
 
-      <DomesticFreightNav terminalSlug={site.terminalSlug} siteCode={site.siteCode} current="cotton" />
 
       <SourceLoadAlerts terminal={site.terminal} siteCode={site.siteCode} />
       <PlatformPanel style={{ padding: 16 }}>

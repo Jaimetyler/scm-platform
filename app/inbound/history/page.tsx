@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -444,11 +445,11 @@ export default function InboundHistoryPage() {
   const [summary, setSummary] = useState<HistoryResponse["summary"] | null>(null);
   const [customers, setCustomers] = useState<string[]>([]);
 
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [customer, setCustomer] = useState("");
-  const [terminal, setTerminal] = useState("");
-  const [search, setSearch] = useState("");
+  const [startDate, setStartDate, startDateReady] = useWarehouseViewState("startDate", "");
+  const [endDate, setEndDate, endDateReady] = useWarehouseViewState("endDate", "");
+  const [customer, setCustomer, customerReady] = useWarehouseViewState("customer", "");
+  const [terminal, setTerminal, terminalReady] = useWarehouseViewState("terminal", "");
+  const [search, setSearch, searchReady] = useWarehouseViewState("search", "");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -459,15 +460,17 @@ export default function InboundHistoryPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [pagination, setPagination] = useState<PaginationState>(DEFAULT_PAGINATION);
+  const viewReady = startDateReady && endDateReady && customerReady && terminalReady && searchReady;
 
   useEffect(() => {
+    if (!viewReady) return;
     const timer = setTimeout(() => {
       setDebouncedSearch(search.trim());
       setPage(1);
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, viewReady]);
 
   async function loadData(
     nextStartDate = startDate,
@@ -516,6 +519,7 @@ export default function InboundHistoryPage() {
   }
 
   useEffect(() => {
+    if (!viewReady) return;
     loadData(
       startDate,
       endDate,
@@ -528,7 +532,7 @@ export default function InboundHistoryPage() {
       sortDirection
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, page, pageSize, sortKey, sortDirection]);
+  }, [debouncedSearch, page, pageSize, sortKey, sortDirection, viewReady]);
 
   const displayRows = useMemo<DisplayHistoryRow[]>(() => {
     return rows.map((row) => ({

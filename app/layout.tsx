@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import WarehouseWorkspace from "@/components/warehouse/WarehouseWorkspace";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +28,9 @@ export default function RootLayout({
             padding: "28px 20px 44px",
           }}
         >
-          {children}
+          <Suspense fallback={<div style={{ color: "#94a3b8" }}>Loading SCM…</div>}>
+            <WarehouseWorkspace>{children}</WarehouseWorkspace>
+          </Suspense>
         </div>
       </body>
     </html>
