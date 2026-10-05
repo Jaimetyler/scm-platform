@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { createClient } from "@supabase/supabase-js";
@@ -540,6 +541,7 @@ async function processOneRow(
       "Content-Type": "application/json",
       cookie: req.headers.get("cookie") ?? "",
       authorization: req.headers.get("authorization") ?? "",
+      origin: req.headers.get("origin") ?? "",
     },
     body: JSON.stringify({
       row: {
@@ -596,7 +598,7 @@ async function processOneRow(
   };
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file");
@@ -685,3 +687,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

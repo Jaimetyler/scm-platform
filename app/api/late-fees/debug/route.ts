@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 
 function getBaseUrl() {
@@ -78,7 +79,7 @@ function summarizeParsed(parsed: unknown) {
   };
 }
 
-export async function GET(req: Request) {
+async function GETHandler(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const orderId = searchParams.get("orderId") || "0773278";
@@ -154,3 +155,4 @@ export async function GET(req: Request) {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

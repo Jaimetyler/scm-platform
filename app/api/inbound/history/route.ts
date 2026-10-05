@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveCustomer } from "@/lib/mcleod/inbound/resolveCustomer";
@@ -265,7 +266,7 @@ function applySharedFilters(
   return nextQuery;
 }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);
@@ -284,11 +285,13 @@ export async function GET(req: NextRequest) {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
-    const { data: shipperRows, error: shipperError } = await sb
+    let shipperQuery = sb
       .from("inbound_results")
       .select("shipper")
       .not("shipper", "is", null)
       .limit(5000);
+    if (terminal) shipperQuery = shipperQuery.eq("terminal", terminal);
+    const { data: shipperRows, error: shipperError } = await shipperQuery;
 
     if (shipperError) {
       return NextResponse.json(
@@ -524,3 +527,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

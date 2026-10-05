@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -75,7 +76,7 @@ type CheckinRow = {
   processed_at: string | null;
 };
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);
@@ -124,7 +125,7 @@ export async function GET(req: NextRequest) {
       carryoverRows = (older ?? []) as CheckinRow[];
     }
     const displayRows = await backfillTruckingCompanies((viewCarryover ? carryoverRows : (data ?? [])) as (CheckinRow & {
-      matched_order_id: string | null; trucking_company: string | null })[]);
+      matched_order_id: string | null; trucking_company: string | null })[], false);
     return NextResponse.json({
       ok: true,
       carryoverCount: carryoverRows.length,
@@ -147,7 +148,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -255,3 +256,6 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export const GET = withStaffAccess(GETHandler);
+export const POST = withStaffAccess(POSTHandler);

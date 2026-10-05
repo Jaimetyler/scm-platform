@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -12,7 +13,7 @@ function database() {
   return createClient(url, key);
 }
 
-export async function GET() {
+async function GETHandler() {
   try {
     const { data, error } = await database().from("driver_checkin_sites")
       .select("id, terminal, site_code, site_name, public_token, latitude, longitude, radius_m, active, updated_at")
@@ -24,7 +25,7 @@ export async function GET() {
   }
 }
 
-export async function PUT(req: NextRequest) {
+async function PUTHandler(req: NextRequest) {
   try {
     const body = await req.json();
     const terminal = String(body?.terminal ?? "").trim().toUpperCase();
@@ -64,3 +65,6 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save gate site" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);
+export const PUT = withStaffAccess(PUTHandler);

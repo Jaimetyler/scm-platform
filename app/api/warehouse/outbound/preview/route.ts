@@ -1,9 +1,10 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { parseBungeBooking, classifyBookingLoads } from "@/lib/warehouse/outbound/bunge";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
 export const runtime = "nodejs";
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const form = await req.formData();
     const file = form.get("file");
@@ -21,3 +22,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not read booking request" }, { status: 400 });
   }
 }
+
+export const POST = withStaffAccess(POSTHandler);

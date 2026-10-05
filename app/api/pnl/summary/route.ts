@@ -1,9 +1,10 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function GETHandler() {
   try {
     const url =
       process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -41,3 +42,4 @@ export async function GET() {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

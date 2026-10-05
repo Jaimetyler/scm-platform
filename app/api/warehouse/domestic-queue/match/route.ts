@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -24,7 +25,7 @@ function named(value: unknown) {
   return value && typeof value === "object" ? text((value as Record<string, unknown>).name) : "";
 }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const params = new URL(req.url).searchParams;
     const id = text(params.get("id"));
@@ -154,3 +155,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

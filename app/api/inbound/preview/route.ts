@@ -1,8 +1,9 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import { MOCK_ROWS } from "@/lib/mcleod/inbound/mockRows";
 
-export async function GET() {
+async function GETHandler() {
   try {
     console.log("PREVIEW_ROUTE_VERSION", "2026-03-23-v2");
 
@@ -35,3 +36,4 @@ export async function GET() {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

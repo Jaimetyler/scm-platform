@@ -1,9 +1,10 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { containerInfoWorkbook } from "@/lib/warehouse/outbound/container-info";
 export const runtime = "nodejs";
-export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const params = new URL(req.url).searchParams;
@@ -31,3 +32,5 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: reason instanceof Error ? reason.message : "Could not export container information" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

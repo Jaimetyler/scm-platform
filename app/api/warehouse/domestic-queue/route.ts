@@ -1,3 +1,4 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -36,12 +37,9 @@ function siteExists(terminal: string, siteCode: string) {
   return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode);
 }
 
-function user(req: NextRequest) {
-  try { return atob(req.headers.get("authorization")?.slice(6) ?? "").split(":")[0] || "warehouse user"; }
-  catch { return "warehouse user"; }
-}
+function user(req: NextRequest) { return staffActor(req); }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const terminal = String(searchParams.get("terminal") ?? "").toUpperCase();
@@ -56,7 +54,7 @@ export async function GET(req: NextRequest) {
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
     if (error) throw error;
-    const displayRows = await backfillTruckingCompanies(data ?? []);
+    const displayRows = await backfillTruckingCompanies(data ?? [], false);
     const carriers = new Map<string, { carrierCode: string | null; scmCarrier: boolean }>();
     if (line) {
       const ids = [...new Set(displayRows.filter((row) =>
@@ -77,7 +75,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const body = await req.json();
     const terminal = String(body?.terminal ?? "").trim().toUpperCase();
@@ -140,7 +138,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function PATCH(req: NextRequest) {
+async function PATCHHandler(req: NextRequest) {
   try {
     const body = await req.json();
     const id = String(body?.id ?? "");
@@ -345,3 +343,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not update domestic queue") }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);
+export const POST = withStaffAccess(POSTHandler);
+export const PATCH = withStaffAccess(PATCHHandler);

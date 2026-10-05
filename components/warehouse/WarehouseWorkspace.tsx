@@ -7,6 +7,7 @@ import { ALL_LOCATIONS, LOCATION_KEY, CHECKIN_VIEW_KEY, validLocation, routeLoca
   availableCheckinViews, workspaceHref, locationLabel, safeOutboundReturn, type WarehouseLocation, type WarehouseSection, type CheckinView } from "@/lib/warehouse/navigation";
 import { WarehouseScrollMemory } from "./useWarehouseViewState";
 import "./warehouse-workspace.css";
+import { useStaff } from "@/components/auth/StaffSession";
 
 const Context = createContext<{ location: WarehouseLocation; ready: boolean; href: (section: WarehouseSection) => string }>({
   location: ALL_LOCATIONS, ready: false, href: (section) => workspaceHref(section, ALL_LOCATIONS),
@@ -14,6 +15,7 @@ const Context = createContext<{ location: WarehouseLocation; ready: boolean; hre
 export const useWarehouseWorkspace = () => useContext(Context);
 
 export default function WarehouseWorkspace({ children }: { children: ReactNode }) {
+  const staff = useStaff();
   const path = usePathname();
   const query = useSearchParams();
   const queryString = query.toString();
@@ -37,7 +39,10 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
     setReady(true);
   }, []);
   const explicit = routeLocation(path, new URLSearchParams(queryString));
-  const location = explicit ?? remembered;
+  const preferred = explicit ?? remembered;
+  const location: WarehouseLocation = staff?.role === "operator"
+    ? { terminal: staff.terminal!, siteCode: preferred.terminal === staff.terminal ? preferred.siteCode : "all" }
+    : preferred;
   const section = sectionForPath(path);
   const view = checkinViewForPath(path) ?? checkinView;
   useEffect(() => {
@@ -62,11 +67,11 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
   return <Context.Provider value={{ location, ready, href }}>
     {visible && <header className="warehouse-workspace" aria-label="Warehouse workspace">
       <div className="warehouse-brand-row"><Link href={href("overview")} className="warehouse-brand">SCM <span>Warehouse operations</span></Link>
-        <div className="warehouse-utilities"><Link href="/warehouse/gate">Driver QR setup</Link><Link href="/">Platform home</Link></div>
+        <div className="warehouse-utilities">{staff?.role === "admin" && <><Link href="/warehouse/gate">Driver QR setup</Link><Link href="/">Platform home</Link></>}</div>
       </div>
       <div className="warehouse-location-row">
         <nav aria-label="Terminal" className="warehouse-location-options">
-          {[{ terminal: "all" as const, label: "All locations" }, { terminal: "SAV" as const, label: "Savannah" }, { terminal: "HOU" as const, label: "Houston" }].map((item) =>
+          {[{ terminal: "all" as const, label: "All locations" }, { terminal: "SAV" as const, label: "Savannah" }, { terminal: "HOU" as const, label: "Houston" }].filter((item) => staff?.role !== "operator" || item.terminal === staff.terminal).map((item) =>
             <Link key={item.terminal} href={locationHref({ terminal: item.terminal, siteCode: "all" })} aria-current={location.terminal === item.terminal ? "true" : undefined}>{item.label}</Link>)}
         </nav>
         {location.terminal !== "all" && <nav aria-label="Warehouse location" className="warehouse-location-options warehouse-sites">
@@ -85,6 +90,8 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
       </nav>}
     </header>}
     <div className={visible ? "warehouse-page" : undefined}>
+      {visible && staff && staff.role !== "admin" && (staff.role === "viewer" || location.terminal !== staff.terminal) &&
+        <p className="staff-readonly">Read-only warehouse view. {staff.role === "operator" ? `You can update records in ${staff.terminal === "HOU" ? "Houston" : "Savannah"}.` : "Operational changes require a warehouse operator."}</p>}
       {visible && <div className="warehouse-breadcrumb" aria-label="Current warehouse context">{locationLabel(location)}
         {returnTo && <> / <Link href={returnTo}>← Back to booking list</Link></>}
         {path === "/inbound/history" && " / Processing report uses its own terminal and date filters"}

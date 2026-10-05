@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
@@ -59,7 +60,7 @@ function parseNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file");
@@ -155,3 +156,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

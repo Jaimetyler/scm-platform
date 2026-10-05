@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
@@ -51,7 +52,7 @@ function warehouseMidnight(date: string, terminal: string) {
   return new Date(instant).toISOString();
 }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const params = new URL(req.url).searchParams;
     const terminal = (params.get("terminal") ?? "").toUpperCase();
@@ -122,3 +123,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load domestic history" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

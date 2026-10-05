@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite } from "@/components/auth/StaffSession";
 
 import Link from "next/link";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
@@ -202,7 +203,7 @@ export default function WarehouseInventoryPage() {
             <tbody>
               {rows.map((row) => {
                 const editing = editingId === row.id && draft;
-                return <InventoryTableRows key={row.id} row={row} editing={Boolean(editing)} draft={editing ? draft : null}
+                return <InventoryTableRows key={row.id} terminal={site.terminal} row={row} editing={Boolean(editing)} draft={editing ? draft : null}
                   setDraft={setDraft} beginEdit={beginEdit} cancel={() => { setEditingId(null); setDraft(null); }}
                   save={() => void saveEdit(row)} saving={saving} />;
               })}
@@ -227,11 +228,13 @@ export default function WarehouseInventoryPage() {
 }
 
 function InventoryTableRows(props: {
+  terminal: string;
   row: InventoryRow; editing: boolean; draft: EditDraft | null;
   setDraft: (value: EditDraft | null) => void; beginEdit: (row: InventoryRow) => void;
   cancel: () => void; save: () => void; saving: boolean;
 }) {
   const { row, editing, draft, setDraft, beginEdit, cancel, save, saving } = props;
+  const canWrite = useCanWrite(props.terminal);
   return <>
     <tr style={{ background: row.inventory_status === "on_hold" ? "rgba(245,158,11,.05)" : undefined }}>
       <td style={tdStyle}><strong>{row.mark}</strong><small style={subStyle}>{row.customer}</small></td>
@@ -244,7 +247,7 @@ function InventoryTableRows(props: {
       <td style={tdStyle}>{row.booking_number || "—"}</td>
       <td style={tdStyle}><Pill value={row.ecotton_receipt_status} /></td>
       <td style={tdStyle}><Pill value={row.inventory_status} /></td>
-      <td style={tdStyle}><button type="button" onClick={() => beginEdit(row)} disabled={editing} style={smallButtonStyle}>Edit</button></td>
+      <td style={tdStyle}><button type="button" onClick={() => beginEdit(row)} disabled={!canWrite || editing} style={smallButtonStyle}>Edit</button></td>
     </tr>
     {editing && draft ? <tr><td colSpan={11} style={{ padding: 14, background: "rgba(30,41,59,.52)", borderBottom: "1px solid rgba(148,163,184,.16)" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: 10 }}>
@@ -259,8 +262,8 @@ function InventoryTableRows(props: {
         <label style={{ ...labelStyle, gridColumn: "span 2" }}>Notes<textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} style={{ ...inputStyle, minHeight: 62, resize: "vertical" }} /></label>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button type="button" onClick={save} disabled={saving} style={primaryButtonStyle}>{saving ? "Saving…" : "Save changes"}</button>
-        <button type="button" onClick={cancel} disabled={saving} style={buttonStyle}>Cancel</button>
+        <button type="button" onClick={save} disabled={!canWrite || saving} style={primaryButtonStyle}>{saving ? "Saving…" : "Save changes"}</button>
+        <button type="button" onClick={cancel} disabled={!canWrite || saving} style={buttonStyle}>Cancel</button>
         <span style={{ color: "#94a3b8", fontSize: 12, alignSelf: "center" }}>Available after save: {availableBales(draft.currentBales, draft.allocatedBales)}</span>
       </div>
     </td></tr> : null}

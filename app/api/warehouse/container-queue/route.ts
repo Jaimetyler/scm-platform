@@ -1,3 +1,4 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -11,21 +12,13 @@ function database() {
   return createClient(url, key);
 }
 
-function requestUser(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  if (!auth?.startsWith("Basic ")) return "warehouse user";
-  try {
-    return atob(auth.slice(6)).split(":")[0]?.trim() || "warehouse user";
-  } catch {
-    return "warehouse user";
-  }
-}
+function requestUser(req: NextRequest) { return staffActor(req); }
 
 function validSite(terminal: string, siteCode: string) {
   return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.containers);
 }
 
-export async function GET(req: NextRequest) {
+async function GETHandler(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const terminal = String(searchParams.get("terminal") ?? "").trim().toUpperCase();
@@ -50,7 +43,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function PATCH(req: NextRequest) {
+async function PATCHHandler(req: NextRequest) {
   try {
     const body = await req.json();
     const id = String(body?.id ?? "").trim();
@@ -77,3 +70,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not update container line" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);
+export const PATCH = withStaffAccess(PATCHHandler);

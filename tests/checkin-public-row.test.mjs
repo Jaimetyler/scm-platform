@@ -31,7 +31,8 @@ test("normal grid responses keep the QR marker but omit private driver evidence"
   assert.equal(row.reference_number, "PO-123");
   assert.equal(row.destination, "DALLAS, TX");
   assert.equal(row.has_bol_photo, true);
-  for (const key of ["driver_name", "driver_phone", "trucking_company", "driver_latitude", "driver_longitude", "driver_accuracy_m", "driver_distance_m", "driver_checkin_site_id", "bol_photo_path", "bol_photo_original_name", "bol_photo_content_type"]) {
+  assert.equal(row.trucking_company, "CARRIER");
+  for (const key of ["driver_name", "driver_phone", "driver_latitude", "driver_longitude", "driver_accuracy_m", "driver_distance_m", "driver_checkin_site_id", "bol_photo_path", "bol_photo_original_name", "bol_photo_content_type"]) {
     assert.equal(Object.hasOwn(row, key), false, key);
   }
 });

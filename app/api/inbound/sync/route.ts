@@ -1,3 +1,6 @@
+import { withStaffAccess, staffProfile } from "@/lib/auth/guard";
+import { getCheckinSite } from "@/lib/inbound/checkin/sites";
+import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
@@ -268,7 +271,7 @@ function validationFailure(payload: Record<string, unknown>, status = 400) {
   );
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const { row } = await req.json();
 
@@ -318,6 +321,16 @@ export async function POST(req: NextRequest) {
     }
 
     const order = await getOrder(preview.matchedOrderId);
+    if (staffProfile(req)?.role === "operator") {
+      const site = getCheckinSite(row.terminal, row.siteCode);
+      if (!site || site.terminal !== staffProfile(req)!.terminal) {
+        return validationFailure({ error: "Could not verify the delivery warehouse", reason: "STAFF_TERMINAL_MISMATCH" });
+      }
+      const yard = await lookupMcleodGateOrder(preview.matchedOrderId, site.terminal, site.siteName);
+      if (yard.direction !== "delivery" || yard.stopId !== order.stops?.find((stop: McleodStop) => stop.stop_type === "SO")?.id) {
+        return validationFailure({ error: "This delivery belongs to another warehouse or needs review", reason: "STAFF_TERMINAL_MISMATCH" });
+      }
+    }
 
     if (row.source === "live_checkin") {
       const eligibility = currentCottonOrder(order, row.receivedDate);
@@ -620,3 +633,5 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export const POST = withStaffAccess(POSTHandler);

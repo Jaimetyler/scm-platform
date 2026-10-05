@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -39,7 +40,7 @@ async function createOrder(payload: any) {
   return mcleodRequest("/orders/create", payload, "PUT");
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const { import_run_id } = await req.json();
 
@@ -109,3 +110,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

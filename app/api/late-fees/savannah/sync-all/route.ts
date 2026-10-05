@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -156,7 +157,7 @@ function buildSnapshot(order: McleodOrderSummary) {
   };
 }
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   try {
     const config = officeConfigs.savannah;
 
@@ -331,3 +332,4 @@ if (!cutoffDay || cutoffDay.getTime() > todayDay.getTime()) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

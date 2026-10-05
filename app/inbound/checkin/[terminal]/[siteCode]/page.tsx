@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite } from "@/components/auth/StaffSession";
 
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
@@ -201,6 +202,7 @@ export default function SiteCheckinPage() {
     [terminalSlug, siteCode]
   );
 
+  const canWrite = useCanWrite(site?.terminal);
   const [rows, setRows] = useState<CheckinRow[]>([]);
   const [viewCarryover, setViewCarryover, viewReady] = useWarehouseViewState("carryover", false);
   const [carryover, setCarryover] = useState({ count: 0, missingLocation: 0, missingBales: 0 });
@@ -290,7 +292,7 @@ export default function SiteCheckinPage() {
   useEffect(() => () => { Object.values(lookupTimersRef.current).forEach(window.clearTimeout); }, []);
 
   function isReadOnlyRow(row: CheckinRow) {
-    return row.draft_status === "delivery_blocked" || isClosedRow(row) &&
+    return !canWrite || row.draft_status === "delivery_blocked" || isClosedRow(row) &&
       !(row.draft_status === "processed" && editingProcessedIds.has(row.id) &&
         rowUi[row.id]?.saveState !== "saving");
   }
@@ -342,6 +344,7 @@ export default function SiteCheckinPage() {
   }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id]);
 
   async function saveNewCheckin() {
+    if (!canWrite) return;
     if (!site || !newCheckin || newSaving || newSearching) return;
     if (newMatches.length > 0 && newMatches.every((match) => match.completion)) {
       setNewError("These orders are already closed in McLeod. Verify the mark with warehouse staff.");
@@ -571,6 +574,7 @@ export default function SiteCheckinPage() {
   }
 
   async function saveRowSnapshot(row: CheckinRow, action?: ShortageAction) {
+    if (!canWrite) return;
     if (!row || row.id.startsWith("local-") || isClosedRow(row)) return;
     if (willProcess(row) &&
         (document.activeElement?.getAttribute("data-checkin-identity") === row.id ||
@@ -763,6 +767,7 @@ export default function SiteCheckinPage() {
   }
 
   async function deleteRow(id: string) {
+    if (!canWrite) return;
     if (id.startsWith("local-")) {
       setRows((prev) => prev.filter((row) => row.id !== id));
       return;
@@ -1271,7 +1276,7 @@ export default function SiteCheckinPage() {
                         aria-expanded={expandedIds.has(row.id)}>
                         {expandedIds.has(row.id) ? "Less" : !row.matched_order_id && (cottonMatches[row.id]?.length ?? 0) > 0 ? "Review order" : "Details"}
                       </button>}
-                      {row.draft_status === "processed" && !editingProcessedIds.has(row.id) ? (
+                      {canWrite && row.draft_status === "processed" && !editingProcessedIds.has(row.id) ? (
                         <button type="button" onClick={() => void beginProcessedEdit(row)} disabled={dispatcherLookupIds.has(row.id)}
                           style={smallActionButtonStyle} title="Edit check-in details; McLeod delivery stays unchanged">
                           {dispatcherLookupIds.has(row.id) ? "Loading..." : "Edit"}

@@ -1,74 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
+import { staffSession } from "@/lib/auth/session";
+import { AccessError, staffHome } from "@/lib/auth/policy";
 
-function unauthorizedResponse() {
-  return new NextResponse("Authentication required.", {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": 'Basic realm="SCM P&L"',
-      "Cache-Control": "no-store",
-    },
-  });
-}
-
-function parseUsers(env: string | undefined) {
-  if (!env) return [];
-
-  return env.split(",").map((pair) => {
-    const [user, pass] = pair.split(":");
-    return { user, pass };
-  });
-}
-
-export function middleware(req: NextRequest) {
-  const isWarehouseGate = req.nextUrl.pathname.startsWith("/warehouse/gate") ||
-    req.nextUrl.pathname.startsWith("/warehouse/checkin") ||
-    req.nextUrl.pathname.startsWith("/api/warehouse/gate-sites") ||
-    req.nextUrl.pathname.startsWith("/api/warehouse/checkin-bol") ||
-    req.nextUrl.pathname.startsWith("/api/warehouse/container-queue") ||
-    req.nextUrl.pathname.startsWith("/api/warehouse/domestic-queue") ||
-    req.nextUrl.pathname.startsWith("/api/warehouse/domestic-history");
-  const users = parseUsers(isWarehouseGate
-    ? (process.env.WAREHOUSE_USERS || process.env.PNL_USERS)
-    : process.env.PNL_USERS);
-
-  if (!users.length) {
-    return new NextResponse("No users configured.", { status: 500 });
-  }
-
-  const authHeader = req.headers.get("authorization");
-
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    return unauthorizedResponse();
-  }
-
+export async function middleware(req: NextRequest) {
+  const path = req.nextUrl.pathname;
+  // APIs authenticate in their own handlers, including direct/internal calls.
+  if (path.startsWith("/api/") || /^\/gate\/check-in\/[^/]+$/.test(path) ||
+      ["/login", "/auth/accept", "/auth/password", "/access-denied"].includes(path)) return NextResponse.next();
+  let session: ReturnType<typeof staffSession>;
   try {
-    const decoded = atob(authHeader.slice(6));
-    const [providedUser, providedPass] = decoded.split(":");
-
-    const match = users.find(
-      (u) => u.user === providedUser && u.pass === providedPass
-    );
-
-    if (!match) {
-      return unauthorizedResponse();
+    session = staffSession(req);
+    const { staff } = await session.identity();
+    if (staff.status === "pending") return session.finish(NextResponse.redirect(new URL("/auth/password", req.url)));
+    const warehouse = path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/");
+    if (staff.role !== "admin" && (path === "/" || !warehouse || path === "/warehouse/gate"))
+      return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
+    if (staff.role === "operator") {
+      const routeTerminal = path.match(/^\/(?:warehouse\/(?:outbound|inventory|gate)|inbound\/checkin)\/(hou|sav)\//i)?.[1]?.toUpperCase();
+      const queryTerminal = req.nextUrl.searchParams.get("terminal")?.toUpperCase();
+      if (routeTerminal && routeTerminal !== staff.terminal || queryTerminal && queryTerminal !== "ALL" && queryTerminal !== staff.terminal)
+        return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
     }
-
-    return NextResponse.next();
-  } catch {
-    return unauthorizedResponse();
+    return session.finish(NextResponse.next({ request: { headers: req.headers } }));
+  } catch (reason) {
+    const destination = reason instanceof AccessError && reason.status === 401 ? "/login" : "/access-denied";
+    const response = NextResponse.redirect(new URL(destination, req.url));
+    return session ? session.finish(response) : response;
   }
 }
-
-export const config = {
-  matcher: [
-    "/pnl/:path*",
-    "/api/pnl/:path*",
-    "/warehouse/gate/:path*",
-    "/warehouse/checkin/:path*",
-    "/api/warehouse/gate-sites/:path*",
-    "/api/warehouse/checkin-bol/:path*",
-    "/api/warehouse/container-queue/:path*",
-    "/api/warehouse/domestic-queue/:path*",
-    "/api/warehouse/domestic-history/:path*",
-  ],
-};
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|scm-logo.png).*)"] };

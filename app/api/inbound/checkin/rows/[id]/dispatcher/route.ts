@@ -1,10 +1,11 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getOrderDispatcher } from "@/lib/inbound/checkin/dispatcher";
 
 export const runtime = "nodejs";
 
-export async function GET(
+async function GETHandler(
   _req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -59,3 +60,5 @@ export async function GET(
     return NextResponse.json({ dispatcherName: null, dispatcherId: null });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

@@ -1,9 +1,10 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 export const runtime = "nodejs";
 
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string; lineId: string }> }) {
+async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: string; lineId: string }> }) {
   try {
     const { id, lineId } = await context.params;
     const body = await req.json();
@@ -17,8 +18,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: "Reload the booking and enter a valid action and note" }, { status: 400 });
     const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) throw new Error("Missing Supabase environment variables");
-    let actor = "warehouse user";
-    try { actor = atob(req.headers.get("authorization")?.slice(6) ?? "").split(":")[0] || actor; } catch { /* Staff session name is optional. */ }
+    const actor = staffActor(req);
     const { error } = await createClient(url, key).rpc("change_cotton_outbound_mark", {
       p_booking_id: id, p_line_id: lineId, p_terminal: terminal, p_site_code: siteCode,
       p_expected_updated_at: body.expectedUpdatedAt, p_action: body.action, p_note: body.note, p_changed_by: actor,
@@ -29,3 +29,5 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ ok: false, error: reason instanceof Error ? reason.message : "Could not change booking mark" }, { status: 500 });
   }
 }
+
+export const PATCH = withStaffAccess(PATCHHandler);

@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -10,7 +11,7 @@ function database() {
   return createClient(url, key);
 }
 
-export async function GET(
+async function GETHandler(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -43,3 +44,5 @@ export async function GET(
     }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
@@ -8,7 +9,7 @@ type ProcessRequestBody = {
   rows?: InboundExcelRow[];
 };
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const body = (await req.json()) as ProcessRequestBody;
     const rows = body?.rows ?? [];
@@ -50,3 +51,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

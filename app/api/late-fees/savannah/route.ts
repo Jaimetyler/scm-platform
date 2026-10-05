@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -41,7 +42,7 @@ async function getCandidateOrdersFromSnapshots(
     .filter(Boolean) as McleodOrderSummary[];
 }
 
-export async function GET(req: Request) {
+async function GETHandler(req: Request) {
   try {
     const config = officeConfigs.savannah;
     const { searchParams } = new URL(req.url);
@@ -160,3 +161,4 @@ export async function GET(req: Request) {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

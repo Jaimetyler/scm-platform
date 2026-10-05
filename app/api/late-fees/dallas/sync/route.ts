@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getPolicyMap, type LateFeePolicy } from "@/lib/lateFeePolicies";
@@ -207,7 +208,7 @@ function toSnapshot(order: McleodOrder) {
   };
 }
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const orderIds = Array.isArray(body.orderIds)
@@ -282,3 +283,4 @@ export async function POST(req: Request) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

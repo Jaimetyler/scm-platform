@@ -1,10 +1,11 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { normalizeBookingMark } from "@/lib/warehouse/outbound/marks";
 
 export const runtime = "nodejs";
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function POSTHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const body = await req.json();
@@ -22,8 +23,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) throw new Error("Missing Supabase environment variables");
-    let actor = "warehouse user";
-    try { actor = atob(req.headers.get("authorization")?.slice(6) ?? "").split(":")[0] || actor; } catch { /* Use the staff fallback. */ }
+    const actor = staffActor(req);
     const { data, error } = await createClient(url, key).rpc("add_cotton_outbound_booking_mark", {
       p_booking_id: id, p_terminal: terminal, p_site_code: siteCode, p_expected_updated_at: expectedUpdatedAt,
       p_request_id: requestId, p_mark: values.mark, p_bales: values.bales, p_shipping_order: values.shippingOrder, p_changed_by: actor,
@@ -32,3 +32,5 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     return NextResponse.json({ ok: true, lineId: data });
   } catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not add mark" }, { status: 500 }); }
 }
+
+export const POST = withStaffAccess(POSTHandler);

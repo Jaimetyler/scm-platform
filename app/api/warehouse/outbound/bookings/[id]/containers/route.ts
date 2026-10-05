@@ -1,3 +1,4 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -28,12 +29,9 @@ async function ownsBooking(id: string, terminal: string, siteCode: string) {
   if (error) throw error;
   return Boolean(data);
 }
-function user(req: NextRequest) {
-  try { return atob(req.headers.get("authorization")?.slice(6) ?? "").split(":")[0] || "warehouse user"; }
-  catch { return "warehouse user"; }
-}
+function user(req: NextRequest) { return staffActor(req); }
 
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const body = await req.json();
@@ -80,3 +78,5 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save container" }, { status: 500 });
   }
 }
+
+export const PATCH = withStaffAccess(PATCHHandler);

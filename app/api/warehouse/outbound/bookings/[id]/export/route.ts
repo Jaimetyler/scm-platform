@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
@@ -9,7 +10,7 @@ function database() {
   if (!url || !key) throw new Error("Missing Supabase environment variables");
   return createClient(url, key);
 }
-export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const params = new URL(req.url).searchParams;
@@ -103,3 +104,5 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not export booking" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

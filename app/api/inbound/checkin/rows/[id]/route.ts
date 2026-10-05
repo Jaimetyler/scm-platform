@@ -1,3 +1,4 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
@@ -84,7 +85,7 @@ type CheckinRow = ShortageFields & {
   destination?: string | null;
 };
 
-export async function PATCH(
+async function PATCHHandler(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -191,7 +192,7 @@ export async function PATCH(
     if (body?.acknowledgeShortage === true) {
       if (!body.expectedUpdatedAt) return NextResponse.json({ ok: false, error: "Reload before acknowledging a shortage" }, { status: 409 });
       if (shortageAcknowledged(merged)) return NextResponse.json({ ok: false, error: "The current shortage has already been acknowledged" }, { status: 409 });
-      try { Object.assign(merged, acknowledgeShortage(merged, body.shortageNote, checkinActor(req.headers.get("authorization")), at));
+      try { Object.assign(merged, acknowledgeShortage(merged, body.shortageNote, staffActor(req), at));
         merged.comment_1 = [merged.comment_1, `Shortage acknowledged: ${shortage!.received} of ${shortage!.expected} bales. ${merged.shortage_note}`].filter(Boolean).join("\n"); }
       catch (error) { return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 400 }); }
     }
@@ -201,7 +202,7 @@ export async function PATCH(
       if (!followup || followup.length > 2000) return NextResponse.json({ ok: false, error: "Enter a customer notification note (up to 2,000 characters)" }, { status: 400 });
       if (merged.customer_notified_at) return NextResponse.json({ ok: false, error: "Customer notification has already been recorded" }, { status: 409 });
       merged.customer_notified_at = at;
-      merged.customer_notified_by = checkinActor(req.headers.get("authorization"));
+      merged.customer_notified_by = staffActor(req);
       merged.comment_1 = [merged.comment_1, `Customer notified: ${followup}`].filter(Boolean).join("\n");
     }
     const draft_status = shortage && shortageAcknowledged(merged) && isCompleteCheckin(merged)
@@ -295,7 +296,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
+async function DELETEHandler(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -335,3 +336,6 @@ export async function DELETE(
     );
   }
 }
+
+export const PATCH = withStaffAccess(PATCHHandler);
+export const DELETE = withStaffAccess(DELETEHandler);

@@ -1,3 +1,4 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -12,17 +13,9 @@ function database() {
   return createClient(url, key);
 }
 
-function requestUser(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  if (!auth?.startsWith("Basic ")) return "warehouse user";
-  try {
-    return atob(auth.slice(6)).split(":")[0]?.trim() || "warehouse user";
-  } catch {
-    return "warehouse user";
-  }
-}
+function requestUser(req: NextRequest) { return staffActor(req); }
 
-export async function PATCH(
+async function PATCHHandler(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
@@ -77,3 +70,5 @@ export async function PATCH(
     }, { status: 500 });
   }
 }
+
+export const PATCH = withStaffAccess(PATCHHandler);

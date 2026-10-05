@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite } from "@/components/auth/StaffSession";
 
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
@@ -41,6 +42,7 @@ const LABEL: Record<Status, string> = {
 export default function DomesticQueuePage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
   const site = getCheckinSite(params.terminal, params.siteCode);
+  const canWrite = useCanWrite(site?.terminal);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -291,7 +293,7 @@ export default function DomesticQueuePage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
         <div><strong style={{ color: "#f8fafc", fontSize: 18 }}>Lumber & Other</strong><div style={{ ...muted, fontSize: 13 }}>{counts.join(" · ")}</div></div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button style={primary} onClick={() => { setError(""); setDrafts([blankDraft(`staff-${Date.now()}`)]); }}>+ New check-in</button>
+          <button disabled={!canWrite} style={primary} onClick={() => { setError(""); setDrafts([blankDraft(`staff-${Date.now()}`)]); }}>+ New check-in</button>
           <button style={button} onClick={() => void load()}>Refresh</button>
         </div>
       </div>
@@ -310,11 +312,11 @@ export default function DomesticQueuePage() {
               <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
               <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>
               <td style={cell}><input key={row.updated_at} aria-label={`Reference for ${row.driver_name}`} defaultValue={row.reference_number}
-                disabled={editingId !== row.id}
+                disabled={!canWrite || editingId !== row.id}
                 onBlur={(event) => void saveField(row, "reference_number", event.target.value)} style={sheetInput} /></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Customer for ${row.driver_name}`}
                 defaultValue={row.shipper ?? ""} placeholder="Enter customer"
-                disabled={editingId !== row.id}
+                disabled={!canWrite || editingId !== row.id}
                 onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} /></td>
               <td style={cell}>{editingId === row.id
                 ? <div style={driverFields}>
@@ -331,19 +333,19 @@ export default function DomesticQueuePage() {
               <td style={cell}><div style={singleLine} title={row.destination || ""}>{row.destination || "—"}</div></td>
               <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
                 defaultValue={row.comment_1 ?? ""} placeholder="Notes"
-                disabled={editingId !== row.id}
+                disabled={!canWrite || editingId !== row.id}
                 onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
               <td style={cell}><strong style={statusPill}>{LABEL[row.yard_status]}</strong>
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
                   <button style={button} onClick={() => toggleDetails(row.id)} aria-expanded={expandedIds.has(row.id)}>
                     {expandedIds.has(row.id) ? "Less" : "Details"}</button>
                   {editingId !== row.id ?
-                    <button disabled={Boolean(working || matchWorking)} style={button} onClick={() => {
+                    <button disabled={!canWrite || Boolean(working || matchWorking)} style={button} onClick={() => {
                       setEditingId(row.id); setExpandedIds((current) => new Set(current).add(row.id));
                     }}>Edit</button> : <>
                     <button disabled={working === row.id || matchWorking === row.id} style={button} onClick={() => setEditingId(null)}>Close edit</button>
-                    <button disabled={working === row.id} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
-                    <button disabled={working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
+                    <button disabled={!canWrite || working === row.id} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
+                    <button disabled={!canWrite || working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
                   </>}
                 </div></td>
             </tr>{expandedIds.has(row.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
@@ -356,7 +358,7 @@ export default function DomesticQueuePage() {
                 {matches[row.id]?.length === 0 && <span>No matching order</span>}
                 {matches[row.id]?.map((match) => match.completion ?
                   <CompletedOrderNotice key={`${match.orderId}-${match.direction}`} orderId={match.orderId} completion={match.completion} /> : <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, textAlign: "left" }}
-                  disabled={editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
+                  disabled={!canWrite || editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
                   <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
                   <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
                     {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
@@ -421,7 +423,7 @@ export default function DomesticQueuePage() {
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
           <button type="button" style={button} disabled={working === draft.id} onClick={() => setDrafts([])}>Cancel</button>
-          <button type="submit" style={primary} disabled={working === draft.id || draftSearching[draft.id] || Boolean(draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion))}>{working === draft.id ? "Checking in…" : "Check in truck"}</button>
+          <button type="submit" style={primary} disabled={!canWrite || working === draft.id || draftSearching[draft.id] || Boolean(draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion))}>{working === draft.id ? "Checking in…" : "Check in truck"}</button>
         </div>
       </form>
     </div>)}

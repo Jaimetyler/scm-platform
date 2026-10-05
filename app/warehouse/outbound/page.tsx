@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import { useSearchParams } from "next/navigation";
@@ -19,7 +20,7 @@ type Preview = { booking: { bookingNumber: string; customer: string; customerRef
 type Preferences = { warehouse: string; view: DeadlineView; group: BookingGroup; search: string; basis: "cutoff" | "erd" };
 const defaultPreferences: Preferences = { warehouse: "all", view: "all", group: "schedule", search: "", basis: "cutoff" };
 const storageKey = "scm.outbound.dashboard";
-const sites = CHECKIN_SITES.filter((site) => site.materials.includes("cotton"));
+
 const input: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, borderWidth: 1, borderStyle: "solid", borderColor: "#475569", background: "#0f172a", color: "#f8fafc" };
 const button: React.CSSProperties = { ...input, cursor: "pointer", fontWeight: 700 };
 const active: React.CSSProperties = { borderColor: "#38bdf8", background: "rgba(14,165,233,.12)", color: "#e0f2fe" };
@@ -38,6 +39,8 @@ function validPreferences(raw: Partial<Preferences>): Preferences {
 }
 
 export default function CottonOutboundPage() {
+  const staff = useStaff();
+  const sites = CHECKIN_SITES.filter((site) => site.materials.includes("cotton") && (staff?.role !== "operator" || site.terminal === staff.terminal));
   const { location, ready } = useWarehouseWorkspace();
   const queryParams = useSearchParams();
   const [storedPreferences, setStoredPreferences] = useState(defaultPreferences);
@@ -78,6 +81,7 @@ export default function CottonOutboundPage() {
   const [datesConfirmed, setDatesConfirmed] = useState(false);
   const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
+  const canWrite = useCanWrite(site?.terminal);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60000);
     return () => window.clearInterval(timer);
@@ -192,7 +196,7 @@ export default function CottonOutboundPage() {
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
         {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.bales}</td><td>{line.shippingOrder}</td><td>{line.warehouse}</td><td>{line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
-      <button style={{ ...button, marginTop: 14 }} disabled={working || !datesConfirmed || !!preview.booking.warnings.length} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
+      <button style={{ ...button, marginTop: 14 }} disabled={!canWrite || working || !datesConfirmed || !!preview.booking.warnings.length} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
     </PlatformPanel>}
 
     </div>}

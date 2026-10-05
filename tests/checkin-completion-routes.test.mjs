@@ -20,6 +20,7 @@ function load(path, overrides = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const defaults = {
     "next/server": { NextResponse: Response },
+    "@/lib/auth/guard": { withStaffAccess: handler => handler, staffActor: () => "test staff", staffProfile: () => ({ role: "admin" }) },
     "@supabase/supabase-js": { createClient: () => { throw new Error("Unexpected database access"); } },
     "@/lib/inbound/checkin/mcleod-order-id": orderHelpers,
     "@/lib/inbound/checkin/current-cotton-order": { currentCottonOrder },

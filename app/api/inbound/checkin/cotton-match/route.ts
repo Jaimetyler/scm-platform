@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { describeMcleodCompletion, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import { NextRequest, NextResponse } from "next/server";
@@ -13,7 +14,7 @@ function named(input: unknown) {
   return input && typeof input === "object" ? value((input as Record<string, unknown>).name) : "";
 }
 
-export async function GET(request: NextRequest) {
+async function GETHandler(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const mark = value(params.get("mark")).toUpperCase();
@@ -123,3 +124,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);

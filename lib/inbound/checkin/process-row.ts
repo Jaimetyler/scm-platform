@@ -48,8 +48,10 @@ export async function processCheckinRow(req: NextRequest, id: string) {
         "Content-Type": "application/json",
         cookie: req.headers.get("cookie") ?? "",
         authorization: req.headers.get("authorization") ?? "",
+        origin: req.headers.get("origin") ?? "",
       },
       body: JSON.stringify({
+        checkinId: id,
         row: {
           receivedDate: row.received_date,
           mark: row.mark,
@@ -60,6 +62,7 @@ export async function processCheckinRow(req: NextRequest, id: string) {
           location: row.warehouse_location,
           sourceSheet: row.sub_location,
           terminal: row.terminal,
+          siteCode: row.site_code,
           equipmentType: row.equipment_type,
           source: "live_checkin",
           checkedInAt: row.checked_in_at,

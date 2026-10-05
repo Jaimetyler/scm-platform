@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -61,7 +62,7 @@ async function probe(name: string, body: unknown) {
   };
 }
 
-export async function GET(req: Request) {
+async function GETHandler(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
@@ -162,3 +163,4 @@ export async function GET(req: Request) {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

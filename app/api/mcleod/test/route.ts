@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -51,7 +52,7 @@ async function fetchJsonOrText(url: string) {
   };
 }
 
-export async function GET() {
+async function GETHandler() {
   try {
     const baseUrl = getBaseUrl();
 
@@ -86,3 +87,4 @@ export async function GET() {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);

@@ -1,9 +1,10 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 export const runtime = "nodejs";
-export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const params = new URL(req.url).searchParams;
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   }
 }
 
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const body = await req.json();
@@ -111,3 +112,6 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not update booking details" }, { status: 500 });
   }
 }
+
+export const GET = withStaffAccess(GETHandler);
+export const PATCH = withStaffAccess(PATCHHandler);

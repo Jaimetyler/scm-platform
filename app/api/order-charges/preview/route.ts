@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
@@ -141,7 +142,7 @@ async function findOrderCandidates(blnum: string, terminal: string) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const { csvText, terminal } = await req.json();
 
@@ -303,3 +304,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

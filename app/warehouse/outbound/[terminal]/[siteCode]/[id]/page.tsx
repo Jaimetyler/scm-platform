@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite } from "@/components/auth/StaffSession";
 import Link from "next/link";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 import { safeOutboundReturn } from "@/lib/warehouse/navigation";
@@ -34,6 +35,7 @@ export default function CottonOutboundBookingPage() {
   const queryParams = useSearchParams();
   const params = useParams<{ terminal: string; siteCode: string; id: string }>();
   const terminal = String(params.terminal ?? "").toUpperCase();
+  const canWrite = useCanWrite(terminal);
   const siteCode = String(params.siteCode ?? "");
   const id = String(params.id ?? "");
   const requestedReturn = queryParams.get("returnTo");
@@ -268,8 +270,8 @@ export default function CottonOutboundBookingPage() {
           <a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`}>Export Booking</a>
           <a href={`/api/warehouse/outbound/bookings/${id}/container-info?terminal=${terminal}&siteCode=${siteCode}`}>Export Container Info</a>
           <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
-          <button type="button" disabled={Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
-          <button type="button" disabled={Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import sailing details</button>
+          <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
+          <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import sailing details</button>
         </div></details></>} />
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
@@ -291,21 +293,21 @@ export default function CottonOutboundBookingPage() {
         <CutoffInput label="Cutoff" value={details.cutoff} onChange={(value) => setDetails((current) => ({ ...current, cutoff: value }))} />
         <label>Vessel<input style={input} maxLength={200} value={details.vessel} onChange={(event) => setDetails((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div><p style={{ color: "#94a3b8", fontSize: 12 }}>Times are optional and local to {booking.site_name}.</p>
-      <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={Boolean(working)}>{working === "details" ? "Saving…" : "Save details"}</button>
-        <button style={button} type="button" disabled={Boolean(working)} onClick={() => { setEditingDetails(false); setMessage(""); }}>Cancel</button></div>
+      <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "details" ? "Saving…" : "Save details"}</button>
+        <button style={button} type="button" disabled={!canWrite || Boolean(working)} onClick={() => { setEditingDetails(false); setMessage(""); }}>Cancel</button></div>
     </form> : null}
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}</PlatformPanel>
 
     {lines.some((line) => line.source_arrivals?.length && line.line_status !== "cancelled") && <PlatformPanel><div role="alert" style={{ color: "#fde68a" }}>
       <strong>Source loads arrived at a warehouse — review required</strong>
-      {lines.filter((line) => line.source_arrivals?.length && line.line_status !== "cancelled").map((line) => <p key={line.id}>{line.mark} · {line.source_arrivals.map((arrival) => arrival.arrival_site_name).join(", ")} · <button type="button" style={button} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button> <button type="button" style={button} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "keep_source")}>Keep as source load</button></p>)}
+      {lines.filter((line) => line.source_arrivals?.length && line.line_status !== "cancelled").map((line) => <p key={line.id}>{line.mark} · {line.source_arrivals.map((arrival) => arrival.arrival_site_name).join(", ")} · <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button> <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "keep_source")}>Keep as source load</button></p>)}
     </div></PlatformPanel>}
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Badges show receiving status. Green bale counts match the requested quantity.</p></div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => setSearch(event.target.value)}
         placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
-        <button type="button" style={button} disabled={Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
-        <button type="button" style={button} disabled={Boolean(working) || rollMode} onClick={() => { setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
+        <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
+        <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
 
     {rollMode ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
@@ -318,9 +320,9 @@ export default function CottonOutboundBookingPage() {
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Destination booking number" style={{ ...input, width: 240 }} value={rollBooking}
         onChange={(event) => setRollBooking(event.target.value.toUpperCase())} placeholder="Destination booking #" />
-        <button type="button" style={button} disabled={Boolean(working) || !rollBooking.trim() || selectedLines.size === 0} onClick={() => void rollSelected()}>
+        <button type="button" style={button} disabled={!canWrite || Boolean(working) || !rollBooking.trim() || selectedLines.size === 0} onClick={() => void rollSelected()}>
           {working === "bulk-roll" ? "Moving marks…" : "Move selected marks"}</button>
-        <button type="button" style={button} disabled={Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
+        <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
     </div> : null}
 
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse" }}><thead><tr>
@@ -345,18 +347,18 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><strong>{row.sequence_no}</strong></td>
         <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges(line).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#94a3b8" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
-        <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
-        <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
-        <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {
+        <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
+        <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
+        <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {
           if (terminal === "SAV" && !draft.chassisNumber) change(row, "chassisNumber", "SCMI");
         }} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
-        <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
+        <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : saved && row.container_number && row.seal_number ? "Saved" : draft.containerNumber && draft.sealNumber ? "Auto-saving…" : "Needs container + seal"}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
-            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
-            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
-            {line.load_source === "source_load" && <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button>}
+            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
+            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
+            {line.load_source === "source_load" && <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button>}
           </div></details>}
         </td></tr>;
     })}</tbody></table></div>
@@ -367,7 +369,7 @@ export default function CottonOutboundBookingPage() {
         <p style={{ color: "#cbd5e1", fontSize: 13 }}>{markAction.action === "hold" ? "Keep this mark on ice. Its equipment and split actions are locked until you resume it." : markAction.action === "cancel" ? "Remove this mark from the booking’s requested total and active load plan. Its history and saved equipment remain visible in a locked row below." : markAction.action === "warehouse" ? `Plan this mark through ${booking.site_name}. This does not mark it as received; normal check-in and warehouse receiving still apply.` : markAction.action === "keep_source" ? "Acknowledge the unexpected arrival and explain why the direct-pickup plan still applies." : "Return this mark to the active plan."}</p>
         <label>Note {markAction.action === "keep_source" ? "(required)" : "(optional)"}<textarea aria-label="Mark action note" required={markAction.action === "keep_source"} maxLength={500} style={input} value={markAction.note} onChange={(event) => setMarkAction((current) => current && { ...current, note: event.target.value })} /></label>
         {actionError && <p role="alert" style={{ color: "#fca5a5" }}>{actionError}</p>}
-        <div style={{ display: "flex", gap: 8, marginTop: 18 }}><button style={button} type="submit" disabled={Boolean(working)}>{working === "mark-action" ? "Saving…" : "Confirm change"}</button><button style={button} type="button" disabled={Boolean(working)} onClick={() => setMarkAction(null)}>Back</button></div>
+        <div style={{ display: "flex", gap: 8, marginTop: 18 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "mark-action" ? "Saving…" : "Confirm change"}</button><button style={button} type="button" disabled={!canWrite || Boolean(working)} onClick={() => setMarkAction(null)}>Back</button></div>
       </form>
     </div>}
     {newMark && <div role="dialog" aria-modal="true" aria-labelledby="add-mark-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>
@@ -376,12 +378,12 @@ export default function CottonOutboundBookingPage() {
         <p style={{ color: "#94a3b8", fontSize: 13 }}>Add the mark and requested bales to booking {booking.booking_number}. Container details can be entered on its row afterward.</p>
         {markError && <p role="alert" style={{ color: "#fca5a5" }}>{markError}</p>}
         <div style={{ display: "grid", gap: 14 }}>
-          <label>Mark<input autoFocus required maxLength={80} value={newMark.mark} disabled={Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, mark: event.target.value.toUpperCase() })} /></label>
-          <label>Requested bales<input required type="number" min={1} max={1000000} step={1} value={newMark.bales} disabled={Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, bales: event.target.value })} /></label>
-          <label>Shipping order (optional)<input maxLength={200} value={newMark.shippingOrder} disabled={Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, shippingOrder: event.target.value })} /></label>
+          <label>Mark<input autoFocus required maxLength={80} value={newMark.mark} disabled={!canWrite || Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, mark: event.target.value.toUpperCase() })} /></label>
+          <label>Requested bales<input required type="number" min={1} max={1000000} step={1} value={newMark.bales} disabled={!canWrite || Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, bales: event.target.value })} /></label>
+          <label>Shipping order (optional)<input maxLength={200} value={newMark.shippingOrder} disabled={!canWrite || Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, shippingOrder: event.target.value })} /></label>
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 20 }}><button type="submit" disabled={Boolean(working)} style={button}>{working === "add-mark" ? "Adding mark…" : "Add mark"}</button>
-          <button type="button" disabled={Boolean(working)} onClick={() => setNewMark(null)} style={button}>Cancel</button></div>
+        <div style={{ display: "flex", gap: 8, marginTop: 20 }}><button type="submit" disabled={!canWrite || Boolean(working)} style={button}>{working === "add-mark" ? "Adding mark…" : "Add mark"}</button>
+          <button type="button" disabled={!canWrite || Boolean(working)} onClick={() => setNewMark(null)} style={button}>Cancel</button></div>
       </form>
     </div>}
   </main>;

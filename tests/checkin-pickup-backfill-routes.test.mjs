@@ -14,6 +14,7 @@ function load(path, overrides = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const modules = {
     "next/server": { NextResponse: Response },
+    "@/lib/auth/guard": { withStaffAccess: handler => handler, staffActor: () => "test staff", staffProfile: () => ({ role: "admin" }) },
     "@supabase/supabase-js": { createClient: () => { throw new Error("Unexpected database access"); } },
     "@/lib/mcleod/inbound/resolveCustomer": { resolveCustomer: () => { throw new Error("Fixture should have customer_id"); } },
     "@/lib/inbound/checkin/ready": {}, "@/lib/inbound/checkin/process-row": {},

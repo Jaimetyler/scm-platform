@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
@@ -33,11 +34,11 @@ function normalizeReportMonth(input: string | null) {
   return `${input}-01`;
 }
 
-export async function GET() {
+async function GETHandler() {
   return NextResponse.json({ ok: true, route: "pnl upload api" });
 }
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   try {
     const url =
       process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -171,3 +172,5 @@ export async function POST(req: Request) {
     );
   }
 }
+export const GET = withStaffAccess(GETHandler);
+export const POST = withStaffAccess(POSTHandler);

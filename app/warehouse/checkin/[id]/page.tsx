@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireStaffPage } from "@/lib/auth/page";
 import { createClient } from "@supabase/supabase-js";
 import { notFound } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -19,6 +20,7 @@ function database() {
 export default async function DriverCheckinDetailsPage({
   params,
 }: { params: Promise<{ id: string }> }) {
+  const staff = await requireStaffPage();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
@@ -28,7 +30,7 @@ export default async function DriverCheckinDetailsPage({
     .eq("checkin_source", "driver_qr")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!row) notFound();
+  if (!row || staff.role === "operator" && row.terminal !== staff.terminal) notFound();
 
   const terminalSlug = row.terminal === "HOU" ? "hou" : "sav";
   const isCotton = row.material_type === "cotton";

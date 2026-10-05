@@ -1,12 +1,10 @@
+import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 export const runtime = "nodejs";
-function user(req: NextRequest) {
-  try { return atob(req.headers.get("authorization")?.slice(6) ?? "").split(":")[0] || "warehouse user"; }
-  catch { return "warehouse user"; }
-}
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+function user(req: NextRequest) { return staffActor(req); }
+async function POSTHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const body = await req.json();
@@ -38,3 +36,5 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not roll selected marks" }, { status: 500 });
   }
 }
+
+export const POST = withStaffAccess(POSTHandler);

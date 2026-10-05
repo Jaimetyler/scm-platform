@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 
 const MCLEOD_BASE_URL = process.env.MCLEOD_BASE_URL!;
@@ -131,7 +132,7 @@ async function autorateOrder(orderId: string) {
   return mcleodRequest(`/orders/autorate/${orderId}`, "POST");
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const syncEnabled = process.env.MCLEOD_SYNC_ENABLED === "true";
 
@@ -369,3 +370,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

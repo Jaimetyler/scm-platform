@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite } from "@/components/auth/StaffSession";
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -11,6 +12,7 @@ type QueueRow = { id: string; checked_in_at: string; driver_name: string; queue_
 export default function ContainerLinePage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
   const site = getCheckinSite(params.terminal, params.siteCode);
+  const canWrite = useCanWrite(site?.terminal);
   const [rows, setRows] = useState<QueueRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -82,8 +84,8 @@ export default function ContainerLinePage() {
               <div style={{ color: "#f8fafc", fontSize: 19, fontWeight: 900 }}>{row.driver_name}</div>
               <div style={mutedStyle}>Checked in {formatTime(row.checked_in_at)} · {waitingTime(row.checked_in_at)}</div>
             </div>
-            <button disabled={workingId === row.id} onClick={() => void update(row.id, "complete")} style={completeStyle}>Complete</button>
-            <button disabled={workingId === row.id} onClick={() => void update(row.id, "cancel")} style={removeStyle}>Remove</button>
+            <button disabled={!canWrite || workingId === row.id} onClick={() => void update(row.id, "complete")} style={completeStyle}>Complete</button>
+            <button disabled={!canWrite || workingId === row.id} onClick={() => void update(row.id, "cancel")} style={removeStyle}>Remove</button>
           </div>)}
         </div>}
     </PlatformPanel>

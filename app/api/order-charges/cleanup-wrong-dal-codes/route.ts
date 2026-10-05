@@ -1,3 +1,4 @@
+import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 
 const MCLEOD_BASE_URL = process.env.MCLEOD_BASE_URL!;
@@ -61,7 +62,7 @@ function isBadCharge(c: any) {
   );
 }
 
-export async function POST(req: NextRequest) {
+async function POSTHandler(req: NextRequest) {
   try {
     const body = await req.json();
 
@@ -183,3 +184,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+export const POST = withStaffAccess(POSTHandler);

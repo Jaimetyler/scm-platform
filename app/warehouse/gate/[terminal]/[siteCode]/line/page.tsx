@@ -1,4 +1,5 @@
 "use client";
+import { useCanWrite } from "@/components/auth/StaffSession";
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
@@ -31,6 +32,7 @@ const LABEL: Record<Status, string> = {
 export default function DomesticLinePage() {
   const params = useParams<{ terminal: string; siteCode: string }>();
   const site = getCheckinSite(params.terminal, params.siteCode);
+  const canWrite = useCanWrite(site?.terminal);
   const [rows, setRows] = useState<Arrival[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -135,9 +137,9 @@ export default function DomesticLinePage() {
               {row.carrier_code && <small style={{ display: "block", color: "#94a3b8" }}>Carrier {row.carrier_code}</small>}</td>
             <td style={cell}>{LABEL[row.yard_status]}{cottonShortage(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>{cottonShortage(row)!.missing} bales short · McLeod delivery blocked{!row.customer_notified_at && " · Notify customer"}</div>}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
             <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              <button disabled={Boolean(working)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)
+              <button disabled={!canWrite || Boolean(working)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)
                 ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>
-              <button disabled={Boolean(working)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
+              <button disabled={!canWrite || Boolean(working)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
             </div></td>
           </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={11} style={{ ...cell, background: "#132337" }}>
             <form onSubmit={(event) => { event.preventDefault(); void move(row, "checkout", cottonFields[row.id]); }}>
@@ -161,8 +163,8 @@ export default function DomesticLinePage() {
                 <label style={{ display: "grid", gap: 5 }}>Shortage note<textarea value={cottonFields[row.id].shortageNote} maxLength={2000} onChange={(event) => changeCotton(row.id, "shortageNote", event.target.value)} style={input} /></label>
               </div>}
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button type="submit" disabled={Boolean(working)} style={primary}>{working === row.id ? "Finishing…" : cottonShortage({ ...row, bol_bc: Number(cottonFields[row.id].bolBC) || null, bale_count: cottonFields[row.id].baleCount === "" ? null : Number(cottonFields[row.id].baleCount) }) ? "Finish receiving & check out" : "Process delivery & check out"}</button>
-                <button type="button" disabled={Boolean(working)} style={button} onClick={() => setCottonEditId(null)}>Cancel</button>
+                <button type="submit" disabled={!canWrite || Boolean(working)} style={primary}>{working === row.id ? "Finishing…" : cottonShortage({ ...row, bol_bc: Number(cottonFields[row.id].bolBC) || null, bale_count: cottonFields[row.id].baleCount === "" ? null : Number(cottonFields[row.id].baleCount) }) ? "Finish receiving & check out" : "Process delivery & check out"}</button>
+                <button type="button" disabled={!canWrite || Boolean(working)} style={button} onClick={() => setCottonEditId(null)}>Cancel</button>
               </div>
             </form>
           </td></tr>}</Fragment>)}</tbody>
