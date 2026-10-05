@@ -16,7 +16,7 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
   const db = staffDatabase();
   const { data, error } = await db.rpc("scm_manage_staff", { p_actor: staffProfile(req)!.id, p_action: body.action,
     p_target: body.id || null, p_email: values?.email, p_name: values?.name, p_role: values?.role, p_terminal: values?.terminal });
-  if (error) throw new AccessError(error.code === "23505" ? "That email is already listed. Resend its pending invitation instead." : error.message, 409);
+  if (error) throw new AccessError(error.code === "23505" ? "That email is already listed. Use Resend or Reinvite on its existing row." : error.message, 409);
   const staff = Array.isArray(data) ? data[0] : data;
   if (["invite", "resend"].includes(body.action)) {
     const { error: mailError } = await sendStaffInvitation(staff.email, db);

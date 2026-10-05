@@ -42,7 +42,10 @@ export default function UsersPage() {
         <button disabled={busy} onClick={()=>{if(confirm(`Save ${user.role} access${user.terminal ? ` for ${user.terminal}` : ""} for ${user.email}?`)) void action({...user,action:"access"},"Permissions updated.");}}>Save access</button>
       </> : <>{user.role}{user.terminal ? ` · ${user.terminal}` : " · all terminals"}</>}</td>
       <td>{user.status === "pending" && Date.parse(user.invite_expires_at) < Date.now() ? "Expired invitation" : user.status}</td>
-      <td>{user.status === "pending" && <button disabled={busy} onClick={()=>void action({action:"resend",id:user.id},"Invitation resent.")}>Resend</button>} {user.status !== "disabled" && user.id !== self?.id && <button disabled={busy} onClick={()=>{
+      <td>{["pending", "disabled"].includes(user.status) && user.id !== self?.id && <button disabled={busy} onClick={()=>{
+        if (user.status === "disabled" && !confirm(`Invite ${user.email} again with ${user.role} access${user.terminal ? ` for ${user.terminal}` : ""}?`)) return;
+        void action({action:"resend",id:user.id},"Invitation sent.");
+      }}>{user.status === "disabled" ? "Reinvite" : "Resend"}</button>} {user.status !== "disabled" && user.id !== self?.id && <button disabled={busy} onClick={()=>{
         if (confirm(`${user.status === "pending" ? "Cancel the invitation for" : "Deactivate"} ${user.email}?`)) void action({action:"disable",id:user.id},"Access disabled.");
       }}>{user.status === "pending" ? "Cancel invite" : "Deactivate"}</button>}</td>
     </tr>)}</tbody></table></div>
