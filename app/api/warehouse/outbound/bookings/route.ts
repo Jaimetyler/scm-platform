@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     const allWarehouses = !terminal && !siteCode;
     if (!allWarehouses && !CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton")))
       return NextResponse.json({ ok: false, error: "Unknown cotton warehouse" }, { status: 400 });
-    let query = database().from("cotton_outbound_booking_dashboard").select("*");
+    let query = database().from("cotton_outbound_booking_search_dashboard").select("*");
     query = allWarehouses ? query.or(CHECKIN_SITES.filter((site) => site.materials.includes("cotton"))
       .map((site) => `and(terminal.eq.${site.terminal},site_code.eq.${site.siteCode})`).join(",")) : query.eq("terminal", terminal).eq("site_code", siteCode);
     const { data, error } = await query.order("cutoff", { ascending: true, nullsFirst: false })

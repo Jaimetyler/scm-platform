@@ -145,7 +145,7 @@ export default function CottonOutboundPage() {
     upcoming: warehouseBookings.filter((item) => deadlineMatches(item, "upcoming", now, preferences.basis)).length, past: warehouseBookings.filter((item) => deadlineMatches(item, "past", now, preferences.basis)).length };
   const search = preferences.search.trim().toLowerCase();
   const visible = warehouseBookings.filter((item) => deadlineMatches(item, preferences.view, now, preferences.basis) && (!search ||
-    [item.booking_number, item.customer, item.customer_reference, item.vessel, item.site_name].some((value) => String(value ?? "").toLowerCase().includes(search))));
+    [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
   const groups = groupBookings(visible, preferences.group, now);
   const returnTo = encodeURIComponent(dashboardUrl(preferences));
 
@@ -169,7 +169,7 @@ export default function CottonOutboundPage() {
         </label>
         <button style={button} disabled={!site || !file || working}>{working ? "Processing…" : "Review booking request"}</button>
       </form>
-      {working && <p role="status" style={{ color: "#7dd3fc" }}>Processing {file?.name}…</p>}
+      {working && <p role="status" style={{ color: "#94a3b8" }}>Processing {file?.name}…</p>}
       {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
       <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge .xlsx files up to 4 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
@@ -182,13 +182,13 @@ export default function CottonOutboundPage() {
         <CutoffInput label="Cutoff" value={importDates.cutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, cutoff: value })); }} />
         <label>Vessel<input aria-label="Import vessel" maxLength={200} style={input} value={importDates.vessel} onChange={(event) => setImportDates((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div>
-      {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#fbbf24" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
-      {importDates.erd && importDates.cutoff && importDates.erd > importDates.cutoff.slice(0, 10) && <p style={{ color: "#fbbf24" }}>ERD is after the cutoff. Review the loading window before confirming.</p>}
+      {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
+      {importDates.erd && importDates.cutoff && importDates.erd > importDates.cutoff.slice(0, 10) && <p style={{ color: "#94a3b8" }}>ERD is after the cutoff. Review the loading window before confirming.</p>}
       <label style={{ display: "block", margin: "12px 0" }}><input type="checkbox" checked={datesConfirmed} onChange={(event) => setDatesConfirmed(event.target.checked)} /> I reviewed ERD, doc cutoff, and cutoff (including any dates still unknown).</label>
       {preview.booking.sourceDates?.length > 0 && <p style={{ color: "#94a3b8", fontSize: 12 }}>Source dates: {preview.booking.sourceDates.map(({ label, value }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`).join(" · ")}</p>}
-      {preview.booking.detailNotes?.map((note) => <p key={note} style={{ color: "#fbbf24" }}>{note}</p>)}
-      {preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#7dd3fc" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
-      {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#fbbf24" }}>{warning}</p>)}
+      {preview.booking.detailNotes?.map((note) => <p key={note} style={{ color: "#94a3b8" }}>{note}</p>)}
+      {preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#94a3b8" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
+      {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#94a3b8" }}>{warning}</p>)}
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
         {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.bales}</td><td>{line.shippingOrder}</td><td>{line.warehouse}</td><td>{line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
@@ -212,7 +212,7 @@ export default function CottonOutboundPage() {
         </button>)}
     </div>
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
-    {limitReached && <p style={{ color: "#fbbf24" }}>Showing the first 1,000 bookings ordered by cutoff.</p>}
+    {limitReached && <p style={{ color: "#94a3b8" }}>Showing the first 1,000 bookings ordered by cutoff.</p>}
 
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
@@ -221,7 +221,7 @@ export default function CottonOutboundPage() {
         {([{ key: "schedule", label: "By cutoff" }, { key: "erd", label: "By ERD" }, { key: "customer", label: "By customer" }, { key: "vessel", label: "By vessel" }] as const).map((item) =>
           <button key={item.key} type="button" aria-pressed={preferences.group === item.key} style={{ ...button, ...(preferences.group === item.key ? active : {}) }} onClick={() => setPreferences((current) => ({ ...current, group: item.key }))}>{item.label}</button>)}
       </div>
-      <input aria-label="Search outbound bookings" placeholder="Search booking, customer, or vessel" value={preferences.search} style={{ ...input, flex: "1 1 280px", maxWidth: 380 }}
+      <input aria-label="Search outbound bookings" placeholder="Search file #, booking, customer, mark, container…" value={preferences.search} style={{ ...input, flex: "1 1 280px", maxWidth: 380 }}
         onChange={(event) => setPreferences((current) => ({ ...current, search: event.target.value }))} />
     </div></PlatformPanel>
     {loading || !ready ? <p>Loading outbound bookings…</p> : groups.length === 0 ? <PlatformPanel><p style={{ margin: 0 }}>{bookings.length ? "No bookings match this view." : "No bookings imported yet. Choose a warehouse and import a request to start."}</p>
@@ -232,20 +232,21 @@ export default function CottonOutboundPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>
           {items.map((item) => <Link key={item.id} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}
             style={{ padding: 20, borderRadius: 14, border: "1px solid #334155", background: "rgba(15,23,42,.75)", display: "block" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 21, color: "#f8fafc" }}>{item.booking_number}</strong>
-              <span style={{ fontSize: 11, color: "#7dd3fc", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 21, color: "#f8fafc" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
+              <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
             <p style={{ color: "#cbd5e1", fontSize: 13, margin: "8px 0" }}>{item.customer}</p>
+            <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 8px" }}>Booking {item.booking_number} · Ref {item.customer_reference || "—"}</p>
             <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 18px", minHeight: 16 }}>{item.vessel || "Vessel needed"}</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, borderTop: "1px solid #334155", paddingTop: 14 }}>
               <DateCell label="ERD" value={item.erd} /><DateCell label="Doc cutoff" value={item.doc_cutoff} hasTime={item.doc_cutoff_has_time} today={deadlineMatches({ ...item, cutoff: null }, "today", now)} />
               <DateCell label="Cutoff" value={item.cutoff} hasTime={item.cutoff_has_time} today={deadlineMatches({ ...item, doc_cutoff: null }, "today", now)} />
             </div><div style={{ marginTop: 14, fontSize: 12 }}>
               <strong title="Active warehouse marks whose physical bale count is below the requested count. Checked-in loads remain missing until receiving is completed; source loads and held marks are excluded." style={{ color: item.missing_marks ? "#fca5a5" : "#86efac" }}>{item.missing_marks ?? 0} missing mark{item.missing_marks === 1 ? "" : "s"}</strong>
-              {!!item.source_loads && <span style={{ marginLeft: 12, color: "#7dd3fc" }}>{item.source_loads} source loads</span>}
-              {!!item.held_marks && <span style={{ marginLeft: 12, color: "#fbbf24" }}>{item.held_marks} on hold</span>}
+              {!!item.source_loads && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{item.source_loads} source loads</span>}
+              {!!item.held_marks && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{item.held_marks} on hold</span>}
               {!!item.source_arrivals && <p style={{ color: "#fde68a" }}>{item.source_arrivals} source load{item.source_arrivals === 1 ? "" : "s"} arrived — review needed</p>}
             </div><div style={{ display: "flex", justifyContent: "space-between", color: "#94a3b8", fontSize: 12, marginTop: 18 }}>
-              <span>{item.requested_bales.toLocaleString()} bales · {item.planned_containers ?? "—"} containers</span><span style={{ color: "#7dd3fc" }}>Open booking →</span></div>
+              <span>{item.requested_bales.toLocaleString()} bales · {item.planned_containers ?? "—"} containers</span><span style={{ color: "#94a3b8" }}>Open booking →</span></div>
           </Link>)}
         </div>
       </section>)}

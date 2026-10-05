@@ -1,0 +1,16 @@
+.booking-actions { position: relative; }
+.booking-actions summary { list-style: none; font-weight: 500 !important; color: #cbd5e1 !important; }
+.booking-actions summary::-webkit-details-marker { display: none; }
+.booking-actions-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 240px; padding: 6px; background: #172235; border: 1px solid #334155; border-radius: 10px; box-shadow: 0 12px 28px #02061780; }
+.booking-actions-menu a, .booking-actions-menu button { display: block; width: 100%; box-sizing: border-box; text-align: left; background: transparent; border: 0; padding: 10px 12px; color: #e2e8f0; font: inherit; font-size: 13px; border-radius: 6px; cursor: pointer; text-decoration: none; }
+.booking-actions-menu a:hover, .booking-actions-menu button:hover { background: #253449; }
+.booking-actions-menu button:disabled { opacity: .5; cursor: default; }
+.outbound-booking button { font-weight: 500 !important; }
+.outbound-booking input { border-color: #334155 !important; }
+.outbound-booking td input:disabled { opacity: .55; }
+.outbound-booking th { font-weight: 500; }
+.booking-status { color: #cbd5e1; text-transform: capitalize; }
+
+.booking-mark-actions summary { color: #94a3b8; font-size: 11px; font-weight: 400; cursor: pointer; list-style: none; }
+.booking-mark-actions > div { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.outbound-booking :focus-visible { outline: 2px solid #94a3b8; outline-offset: 3px; }

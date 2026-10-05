@@ -9,6 +9,8 @@ import CutoffInput from "@/components/warehouse/CutoffInput";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/details";
 
+import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/warehouse/outbound/container-info-rows";
+import "./booking.css";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
@@ -18,7 +20,7 @@ type Container = { id: string; sequence_no: number; booking_line_id: string | nu
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
   line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string;
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
-type Booking = { id: string; booking_number: string; customer: string; customer_reference: string | null;
+type Booking = { scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
@@ -54,7 +56,7 @@ export default function CottonOutboundBookingPage() {
   const [markAction, setMarkAction] = useState<{ line: Line; action: "hold" | "resume" | "cancel" | "warehouse" | "keep_source"; note: string } | null>(null);
   const [actionError, setActionError] = useState("");
   const [editingDetails, setEditingDetails] = useState(false);
-  const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
+  const [details, setDetails] = useState({ scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "" });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
@@ -181,9 +183,26 @@ export default function CottonOutboundBookingPage() {
     finally { setWorking(""); }
   }
 
+  async function copyContainerInfo() {
+    if (!booking) return;
+    setError(""); setMessage("");
+    if (working || Object.keys(pendingEquipment().drafts).length) {
+      setError("Finish saving equipment details before copying container information."); return;
+    }
+    try {
+      const rows = containerInfoRows(lines, containers);
+      const text = containerInfoText(booking, rows);
+      if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([containerInfoHtml(booking, rows)], { type: "text/html" }) })]);
+      } else await navigator.clipboard.writeText(text);
+      setMessage("Container information copied. Paste it into your email or spreadsheet.");
+    } catch { setError("Clipboard access failed. Try again or use Export Container Info."); }
+  }
+
   function editDetails() {
     if (!booking) return;
-    setDetails({ erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
+    setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
       cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "" });
     setEditingDetails(true);
     setImportedDateNotes([]);
@@ -200,7 +219,7 @@ export default function CottonOutboundBookingPage() {
       if (result.booking.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${result.booking.bookingNumber}, not ${booking.booking_number}.`);
       const source = result.booking;
       if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
-      setDetails({ erd: source.erd ?? bookingDateInput(booking.erd),
+      setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: source.erd ?? bookingDateInput(booking.erd),
         docCutoff: source.docCutoff ?? bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
         cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "" });
       setImportedDateNotes([...(source.sourceDates ?? []).map(({ label, value }: { label: string; value: string }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`), ...(source.detailNotes ?? [])]);
@@ -240,28 +259,33 @@ export default function CottonOutboundBookingPage() {
     };
     return rank(a) - rank(b) || a.sequence_no - b.sequence_no;
   });
-  return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
-    <PlatformPageHeader title={`Booking ${booking.booking_number}`} subtitle={`${booking.site_name} · ${booking.customer}`}
-      actions={<><a href={`/api/warehouse/outbound/bookings/${id}/container-info?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Send container info</a><a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`} style={button}>Export Excel</a>
-        <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/print`} target="_blank" style={button}>Print warehouse sheet</Link>
-        <Link href={backHref} style={button}>← Back to booking list</Link></>} />
+  return <main className="outbound-booking" style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
+    <PlatformPageHeader title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
+      subtitle={`${booking.customer} · ${booking.scm_file_number ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
+      actions={<><Link href={backHref} style={button}>← Booking list</Link>
+        <details className="booking-actions"><summary style={button}>Actions ▾</summary><div className="booking-actions-menu">
+          <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/print`} target="_blank">Print File</Link>
+          <a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`}>Export Booking</a>
+          <a href={`/api/warehouse/outbound/bookings/${id}/container-info?terminal=${terminal}&siteCode=${siteCode}`}>Export Container Info</a>
+          <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
+          <button type="button" disabled={Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
+          <button type="button" disabled={Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import sailing details</button>
+        </div></details></>} />
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
-      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span>
+      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status.replaceAll("_", " ")}</span>
     </div>
     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center", marginTop: 18 }}>
       <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>
       <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, booking.doc_cutoff_has_time !== false)}</span>
       <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, booking.cutoff_has_time !== false)}</span>
       {booking.vessel ? <span><strong>Vessel</strong> {booking.vessel}</span> : null}
-      <button type="button" style={button} disabled={Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
-      <input ref={requestInput} type="file" accept=".xlsx" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />
-      <button type="button" style={button} disabled={Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>{working === "import-details" ? "Reading request…" : "Update sailing details from booking request"}</button>
     </div>
-    <p style={{ color: "#94a3b8", fontSize: 12, margin: "10px 0 0" }}>Upload this booking’s customer request (.xlsx) to review ERD, doc cutoff, cutoff, and vessel before saving.</p>
+    <input ref={requestInput} type="file" accept=".xlsx" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />
     {editingDetails ? <form onSubmit={(event) => void saveDetails(event)} style={{ marginTop: 16 }}>
       {importedDateNotes.length ? <p style={{ color: "#fbbf24", fontSize: 12 }}>{importedDateNotes.join(" · ")}</p> : null}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+        <label>SCM File #<input style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
         <label>ERD<input type="date" style={input} value={details.erd} onChange={(event) => setDetails((current) => ({ ...current, erd: event.target.value }))} /></label>
         <CutoffInput label="Doc cutoff" value={details.docCutoff} onChange={(value) => setDetails((current) => ({ ...current, docCutoff: value }))} />
         <CutoffInput label="Cutoff" value={details.cutoff} onChange={(value) => setDetails((current) => ({ ...current, cutoff: value }))} />
@@ -307,7 +331,7 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
         <td style={td} colSpan={4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
-        <td style={{ ...td, fontSize: 12, fontWeight: 800 }}>Locked</td>
+        <td style={{ ...td, fontSize: 12, fontWeight: 600 }}>Locked</td>
       </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
       const line = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
@@ -319,7 +343,7 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges(line).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: `1px solid ${badge.color}55`, borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
+        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges(line).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#94a3b8" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
@@ -327,13 +351,13 @@ export default function CottonOutboundBookingPage() {
           if (terminal === "SAV" && !draft.chassisNumber) change(row, "chassisNumber", "SCMI");
         }} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
-        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 800 }}>
+        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : saved && row.container_number && row.seal_number ? "Saved" : draft.containerNumber && draft.sealNumber ? "Auto-saving…" : "Needs container + seal"}
-          {line && line.line_status !== "cancelled" && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
+          {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
-            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#fca5a5" }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
+            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
             {line.load_source === "source_load" && <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button>}
-          </div>}
+          </div></details>}
         </td></tr>;
     })}</tbody></table></div>
     </PlatformPanel>

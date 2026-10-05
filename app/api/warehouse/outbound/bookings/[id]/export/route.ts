@@ -87,7 +87,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     equipmentSheet["!cols"] = [10, 14, 30, 16, 18, 18, 14, 18, 20, 22, 18, 20, 30].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(workbook, equipmentSheet, "Load Plan");
     const detailsSheet = XLSX.utils.aoa_to_sheet([
-      ["Booking", booking.booking_number], ["Warehouse", booking.site_name], ["Customer", booking.customer],
+      ["SCM File #", booking.scm_file_number ?? ""], ["Customer ref", booking.customer_reference ?? ""], ["Booking", booking.booking_number], ["Warehouse", booking.site_name], ["Customer", booking.customer],
       ["ERD", booking.erd ?? ""], ["Doc cutoff", (booking.doc_cutoff_has_time === false ? booking.doc_cutoff?.slice(0, 10) : booking.doc_cutoff?.replace("T", " ")) ?? ""],
       ["Cutoff", (booking.cutoff_has_time === false ? booking.cutoff?.slice(0, 10) : booking.cutoff?.replace("T", " ")) ?? ""], ["Vessel", booking.vessel ?? ""],
     ]);

@@ -1,4 +1,5 @@
 export type DashboardBooking = {
+  scm_file_number?: string | null; search_marks?: string[]; search_containers?: string[];
   id: string; booking_number: string; terminal: string; site_code: string; site_name: string; customer: string;
   customer_reference: string | null; requested_bales: number; planned_containers: number | null; status: string;
   erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null;

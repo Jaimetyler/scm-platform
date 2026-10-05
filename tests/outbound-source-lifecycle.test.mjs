@@ -14,7 +14,7 @@ async function database() {
       terminal text,site_code text,site_name text,checked_in_at timestamptz,yard_status text);`);
   for (const name of ['030_cotton_outbound_booking_drafts.sql','031_cotton_outbound_containers.sql','032_cotton_outbound_mark_planning.sql',
     '033_outbound_automatic_mark_assignment.sql','034_cotton_outbound_bulk_rollover.sql','035_outbound_booking_details_and_split_history.sql',
-    '036_outbound_import_sailing_details.sql','038_outbound_add_booking_marks.sql','039_outbound_mark_lifecycle_and_source_loads.sql'])
+    '036_outbound_import_sailing_details.sql','038_outbound_add_booking_marks.sql','039_outbound_mark_lifecycle_and_source_loads.sql','041_outbound_scm_file_number.sql'])
     await db.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
   return db;
 }
@@ -117,9 +117,23 @@ test('container-info Excel has a booking header and only mark/container/seal col
     {booking_line_id:null,container_number:null,seal_number:null,split_transfer_id:'split',sequence_no:3}];
   const workbook=XLSX.read(containerInfoWorkbook(booking,lines,containers),{type:'buffer'});
   const rows=XLSX.utils.sheet_to_json(workbook.Sheets['Container Info'],{header:1,defval:''});
-  assert.deepEqual(rows[1],['Customer','Bunge','']);assert.deepEqual(rows[2],['Booking','TEST-123','']);
-  assert.deepEqual(rows[10],['Mark','Container number','Seal number']);
-  assert.deepEqual(rows.slice(11),[['WAREHOUSE','ABCD1234567','SEAL1'],['SOURCE','WXYZ1234567','SEAL2']]);
-  assert.equal(rows[8][1],'2026-10-05');
+  assert.deepEqual(rows[1],['Customer','Bunge','']);assert.deepEqual(rows[2],['Booking #','TEST-123','']);
+  assert.deepEqual(rows[5],['Mark','Container','Seal']);
+  assert.deepEqual(rows.slice(6),[['WAREHOUSE','ABCD1234567','SEAL1'],['SOURCE','WXYZ1234567','SEAL2']]);
+  assert.equal(rows.length, 8);
+  assert.ok(!rows.flat().includes('ERD'));
   assert.deepEqual(bookingMarkBadges({available_bales:0,inbound_bales:0,line_status:'on_hold',load_source:'source_load'}).map((badge)=>badge.label),['On hold','Source load']);
+});
+
+ test('file identifier and mark/equipment search projection preserve the original dashboard',async()=>{
+  const db=await database();try {
+    const {id,lines}=await seed(db);
+    await db.query("update cotton_outbound_bookings set scm_file_number='001234' where id=$1",[id]);
+    await db.query("update cotton_outbound_containers set container_number='ABCD1234567' where booking_line_id=$1",[lines[0].id]);
+    const row=(await db.query('select * from cotton_outbound_booking_search_dashboard where id=$1',[id])).rows[0];
+    assert.equal(row.scm_file_number,'001234');
+    assert.ok(row.search_marks.includes('STOCK'));
+    assert.ok(row.search_containers.includes('ABCD1234567'));
+    assert.equal(row.missing_marks,2);
+  }finally{await db.close();}
 });

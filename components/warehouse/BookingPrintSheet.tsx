@@ -1,6 +1,6 @@
 import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 
-export type PrintBooking = { booking_number: string; customer: string; customer_reference?: string | null; site_name: string;
+export type PrintBooking = { scm_file_number?: string | null; booking_number: string; customer: string; customer_reference?: string | null; site_name: string;
   requested_bales: number; planned_containers?: number | null; erd?: string | null; doc_cutoff?: string | null;
   cutoff?: string | null; doc_cutoff_has_time?: boolean; cutoff_has_time?: boolean; vessel?: string | null };
 export type PrintLine = { id: string; mark: string; requested_bales: number; inventory_locations: string[]; shipping_order?: string | null; line_status?: string; load_source?: string; source_warehouse?: string };
@@ -25,7 +25,9 @@ export default function BookingPrintSheet({ booking, lines, containers }: {
       <colgroup>{[3,11,6,11,10,17,10,14,18].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
       <thead>
         <tr><th colSpan={9} className="booking-print-heading">
-          <div className="booking-print-title">SCM · Warehouse booking sheet</div>
+          <img src="/scm-logo.png" alt="SCM" style={{ width: 130, height: "auto", float: "right" }} />
+          <div className="booking-print-title">SCM · Warehouse file</div>
+          <div><b>SCM File #</b> {booking.scm_file_number || "—"}</div>
           <h1>Booking {booking.booking_number}</h1>
           <div className="booking-print-details">
             <div><b>Customer</b> {booking.customer}</div><div><b>Warehouse</b> {booking.site_name}</div><div><b>Customer ref</b> {booking.customer_reference || "—"}</div>

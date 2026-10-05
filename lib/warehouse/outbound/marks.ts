@@ -3,9 +3,9 @@ export function bookingMarkBadges(line: {
 }) {
   const badges: { label: string; color: string; background: string; title: string }[] = [];
   if (line.line_status === "cancelled") return [{ label: "Cancelled", color: "#94a3b8", background: "rgba(71,85,105,.16)", title: "Removed from this booking’s active plan; history retained." }];
-  if (line.line_status === "on_hold") badges.push({ label: "On hold", color: "#fde68a", background: "rgba(180,83,9,.12)", title: "Waiting for new information. Resume before editing equipment or splitting." });
+  if (line.line_status === "on_hold") badges.push({ label: "On hold", color: "#94a3b8", background: "rgba(180,83,9,.12)", title: "Waiting for new information. Resume before editing equipment or splitting." });
   if (line.load_source === "source_load") {
-    badges.push({ label: "Source load", color: "#c4b5fd", background: "rgba(124,58,237,.16)", title: "Direct pickup in a container at the source location; warehouse receipt is not expected." });
+    badges.push({ label: "Source load", color: "#94a3b8", background: "rgba(71,85,105,.12)", title: "Direct pickup in a container at the source location; warehouse receipt is not expected." });
     if (line.source_arrivals?.length) badges.push({ label: "Unexpected warehouse arrival", color: "#fde68a", background: "rgba(180,83,9,.12)", title: "This source mark checked in at a warehouse. Review and convert its plan if needed." });
     return badges;
   }
