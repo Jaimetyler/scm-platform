@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
+import * as yardHelpers from "../lib/inbound/checkin/yard-stop.ts";
+import * as dependencyHelpers from "../lib/http/dependency.ts";
 import * as orderHelpers from "../lib/inbound/checkin/mcleod-order-id.ts";
+import * as driverLookupHelpers from "../lib/inbound/checkin/driver-lookup.ts";
 import { currentCottonOrder } from "../lib/inbound/checkin/current-cotton-order.ts";
 import { CHECKIN_SITES } from "../lib/inbound/checkin/sites.ts";
 import { extractSearchOrders } from "../lib/mcleod/inbound/search-response.ts";
@@ -23,6 +26,9 @@ function load(path, overrides = {}) {
     "@/lib/auth/guard": { withStaffAccess: handler => handler, staffActor: () => "test staff", staffProfile: () => ({ role: "admin" }) },
     "@supabase/supabase-js": { createClient: () => { throw new Error("Unexpected database access"); } },
     "@/lib/inbound/checkin/mcleod-order-id": orderHelpers,
+    "@/lib/inbound/checkin/driver-lookup": driverLookupHelpers,
+    "@/lib/inbound/checkin/yard-stop": yardHelpers,
+    "@/lib/http/dependency": dependencyHelpers,
     "@/lib/inbound/checkin/current-cotton-order": { currentCottonOrder },
     "@/lib/inbound/checkin/sites": { CHECKIN_SITES },
     "@/lib/mcleod/inbound/search-response": { extractSearchOrders },
@@ -42,7 +48,7 @@ function load(path, overrides = {}) {
     if (Object.hasOwn(modules, name)) return modules[name];
     if (name.startsWith(".") || name.startsWith("@/")) {
       const file = name.startsWith("@/") ? resolve(root, name.slice(2)) : resolve(dirname(full), name);
-      return load(existsSync(file + ".ts") ? file + ".ts" : file + ".tsx", overrides);
+      return load(existsSync(file) ? file : existsSync(file + ".ts") ? file + ".ts" : file + ".tsx", overrides);
     }
     return require(name);
   };
@@ -68,6 +74,8 @@ async function withMcleod(order, run, searchResponse = () => [order]) {
   globalThis.fetch = async (url, init) => {
     assert.ok(!init?.method || init.method === "GET", "Search must never mutate McLeod");
     const path = new URL(url);
+    if (/\/orders\/[^/]+$/.test(path.pathname) && !path.pathname.endsWith("/search") &&
+        decodeURIComponent(path.pathname.split("/").pop()) !== order.id) return Response.json(null, { status: 404 });
     return Response.json(path.pathname.endsWith("/search") ? searchResponse(path) : order);
   };
   try { await run(); } finally {
@@ -165,7 +173,7 @@ test("an HTTP failure with a null body remains a search failure", async () => {
     globalThis.fetch = async () => Response.json(null, { status: 503 });
     const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
     const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=2168418" });
-    assert.equal(response.status, 500);
+    assert.equal(response.status, 503);
     assert.match((await response.json()).error, /McLeod search failed \(503\)/);
   });
 });
@@ -250,4 +258,87 @@ test("completion notice escapes McLeod strings and shows fallback when time or c
   assert.match(markup, /Trucking company unavailable/);
   assert.match(markup, /Completion time unavailable/);
   assert.ok(!markup.includes("<button"));
+});
+
+test("BLNUM92157-shaped multi-stop fixture picks yard plus direction in driver and staff lookup", async () => {
+  const order=fixture({closed:false}); order.id="92157"; order.blnum="92157";
+  order.stops=[
+    {id:"OLDPU",movement_id:"OLD",stop_type:"PU",sched_arrive_early:"20200101090000-0600",actual_departure:"20200101100000-0600",location:{name:"SCM Houston 4331"}},
+    {id:"TARGETPU",movement_id:"CURRENT",stop_type:"PU",sched_arrive_early:new Date().toISOString(),location:{name:"SCM Houston 5300"}},
+    {id:"TARGETSO",movement_id:"CURRENT",stop_type:"SO",sched_arrive_early:new Date().toISOString(),location:{name:"SCM Houston 5300"}},
+  ];
+  order.movements.push({id:"CURRENT",carrier_name:"Current Carrier"});
+  await withMcleod(order,async()=>{
+    const {GET}=load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response=await GET({url:"https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=92157&strictDirection=1"});
+    const body=await response.json(); assert.equal(response.status,200,JSON.stringify(body));
+    assert.equal(body.matches.length,1); assert.equal(body.matches[0].stopId,"TARGETPU");
+    assert.equal(body.matches[0].completion,null);assert.equal(body.matches[0].carrierName,"Current Carrier");
+    const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1}})};
+    const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
+    const result=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupReference",referenceNumber:"92157",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+    assert.equal(result.status,200); assert.equal((await result.json()).matches[0].stopId,"TARGETPU");
+  });
+});
+test("driver gate outage remains retryable rather than a false inactive-link 404",async()=>{
+  await withMcleod(fixture(),async()=>{
+  for(const [data,error,status] of [[null,{message:"database timeout"},503],[null,null,404]]) {
+    const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data,error})};
+    const {GET}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
+    const response=await GET(new Request("https://scm.test/"),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+    assert.equal(response.status,status); if(status===503)assert.equal(response.headers.get("Retry-After"),"10");
+  }
+  });
+});
+
+test("driver incomplete revenue metadata cannot be called a no-match",async()=>{
+  const order=fixture({closed:false}); delete order.revenue_code_id;
+  await withMcleod(order,async()=>{
+    const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1}})};
+    const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
+    const response=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupReference",referenceNumber:"2168418",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+    assert.equal(response.status,503); const result=await response.json(); assert.equal(result.ok,false);assert.match(result.error,/incomplete search/);
+  });
+});
+
+test("staff create, staff link, and driver submit persist only a freshly verified selected stop", async () => {
+  for (const action of ["staff-create", "staff-link", "driver-submit"]) {
+    for (const selectedStopId of ["SCMSTOP", "STALE"]) {
+      const order = fixture({ closed: false });
+      // A second same-direction visit proves the supplied selection is actually used.
+      order.stops.push({ ...order.stops[0], id: "SECOND" });
+      await withMcleod(order, async () => {
+        const writes = [];
+        const existing = { id: "12345678-1234-4234-8234-123456789012", updated_at: "revision",
+          terminal: "HOU", site_code: "5300", movement_direction: "pickup", reference_number: "2168418" };
+        const db = { from(table) {
+          let write = null;
+          return { select() { return this; }, eq() { return this; }, in() { return this; },
+            insert(value) { write = value; writes.push(value); return this; },
+            update(value) { write = value; writes.push(value); return this; },
+            async single() { return { data: { ...existing, ...write } }; },
+            async maybeSingle() { return { data: table === "driver_checkin_sites" ? {
+              id: "gate", terminal: "HOU", site_code: "5300", site_name: "Houston 5300", latitude: 1, longitude: 1,
+            } : existing }; },
+          };
+        } };
+        const overrides = { "@supabase/supabase-js": { createClient: () => db },
+          "@/lib/inbound/checkin/shortage": { cottonShortage: () => null } };
+        const payload = { terminal: "HOU", siteCode: "5300", movementDirection: "pickup", materialType: "lumber",
+          orderId: "0824528", selectedStopId, referenceNumber: "2168418", driverName: "Driver", driverPhone: "555-0100",
+          truckingCompany: "Carrier", destination: "Customer Receiver", clientId: existing.id, checkinType: "domestic" };
+        let response;
+        if (action === "staff-create") response = await load("app/api/warehouse/domestic-queue/route.ts", overrides).POST({ json: async () => payload });
+        else if (action === "staff-link") response = await load("app/api/warehouse/domestic-queue/route.ts", overrides).PATCH({ json: async () => ({ ...payload,
+          id: existing.id, expectedUpdatedAt: "revision", action: "match_order" }) });
+        else response = await load("app/api/gate/check-in/[token]/route.ts", overrides).POST(new Request("https://scm.test/", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        }), { params: Promise.resolve({ token: existing.id }) });
+        const body = await response.json();
+        assert.equal(response.status, selectedStopId === "SCMSTOP" ? 200 : 409, `${action}: ${JSON.stringify(body)}`);
+        if (selectedStopId === "SCMSTOP") assert.equal(writes[0].matched_stop_id, "SCMSTOP");
+        else assert.equal(writes.length, 0);
+      });
+    }
+  }
 });

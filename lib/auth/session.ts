@@ -2,12 +2,13 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { AccessError, type Staff } from "./policy";
+import { DependencyError, authDependencyFailure, dependencyFetch } from "../http/dependency";
 
 export function staffDatabase() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Staff database is not configured");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: dependencyFetch } });
 }
 export function appOrigin() {
   const origin = new URL(process.env.SCM_APP_URL || "http://localhost:3000").origin;
@@ -24,6 +25,7 @@ export function staffSession(req: NextRequest) {
   if (!url || !key) throw new Error("Staff sign-in is not configured");
   const pending: { name: string; value: string; options: CookieOptions }[] = [];
   const auth = createServerClient(url, key, {
+    global: { fetch: dependencyFetch },
     cookieOptions: { httpOnly: true, sameSite: "lax", secure: appOrigin().startsWith("https://"), path: "/" },
     cookies: {
       getAll: () => req.cookies.getAll(),
@@ -38,10 +40,11 @@ export function staffSession(req: NextRequest) {
   }
   async function identity() {
     const { data: { user }, error } = await auth.auth.getUser();
+    if (error && authDependencyFailure(error)) throw new DependencyError("Staff sign-in is temporarily unavailable. Please try again.");
     if (error || !user?.email || !user.email_confirmed_at) throw new AccessError("Sign in to continue.", 401);
     const { data, error: profileError } = await staffDatabase().from("scm_staff").select("*")
       .eq("email", user.email.toLowerCase()).maybeSingle();
-    if (profileError) throw new Error("Could not verify staff access");
+    if (profileError) throw new DependencyError("Staff access could not be checked. Please try again.");
     if (!data || data.status === "disabled" || data.user_id && data.user_id !== user.id)
       throw new AccessError("This account does not have SCM access.");
     if (data.status === "pending" && new Date(data.invite_expires_at).getTime() <= Date.now())

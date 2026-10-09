@@ -1,4 +1,7 @@
 "use client";
+import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
+import PollingStatus from "@/components/warehouse/PollingStatus";
+import { mergePollingRows } from "@/lib/polling/merge-rows";
 import { useCanWrite } from "@/components/auth/StaffSession";
 
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
@@ -9,7 +12,7 @@ import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 import Link from "next/link";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -206,7 +209,6 @@ export default function SiteCheckinPage() {
   const [rows, setRows] = useState<CheckinRow[]>([]);
   const [viewCarryover, setViewCarryover, viewReady] = useWarehouseViewState("carryover", false);
   const [carryover, setCarryover] = useState({ count: 0, missingLocation: 0, missingBales: 0 });
-  const dayRef = useRef("");
   const [rowUi, setRowUi] = useState<Record<string, RowUiState>>({});
   const [loading, setLoading] = useState(true);
   const [editingProcessedIds, setEditingProcessedIds] = useState<Set<string>>(new Set());
@@ -232,7 +234,8 @@ export default function SiteCheckinPage() {
   const editSnapshotsRef = useRef<Record<string, CheckinRow>>({});
   const cellRefs = useRef<Record<string, HTMLElement | null>>({});
 
-  useEffect(() => { rowsRef.current = rows; }, [rows]);
+  const rowUiRef = useRef(rowUi);
+  useLayoutEffect(() => { rowsRef.current = rows; rowUiRef.current = rowUi; }, [rows, rowUi]);
 
   useEffect(() => {
     for (const row of rows) {
@@ -474,73 +477,59 @@ export default function SiteCheckinPage() {
     }
   }
 
-  async function loadRows(initial = false) {
+  async function fetchRows(signal: AbortSignal) {
     if (!site) return;
-
+    const atRequestStart = rowsRef.current;
     try {
-      if (initial) setLoading(true);
-
       const today = warehouseDate(new Date(), site.terminal);
-      const changedDay = dayRef.current !== today;
-      dayRef.current = today;
-
       const params = new URLSearchParams({
-        terminal: site.terminal,
-        siteCode: site.siteCode,
-        date: today,
-        materialType: "cotton",
-        ...(viewCarryover ? { view: "carryover" } : {}),
+        terminal: site.terminal, siteCode: site.siteCode, date: today,
+        materialType: "cotton", ...(viewCarryover ? { view: "carryover" } : {}),
       });
-
-      const res = await fetch(`/api/inbound/checkin/rows?${params.toString()}`, {
-        cache: "no-store",
-      });
-
+      const res = await fetch(`/api/inbound/checkin/rows?${params.toString()}`, { cache: "no-store", signal });
       const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to load check-in rows");
-      }
-
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load check-in rows");
+      if (signal.aborted) return;
       const nextRows = (data.rows ?? []) as CheckinRow[];
       setCarryover({ count: Number(data.carryoverCount ?? 0), missingLocation: Number(data.carryoverMissingLocation ?? 0),
         missingBales: Number(data.carryoverMissingBales ?? 0) });
       setRows((previous) => {
-        const pending = changedDay || viewCarryover ? [] : previous.filter((row) => row.id.startsWith("local-"));
+        if (signal.aborted) return previous;
         const focusedId = document.activeElement?.closest("tr")?.getAttribute("data-checkin-id");
-        const active = new Map((changedDay ? [] : previous).filter((row) =>
-          !row.id.startsWith("local-") &&
-          (editSnapshotsRef.current[row.id] || row.id === focusedId || saveTimersRef.current[row.id] ||
-            rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error")
-        ).map((row) => [row.id, row]));
-        return orderCheckinRows([...nextRows.map((row) => active.get(row.id) ?? row), ...pending]);
+        const protectedIds = new Set(previous.filter((row) =>
+          editSnapshotsRef.current[row.id] || row.id === focusedId || saveTimersRef.current[row.id] ||
+          saveInFlightRef.current.has(row.id) || createInFlightRef.current.has(row.id) ||
+          rowUiRef.current[row.id]?.saveState === "saving" || rowUiRef.current[row.id]?.saveState === "error"
+        ).map((row) => row.id));
+        return orderCheckinRows(mergePollingRows(previous, nextRows, atRequestStart, protectedIds));
       });
-
       const nextUi: Record<string, RowUiState> = {};
-      for (const row of nextRows) {
-        nextUi[row.id] = createEmptyUiState();
-      }
+      for (const row of nextRows) nextUi[row.id] = createEmptyUiState();
       setRowUi((previous) => ({ ...nextUi, ...previous }));
-    } catch (error) {
-      if (initial) alert(error instanceof Error ? error.message : "Failed to load check-in rows");
-    } finally {
-      if (initial) setLoading(false);
-    }
+    } finally { if (!signal.aborted) setLoading(false); }
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!viewReady) return;
     editSnapshotsRef.current = {};
-    setEditingProcessedIds(new Set());
-    setRows([]);
-    setRowUi({});
-    void loadRows(true);
-    const interval = window.setInterval(() => {
-      void loadRows();
-    }, 10000);
-    return () => window.clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    rowsRef.current = [];
+    setEditingProcessedIds(new Set()); setRows([]); setRowUi({}); setLoading(true);
+    setCottonMatches({}); setCottonSearching({}); setCottonWarnings({});
+    setCarryover({ count: 0, missingLocation: 0, missingBales: 0 });
+    setNewCheckin(null); setNewMatches([]); setNewError("");
+    return () => {
+      Object.values(lookupTimersRef.current).forEach(window.clearTimeout);
+      Object.values(saveTimersRef.current).forEach(window.clearTimeout);
+      lookupTimersRef.current = {}; lookupKeysRef.current = {}; saveTimersRef.current = {};
+    };
   }, [site?.terminal, site?.siteCode, viewCarryover, viewReady]);
+  const poll = useVisiblePolling({ load: fetchRows, intervalMs: 10000,
+    enabled: viewReady && !!site,
+    requestKey: `${site?.terminal}:${site?.siteCode}:${viewCarryover}` });
+  const loadRows = poll.refresh;
+  const viewLocked = !!newCheckin || newSaving || rows.some((row) => row.id.startsWith("local-") ||
+    editSnapshotsRef.current[row.id] || saveTimersRef.current[row.id] || saveInFlightRef.current.has(row.id) ||
+    rowUi[row.id]?.saveState === "saving" || rowUi[row.id]?.saveState === "error");
 
   function setRowUiState(id: string, state: Partial<RowUiState>) {
     setRowUi((prev) => ({
@@ -1002,7 +991,8 @@ export default function SiteCheckinPage() {
             </div>}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" style={toolbarButtonStyle} onClick={() => setViewCarryover((current) => !current)}>
+            <PollingStatus {...poll} />
+            <button type="button" disabled={viewLocked} style={toolbarButtonStyle} onClick={() => setViewCarryover((current) => !current)}>
               {viewCarryover ? "Today" : `Earlier (${carryover.count})`}
             </button>
             <button type="button" style={toolbarButtonStyle} onClick={() => void handleCopyTable()}>Copy table</button>

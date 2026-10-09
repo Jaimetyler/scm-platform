@@ -1,10 +1,12 @@
 "use client";
+import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
+import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
 
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useLayoutEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -24,13 +26,13 @@ type Row = {
   yard_called_at: string | null; yard_in_door_at: string | null;
   yard_work_started_at: string | null;
 };
-type Match = { orderId: string; customerId: string; customerName: string; value: string;
+type Match = { orderId: string; stopId?: string; customerId: string; customerName: string; value: string;
   materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery";
   carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
   driverName: string; driverPhone: string; completion?: McleodCompletion | null };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
   referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
-  destination: string; notes: string; orderId: string };
+  destination: string; notes: string; orderId: string; selectedStopId?: string };
 function blankDraft(id: string): Draft {
   return { id, movementDirection: "pickup", materialType: "lumber", referenceNumber: "", customer: "",
     driverName: "", driverPhone: "", truckingCompany: "", destination: "", notes: "", orderId: "" };
@@ -55,6 +57,7 @@ export default function DomesticQueuePage() {
   const [draftSearching, setDraftSearching] = useState<Record<string, boolean>>({});
   const draftLookupKeys = useRef<Record<string, string>>({});
   const draftTimers = useRef<Record<string, number>>({});
+  const lookupController = useRef<AbortController | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState("");
@@ -68,40 +71,46 @@ export default function DomesticQueuePage() {
     });
   }
 
-  const load = useCallback(async (quiet = false) => {
-    if (!site) return;
-    if (!quiet) setLoading(true);
-    try {
-      const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode });
-      const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Could not load arrivals");
-      setRows(result.rows);
-      if (!quiet) setError("");
-      setLoadError(false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not load arrivals");
-      setLoadError(true);
-      setRows([]);
-    } finally { setLoading(false); }
-  }, [site]);
+  useLayoutEffect(() => {
+    setRows([]); setLoading(true); setLoadError(false); setError(""); setNotice("");
+    setEditingId(null); setExpandedIds(new Set()); setMatches({}); setDrafts([]); setDraftMatches({});
+    setDraftSearching({}); setMatchWorking(""); setWorking("");
+    const controller = new AbortController();
+    lookupController.current = controller;
+    return () => {
+      controller.abort();
+      Object.values(draftTimers.current).forEach(window.clearTimeout);
+      draftTimers.current = {}; draftLookupKeys.current = {};
+    };
+  }, [site?.terminal, site?.siteCode]);
 
-  useEffect(() => {
-    if (!editingId) void load();
-    const timer = window.setInterval(() => {
-      if (!editingId) void load(true);
-      setTick((value) => value + 1);
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [load, editingId]);
+  const poll = useVisiblePolling({ intervalMs: 10000,
+    enabled: !!site && !editingId && !working && !matchWorking,
+    requestKey: `${site?.terminal}:${site?.siteCode}`, load: async (signal) => {
+      if (!site) return;
+      try {
+        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode });
+        const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load arrivals");
+        if (signal.aborted) return;
+        setRows(result.rows); setLoadError(false); setTick((value) => value + 1);
+      } catch (reason) {
+        if (!signal.aborted) setLoadError(true);
+        throw reason;
+      } finally { if (!signal.aborted) setLoading(false); }
+    } });
+  const load = (_quiet = false) => poll.refresh();
 
   const searchReference = useCallback(async (reference: string, direction: string, strictDirection = false) => {
     if (!site) throw new Error("Unknown warehouse site");
+    const signal = lookupController.current?.signal;
     const params = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode,
       referenceNumber: reference.trim().toUpperCase(), movementDirection: direction });
     if (strictDirection) params.set("strictDirection", "1");
-    const response = await fetch(`/api/warehouse/domestic-queue/match?${params}`, { cache: "no-store" });
+    const response = await fetch(`/api/warehouse/domestic-queue/match?${params}`, { cache: "no-store", signal });
     const result = await response.json();
+    if (signal?.aborted) throw new DOMException("Lookup cancelled", "AbortError");
     if (!response.ok || !result.ok) throw new Error(result.error || "McLeod search failed");
     return result.matches as Match[];
   }, [site]);
@@ -132,7 +141,7 @@ export default function DomesticQueuePage() {
             setDrafts((current) => current.map((item) => item.id === draft.id &&
               `${item.movementDirection}|${item.referenceNumber.trim().toUpperCase()}` === key ? {
                 ...item, movementDirection: match.direction, referenceNumber: match.value,
-                customer: match.customerName || match.customerId || item.customer, orderId: match.orderId,
+                customer: match.customerName || match.customerId || item.customer, orderId: match.orderId, selectedStopId: match.stopId,
                 materialType: match.materialType || item.materialType,
                 driverName: item.driverName || match.driverName, driverPhone: item.driverPhone || match.driverPhone,
                 truckingCompany: match.carrierName || item.truckingCompany,
@@ -173,15 +182,17 @@ export default function DomesticQueuePage() {
 
   async function findOrder(row: Row) {
     if (editingId !== row.id) return;
+    const signal = lookupController.current?.signal;
     setMatchWorking(row.id);
     setError("");
     try {
       const found = await searchReference(row.reference_number, row.movement_direction, true);
+      if (signal?.aborted) return;
       if (found.length === 1 && !found[0].completion) {
-        await saveCustomer(row, found[0].customerName || found[0].customerId, found[0].orderId);
+        await saveCustomer(row, found[0].customerName || found[0].customerId, found[0].orderId, found[0].stopId);
       } else setMatches((current) => ({ ...current, [row.id]: found }));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "McLeod search failed"); }
-    finally { setMatchWorking(""); }
+    } catch (reason) { if (!signal?.aborted) setError(reason instanceof Error ? reason.message : "McLeod search failed"); }
+    finally { if (!signal?.aborted) setMatchWorking(""); }
   }
 
   useEffect(() => {
@@ -192,7 +203,7 @@ export default function DomesticQueuePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
 
-  async function saveCustomer(row: Row, customer: string, orderId?: string) {
+  async function saveCustomer(row: Row, customer: string, orderId?: string, selectedStopId?: string) {
     if (!site || editingId !== row.id || (!orderId && customer.trim().toUpperCase() === (row.shipper ?? ""))) return;
     setWorking(row.id);
     setError("");
@@ -200,11 +211,12 @@ export default function DomesticQueuePage() {
       const response = await fetch("/api/warehouse/domestic-queue", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: row.id, terminal: site.terminal, siteCode: site.siteCode,
-          expectedUpdatedAt: row.updated_at, action: orderId ? "match_order" : "set_customer", customer, orderId }),
+          expectedUpdatedAt: row.updated_at, action: orderId ? "match_order" : "set_customer", customer, orderId, selectedStopId }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not save customer");
       setMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
+      if (result.row) setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...result.row } : item));
       await load(true);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save customer"); }
     finally { setWorking(""); }
@@ -224,6 +236,7 @@ export default function DomesticQueuePage() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not save cell");
       setMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
+      if (result.row) setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...result.row } : item));
       await load(true);
       if (field === "reference_number" && nextValue.length >= 3) {
         await findOrder({ ...row, reference_number: nextValue, updated_at: result.row.updated_at });
@@ -236,7 +249,7 @@ export default function DomesticQueuePage() {
     setDrafts((current) => current.map((row) => row.id === id ? {
       ...row, ...change,
       ...("referenceNumber" in change || "movementDirection" in change ? {
-        orderId: "", customer: row.orderId ? "" : row.customer,
+        orderId: "", selectedStopId: "", customer: row.orderId ? "" : row.customer,
       } : {}),
     } : row));
   }
@@ -245,7 +258,7 @@ export default function DomesticQueuePage() {
     if (match.completion) return;
     draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
     setDrafts((current) => current.map((row) => row.id === draft.id ? {
-      ...row, movementDirection: match.direction, referenceNumber: match.value, orderId: match.orderId,
+      ...row, movementDirection: match.direction, referenceNumber: match.value, orderId: match.orderId, selectedStopId: match.stopId,
       customer: match.customerName || match.customerId || row.customer,
       materialType: match.materialType || row.materialType,
       driverName: row.driverName || match.driverName, driverPhone: row.driverPhone || match.driverPhone,
@@ -294,10 +307,10 @@ export default function DomesticQueuePage() {
         <div><strong style={{ color: "#f8fafc", fontSize: 18 }}>Lumber & Other</strong><div style={{ ...muted, fontSize: 13 }}>{counts.join(" · ")}</div></div>
         <div style={{ display: "flex", gap: 8 }}>
           <button disabled={!canWrite} style={primary} onClick={() => { setError(""); setDrafts([blankDraft(`staff-${Date.now()}`)]); }}>+ New check-in</button>
-          <button style={button} onClick={() => void load()}>Refresh</button>
+          <PollingStatus {...poll} /><button disabled={!!editingId || !!working || !!matchWorking} style={button} onClick={() => void load()}>Refresh</button>
         </div>
       </div>
-      {loading ? <p style={muted}>Loading arrivals…</p> : loadError ? null :
+      {loading ? <p style={muted}>Loading arrivals…</p> :
         <div style={{ overflowX: "auto" }}>
           <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0" }}>
             <colgroup>{[5, 8, 7, 7, 20, 15, 16, 8, 6, 8].map((width, index) =>
@@ -358,7 +371,7 @@ export default function DomesticQueuePage() {
                 {matches[row.id]?.length === 0 && <span>No matching order</span>}
                 {matches[row.id]?.map((match) => match.completion ?
                   <CompletedOrderNotice key={`${match.orderId}-${match.direction}`} orderId={match.orderId} completion={match.completion} /> : <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, textAlign: "left" }}
-                  disabled={!canWrite || editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId)}>
+                  disabled={!canWrite || editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId, match.stopId)}>
                   <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
                   <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
                     {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>

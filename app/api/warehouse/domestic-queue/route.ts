@@ -1,14 +1,15 @@
+import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
+import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
-import { lookupMcleodOrderById, lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
+import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { formatWarehouseTime, planLiveDeliveryActuals } from "@/lib/inbound/checkin/mcleod-time";
 import { isCompleteCheckin } from "@/lib/inbound/checkin/ready";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
-import { lookupScmCarrier } from "@/lib/inbound/checkin/scm-carrier";
-import { backfillTruckingCompanies } from "@/lib/inbound/checkin/backfill-trucking-company";
+import { enrichDisplayCarriers } from "@/lib/inbound/checkin/display-carrier";
 
 import { cottonShortage, shortageAcknowledged, acknowledgeShortage } from "@/lib/inbound/checkin/shortage";
 
@@ -30,7 +31,7 @@ function database() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Missing Supabase environment variables");
-  return createClient(url, key);
+  return createClient(url, key, { global: { fetch: dependencyFetch } });
 }
 
 function siteExists(terminal: string, siteCode: string) {
@@ -54,24 +55,12 @@ async function GETHandler(req: NextRequest) {
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
     if (error) throw error;
-    const displayRows = await backfillTruckingCompanies(data ?? [], false);
-    const carriers = new Map<string, { carrierCode: string | null; scmCarrier: boolean }>();
-    if (line) {
-      const ids = [...new Set(displayRows.filter((row) =>
-        ["waiting", "called", "in_door", "working"].includes(row.yard_status) && row.matched_order_id
-      ).map((row) => String(row.matched_order_id)))];
-      await Promise.all(ids.map(async (id) => {
-        try { carriers.set(id, await lookupScmCarrier(id)); }
-        catch { /* Keep the line available when McLeod cannot supply carrier details. */ }
-      }));
-    }
+    const displayRows = await enrichDisplayCarriers(data ?? [], line);
     return NextResponse.json({ ok: true, rows: displayRows.map(({ bol_photo_path, ...row }) => ({
       ...row, has_bol_photo: Boolean(bol_photo_path),
-      ...(line && row.matched_order_id ? { carrier_code: carriers.get(String(row.matched_order_id))?.carrierCode ?? null,
-        scm_carrier: carriers.get(String(row.matched_order_id))?.scmCarrier ?? false } : {}),
     })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }
 
@@ -97,22 +86,22 @@ async function POSTHandler(req: NextRequest) {
         driverPhone.length > 40 || truckingCompany.length > 200 || destination.length > 200 || location.length > 120 || notes.length > 500) {
       return NextResponse.json({ ok: false, error: "Enter a valid site, move, material, and reference" }, { status: 400 });
     }
+    let matchedStopId: string | null = null;
     if (orderId) {
-      const order = await lookupMcleodOrderById(orderId, direction);
-      const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName);
+      const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName, direction as "pickup" | "delivery", String(body.selectedStopId || "") || undefined);
+      const order = yardOrder; matchedStopId = yardOrder.stopId;
       if (yardOrder.direction !== direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
       if (yardOrder.completion) {
         return NextResponse.json({ ok: false, error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
       }
       if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
       if (reference && !order.reference.includes(reference)) {
-        return NextResponse.json({ ok: false, error: `Order ${orderId} ${order.field} does not contain ${reference}` }, { status: 409 });
+        return NextResponse.json({ ok: false, error: `Order ${orderId} ${direction === "pickup" ? "BLNUM" : "consignee reference"} does not contain ${reference}` }, { status: 409 });
       }
       reference ||= order.reference;
       customer = order.customer;
       material = order.materialType || material;
-      try { truckingCompany = (await lookupMcleodGateOrder(orderId, site.terminal, site.siteName)).carrierName || truckingCompany; }
-      catch { /* Keep the company entered by staff if the yard lookup is incomplete. */ }
+      truckingCompany = yardOrder.carrierName || truckingCompany;
       if (direction === "pickup" && !destination && order.destination) {
         destination = order.destination;
       }
@@ -124,7 +113,7 @@ async function POSTHandler(req: NextRequest) {
       received_date: warehouseDate(now, site.terminal), checked_in_at: now.toISOString(),
       checkin_source: "staff", draft_status: "checked_in", yard_status: "waiting",
       movement_direction: direction, material_type: material, reference_number: reference,
-      shipper: customer || null, matched_order_id: orderId || null,
+      shipper: customer || null, matched_order_id: orderId || null, matched_stop_id: matchedStopId,
       driver_name: driverName || null, driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       destination: direction === "pickup" ? destination || null : null,
@@ -134,7 +123,7 @@ async function POSTHandler(req: NextRequest) {
     if (error) throw error;
     return NextResponse.json({ ok: true, id: data.id });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save manual check-in" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save manual check-in" }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }
 
@@ -213,11 +202,29 @@ async function PATCHHandler(req: NextRequest) {
           return NextResponse.json({ ok: false, error: "McLeod writes are disabled. Check-out was not saved." }, { status: 503 });
         }
         const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
-        const order = await lookupMcleodGateOrder(row.matched_order_id, site.terminal, site.siteName);
+        const order = await lookupMcleodGateOrder(row.matched_order_id, site.terminal, site.siteName,
+          row.movement_direction, row.matched_stop_id);
         if (row.movement_direction !== order.direction || !order.stopId) {
           return NextResponse.json({ ok: false, error: "Could not confirm the matching McLeod stop. Check-out was not saved." }, { status: 409 });
         }
         if (!order.actualDeparture) {
+          if (order.completion || !order.movementId ||
+              (row.movement_direction === "delivery" && (!order.pickupMovementVerified || !order.pickupBackfillVerified)) ||
+              order.materialType !== row.material_type || !String(row.reference_number ?? "").trim() ||
+              !order.reference.includes(String(row.reference_number).trim().toUpperCase())) {
+            return NextResponse.json({ ok: false, error: "The saved order details or pickup prerequisites could not be verified. Review them before check-out." }, { status: 409 });
+          }
+          // Bind legacy unique matches before any write. A persisted selection must
+          // never silently fall through to a different stop after remote edits.
+          if (!row.matched_stop_id) {
+            const { data: bound, error: bindError } = await sb.from("inbound_checkin_rows")
+              .update({ matched_stop_id: order.stopId }).eq("id", id).eq("updated_at", row.updated_at)
+              .select("updated_at").maybeSingle();
+            if (bindError) throw bindError;
+            if (!bound) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh before check-out." }, { status: 409 });
+            row.updated_at = bound.updated_at;
+            row.matched_stop_id = order.stopId;
+          }
           const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
           const token = process.env.MCLEOD_AUTH_TOKEN;
           if (!base || !token) throw new Error("McLeod connection is not configured");
@@ -280,7 +287,7 @@ async function PATCHHandler(req: NextRequest) {
         }
         const changedReference = field === "reference_number" && normalized !== existing.reference_number;
         const updates = { [field]: normalized || null,
-          ...(changedReference && existing.matched_order_id ? { matched_order_id: null, shipper: null } : {}) };
+          ...(changedReference && existing.matched_order_id ? { matched_order_id: null, matched_stop_id: null, shipper: null } : {}) };
         const { data, error } = await sb.from("inbound_checkin_rows").update(updates)
           .eq("id", id).eq("updated_at", body.expectedUpdatedAt)
         .select("id,updated_at,reference_number,warehouse_location,comment_1,driver_name,driver_phone,trucking_company,shipper,matched_order_id").maybeSingle();
@@ -294,11 +301,12 @@ async function PATCHHandler(req: NextRequest) {
       let matchedDestination: string | null = null;
       let matchedMaterial: string | null = null;
       let matchedCarrier: string | null = null;
+      let matchedStopId: string | null = null;
       if (body.action === "match_order") {
         orderId = String(body.orderId ?? "").trim();
-        const order = await lookupMcleodOrderById(orderId, existing.movement_direction);
         const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
-        const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName);
+        const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName, existing.movement_direction, String(body.selectedStopId || "") || undefined);
+        const order = yardOrder; matchedStopId = yardOrder.stopId;
         if (yardOrder.completion) return NextResponse.json({ ok: false,
           error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
         if (yardOrder.direction !== existing.movement_direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
@@ -315,7 +323,7 @@ async function PATCHHandler(req: NextRequest) {
       }
       if (!customer || customer.length > 200) return NextResponse.json({ ok: false, error: "Enter a customer" }, { status: 400 });
       const { data, error } = await sb.from("inbound_checkin_rows")
-        .update({ shipper: customer, matched_order_id: orderId,
+        .update({ shipper: customer, matched_order_id: orderId, matched_stop_id: matchedStopId,
           ...(canonicalReference ? { reference_number: canonicalReference } : {}),
           ...(matchedDestination ? { destination: matchedDestination } : {}),
           ...(matchedMaterial ? { material_type: matchedMaterial } : {}),
@@ -340,7 +348,7 @@ async function PATCHHandler(req: NextRequest) {
     if (!data) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the queue." }, { status: 409 });
     return NextResponse.json({ ok: true, row: data });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not update domestic queue") }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not update domestic queue") }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }
 

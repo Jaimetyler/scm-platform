@@ -23,6 +23,10 @@ export async function middleware(req: NextRequest) {
     }
     return session.finish(NextResponse.next({ request: { headers: req.headers } }));
   } catch (reason) {
+    if (!(reason instanceof AccessError) || reason.status >= 500) {
+      const response = new NextResponse('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>SCM temporarily unavailable</title><main><h1>Staff access is temporarily unavailable</h1><p>Your access could not be checked. Wait a moment, then reload this page.</p><button onclick="location.reload()">Try again</button></main></html>', { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Retry-After": "10", "Cache-Control": "private, no-store" } });
+      return session ? session.finish(response) : response;
+    }
     const destination = reason instanceof AccessError && reason.status === 401 ? "/login" : "/access-denied";
     const response = NextResponse.redirect(new URL(destination, req.url));
     return session ? session.finish(response) : response;

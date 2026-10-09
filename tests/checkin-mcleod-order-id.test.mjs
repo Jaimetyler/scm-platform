@@ -48,7 +48,7 @@ test("driver order detects the SCM stop and selects the corresponding reference"
     assert.equal(matched.stopId, "PU1");
     await assert.rejects(lookupMcleodGateOrder("12345", "HOU", "Houston 4331"), /identify this SCM yard/);
     stops = [{ stop_type: "PU", location: { name: "Customer warehouse", city: "Dallas" } },
-      { stop_type: "SO", location: { name: "Savannah Warehouse 1701", city: "Savannah" } }];
+      { id: "SO1", stop_type: "SO", location: { name: "Savannah Warehouse 1701", city: "Savannah" } }];
     assert.equal((await lookupMcleodGateOrder("12345", "SAV", "Savannah 1701")).direction, "delivery");
     await assert.rejects(lookupMcleodGateOrder("12345", "HOU", "Houston 5300"), /identify this SCM yard/);
   } finally {
@@ -68,7 +68,7 @@ test("cotton order fills the mark and bale count from McLeod", async () => {
   process.env.MCLEOD_AUTH_TOKEN = "test";
   globalThis.fetch = async () => new Response(JSON.stringify({
     revenue_code_id: "MAIN", blnum: "D0975 88 BALES", consignee_refno: "D0975", commodity_id: "COTTON", customer_id: "C1",
-    stops: [{ stop_type: "SO", location: { name: "Savannah Warehouse 1701", city: "Savannah" } }],
+    stops: [{ id: "SO1", stop_type: "SO", location: { name: "Savannah Warehouse 1701", city: "Savannah" } }],
   }), { status: 200 });
   try {
     const order = await lookupMcleodGateOrder("12345", "SAV", "Savannah 1701");

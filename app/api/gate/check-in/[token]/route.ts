@@ -1,10 +1,11 @@
+import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
+import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { NextRequest, NextResponse } from "next/server";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { createClient } from "@supabase/supabase-js";
 import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
-import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
-import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
+import { lookupDriverReference, publicDriverMatch, publicDriverCompletion, selectDriverMatch } from "@/lib/inbound/checkin/driver-lookup";
 
 import { cottonShortage } from "@/lib/inbound/checkin/shortage";
 
@@ -14,7 +15,7 @@ function database() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Missing Supabase environment variables");
-  return createClient(url, key);
+  return createClient(url, key, { global: { fetch: dependencyFetch } });
 }
 
 function clean(value: unknown, max = 120) {
@@ -44,7 +45,10 @@ async function requestBody(req: NextRequest) {
         movementDirection: form.get("movementDirection"),
         materialType: form.get("materialType"),
         orderId: form.get("orderId"),
+        selectedStopId: form.get("selectedStopId"),
         referenceNumber: form.get("referenceNumber"),
+        driverLookupInput: form.get("driverLookupInput"),
+        explicitSelection: form.get("explicitSelection"),
         destination: form.get("destination"),
         mark: form.get("mark"),
         bolBaleCount: form.get("bolBaleCount"),
@@ -81,9 +85,10 @@ function photoExtension(contentType: string) {
 
 async function getGate(token: string) {
   if (!/^[0-9a-f-]{36}$/i.test(token)) return null;
-  const { data } = await database().from("driver_checkin_sites")
+  const { data, error } = await database().from("driver_checkin_sites")
     .select("id, terminal, site_code, site_name, latitude, longitude, radius_m, active")
     .eq("public_token", token).eq("active", true).maybeSingle();
+  if (error) throw new DependencyError("Driver check-in is temporarily unavailable. Please try again.");
   if (!data || data.latitude === null || data.longitude === null ||
       !CHECKIN_SITES.some((site) => site.terminal === data.terminal && site.siteCode === data.site_code)) return null;
   return data as {
@@ -126,7 +131,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ token: 
       activeQueue,
     });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load this check-in site" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load this check-in site" }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }
 
@@ -144,43 +149,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
           accuracyMeters: Number(body?.location?.accuracyMeters), capturedAt: clean(body?.location?.capturedAt, 40) },
       });
       if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
-      const reference = clean(body?.referenceNumber, 120).toUpperCase();
+      const input = String(body?.driverLookupInput ?? body?.referenceNumber ?? "").trim();
       const direction = clean(body?.movementDirection, 20).toLowerCase();
-      if (reference.length < 3 || !["pickup", "delivery"].includes(direction))
-        return NextResponse.json({ ok: false, error: "Choose pickup or delivery and enter at least 3 reference characters." }, { status: 400 });
-      const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
-      const apiToken = process.env.MCLEOD_AUTH_TOKEN;
-      if (!base || !apiToken) throw new Error("McLeod connection is not configured");
-      const field = direction === "pickup" ? "blnum" : "consignee_refno";
-      const query = new URLSearchParams({ [`orders.${field}`]: `*${reference.replace(/\*/g, "")}*`, recordLength: "200" });
-      const response = await fetch(`${base}/orders/search?${query}`, {
-        headers: { Authorization: `Bearer ${apiToken}`, Accept: "application/json" }, cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`McLeod search failed (${response.status})`);
-      const results = extractSearchOrders(await response.json());
-      if (!results) throw new Error("McLeod returned an unexpected search response");
-      if (results.length >= 200) throw new Error("Too many possible orders. Enter a longer reference number.");
-      const ids = [...new Set(results.filter((item) => {
-        const order = item as Record<string, unknown>;
-        return clean(order[field], 500).toUpperCase().includes(reference) &&
-          clean(order.revenue_code_id, 20).toUpperCase() === "MAIN";
-      }).map((item) => clean((item as Record<string, unknown>).id, 60)))].filter(Boolean);
-      if (ids.length > 20) throw new Error("Too many possible orders. Enter a longer reference number.");
-      const matches = (await Promise.all(ids.map(async (orderId) => {
-        try {
-          const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
-          if (order.direction !== direction || !order.reference.includes(reference)) return null;
-          const dateMatch = order.orderDate.match(/^(\d{4})(\d{2})(\d{2})/);
-          const scheduled = dateMatch
-            ? Date.UTC(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
-            : Date.parse(order.orderDate);
-          if (!order.completion && Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 24 * 60 * 60 * 1000) return null;
-          return { orderId, completion: order.completion,
-            carrierName: order.completion ? order.completion.carrierName :
-              order.carrierName || (order.carrierCode ? `Carrier ${order.carrierCode}` : "Carrier not assigned") };
-        } catch { return null; } // Search results may include other yards or incomplete orders.
-      }))).filter((item) => item !== null);
-      return NextResponse.json({ ok: true, matches }, { headers: { "Cache-Control": "no-store" } });
+      if (!["pickup", "delivery"].includes(direction))
+        return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
+      const result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      return NextResponse.json({ ok: true, status: result.matches.length ? "matches" : "no_match",
+        matches: result.matches.map(publicDriverMatch), allowUnmatched: result.allowUnmatched,
+        selectionRequired: result.selectionRequired }, { headers: { "Cache-Control": "no-store" } });
     }
     if (body?.action === "lookupOrder") {
       const location = body?.location;
@@ -190,26 +166,32 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
           accuracyMeters: Number(location?.accuracyMeters), capturedAt: clean(location?.capturedAt, 40) },
       });
       if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
-      const order = await lookupMcleodGateOrder(clean(body?.orderId, 60), gate.terminal, gate.site_name);
-      if (body?.referenceNumber && !order.reference.includes(clean(body.referenceNumber).toUpperCase()))
-        return NextResponse.json({ ok: false, error: "This order does not match the reference entered." }, { status: 409 });
-      if (body?.movementDirection && order.direction !== clean(body.movementDirection, 20).toLowerCase())
-        return NextResponse.json({ ok: false, error: "This order does not match the selected pickup or delivery." }, { status: 409 });
+      const requestedDirection = clean(body?.movementDirection, 20).toLowerCase();
+      if (requestedDirection !== "pickup" && requestedDirection !== "delivery")
+        return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
+      const orderId = clean(body?.orderId, 60);
+      const stopId = clean(body?.selectedStopId, 100) || undefined;
+      const input = String(body?.driverLookupInput ?? (body?.referenceNumber || orderId)).trim();
+      const result = await lookupDriverReference(input, gate.terminal, gate.site_name, requestedDirection,
+        { orderId, stopId });
+      const match = selectDriverMatch(result, orderId, stopId, body?.explicitSelection === true || body?.explicitSelection === "true");
+      const order = match.order;
       if (order.completion) return NextResponse.json({ ok: false,
-        error: order.completion.message, completion: order.completion }, { status: 409 });
+        error: order.completion.message, completion: publicDriverCompletion(order.completion) }, { status: 409 });
       const { data: checkedIn, error: checkError } = await database().from("inbound_checkin_rows")
         .select("id").eq("terminal", gate.terminal).eq("site_code", gate.site_code)
-        .eq("movement_direction", order.direction).eq("matched_order_id", clean(body?.orderId, 60))
+        .eq("movement_direction", order.direction).eq("matched_order_id", match.orderId)
         .or("yard_status.is.null,yard_status.neq.cancelled").limit(1);
       if (checkError) throw checkError;
       if (checkedIn?.length) return NextResponse.json({ ok: false,
         error: "This SCM order is already checked in at this yard." }, { status: 409 });
-      return NextResponse.json({ ok: true, direction: order.direction, reference: order.reference,
-        commodity: order.commodity, materialType: order.materialType, mark: order.mark, baleCount: order.baleCount,
-        destination: order.destination, driverName: order.driverName, driverPhone: order.driverPhone,
-        customer: order.customer, carrierName: order.carrierName, carrierCode: order.carrierCode,
-        orderDate: order.orderDate, orderStatus: order.orderStatus });
+      return NextResponse.json({ ok: true, orderId: match.orderId, stopId: order.stopId, direction: order.direction,
+        reference: order.reference, commodity: order.commodity, materialType: order.materialType,
+        mark: order.mark, baleCount: order.baleCount, destination: order.destination,
+        driverName: order.driverName, driverPhoneLast4: publicDriverMatch(match).driverPhoneLast4,
+        carrierName: order.carrierName }, { headers: { "Cache-Control": "no-store" } });
     }
+
     const clientId = clean(body?.clientId, 36);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
       return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
@@ -232,7 +214,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       return NextResponse.json({ ok: false, error: "This freight type is unavailable at this site" }, { status: 400 });
     }
     let referenceNumber = clean(body?.referenceNumber).toUpperCase();
-    const orderId = clean(body?.orderId, 60).toUpperCase();
+    let orderId = clean(body?.orderId, 60).toUpperCase();
+    const driverLookupInput = String(body?.driverLookupInput ?? (body?.referenceNumber || orderId)).trim();
     let destination = clean(body?.destination, 200).toUpperCase();
     const mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
     const bolBaleCount = materialType === "cotton"
@@ -328,14 +311,31 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // Resolve a driver's SCM order number only after the gate GPS check has
     // passed. Do not return McLeod order details to the public browser.
     let matchedCustomer: string | null = null;
+    let matchedStopId: string | null = null;
     let expectedBales: number | null = null;
     const reportedRaw = String(body?.balesOnTruck ?? "").trim();
     const reportedBales = reportedRaw === "" ? null : Number(reportedRaw);
     if (reportedBales !== null && (!Number.isSafeInteger(reportedBales) || reportedBales < 0)) return NextResponse.json({ ok: false, error: "Enter a whole number of bales on the truck" }, { status: 400 });
+    if (movementDirection !== "pickup" && movementDirection !== "delivery")
+      return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
+    // Do not trust a browser's previous no-match, selected order, or resolution path.
+    // Both strategies are rerun before any insert, including paperwork-only arrivals.
+    const selectedStopId = clean(body?.selectedStopId, 100) || undefined;
+    const lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
+      movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
+    if (!orderId && !lookup.allowUnmatched) {
+      const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion);
+      return NextResponse.json({ ok: false, code: "SELECTION_REQUIRED", error: completed ? "This load is already completed. Please speak with warehouse staff." :
+        "Select and confirm your load before checking in. Look it up again.",
+        ...(completed ? { completion: publicDriverCompletion(lookup.matches[0].order.completion!) } : {}) }, { status: 409 });
+    }
     if (orderId) {
-      const order = await lookupMcleodGateOrder(orderId, gate.terminal, gate.site_name);
+      const match = selectDriverMatch(lookup, orderId, selectedStopId, body?.explicitSelection === true || body?.explicitSelection === "true");
+      const order = match.order;
+      orderId = match.orderId;
+      matchedStopId = order.stopId;
       if (order.completion) return NextResponse.json({ ok: false,
-        error: order.completion.message, completion: order.completion }, { status: 409 });
+        error: order.completion.message, completion: publicDriverCompletion(order.completion) }, { status: 409 });
       if (order.materialType && materialType !== order.materialType) {
         return NextResponse.json({ ok: false, error: `McLeod commodity is ${order.commodity}. Check the material selection.` }, { status: 409 });
       }
@@ -343,10 +343,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         return NextResponse.json({ ok: false, error: "Order direction changed. Look it up again before checking in." }, { status: 409 });
       }
       movementDirection = order.direction;
-      if (referenceNumber && !order.reference.includes(referenceNumber)) {
-        return NextResponse.json({ ok: false, error: "That order does not contain the reference entered" }, { status: 409 });
-      }
-      referenceNumber ||= order.reference;
+      referenceNumber = order.reference;
       if (order.direction === "pickup") destination ||= order.destination;
       truckingCompany = order.carrierName || truckingCompany;
       matchedCustomer = order.customer;
@@ -356,12 +353,13 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         const iso = date.replace(/^(\d{4})(\d{2})(\d{2}).*/, "$1-$2-$3").slice(0, 10);
         const age = Math.abs(Date.parse(iso) - Date.parse(warehouseDate(checkedInAt, gate.terminal)));
         if (!date || !Number.isFinite(age) || age > 45 * 86400000 || /delivered|completed|cancelled|canceled/i.test(order.orderStatus))
-          return NextResponse.json({ ok: false, error: "This cotton order is historical or has no current delivery date. Check in without an SCM order number and speak with warehouse staff." }, { status: 409 });
+          return NextResponse.json({ ok: false, error: "This cotton order is historical or has no current delivery date. Please speak with warehouse staff." }, { status: 409 });
       }
     }
     if (!["pickup", "delivery"].includes(movementDirection) || (movementDirection === "pickup" && !destination)) {
       return NextResponse.json({ ok: false, error: "Enter the destination for a pickup or choose pickup or delivery" }, { status: 400 });
     }
+    if (!orderId) referenceNumber = driverLookupInput.toUpperCase();
     if (movementDirection !== "pickup") destination = "";
 
     const insertPayload = {
@@ -374,10 +372,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       movement_direction: movementDirection,
       material_type: materialType,
       reference_number: referenceNumber,
+      driver_lookup_input: driverLookupInput,
       destination: destination || null,
       mark,
       shipper: matchedCustomer,
       matched_order_id: orderId || null,
+      matched_stop_id: matchedStopId,
       expected_bale_count: expectedBales,
       driver_reported_bales: materialType === "cotton" ? reportedBales : null,
       bol_bc: bolBaleCount,
@@ -435,6 +435,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
 
     return NextResponse.json({ ok: true, checkin: data, photoSaved, shortage: data ? cottonShortage(data) : null });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed", ...(error instanceof YardStopError ? { code: error.code } : {}) }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }

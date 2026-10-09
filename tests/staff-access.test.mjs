@@ -102,7 +102,7 @@ test("every internal API export is wrapped; only driver token and auth-session r
 });
 
 test("operator reads are restricted by query AND saved record ownership",async()=>{
-  for(const path of ["/api/warehouse/inventory?terminal=SAV", `/api/warehouse/outbound/bookings/${id}/export?terminal=HOU`, `/api/warehouse/checkin-bol/${id}`, `/api/inbound/checkin/rows/${id}/dispatcher`]) {
+  for(const path of [`/api/warehouse/domestic-queue/match?id=${id}&terminal=HOU`, "/api/warehouse/inventory?terminal=SAV", `/api/warehouse/outbound/bookings/${id}/export?terminal=HOU`, `/api/warehouse/checkin-bol/${id}`, `/api/inbound/checkin/rows/${id}/dispatcher`]) {
     const result=await call(path,"GET",undefined,hou,{recordTerminal:"SAV"});
     assert.equal(result.status,403,path); assert.equal(result.ran,false,path);
   }

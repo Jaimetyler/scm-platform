@@ -1,7 +1,9 @@
 "use client";
+import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
+import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
 
-import { useCallback, useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -18,28 +20,26 @@ export default function ContainerLinePage() {
   const [error, setError] = useState("");
   const [workingId, setWorkingId] = useState("");
 
-  const load = useCallback(async (quiet = false) => {
-    if (!site) return;
-    if (!quiet) setLoading(true);
-    try {
-      const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode });
-      const response = await fetch(`/api/warehouse/container-queue?${query}`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the container line");
-      setRows(result.rows ?? []);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not load the container line");
-    } finally {
-      setLoading(false);
-    }
-  }, [site]);
+  useLayoutEffect(() => {
+    setRows([]); setLoading(true); setError(""); setWorkingId("");
+  }, [site?.terminal, site?.siteCode]);
 
-  useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(true), 7000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+  const poll = useVisiblePolling({ intervalMs: 7000, enabled: !!site && !workingId,
+    requestKey: `${site?.terminal}:${site?.siteCode}`, load: async (signal) => {
+      if (!site) return;
+      try {
+        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode });
+        const response = await fetch(`/api/warehouse/container-queue?${query}`, { cache: "no-store", signal });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the container line");
+        if (signal.aborted) return;
+        setRows(result.rows ?? []); setError("");
+      } catch (reason) {
+        if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the container line");
+        throw reason;
+      } finally { if (!signal.aborted) setLoading(false); }
+    } });
+  const load = poll.refresh;
 
   async function update(id: string, action: "complete" | "cancel") {
     if (action === "cancel" && !window.confirm("Remove this driver from the container line?")) return;
@@ -73,7 +73,7 @@ export default function ContainerLinePage() {
     <PlatformPanel>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <strong style={{ color: "#f8fafc", fontSize: 20 }}>{rows.length} waiting</strong>
-        <button onClick={() => void load()} style={linkStyle}>Refresh</button>
+        <PollingStatus {...poll} /><button disabled={!!workingId} onClick={() => void load()} style={linkStyle}>Refresh</button>
       </div>
       {loading ? <p style={mutedStyle}>Loading line…</p> : rows.length === 0 ?
         <div style={{ padding: "50px 20px", textAlign: "center", color: "#94a3b8" }}>No container drivers are waiting.</div> :

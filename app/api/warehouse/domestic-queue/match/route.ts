@@ -1,3 +1,6 @@
+import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
+import { mapLimit } from "@/lib/http/map-limit";
+import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -37,7 +40,8 @@ async function GETHandler(req: NextRequest) {
       if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) return NextResponse.json({ ok: false, error: "Invalid check-in" }, { status: 400 });
       const { data: row, error } = await database().from("inbound_checkin_rows")
         .select("id,terminal,site_code,material_type,movement_direction,reference_number").eq("id", id).single();
-      if (error || !row || !["lumber", "other"].includes(row.material_type)) {
+      if (error) throw new DependencyError("Could not load this arrival. Please try again.");
+      if (!row || !["lumber", "other"].includes(row.material_type)) {
         return NextResponse.json({ ok: false, error: "Check-in not found" }, { status: 404 });
       }
       terminal = row.terminal;
@@ -58,10 +62,10 @@ async function GETHandler(req: NextRequest) {
     if (!base || !token) throw new Error("McLeod connection is not configured");
     async function search(searchField: string) {
       const searchParams = new URLSearchParams({ [`orders.${searchField}`]: `*${reference.replace(/\*/g, "")}*`, recordLength: "200" });
-      const response = await fetch(`${base}/orders/search?${searchParams}`, {
+      const response = await dependencyFetch(`${base}/orders/search?${searchParams}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
       });
-      if (!response.ok) throw new Error(`McLeod search failed (${response.status})`);
+      if (!response.ok) throw new DependencyError(`McLeod search failed (${response.status}). Please try again.`);
       const results = extractSearchOrders(await response.json());
       if (!results) throw new Error("McLeod returned an unexpected search response");
       if (results.length >= 200) throw new Error("Too many possible orders. Use a longer reference number.");
@@ -73,13 +77,14 @@ async function GETHandler(req: NextRequest) {
     const matches = new Map<string, { orderId: string; customerId: string; customerName: string; value: string;
       materialType: "lumber" | "other" | null; destination: string; direction: string;
       carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
-      driverName: string; driverPhone: string; completion?: McleodCompletion | null }>();
+      driverName: string; driverPhone: string; stopId?: string; movementId?: string; completion?: McleodCompletion | null }>();
     for (const set of resultSets) for (const item of set.results) {
       const order = item as Record<string, unknown>;
       const value = text(order[set.field]);
       const orderId = text(order.id);
-      if (!orderId || !value.toUpperCase().includes(reference)) continue;
-      if (!text(order.revenue_code_id)) throw new Error("McLeod search omitted the revenue code. Cannot verify this order.");
+      if (!orderId || !value) throw new DependencyError("McLeod returned incomplete order identity or reference details. Please try again.");
+      if (!value.toUpperCase().includes(reference)) continue;
+      if (!text(order.revenue_code_id)) throw new DependencyError("McLeod search omitted the revenue code. Cannot verify this order.");
       if (text(order.revenue_code_id).toUpperCase() !== "MAIN") continue;
       const matchDirection = set.field === "blnum" ? "pickup" : "delivery";
       const customer = order.customer as Record<string, unknown> | undefined;
@@ -97,16 +102,24 @@ async function GETHandler(req: NextRequest) {
     }
     if (matches.size > 20) throw new Error("Too many matching orders. Enter a longer reference number.");
     const cutoff = Date.now() - 45 * 24 * 60 * 60 * 1000;
-    const verified = await Promise.all([...matches.values()].map(async (match) => {
+    const orderRequests = new Map<string, Promise<Record<string, any>>>();
+    async function fullOrder(orderId: string) {
+      if (!orderRequests.has(orderId)) orderRequests.set(orderId, (async () => {
+        const response = await dependencyFetch(`${base}/orders/${encodeURIComponent(orderId)}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
+        });
+        if (!response.ok) throw new DependencyError("McLeod order verification is temporarily unavailable.");
+        return response.json();
+      })());
+      return orderRequests.get(orderId)!;
+    }
+    const verified = await mapLimit([...matches.values()], 4, async (match) => {
       const matchedField = match.direction === "pickup" ? "blnum" : "consignee_refno";
-      const full = await fetch(`${base}/orders/${encodeURIComponent(match.orderId)}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
-      });
-      if (!full.ok) throw new Error(`Could not verify McLeod order (${full.status})`);
-      const order = await full.json() as Record<string, unknown>;
+      const order = await fullOrder(match.orderId);
       let yardOrder;
-      try { yardOrder = await lookupMcleodGateOrder(match.orderId, configuredSite.terminal, configuredSite.siteName); }
-      catch { return null; }
+      try { yardOrder = await lookupMcleodGateOrder(match.orderId, configuredSite.terminal, configuredSite.siteName, match.direction as "pickup" | "delivery", undefined, order); }
+      catch (error) { if (error instanceof YardStopError && error.code === "YARD_STOP_NOT_FOUND") return null; throw error; }
+      match.stopId = yardOrder.stopId; match.movementId = yardOrder.movementId;
       if (yardOrder.direction !== match.direction) return null;
       match.completion = yardOrder.completion;
       if (text(order.revenue_code_id).toUpperCase() !== "MAIN" ||
@@ -115,44 +128,20 @@ async function GETHandler(req: NextRequest) {
       const commodity = order.commodity as Record<string, unknown> | string | undefined;
       const commodityName = text((typeof commodity === "object" ? commodity?.description : commodity) || order.commodity_description || order.commodity_id).toUpperCase();
       if (/\bCOTTON\b/.test(commodityName)) return null;
-      const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
-      const stop = stops.find((item) => item.stop_type === (match.direction === "pickup" ? "PU" : "SO"));
-      const scheduled = text(stop?.sched_arrive_early || stop?.sched_arrive_late || order.ordered_date);
+      const scheduled = yardOrder.orderDate;
       if (!match.completion && scheduled && (orderDay(scheduled) ?? Date.now()) < cutoff) return null;
-      const delivery = stops.find((item) => item.stop_type === "SO");
-      const movements = Array.isArray(order.movements) ? order.movements as Record<string, unknown>[] : [];
-      const movement = movements.find((item) => text(item.id) === text(order.curr_movement_id)) ?? movements[0];
-      match.customerName = text(customer?.name || order.customer_name || order.customer_id) || match.customerName;
-      match.materialType = /\bLUMBER\b|\bWOOD\b/.test(commodityName) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodityName) ? "other" : match.materialType;
-      match.destination = named(delivery?.location) || text(delivery?.location_name) || match.destination;
-      match.orderDate = scheduled;
-      match.orderStatus = text(order.__statusDescr || movement?.__statusDescr || order.status);
-      if (match.completion) {
-        match.carrierName = match.completion.carrierName;
-        match.carrierCode = match.completion.carrierCode;
-        return match;
-      }
-      match.carrierCode = text(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id || order.vendor_id);
-      match.carrierName = named(movement?.carrier) || named(movement?.vendor) || named(movement?.payee) ||
-        named(order.carrier) || named(order.vendor) || text(movement?.carrier_name || movement?.vendor_name || order.carrier_name);
-      match.driverName = text(movement?.override_driver_nm);
-      match.driverPhone = text(movement?.override_drvr_cell);
-      if (!match.carrierName && match.carrierCode) {
-        for (const path of ["carriers", "vendors"]) {
-          try {
-            const response = await fetch(`${base}/${path}/${encodeURIComponent(match.carrierCode)}`, {
-              headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
-            });
-            if (response.ok) match.carrierName = named(await response.json());
-            if (match.carrierName) break;
-          } catch { /* Keep the verified order and show its carrier code. */ }
-        }
-      }
+      match.customerName = yardOrder.customer || match.customerName;
+      match.materialType = yardOrder.materialType === "cotton" ? null : yardOrder.materialType || match.materialType;
+      match.destination = yardOrder.destination;
+      match.orderDate = scheduled; match.orderStatus = yardOrder.orderStatus;
+      match.carrierName = match.completion?.carrierName || yardOrder.carrierName;
+      match.carrierCode = match.completion?.carrierCode || yardOrder.carrierCode;
+      match.driverName = yardOrder.driverName; match.driverPhone = yardOrder.driverPhone;
       return match;
-    }));
+    });
     return NextResponse.json({ ok: true, reference, matches: verified.filter((match) => match !== null) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500 });
   }
 }
 

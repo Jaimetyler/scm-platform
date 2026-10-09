@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 export default function AuthForm({ mode }: { mode: "login" | "accept" | "password" }) {
@@ -15,17 +15,29 @@ export default function AuthForm({ mode }: { mode: "login" | "accept" | "passwor
       history.replaceState(null, "", "/auth/accept");
     }
   } }, [mode]);
+  const submitting = useRef(false);
+  const generation = useRef(0);
+  const pending = useRef(new AbortController());
+  useEffect(() => {
+    ++generation.current; submitting.current = false; setBusy(false);
+    pending.current = new AbortController();
+    return () => { ++generation.current; pending.current.abort(); };
+  }, [mode]);
   async function submit(action: string) {
+    if (submitting.current) return;
+    submitting.current = true;
+    const version = generation.current;
     setBusy(true); setError(""); setMessage("");
     try {
       if (action === "password" && password !== confirm) throw new Error("The passwords do not match.");
       const response = await fetch("/api/auth/session", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, email, password, ...invite }) });
+        signal: AbortSignal.any([pending.current.signal, AbortSignal.timeout(20_000)]), body: JSON.stringify({ action, email, password, ...invite }) });
       const result = await response.json();
+      if (version !== generation.current) return;
       if (!response.ok) throw new Error(result.error || "Could not sign in");
       if (result.next) location.assign(result.next); else setMessage(result.message);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not sign in"); }
-    finally { setBusy(false); }
+    } catch (reason) { if (version !== generation.current) return; setError(reason instanceof Error && /Timeout|Abort/.test(reason.name) ? "Sign-in is taking too long. Please try again." : reason instanceof Error ? reason.message : "Could not sign in"); }
+    finally { if (version === generation.current) { submitting.current = false; setBusy(false); } }
   }
   return <main className="staff-card"><h1>SCM {mode === "login" ? "staff sign-in" : mode === "accept" ? "welcome" : "set your password"}</h1>
     <p>{mode === "login" ? "Use your individual staff account." : mode === "accept" ? "Continue to verify your email and set your password." : "Choose a password with at least 12 characters."}</p>

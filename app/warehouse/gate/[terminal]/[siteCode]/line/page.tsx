@@ -1,9 +1,11 @@
 "use client";
+import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
+import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useLayoutEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -41,24 +43,27 @@ export default function DomesticLinePage() {
   const [cottonEditId, setCottonEditId] = useState<string | null>(null);
   const [cottonFields, setCottonFields] = useState<Record<string, CottonFields>>({});
 
-  const load = useCallback(async () => {
-    if (!site) return;
-    try {
-      const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, view: "line" });
-      const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the domestic line");
-      setRows(result.rows);
-      setError("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load the domestic line"); }
-    finally { setLoading(false); }
-  }, [site]);
+  useLayoutEffect(() => {
+    setRows([]); setLoading(true); setError(""); setNotice(""); setWorking("");
+    setCottonEditId(null); setCottonFields({});
+  }, [site?.terminal, site?.siteCode]);
 
-  useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => { if (!working) void load(); }, 10000);
-    return () => window.clearInterval(timer);
-  }, [load, working]);
+  const poll = useVisiblePolling({ intervalMs: 10000, enabled: !!site && !working && !cottonEditId,
+    requestKey: `${site?.terminal}:${site?.siteCode}`, load: async (signal) => {
+      if (!site) return;
+      try {
+        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, view: "line" });
+        const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the domestic line");
+        if (signal.aborted) return;
+        setRows(result.rows); setError("");
+      } catch (reason) {
+        if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the domestic line");
+        throw reason;
+      } finally { if (!signal.aborted) setLoading(false); }
+    } });
+  const load = poll.refresh;
 
   function openCotton(row: Arrival) {
     setCottonFields((current) => ({ ...current, [row.id]: {
@@ -115,7 +120,7 @@ export default function DomesticLinePage() {
     <PlatformPanel>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <strong>{waiting} waiting · {active.length} active</strong>
-        <button style={button} onClick={() => void load()}>Refresh</button>
+        <PollingStatus {...poll} /><button disabled={!!working || !!cottonEditId} style={button} onClick={() => void load()}>Refresh</button>
       </div>
       {loading ? <p>Loading arrivals…</p> : active.length === 0 ? <p>No active domestic arrivals.</p> :
         <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", color: "#e2e8f0" }}>

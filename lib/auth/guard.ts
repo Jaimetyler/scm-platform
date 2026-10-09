@@ -1,3 +1,4 @@
+import { DependencyError } from "../http/dependency";
 import { NextRequest, NextResponse } from "next/server";
 import { AccessError, isWrite, requireActive, requireTerminal, warehouseReadPath, type Staff } from "./policy";
 import { requireSameOrigin, staffDatabase, staffSession } from "./session";
@@ -27,6 +28,8 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
     if (staff.role === "operator") {
       const requested = new URL(req.url).searchParams.get("terminal");
       if (requested && requested.toLowerCase() !== "all") requireTerminal(staff, requested);
+      if (path === "/api/warehouse/domestic-queue/match" && new URL(req.url).searchParams.has("id"))
+        requireTerminal(staff, await recordTerminal(db, "inbound_checkin_rows", new URL(req.url).searchParams.get("id")));
       const savedBooking = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)(?:\/(?:export|container-info))?$/);
       const savedRow = path.match(/^\/api\/(?:warehouse\/checkin-bol|inbound\/checkin\/rows)\/([^/]+)(?:\/dispatcher)?$/);
       if (savedBooking) requireTerminal(staff, await recordTerminal(db, "cotton_outbound_bookings", savedBooking[1]));
@@ -92,8 +95,10 @@ export function withStaffAccess<T extends (req: NextRequest, ...args: any[]) => 
       if (activityId) await staffDatabase().from("scm_staff_activity").update({ response_status: response.status }).eq("id", activityId);
       return session.finish(response);
     } catch (reason) {
-      const response = NextResponse.json({ ok: false, error: reason instanceof AccessError ? reason.message : "Could not verify or complete this staff request." },
-        { status: reason instanceof AccessError ? reason.status : 503 });
+      const unavailable = !(reason instanceof AccessError);
+      const response = NextResponse.json({ ok: false, error: reason instanceof AccessError || reason instanceof DependencyError ? reason.message : "Could not verify or complete this staff request.",
+        ...(unavailable ? { code: "DEPENDENCY_UNAVAILABLE", requestId: crypto.randomUUID() } : {}) },
+        { status: reason instanceof AccessError ? reason.status : 503, headers: unavailable ? { "Retry-After": "10" } : {} });
       return session ? session.finish(response) : response;
     }
   }) as T;

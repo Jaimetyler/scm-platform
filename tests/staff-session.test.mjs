@@ -16,9 +16,9 @@ function scenario(options={}) {
   const profile={id:"staff-1",email:user.email,user_id:user.id,status:"active",role:"operator",terminal:"HOU",...options.profile};
   const auth={getUser:async()=>({data:{user},error:options.authError}),
     verifyOtp:async args=>{calls.push(["otp",args]);return {error:options.otpError};},
-    signInWithPassword:async()=>({error:null}),signOut:async()=>({error:null}),
+    signInWithPassword:async()=>({error:options.loginError}),signOut:async()=>({error:options.logoutError}),
     updateUser:async()=>{calls.push(["password"]);return {error:null};},
-    resetPasswordForEmail:async()=>{calls.push(["recovery"]);return {error:null};},
+    resetPasswordForEmail:async()=>{calls.push(["recovery"]);return {error:options.recoveryError ?? null};},
     admin:{inviteUserByEmail:async()=>({error:options.inviteError})}};
   const db={auth,from:()=>({select(){return this;},eq(){return this;},maybeSingle:async()=>({data:options.missing?null:profile,error:options.dbError})}),
     rpc:async(name,args)=>{calls.push([name,args]);return {data:profile,error:options.activateError};}};
@@ -72,4 +72,41 @@ test("resending to an already verified email sends recovery without changing its
   const s=scenario({inviteError:{code:"email_exists"}});
   assert.equal((await s.load("lib/auth/invitations.ts").sendStaffInvitation("person@example.test")).error,null);
   assert.deepEqual(s.calls.map(c=>c[0]),["recovery"]);
+});
+
+test("dependency outages return retryable 503, while invalid credentials remain 401", async () => {
+  for (const loginError of [{status:500}, {status:504}, {name:"AuthRetryableFetchError"}, {message:"offline"}]) {
+    const s=scenario({loginError});
+    const response=await s.load("app/api/auth/session/route.ts").POST(s.request({action:"login"}));
+    assert.equal(response.status,503); assert.equal(response.headers.get("Retry-After"),"10");
+    assert.doesNotMatch((await response.json()).error,/password was not accepted/);
+  }
+  const s=scenario({loginError:{code:"invalid_credentials",status:400}});
+  assert.equal((await s.load("app/api/auth/session/route.ts").POST(s.request({action:"login"}))).status,401);
+});
+test("auth/profile outages fail closed without mislabelling access and recovery email failures surface",async()=>{
+  for(const options of [{authError:{status:503}},{dbError:{message:"offline"}}]) {
+    const s=scenario(options);
+    await assert.rejects(s.load("lib/auth/session.ts").staffSession(s.request({})).identity(),e=>e.status===503);
+  }
+  const s=scenario({recoveryError:{status:503}});
+  assert.equal((await s.load("app/api/auth/session/route.ts").POST(s.request({action:"recover",email:"person@example.test"}))).status,503);
+});
+test("middleware distinguishes temporary outages from genuine access failures",async()=>{
+  for(const [options,status,path] of [[{authError:{status:504}},503,null],[{dbError:{message:"offline"}},503,null],
+    [{authError:{status:401,code:"bad_jwt"}},307,"/login"],[{profile:{status:"disabled"}},307,"/access-denied"]]) {
+    const s=scenario(options); const response=await s.load("middleware.ts").middleware(new NextRequest("https://scm.example.test/warehouse"));
+    assert.equal(response.status,status);
+    if(path)assert.equal(new URL(response.headers.get("location")).pathname,path);
+    else {assert.equal(response.headers.get("location"),null);assert.match(await response.text(),/temporarily unavailable/);}
+  }
+});
+
+test("invitation activation outage is retryable while expired/cancelled rejection remains forbidden",async()=>{
+  for(const [activateError,status] of [[{code:"08006",message:"connection lost"},503],[{code:"P0001",message:"Invitation expired or cancelled"},403]]) {
+    const s=scenario({profile:{status:"pending",invite_expires_at:"2099-01-01"},activateError});
+    const response=await s.load("app/api/auth/session/route.ts").POST(s.request({action:"password",password:"a long test password"}));
+    assert.equal(response.status,status);
+    assert.equal(response.headers.get("Retry-After"),status===503?"10":null);
+  }
 });

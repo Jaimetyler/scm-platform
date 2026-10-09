@@ -7,7 +7,11 @@ import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 
 
 type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string; materials: string[]; containers: boolean };
-type ReferenceMatch = { orderId: string; carrierName: string; completion?: McleodCompletion | null };
+type ReferenceMatch = {
+  orderId: string; stopId: string; carrierName: string; driverName?: string;
+  driverPhoneLast4?: string; selectable?: boolean; completion?: McleodCompletion | null;
+};
+type LookupStatus = "idle" | "searching" | "matched" | "ambiguous" | "no_match" | "closed" | "error";
 
 type FormState = {
   checkinType: string;
@@ -17,6 +21,7 @@ type FormState = {
   movementDirection: string;
   materialType: string;
   orderId: string;
+  selectedStopId: string;
   referenceNumber: string;
   destination: string;
   mark: string;
@@ -26,7 +31,7 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", movementDirection: "", materialType: "",
-  orderId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "", balesOnTruck: "",
+  orderId: "", selectedStopId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "", balesOnTruck: "",
 };
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -77,21 +82,23 @@ export default function DriverCheckinPage() {
   const { token } = useParams<{ token: string }>();
   const [site, setSite] = useState<Site | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const formRef = useRef<FormState>(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [lookingUp, setLookingUp] = useState(false);
-  const [orderReady, setOrderReady] = useState(false);
+  const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
+  const lookupStatusRef = useRef<LookupStatus>("idle");
+  const orderReady = lookupStatus === "matched";
+  const lookingUp = lookupStatus === "searching";
   const [orderMessage, setOrderMessage] = useState("");
   const [orderCommodity, setOrderCommodity] = useState("");
   const [referenceMatches, setReferenceMatches] = useState<ReferenceMatch[]>([]);
-  const [referenceSearching, setReferenceSearching] = useState(false);
+  const referenceMatchesRef = useRef<ReferenceMatch[]>([]);
+  const explicitSelectionRef = useRef(false);
   const [completedMatches, setCompletedMatches] = useState<ReferenceMatch[]>([]);
-  const [closedOnly, setClosedOnly] = useState(false);
-  const referenceRequest = useRef(0);
-  const orderRequest = useRef(0);
+  const lookupRequest = useRef(0);
   const [error, setError] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
-  const autoDriverRef = useRef({ name: "", phone: "" });
+  const autoFilledRef = useRef<Partial<FormState>>({});
   const [shortage, setShortage] = useState<{ expected: number; received: number; missing: number } | null>(null);
   const [complete, setComplete] = useState(false);
   const [bolPhoto, setBolPhoto] = useState<File | null>(null);
@@ -101,7 +108,22 @@ export default function DriverCheckinPage() {
   const [queueSiteName, setQueueSiteName] = useState("");
   const [queuedDriverName, setQueuedDriverName] = useState("");
   const [deviceId, setDeviceId] = useState("");
-  const [clientId] = useState(() => crypto.randomUUID());
+  const [clientId, setClientId] = useState(() => crypto.randomUUID());
+  const lookupAbort = useRef(new AbortController());
+  const gateVersion = useRef(0);
+  const submitInFlight = useRef(false);
+  useEffect(() => {
+    ++gateVersion.current; ++lookupRequest.current;
+    lookupAbort.current.abort(); lookupAbort.current = new AbortController();
+    setClientId(crypto.randomUUID()); updateForm(EMPTY_FORM); setSite(null); setLoading(true);
+    updateLookupStatus("idle");
+    updateReferenceMatches([]); setCompletedMatches([]); setOrderMessage("");
+    setOrderCommodity(""); setComplete(false); setError(""); setSubmitting(false); submitInFlight.current = false;
+    setBolPhoto(null); setShortage(null); setPhotoSaved(false); setPhotoFailed(false);
+    setQueuePosition(null); setQueueSiteName(""); setQueuedDriverName("");
+    autoFilledRef.current = {}; explicitSelectionRef.current = false;
+    return () => { ++gateVersion.current; ++lookupRequest.current; lookupAbort.current.abort(); };
+  }, [token]);
 
   useEffect(() => {
     let id = crypto.randomUUID();
@@ -118,10 +140,11 @@ export default function DriverCheckinPage() {
   useEffect(() => {
     if (!deviceId) return;
     let cancelled = false;
+    const controller = new AbortController();
     async function load() {
       try {
         const query = new URLSearchParams({ deviceId });
-        const response = await fetch(`/api/gate/check-in/${token}?${query}`, { cache: "no-store" });
+        const response = await fetch(`/api/gate/check-in/${token}?${query}`, { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]) });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "This check-in link is unavailable");
         if (!cancelled) {
@@ -140,128 +163,191 @@ export default function DriverCheckinPage() {
       }
     }
     void load();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [token, deviceId]);
 
+  function updateForm(next: FormState | ((current: FormState) => FormState)) {
+    const value = typeof next === "function" ? next(formRef.current) : next;
+    formRef.current = value;
+    setForm(value);
+  }
+
+  function updateReferenceMatches(next: ReferenceMatch[]) {
+    referenceMatchesRef.current = next;
+    setReferenceMatches(next);
+  }
+
+  function clearMatchedDetails(current: FormState) {
+    explicitSelectionRef.current = false;
+    const next = { ...current, orderId: "", selectedStopId: "" };
+    for (const key of Object.keys(autoFilledRef.current) as (keyof FormState)[]) {
+      if (next[key] === autoFilledRef.current[key]) next[key] = "";
+    }
+    autoFilledRef.current = {};
+    return next;
+  }
+
+  function requireFreshSelection() {
+    updateForm(clearMatchedDetails);
+    updateReferenceMatches([]); setCompletedMatches([]); setOrderCommodity(""); setOrderMessage("");
+    updateLookupStatus("idle");
+    return "More than one load now matches. Select Find my load and confirm your trucking company and driver.";
+  }
+
+  function updateLookupStatus(next: LookupStatus) {
+    // Event handlers must observe invalidation before React's next render.
+    lookupStatusRef.current = next;
+    setLookupStatus(next);
+  }
+
   function change(field: keyof FormState, value: string) {
+    if (submitInFlight.current || formRef.current[field] === value) return;
     setError("");
-    if (["referenceNumber", "movementDirection", "orderId", "checkinType"].includes(field)) {
-      setCompletedMatches([]); setClosedOnly(false);
+    const invalidatesLookup = ["referenceNumber", "movementDirection", "checkinType"].includes(field);
+    if (invalidatesLookup) {
+      ++lookupRequest.current;
+      lookupAbort.current.abort(); lookupAbort.current = new AbortController();
+      updateLookupStatus("idle");
+      updateReferenceMatches([]); setCompletedMatches([]); setOrderMessage(""); setOrderCommodity("");
     }
-    if (field === "referenceNumber" || field === "movementDirection") {
-      orderRequest.current++;
-      referenceRequest.current++;
-      setReferenceMatches([]);
-      setOrderMessage("");
-      setReferenceSearching(false);
-      if (orderReady) setOrderReady(false);
+    updateForm((current) => {
+      const next = invalidatesLookup ? clearMatchedDetails(current) : { ...current };
+      next[field] = value;
+      return next;
+    });
+  }
+
+  function lookupLocation(position: GeolocationPosition) {
+    return { latitude: position.coords.latitude, longitude: position.coords.longitude,
+      accuracyMeters: position.coords.accuracy, capturedAt: new Date(position.timestamp).toISOString() };
+  }
+
+  async function loadSelectedOrder(match: ReferenceMatch, snapshot: FormState, requestId: number, position: GeolocationPosition, explicitSelection = false) {
+    const response = await fetch(`/api/gate/check-in/${token}`, {
+      method: "POST", signal: AbortSignal.any([lookupAbort.current.signal, AbortSignal.timeout(30_000)]),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "lookupOrder", orderId: match.orderId, selectedStopId: match.stopId, explicitSelection,
+        referenceNumber: snapshot.referenceNumber, driverLookupInput: snapshot.referenceNumber,
+        movementDirection: snapshot.movementDirection, location: lookupLocation(position) }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (requestId !== lookupRequest.current) return;
+    if (result.code === "SELECTION_REQUIRED") throw new Error(requireFreshSelection());
+    if (result.completion) {
+      setCompletedMatches([{ ...match, completion: result.completion }]);
+      updateLookupStatus("closed");
+      throw new Error(result.error || result.completion.message || "This load is already closed in McLeod. Please speak with warehouse staff.");
     }
-    setForm((current) => ({ ...current, [field]: value,
-      ...((field === "movementDirection" || field === "referenceNumber") && orderReady ? { orderId: "" } : {}) }));
+    if (!response.ok || !result.ok) throw new Error(result.error || `Could not confirm this load (HTTP ${response.status})`);
+    if (!result.stopId || result.stopId !== match.stopId || result.direction !== snapshot.movementDirection) {
+      throw new Error("The load details changed. Find your load again or speak with warehouse staff.");
+    }
+    updateForm((current) => {
+      const prefill: Partial<FormState> = {
+        truckingCompany: result.carrierName || current.truckingCompany,
+        materialType: result.materialType || "", mark: result.mark || "", bolBaleCount: result.baleCount || "",
+        destination: result.direction === "pickup" ? result.destination || "" : "",
+        ...(!current.driverName && result.driverName ? { driverName: result.driverName } : {}),
+      };
+      autoFilledRef.current = Object.fromEntries(Object.entries(prefill).filter(([key, value]) =>
+        value !== current[key as keyof FormState]));
+      // The single visible input is driver evidence, not the order's canonical reference.
+      return { ...current, ...prefill, orderId: match.orderId, selectedStopId: result.stopId };
+    });
+    setOrderCommodity(result.commodity || "");
+    updateReferenceMatches([]); setCompletedMatches([]);
+    explicitSelectionRef.current = explicitSelection;
+    updateLookupStatus("matched");
+    setOrderMessage(`SCM order found: ${result.direction}. Please verify your trucking company and driver details below.`);
+  }
+
+  function lookupFailed(reason: unknown, requestId: number) {
+    if (requestId !== lookupRequest.current) return;
+    if (lookupStatusRef.current !== "closed") updateLookupStatus("error");
+    setOrderMessage(reason instanceof Error ? reason.message : "Could not search for your load. Try again or speak with warehouse staff.");
   }
 
   async function findReference() {
-    if (orderReady || form.referenceNumber.trim().length < 3 ||
-        !form.movementDirection || referenceSearching) return;
-    const requestId = ++referenceRequest.current;
-    setReferenceSearching(true);
-    setOrderMessage("");
+    const snapshot = formRef.current;
+    if (submitInFlight.current || snapshot.checkinType !== "domestic" || lookupStatusRef.current === "searching" ||
+        snapshot.referenceNumber.trim().length < 3 || !snapshot.movementDirection) return;
+    const requestId = ++lookupRequest.current;
+    lookupAbort.current.abort(); lookupAbort.current = new AbortController();
+    updateLookupStatus("searching");
+    updateForm(clearMatchedDetails);
+    updateReferenceMatches([]); setCompletedMatches([]); setOrderMessage(""); setOrderCommodity(""); setError("");
     try {
       const position = await currentPosition();
+      if (requestId !== lookupRequest.current) return;
       const response = await fetch(`/api/gate/check-in/${token}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "lookupReference", referenceNumber: form.referenceNumber.trim(),
-          movementDirection: form.movementDirection, location: {
-            latitude: position.coords.latitude, longitude: position.coords.longitude,
-            accuracyMeters: position.coords.accuracy, capturedAt: new Date(position.timestamp).toISOString(),
-          } }),
+        method: "POST", signal: AbortSignal.any([lookupAbort.current.signal, AbortSignal.timeout(30_000)]), headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "lookupReference", referenceNumber: snapshot.referenceNumber,
+          driverLookupInput: snapshot.referenceNumber, movementDirection: snapshot.movementDirection,
+          location: lookupLocation(position) }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.ok) throw new Error(result.error || `Reference search failed (HTTP ${response.status})`);
-      if (requestId !== referenceRequest.current) return;
-      const found = (result.matches || []) as ReferenceMatch[];
-      setReferenceMatches(found.filter((match) => !match.completion));
+      if (requestId !== lookupRequest.current) return;
+      if (!response.ok || !result.ok) throw new Error(result.error || `Load search failed (HTTP ${response.status})`);
+      if (!Array.isArray(result.matches) || result.incomplete) throw new Error("The load search is incomplete. Try again or speak with warehouse staff.");
+      const found = result.matches as ReferenceMatch[];
+      if (result.status === "no_match" && result.allowUnmatched === true && found.length === 0) {
+        updateLookupStatus("no_match");
+        setOrderMessage("No SCM order found. Continue with the details from your paperwork.");
+        return;
+      }
+      if (result.status !== "matches" || !found.length || found.some((match) => !match.orderId || !match.stopId)) {
+        throw new Error("Could not confirm the load search. Try again or speak with warehouse staff.");
+      }
+      const active = found.filter((match) => !match.completion);
       setCompletedMatches(found.filter((match) => match.completion));
-      setClosedOnly(found.length > 0 && found.every((match) => match.completion));
-      setOrderMessage(result.matches?.length ? "" :
-        "No SCM order found for this reference. Continue with the details from your paperwork.");
-    } catch (reason) {
-      if (requestId === referenceRequest.current) setOrderMessage(reason instanceof Error ? reason.message : "Could not search this reference");
-    } finally {
-      if (requestId === referenceRequest.current) setReferenceSearching(false);
-    }
+      if (!active.length) {
+        updateLookupStatus("closed");
+        setOrderMessage("This load is already closed in McLeod. Please speak with warehouse staff.");
+      } else if (active.length === 1 && !result.selectionRequired && active[0].selectable !== false) {
+        await loadSelectedOrder(active[0], snapshot, requestId, position);
+      } else {
+        updateReferenceMatches(active);
+        updateLookupStatus("ambiguous");
+      }
+    } catch (reason) { lookupFailed(reason, requestId); }
   }
 
-  function chooseReferenceMatch(match: ReferenceMatch) {
-    if (match.completion) return;
-    setClosedOnly(false);
-    referenceRequest.current++;
-    setReferenceMatches([]);
-    void findOrder(match.orderId, form.referenceNumber, form.movementDirection);
+  async function chooseReferenceMatch(match: ReferenceMatch) {
+    if (submitInFlight.current || lookupStatusRef.current !== "ambiguous" || match.completion || match.selectable !== true ||
+        !referenceMatchesRef.current.includes(match)) return;
+    const requestId = ++lookupRequest.current;
+    const snapshot = formRef.current;
+    updateLookupStatus("searching"); updateReferenceMatches([]); setOrderMessage("");
+    try {
+      const position = await currentPosition();
+      if (requestId !== lookupRequest.current) return;
+      await loadSelectedOrder(match, snapshot, requestId, position, true);
+    } catch (reason) { lookupFailed(reason, requestId); }
   }
 
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [error]);
 
-  async function findOrder(selectedId?: string, referenceNumber?: string, movementDirection?: string) {
-    const orderId = selectedId || form.orderId.trim();
-    if (!orderId || (orderReady && orderId === form.orderId.trim())) return;
-    const requestId = ++orderRequest.current;
-    setLookingUp(true);
-    setOrderMessage("");
-    try {
-      const position = await currentPosition();
-      const response = await fetch(`/api/gate/check-in/${token}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "lookupOrder", orderId, referenceNumber, movementDirection, location: {
-          latitude: position.coords.latitude, longitude: position.coords.longitude,
-          accuracyMeters: position.coords.accuracy, capturedAt: new Date(position.timestamp).toISOString(),
-        } }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (requestId !== orderRequest.current) return;
-      if (result.completion) {
-        setCompletedMatches([{ orderId, carrierName: result.completion.carrierName, completion: result.completion }]);
-        setClosedOnly(true);
-      }
-      if (!response.ok || !result.ok) throw new Error(result.error || `Could not find this order (HTTP ${response.status})`);
-      setClosedOnly(false); setCompletedMatches([]);
-      if (requestId !== orderRequest.current) return;
-      setForm((current) => {
-        const driverName = current.driverName || result.driverName || "";
-        const driverPhone = current.driverPhone || result.driverPhone || "";
-        autoDriverRef.current = {
-          name: current.driverName ? "" : driverName,
-          phone: current.driverPhone ? "" : driverPhone,
-        };
-        return { ...current, orderId, movementDirection: result.direction, referenceNumber: result.reference,
-          truckingCompany: result.carrierName || current.truckingCompany,
-          materialType: result.materialType || "", mark: result.mark || "", bolBaleCount: result.baleCount || "",
-          destination: result.direction === "pickup" ? result.destination || "" : "",
-          driverName, driverPhone };
-      });
-      setOrderCommodity(result.commodity || "");
-      referenceRequest.current++;
-      setReferenceMatches([]);
-      setOrderReady(true);
-      setOrderMessage(`SCM order found: ${result.direction}. Please verify the details below.`);
-    } catch (reason) {
-      if (requestId !== orderRequest.current) return;
-      setOrderReady(false);
-      setOrderMessage(reason instanceof Error ? reason.message : "Could not find this order");
-    } finally { if (requestId === orderRequest.current) setLookingUp(false); }
-  }
-
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (closedOnly) { setError("This order is already closed in McLeod. Please speak with warehouse staff."); return; }
-    if (!site || submitting) return;
+    const form = formRef.current;
+    if (!site || submitInFlight.current) return;
+    if (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatusRef.current)) {
+      setError(lookupStatusRef.current === "closed" ? "This order is already closed in McLeod. Please speak with warehouse staff." :
+        "Find your load and confirm any match before checking in. If the search cannot finish, speak with warehouse staff.");
+      return;
+    }
+    const orderReady = lookupStatusRef.current === "matched";
+    const explicitSelection = orderReady && explicitSelectionRef.current;
+    submitInFlight.current = true;
+    const version = gateVersion.current;
     setSubmitting(true);
     setError("");
     try {
       const position = await currentPosition();
       const preparedPhoto = form.checkinType === "domestic" && bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
+      if (version !== gateVersion.current) return;
       const request = new FormData();
       request.set("clientId", clientId);
       request.set("deviceId", deviceId);
@@ -272,7 +358,10 @@ export default function DriverCheckinPage() {
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
       request.set("orderId", orderReady ? form.orderId : "");
+      request.set("selectedStopId", orderReady ? form.selectedStopId : "");
+      request.set("explicitSelection", String(explicitSelection));
       request.set("referenceNumber", form.referenceNumber);
+      request.set("driverLookupInput", form.referenceNumber);
       request.set("destination", form.destination);
       request.set("mark", form.mark);
       request.set("bolBaleCount", form.bolBaleCount);
@@ -283,10 +372,12 @@ export default function DriverCheckinPage() {
       request.set("capturedAt", new Date(position.timestamp).toISOString());
       if (preparedPhoto) request.set("bolPhoto", preparedPhoto);
       const response = await fetch(`/api/gate/check-in/${token}`, {
-        method: "POST",
+        method: "POST", signal: AbortSignal.timeout(30_000),
         body: request,
       });
       const result = await response.json().catch(() => ({}));
+      if (version !== gateVersion.current) return;
+      if (result.code === "SELECTION_REQUIRED") throw new Error(requireFreshSelection());
       if (!response.ok || !result.ok) throw new Error(result.error || `Check-in failed (HTTP ${response.status})`);
       setQueuePosition(result.queue === true ? Number(result.position) : null);
       setQueueSiteName(result.siteName || site.siteName);
@@ -296,7 +387,10 @@ export default function DriverCheckinPage() {
       setPhotoFailed(Boolean(bolPhoto) && result.photoSaved !== true);
       setComplete(true);
     } catch (reason) {
-      if (typeof reason === "object" && reason !== null && "code" in reason) {
+      if (version !== gateVersion.current) return;
+      if (reason instanceof Error && /Timeout|Abort/.test(reason.name)) {
+        setError("Check-in could not be confirmed yet. Try again without changing the details; the same check-in identifier will be reused.");
+      } else if (typeof reason === "object" && reason !== null && "code" in reason && [1, 2, 3].includes(Number((reason as { code: unknown }).code))) {
         const code = Number((reason as { code: unknown }).code);
         const message = code === 1
           ? "Location permission is required. Allow location access for this site and try again."
@@ -306,7 +400,7 @@ export default function DriverCheckinPage() {
         setError(reason instanceof Error ? reason.message : "Check-in failed");
       }
     } finally {
-      setSubmitting(false);
+      if (version === gateVersion.current) { submitInFlight.current = false; setSubmitting(false); }
     }
   }
 
@@ -340,9 +434,10 @@ export default function DriverCheckinPage() {
         const field = event.target as HTMLInputElement | HTMLSelectElement;
         setError(`Complete the required ${field.closest("label")?.textContent?.replace(/\s*\*.*$/, "").trim().toLowerCase() || "field"} before checking in.`);
       }} style={cardStyle}>
+        <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div style={badgeStyle}>SCM DRIVER CHECK-IN</div>
         <h1 style={titleStyle}>{site.siteName}</h1>
-        <p style={bodyStyle}>Choose why you are here. When you submit, your phone will verify that you are at the yard.</p>
+        <p style={bodyStyle}>Choose why you are here. For freight, choose pickup or delivery, then enter your pickup / delivery reference or SCM order number.</p>
         {error ? <div ref={errorRef} role="alert" style={errorBoxStyle}>{error}</div> : null}
 
         <div style={choiceGridStyle}>
@@ -352,43 +447,22 @@ export default function DriverCheckinPage() {
 
         {form.checkinType ? <div style={gridStyle}>
           {form.checkinType === "domestic" ? <>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <Field label="SCM order number (Trip Contract # on your rate confirmation)" value={form.orderId}
-              onChange={(value) => { setCompletedMatches([]); setClosedOnly(false); setOrderReady(false); setOrderMessage(""); setOrderCommodity("");
-                orderRequest.current++; setLookingUp(false);
-                referenceRequest.current++; setReferenceMatches([]); setReferenceSearching(false);
-                const previousAuto = autoDriverRef.current;
-                setForm((current) => ({
-                ...current, orderId: value.toUpperCase(), movementDirection: "", referenceNumber: "", materialType: "",
-                mark: "", bolBaleCount: "", balesOnTruck: "", destination: "",
-                driverName: previousAuto.name && current.driverName === previousAuto.name ? "" : current.driverName,
-                driverPhone: previousAuto.phone && current.driverPhone === previousAuto.phone ? "" : current.driverPhone,
-              })); autoDriverRef.current = { name: "", phone: "" }; }}
-              onBlur={() => void findOrder()} autoCapitalize="characters" optional />
-            {lookingUp && <p role="status" style={bodyStyle}>Finding your SCM order…</p>}
-            {orderMessage && <p role={orderReady ? "status" : "alert"} style={{ ...bodyStyle, color: orderReady ? "#86efac" : "#fca5a5" }}>{orderMessage}</p>}
-            <small style={{ color: "#94a3b8" }}>Enter your SCM number first if you have it. Otherwise, use the reference from your paperwork.</small>
-          </div>
-          </> : null}
-          {form.checkinType === "domestic" ? <>
           <label style={labelStyle}>Pickup or delivery? *
-            <select required disabled={orderReady} value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
+            <select required value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
               <option value="">Select</option>
               <option value="delivery">Delivery</option>
               <option value="pickup">Pickup</option>
             </select>
           </label>
-          {orderReady && <div style={labelStyle}>Reference number
-            <div style={inputStyle}>{form.referenceNumber}</div>
-          </div>}
-          {!orderReady && <div style={{ gridColumn: "1 / -1" }}>
-            <Field label="Reference number *" value={form.referenceNumber}
-              onChange={(value) => change("referenceNumber", value.toUpperCase())}
-              onBlur={() => void findReference()} autoCapitalize="characters" />
-            {referenceSearching && <p role="status" style={bodyStyle}>Searching for your reference…</p>}
-            {orderMessage && <p role="status" style={bodyStyle}>{orderMessage}</p>}
-          </div>}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <Field label="Pickup / delivery reference or SCM order number" value={form.referenceNumber}
+              onChange={(value) => change("referenceNumber", value)} autoCapitalize="none" required maxLength={120} />
+            <button type="button" disabled={lookingUp || !form.movementDirection || form.referenceNumber.trim().length < 3}
+              onClick={() => void findReference()} style={buttonStyle}>Find my load</button>
+            {lookingUp && <p role="status" style={bodyStyle}>Finding your load…</p>}
+          </div>
           </> : null}
+          {form.checkinType === "domestic" && orderMessage && <p role={orderReady || lookupStatus === "no_match" ? "status" : "alert"} style={{ ...bodyStyle, gridColumn: "1 / -1", color: orderReady ? "#86efac" : lookupStatus === "no_match" ? "#a8b5c8" : "#fca5a5" }}>{orderMessage}</p>}
           <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
           {form.checkinType === "domestic" ? <>
           <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
@@ -425,28 +499,34 @@ export default function DriverCheckinPage() {
         </label> : null}
 
         {completedMatches.map((match) => match.completion ?
-          <CompletedOrderNotice key={match.orderId} orderId={match.orderId} completion={match.completion} /> : null)}
-        {form.checkinType ? <button type="submit" disabled={closedOnly || submitting || lookingUp || referenceSearching || referenceMatches.length > 0}
-          style={{ ...buttonStyle, opacity: submitting || lookingUp || referenceSearching ? .65 : 1 }}>
+          <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} /> : null)}
+        {form.checkinType ? <button type="submit" disabled={submitting || (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatus))}
+          style={{ ...buttonStyle, opacity: submitting || lookingUp ? .65 : 1 }}>
           {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
         </button> : null}
         <p style={privacyStyle}>Your location is used to confirm this check-in at the yard and is saved with the arrival record.</p>
+        </fieldset>
       </form>
       {referenceMatches.length > 0 && <div style={modalBackdrop} role="presentation">
         <div role="dialog" aria-modal="true" aria-labelledby="carrier-choice-title" style={modalCard}>
-          <h2 id="carrier-choice-title" style={{ ...titleStyle, fontSize: 25, marginTop: 0 }}>Which trucking company are you with?</h2>
-          <p style={bodyStyle}>Select your company to continue your check-in.</p>
-          {[...new Set(referenceMatches.map((match) => match.carrierName))].map((company) => {
-            const choices = referenceMatches.filter((match) => match.carrierName === company);
-            return <button key={company} type="button" disabled={lookingUp} style={{ ...buttonStyle, textAlign: "left", marginTop: 8 }}
-              onClick={() => {
-                if (choices.length === 1) chooseReferenceMatch(choices[0]);
-                else { setReferenceMatches([]); setOrderMessage("More than one order matches your company. Enter the remaining details and warehouse staff will confirm your order."); }
-              }}>{company}</button>;
-          })}
+          <h2 id="carrier-choice-title" style={{ ...titleStyle, fontSize: 25, marginTop: 0 }}>Confirm your trucking company and driver</h2>
+          <p style={bodyStyle}>More than one load matches. Select your company and driver details.</p>
+          {referenceMatches.map((match) => <button key={`${match.orderId}:${match.stopId}`} type="button"
+            disabled={match.selectable !== true} style={{ ...buttonStyle, textAlign: "left", marginTop: 8, opacity: match.selectable === true ? 1 : .5 }}
+            onClick={() => void chooseReferenceMatch(match)}>
+            <span style={{ display: "block" }}>{match.carrierName || "Trucking company not listed"}</span>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 500 }}>{match.driverName || "Driver not listed"}
+              {match.driverPhoneLast4 ? ` · Phone ending ${String(match.driverPhoneLast4).replace(/\D/g, "").slice(-4)}` : ""}</span>
+          </button>)}
+          {referenceMatches.some((match) => match.selectable !== true) && <p role="alert" style={bodyStyle}>
+            Some loads have the same or missing company and driver details. Please speak with warehouse staff to confirm those loads.
+          </p>}
           <button type="button" style={{ ...buttonStyle, marginTop: 12, background: "#334155" }} onClick={() => {
-            setReferenceMatches([]); setOrderMessage("Enter the remaining details and warehouse staff will confirm your order.");
-          }}>My company isn’t listed / I’m not sure</button>
+            if (lookupStatusRef.current !== "ambiguous" || referenceMatchesRef.current !== referenceMatches) return;
+            ++lookupRequest.current; lookupAbort.current.abort(); lookupAbort.current = new AbortController();
+            updateReferenceMatches([]); explicitSelectionRef.current = false; updateLookupStatus("idle");
+            setOrderMessage("Check your reference or speak with warehouse staff to confirm your load.");
+          }}>Go back / speak with warehouse staff</button>
         </div>
       </div>}
     </main>
@@ -462,11 +542,11 @@ function Choice({ selected, title, detail, onClick }: { selected: boolean; title
 
 function Field(props: {
   label: string; value: string; onChange: (value: string) => void;
-  onBlur?: () => void; inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean;
+  inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean; required?: boolean; maxLength?: number;
 }) {
   return <label style={labelStyle}>{props.label}
-    <input required={!props.optional && props.label.endsWith("*")} value={props.value}
-      onChange={(event) => props.onChange(event.target.value)} onBlur={props.onBlur} style={inputStyle}
+    <input required={props.required || (!props.optional && props.label.endsWith("*"))} value={props.value} maxLength={props.maxLength}
+      onChange={(event) => props.onChange(event.target.value)} style={inputStyle}
       inputMode={props.inputMode} autoComplete={props.autoComplete} autoCapitalize={props.autoCapitalize} />
   </label>;
 }
