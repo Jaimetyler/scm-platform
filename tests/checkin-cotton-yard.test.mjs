@@ -1,3 +1,4 @@
+import * as lookupHelpers from "../lib/inbound/checkin/lookup-failure.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -35,6 +36,7 @@ test("Domestic Line accepts the atomic cotton completion without a second confli
   const query={select(){return this;},eq(){return this;},in(){return this;},update(value){update=value;updates.push(value);return this;},
     maybeSingle:async()=>({data:update?{...row,...update}:row})};
   const dependencies={
+    "@/lib/inbound/checkin/lookup-failure":lookupHelpers,
     "next/server":{NextResponse:Response},
     "@supabase/supabase-js":{createClient:()=>({from:()=>query})},
     "@/lib/auth/guard":{withStaffAccess:handler=>handler,staffActor:()=>"test staff"},

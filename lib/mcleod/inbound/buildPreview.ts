@@ -1,3 +1,4 @@
+import { McleodLookupIncompleteError } from "@/lib/inbound/checkin/lookup-failure";
 import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
@@ -198,7 +199,7 @@ function parseSearchRows(parsed: unknown): SearchCandidate[] {
   })) as SearchCandidate[];
 }
 
-type SearchContext = { strict: boolean; incomplete: Set<string> };
+type SearchContext = { strict: boolean; incomplete: Set<string>; signal?: AbortSignal };
 
 function unexpectedSearchShape(parsed: unknown): string {
   if (parsed === null) return "empty response body";
@@ -234,19 +235,19 @@ async function searchOrders(customerId: string, mark: string, context: SearchCon
       console.log("MCLEOD_SEARCH_URL", url);
 
       let res: Response;
+      let text: string;
       try {
         res = await fetch(url, {
           method: "GET",
           headers: getHeaders(),
-          cache: "no-store",
+          cache: "no-store", signal: context.signal,
         });
+        text = await res.text();
       } catch (error) {
         if (!context.strict) throw error;
-        context.incomplete.add("network error");
-        continue;
+        context.incomplete.add(context.signal?.aborted ? "lookup timeout" : "network or response body error");
+        break;
       }
-
-      const text = await res.text();
 
       console.log("MCLEOD_SEARCH_STATUS", res.status);
       console.log("MCLEOD_SEARCH_BODY", text);
@@ -311,19 +312,19 @@ async function searchOrdersByCustomer(customerId: string, context: SearchContext
   console.log("MCLEOD_CUSTOMER_BATCH_URL", url);
 
   let res: Response;
+  let text: string;
   try {
     res = await fetch(url, {
       method: "GET",
       headers: getHeaders(),
-      cache: "no-store",
+      cache: "no-store", signal: context.signal,
     });
+    text = await res.text();
   } catch (error) {
     if (!context.strict) throw error;
-    context.incomplete.add("network error");
+    context.incomplete.add(context.signal?.aborted ? "lookup timeout" : "network or response body error");
     return [];
   }
-
-  const text = await res.text();
 
   console.log("MCLEOD_CUSTOMER_BATCH_STATUS", res.status);
   console.log("MCLEOD_CUSTOMER_BATCH_BODY", text);
@@ -401,13 +402,14 @@ function buildProposed(candidate: SearchCandidate | null) {
   };
 }
 
-export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean } = {}): Promise<PreviewResult[]> {
+export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void> } = {}): Promise<PreviewResult[]> {
   console.log("BUILD_PREVIEW_LOADED", BUILD_PREVIEW_VERSION);
 
   const results: PreviewResult[] = [];
 
   for (const row of rows) {
-    const searchContext: SearchContext = { strict: options.strictSearch === true, incomplete: new Set() };
+    const searchContext: SearchContext = { strict: options.strictSearch === true, incomplete: new Set(),
+      signal: options.strictSearch ? AbortSignal.timeout(20_000) : undefined };
     const resolvedCustomer = resolveCustomer(row.shipper);
     const targetMark = normalizeMark(row.mark);
     const targetBales = parseCount(row.balesUnloaded) ?? parseCount(row.bolBC);
@@ -483,21 +485,32 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
     }
 
     if (options.strictSearch && exactMarkCandidates.length > 0) {
+      // Persist known-candidate evidence before detail reads or a response can be lost.
+      await options.onKnownMatch?.();
       const verified = await Promise.all(exactMarkCandidates.map(async (candidate) => {
-        const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(candidate.orderId)}`, { headers: getHeaders(), cache: "no-store" });
-        if (!response.ok) throw new Error(`Could not verify current McLeod order ${candidate.orderId} (${response.status})`);
-        const order = await response.json();
-        const eligibility = currentCottonOrder(order, row.receivedDate);
-        if (!eligibility.eligible && !eligibility.historical) searchContext.incomplete.add(eligibility.reason);
-        return eligibility.eligible ? candidate : null;
+        try {
+          const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(candidate.orderId)}`, {
+            headers: getHeaders(), cache: "no-store", signal: searchContext.signal });
+          if (!response.ok) {
+            searchContext.incomplete.add(`HTTP ${response.status} verifying known match`);
+            return null;
+          }
+          const order = await response.json();
+          const eligibility = currentCottonOrder(order, row.receivedDate);
+          if (!eligibility.eligible && !eligibility.historical) searchContext.incomplete.add(eligibility.reason);
+          return eligibility.eligible ? candidate : null;
+        } catch {
+          searchContext.incomplete.add("network or response body error verifying known match");
+          return null;
+        }
       }));
       exactMarkCandidates = verified.filter((candidate) => candidate !== null);
-      if (searchContext.incomplete.size) throw new Error(`McLeod search incomplete (${Array.from(searchContext.incomplete).join(", ")}); review current delivery matches before processing.`);
+      if (searchContext.incomplete.size) throw new McleodLookupIncompleteError(`McLeod search incomplete (${Array.from(searchContext.incomplete).join(", ")}); review current delivery matches before processing.`, true, Array.from(searchContext.incomplete));
     }
 
     if (exactMarkCandidates.length === 0) {
       if (searchContext.incomplete.size) {
-        throw new Error(`McLeod search incomplete (${Array.from(searchContext.incomplete).join(", ")}); cannot classify outside carrier. Review McLeod search logs.`);
+        throw new McleodLookupIncompleteError(`McLeod search incomplete (${Array.from(searchContext.incomplete).join(", ")}); cannot classify outside carrier.`, false, Array.from(searchContext.incomplete));
       }
       results.push({
         row,

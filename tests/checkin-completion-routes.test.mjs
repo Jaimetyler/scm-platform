@@ -8,6 +8,7 @@ import ts from "typescript";
 import * as yardHelpers from "../lib/inbound/checkin/yard-stop.ts";
 import * as dependencyHelpers from "../lib/http/dependency.ts";
 import * as orderHelpers from "../lib/inbound/checkin/mcleod-order-id.ts";
+import * as referenceSearchHelpers from "../lib/inbound/checkin/reference-search.ts";
 import * as driverLookupHelpers from "../lib/inbound/checkin/driver-lookup.ts";
 import { currentCottonOrder } from "../lib/inbound/checkin/current-cotton-order.ts";
 import { CHECKIN_SITES } from "../lib/inbound/checkin/sites.ts";
@@ -27,6 +28,7 @@ function load(path, overrides = {}) {
     "@supabase/supabase-js": { createClient: () => { throw new Error("Unexpected database access"); } },
     "@/lib/inbound/checkin/mcleod-order-id": orderHelpers,
     "@/lib/inbound/checkin/driver-lookup": driverLookupHelpers,
+    "@/lib/inbound/checkin/reference-search": referenceSearchHelpers,
     "@/lib/inbound/checkin/yard-stop": yardHelpers,
     "@/lib/http/dependency": dependencyHelpers,
     "@/lib/inbound/checkin/current-cotton-order": { currentCottonOrder },
@@ -76,6 +78,12 @@ async function withMcleod(order, run, searchResponse = () => [order]) {
     const path = new URL(url);
     if (/\/orders\/[^/]+$/.test(path.pathname) && !path.pathname.endsWith("/search") &&
         decodeURIComponent(path.pathname.split("/").pop()) !== order.id) return Response.json(null, { status: 404 });
+    if (path.pathname.endsWith("/search") && path.searchParams.has("orders.id")) {
+      assert.equal(path.searchParams.get("recordLength"), "2");
+      const id = path.searchParams.get("orders.id");
+      assert.ok(!/[*?]/.test(id));
+      return Response.json(String(order.id).trim().toUpperCase() === id.toUpperCase() ? [order] : null);
+    }
     return Response.json(path.pathname.endsWith("/search") ? searchResponse(path) : order);
   };
   try { await run(); } finally {
@@ -161,9 +169,9 @@ test("two null results mean no match, but an unexpected object remains an error"
       const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
       const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=NOTFOUND" });
       const body = await response.json();
-      assert.equal(response.status, payload === null ? 200 : 500);
+      assert.equal(response.status, payload === null ? 200 : 503);
       if (payload === null) assert.deepEqual(body.matches, []);
-      else assert.match(body.error, /unexpected search response/);
+      else { assert.equal(body.ok, false); assert.match(body.error, /could not be completed safely/); assert.equal(body.matches, undefined); }
     }, () => payload);
   }
 });
@@ -174,7 +182,7 @@ test("an HTTP failure with a null body remains a search failure", async () => {
     const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
     const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=2168418" });
     assert.equal(response.status, 503);
-    assert.match((await response.json()).error, /McLeod search failed \(503\)/);
+    assert.match((await response.json()).error, /could not be completed safely/);
   });
 });
 
@@ -297,7 +305,7 @@ test("driver incomplete revenue metadata cannot be called a no-match",async()=>{
     const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1}})};
     const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
     const response=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupReference",referenceNumber:"2168418",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
-    assert.equal(response.status,503); const result=await response.json(); assert.equal(result.ok,false);assert.match(result.error,/incomplete search/);
+    assert.equal(response.status,503); const result=await response.json(); assert.equal(result.ok,false);assert.match(result.error,/could not be completed safely|temporarily unavailable/);assert.equal(result.matches,undefined);
   });
 });
 
