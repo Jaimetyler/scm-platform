@@ -65,12 +65,12 @@ async function scenario(options, run) {
     if(table==="inbound_outside_carrier_events"){
       const filters=[];
       return {select(){return this;},eq(k,v){filters.push(event=>event[k]===v);return this;},
-        async maybeSingle(){return options.auditReadError ? {error:options.auditReadError} : {data:events.find(event=>filters.every(fn=>fn(event))) ?? null};}};
+        async maybeSingle(){return options.auditReadError ? {error:options.auditReadError,status:options.auditStatus} : {data:events.find(event=>filters.every(fn=>fn(event))) ?? null};}};
     }
     assert.equal(table,"inbound_checkin_rows");let update,filters=[];
     const query={select(){return this;},eq(k,v){filters.push(r=>r[k]===v);return this;},in(k,vs){filters.push(r=>vs.includes(r[k]));return this;},
       update(v){update=v;return this;},order(){return this;},gte(){return this;},limit(){return this;},
-      async maybeSingle(){if(filters.some(fn=>!fn(row)))return{data:null};return{data:update?save(update):{...row}};},
+      async maybeSingle(){if(options.savedReadError)return{error:options.savedReadError,status:options.savedStatus};if(filters.some(fn=>!fn(row)))return{data:null};return{data:update?save(update):{...row}};},
       async single(){return this.maybeSingle();},then(resolve){return Promise.resolve({data:[{...row}]}).then(resolve);}};return query;},
     async rpc(name,args){rpcCalls.push({name,args});
       if(name==="claim_inbound_checkin_row_v2"){
@@ -85,7 +85,7 @@ async function scenario(options, run) {
         return{data:[save({mcleod_lookup_attempt_id:crypto.randomUUID(),mcleod_processing_result_id:null,mcleod_lookup_status:"pending"})]};
       }
       if(name==="complete_inbound_outside_carrier"){
-        if(options.manualError)return{error:options.manualError};
+        if(options.manualError)return{error:options.manualError,status:options.manualStatus};
         const previous=events.find(event=>event.checkin_id===args.p_id);
         if(previous){
           if(previous.request_id===args.p_request_id && previous.lookup_attempt_id===args.p_lookup_attempt_id &&
@@ -306,4 +306,47 @@ test("legacy replay cannot borrow another actor, request, or lookup attempt audi
       assert.notEqual(s.stats().rpcCalls[0].args.p_reason,reason);
     });
   }
+});
+
+
+test("outside RPC transport/status-zero/timeouts are 503, never business conflicts",async()=>{
+  for(const [status,error] of [[0,{code:'',message:'DependencyError: The upstream service did not respond.'}],
+    [503,{code:'',message:'Unavailable'}],[408,{code:'',message:'Timeout'}],[400,{code:'57014',message:'cancelled'}]]){
+    await scenario({row:manualFailure(),manualError:error,manualStatus:status},async s=>{
+      const response=await s.manual();assert.equal(response.status,503);assert.equal(response.headers.get('retry-after'),'10');
+      const body=await response.json();assert.equal(body.code,'DEPENDENCY_UNAVAILABLE');assert.match(body.error,/may already have completed/);
+      assert.equal(s.stats().events.length,0);assert.equal(s.stats().externalWrites,0);
+    });
+  }
+  await scenario({row:manualFailure(),manualError:{code:'40001',message:'stale'},manualStatus:409},async s=>{
+    const response=await s.manual();assert.equal(response.status,409);assert.equal((await response.json()).code,'CHECKOUT_CONFLICT');
+  });
+});
+
+test("audit transport failure is 503 before RPC and scoped saved reads use no McLeod",async()=>{
+  await scenario({row:manualFailure(),auditReadError:{code:'',message:'DependencyError: timeout'},auditStatus:0},async s=>{
+    assert.equal((await s.manual()).status,503);assert.equal(s.stats().rpcCalls.length,0);
+  });
+  await scenario({row:{...manualFailure(),checked_in_at:'2020-01-01T00:00:00Z'}},async s=>{
+    const get=(siteCode='5300',value=id)=>s.queue.GET(new Request(`https://scm.test/api/warehouse/domestic-queue?terminal=HOU&siteCode=${siteCode}&id=${value}`));
+    const response=await get();assert.equal(response.status,200);assert.equal((await response.json()).row.id,id);
+    assert.equal(response.headers.get('cache-control'),'no-store');assert.equal((await get('4331')).status,404);
+    assert.equal((await get('5300','bad')).status,400);assert.equal(s.stats().searchCalls,0);assert.equal(s.stats().externalWrites,0);assert.equal(s.stats().rpcCalls.length,0);
+  });
+  await scenario({row:manualFailure(),savedReadError:{code:'',message:'Unavailable'},savedStatus:0},async s=>{
+    assert.equal((await s.queue.GET(new Request(`https://scm.test/api/warehouse/domestic-queue?terminal=HOU&siteCode=5300&id=${id}`))).status,503);
+  });
+});
+
+
+test("actual Supabase SDK transport wrapping retains status-zero evidence for the route classifier",async()=>{
+  const {createClient}=require('@supabase/supabase-js');
+  const client=createClient('https://fixture.invalid','synthetic',{global:{fetch:async()=>{
+    const error=new Error('The upstream service did not respond. Please try again.');error.name='DependencyError';throw error;
+  }}});
+  const result=await client.rpc('complete_inbound_outside_carrier',{});
+  assert.equal(result.status,0);assert.equal(result.error.code,'');
+  await scenario({row:manualFailure(),manualError:result.error,manualStatus:result.status},async s=>{
+    const response=await s.manual();assert.equal(response.status,503);assert.equal((await response.json()).code,'DEPENDENCY_UNAVAILABLE');
+  });
 });

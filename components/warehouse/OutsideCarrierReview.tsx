@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 export type OutsideCarrierRow = {
+  terminal?: string; site_code?: string;
   id: string; updated_at: string; yard_status: "waiting" | "called" | "in_door" | "working" | "completed" | "cancelled" | null; draft_status: string;
   material_type?: string; movement_direction?: string | null;
   matched_order_id?: string | null; matched_stop_id?: string | null;
@@ -54,14 +55,19 @@ export function OutsideCarrierMarker({ row }: { row: OutsideCarrierRow }) {
 }
 
 export default function OutsideCarrierReview({ row, terminal, siteCode, canWrite, busy, onRetry,
-  onBusy, onOpenChange, onComplete }: {
+  onBusy, onOpenChange, onComplete, onReconcile }: {
   row: OutsideCarrierRow; terminal: string; siteCode: string; canWrite: boolean; busy: boolean;
   onRetry: () => void; onBusy: (busy: boolean) => void; onOpenChange: (open: boolean) => void;
   onComplete: (row: OutsideCarrierRow, message: string) => void;
+  onReconcile: (row: OutsideCarrierRow) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const [status, setStatus] = useState("");
+  const refreshRequired = useRef(false);
   const inFlight = useRef(false);
   const lifecycle = useRef<AbortController | null>(null);
   const confirmation = useRef({ open: false });
@@ -74,7 +80,7 @@ export default function OutsideCarrierReview({ row, terminal, siteCode, canWrite
   useLayoutEffect(() => {
     const controller = new AbortController();
     lifecycle.current = controller;
-    setOpen(false); setError(""); setSubmitting(false);
+    setOpen(false); setError(""); setSubmitting(false); setRefreshing(false); setNeedsRefresh(false); setStatus(""); refreshRequired.current = false;
     confirmation.current = { open: false };
     request.current = null; inFlight.current = false;
     return () => {
@@ -88,7 +94,7 @@ export default function OutsideCarrierReview({ row, terminal, siteCode, canWrite
   async function submit() {
     const controller = lifecycle.current;
     const current = latest.current;
-    if (!controller || controller.signal.aborted || inFlight.current || current.busy || !current.canWrite ||
+    if (!controller || controller.signal.aborted || inFlight.current || refreshRequired.current || current.busy || !current.canWrite ||
         current.attemptKey !== attemptKey || !canReviewOutsideCarrier(current.row) || current.row.updated_at !== row.updated_at ||
         current.row.id !== row.id || current.row.mcleod_lookup_attempt_id !== row.mcleod_lookup_attempt_id || generation !== actionGeneration.current) return;
     // A response may be lost after the atomic commit. Reuse the same request ID
@@ -96,7 +102,7 @@ export default function OutsideCarrierReview({ row, terminal, siteCode, canWrite
     const key = attemptKey;
     if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
     confirmation.current.open = true; setOpen(true); onOpenChange(true);
-    inFlight.current = true; setSubmitting(true); setError(""); onBusy(true);
+    inFlight.current = true; setSubmitting(true); setError(""); setStatus(""); onBusy(true);
     const requestController = new AbortController();
     const abortRequest = () => requestController.abort();
     controller.signal.addEventListener("abort", abortRequest, { once: true });
@@ -108,6 +114,8 @@ export default function OutsideCarrierReview({ row, terminal, siteCode, canWrite
           expectedUpdatedAt: row.updated_at, lookupAttemptId: row.mcleod_lookup_attempt_id,
           acknowledgeUnresolved: true, requestId: request.current.id }),
       });
+      if (controller.signal.aborted) return;
+      if (response.status === 409) { refreshRequired.current = true; setNeedsRefresh(true); }
       const result = await response.json();
       if (controller.signal.aborted) return;
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not save outside-carrier checkout. Retry or refresh the line to check its status.");
@@ -126,22 +134,63 @@ export default function OutsideCarrierReview({ row, terminal, siteCode, canWrite
     }
   }
 
+  async function refreshSavedStatus() {
+    const controller = lifecycle.current;
+    const current = latest.current;
+    if (!controller || controller.signal.aborted || inFlight.current || current.busy || current.attemptKey !== attemptKey ||
+        generation !== actionGeneration.current) return;
+    inFlight.current = true; setRefreshing(true); setError(""); setStatus(""); onBusy(true);
+    const requestController = new AbortController();
+    const abortRequest = () => requestController.abort();
+    controller.signal.addEventListener("abort", abortRequest, { once: true });
+    const deadline = setTimeout(abortRequest, 20000);
+    try {
+      const query = new URLSearchParams({ id: row.id, terminal, siteCode });
+      const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal: requestController.signal });
+      const result = await response.json();
+      if (controller.signal.aborted || latest.current.attemptKey !== attemptKey || generation !== actionGeneration.current) return;
+      if (!response.ok || !result.ok) throw new Error(result.error || "Saved status could not be refreshed. No checkout action was taken.");
+      const saved = result.row;
+      // Never replace local evidence with an older, mismatched, or partial read.
+      if (!saved || saved.id !== row.id || saved.terminal !== terminal || saved.site_code !== siteCode ||
+          !Number.isFinite(Date.parse(saved.updated_at)) || Date.parse(saved.updated_at) < Date.parse(row.updated_at) ||
+          !["waiting", "called", "in_door", "working", "completed", "cancelled"].includes(saved.yard_status) ||
+          typeof saved.draft_status !== "string" || typeof saved.outside_carrier_override_eligible !== "boolean")
+        throw new Error("Saved status could not be verified. Refresh again before taking another action.");
+      refreshRequired.current = false; setNeedsRefresh(false);
+      setStatus(saved.yard_status === "completed" ? "This movement is already completed. Saved status refreshed." : "Saved status refreshed. No checkout action was taken.");
+      // This read never submits a checkout. Keep the request ID for an unchanged
+      // revision/attempt, including an uncertain commit followed by Cancel.
+      onReconcile(saved);
+    } catch (error) {
+      if (!controller.signal.aborted) setError(requestController.signal.aborted
+        ? "Saved status refresh timed out. Checkout status remains uncertain. Try Refresh saved status again."
+        : error instanceof Error ? error.message : "Saved status could not be refreshed.");
+    } finally {
+      clearTimeout(deadline); controller.signal.removeEventListener("abort", abortRequest);
+      if (!controller.signal.aborted) { inFlight.current = false; setRefreshing(false); onBusy(false); }
+    }
+  }
+
   if (!canReviewOutsideCarrier(row)) return null;
   return <section aria-label="Unresolved McLeod lookup" style={{ padding: 14, border: "1px solid #d97706", borderRadius: 7, color: "#fde68a" }}>
     <strong>McLeod search unresolved</strong>
     <p>SCM could not finish verifying this reference. Retry Search to try the normal delivery process again.</p>
     <p>Process as Outside Carrier confirms the physical movement as completed and removes the truck from the active line. SCM verification remains unresolved. No McLeod update will be sent. Existing arrival details, cotton counts, paperwork, and notes are kept.</p>
     <p>Your confirmation and the unresolved search details are saved automatically.</p>
-    {error && <p role="alert" style={{ color: "#fecaca" }}>{error} Retry Process as Outside Carrier to confirm its status, or Cancel before starting a new search.</p>}
+    {error && <p role="alert" style={{ color: "#fecaca" }}>{error} {needsRefresh ? "Refresh saved status before confirming again." : "Refresh saved status, or retry the same confirmation if its outcome is uncertain. Cancel before starting a new search."}</p>}
+    {status && <p role="status">{status}</p>}
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <button type="button" disabled={!canWrite || busy || submitting || open} style={button} onClick={() => {
-        if (!latest.current.canWrite || latest.current.busy || inFlight.current || confirmation.current.open || !canReviewOutsideCarrier(latest.current.row) ||
+      <button type="button" disabled={!canWrite || busy || submitting || open || needsRefresh} style={button} onClick={() => {
+        if (!latest.current.canWrite || latest.current.busy || inFlight.current || refreshRequired.current || confirmation.current.open || !canReviewOutsideCarrier(latest.current.row) ||
             latest.current.attemptKey !== attemptKey || generation !== actionGeneration.current) return;
         onRetry();
       }}>Retry Search</button>
-      <button type="button" disabled={!canWrite || busy || submitting} style={button}
+      <button type="button" disabled={!canWrite || busy || submitting || refreshing || needsRefresh} style={button}
         onClick={() => void submit()}>{submitting ? "Saving…" : "Process as Outside Carrier"}</button>
-      {open && <button type="button" disabled={submitting} style={button} onClick={() => {
+      {(open || needsRefresh) && <button type="button" disabled={busy || submitting || refreshing} style={button}
+        onClick={() => void refreshSavedStatus()}>{refreshing ? "Refreshing…" : "Refresh saved status"}</button>}
+      {open && <button type="button" disabled={submitting || refreshing} style={button} onClick={() => {
         if (inFlight.current) return;
         confirmation.current.open = false; actionGeneration.current++;
         setOpen(false); setError(""); onOpenChange(false);

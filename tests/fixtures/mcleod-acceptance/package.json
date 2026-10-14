@@ -1,0 +1,1 @@
+{"name":"scm-synthetic-mcleod-staging","private":true,"type":"module","scripts":{"test":"node tests/integration.mjs && node tests/hosted.mjs"},"engines":{"node":"22.x"}}

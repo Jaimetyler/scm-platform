@@ -13,7 +13,7 @@ const compile = path => ts.transpileModule(readFileSync(new URL(path, import.met
 }).outputText;
 const json = (body, status = 200) => Response.json(body, { status });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
-const row = (extra = {}) => ({ id: '11111111-1111-4111-8111-111111111111', updated_at: '2026-10-13T10:00:00Z',
+const row = (extra = {}) => ({ terminal: 'HOU', site_code: '5300', id: '11111111-1111-4111-8111-111111111111', updated_at: '2026-10-13T10:00:00Z',
   checked_in_at: '2026-10-13T09:00:00Z', yard_status: 'working', draft_status: 'failed', material_type: 'cotton',
   movement_direction: 'delivery', driver_name: 'Test Driver', trucking_company: 'Test Carrier', reference_number: '60136',
   matched_order_id: null, matched_stop_id: null, mcleod_lookup_status: 'unresolved', mcleod_processing_phase: 'lookup',
@@ -30,7 +30,7 @@ function all(node, test) {
   if (Array.isArray(node)) return node.flatMap(n => all(n, test));
   return [...(test(node) ? [node] : []), ...all(node.props?.children, test)];
 }
-async function mount({ page = false, initialRow = row(), canWrite = true, respond = () => json({ ok: true,
+async function mount({ page = false, initialRow = row(), canWrite = true, readSaved, respond = () => json({ ok: true,
   row: row({ yard_status: 'completed', outside_carrier_override_at: '2026-10-13T11:00:00Z', outside_carrier_override_eligible: false }) }) } = {}) {
   const instances = new Map(), calls = [], completed = [], busyChanges = [], openChanges = [], polling = [];
   let current, cursor, dirty = true, tree, effects = [], serverRows = [initialRow], params = { terminal: 'HOU', siteCode: '5300' };
@@ -54,10 +54,13 @@ async function mount({ page = false, initialRow = row(), canWrite = true, respon
   const jsx = (type, props, key) => ({ type, props, key });
   const passthrough = props => jsx('div', props);
   const fetch = async (url, options = {}) => {
-    if (!options.method) return json({ ok: true, rows: serverRows });
+    if (!options.method) {
+      if (new URL(url, 'https://fixture.invalid').searchParams.has('id')) return readSaved ? readSaved(url, options) : json({ ok: true, row: serverRows[0] });
+      return json({ ok: true, rows: serverRows });
+    }
     const call = { url, options, body: JSON.parse(options.body) }; calls.push(call);
     const response = await respond(call.body, call.options, calls);
-    const result = await response.clone().json();
+    const result = await response.clone().json().catch(()=>({}));
     if (result.ok && result.row?.id) serverRows = serverRows.map(row => row.id === result.row.id ? { ...row, ...result.row } : row);
     return response;
   };
@@ -96,7 +99,7 @@ async function mount({ page = false, initialRow = row(), canWrite = true, respon
   root = page ? load(linePath).default : review.default;
   props = page ? {} : { row: initialRow, terminal: 'HOU', siteCode: '5300', canWrite, busy: false,
     onRetry: () => calls.push({ retry: true }), onBusy: value => busyChanges.push(value), onOpenChange: value => openChanges.push(value),
-    onComplete: (...args) => completed.push(args) };
+    onComplete: (...args) => completed.push(args), onReconcile: saved => { props = { ...props, row: saved }; dirty = true; } };
   function expand(node, path = 'root') {
     if (node == null || typeof node !== 'object') return node;
     if (Array.isArray(node)) return node.map((child, i) => expand(child, `${path}/${child?.key ?? i}`));
@@ -380,11 +383,88 @@ test('a read-only staff role cannot start the server-approved legacy fresh looku
 });
 
 test('uncertain outside completion requires Cancel before a fresh search and releases line locks', async t => {
-  const h = await mount({ page: true, respond: body => json({ok:false,error:body.action === 'process_outside_carrier' ? 'Response uncertain' : 'Search unresolved'},409) }); t.after(h.dispose);
+  const h = await mount({ page: true, respond: body => json({ok:false,error:body.action === 'process_outside_carrier' ? 'Response uncertain' : 'Search unresolved'},503) }); t.after(h.dispose);
   await h.click('Process as Outside Carrier'); assert.equal(h.calls.length,1);
   assert.equal(h.button('Retry Search').props.disabled,true);
   h.button('Retry Search').props.onClick(); await h.flush(); assert.equal(h.calls.length,1);
   assert.match(h.text(),/Cancel before starting a new search/);
   await h.click('Cancel'); assert.equal(h.button('Retry Search').props.disabled,false);
   await h.click('Retry Search'); assert.equal(h.calls.length,2);assert.equal(h.calls[1].body.action,'checkout');
+});
+
+
+test('saved-status refresh stays available during uncertain confirmation and reconciles another tab completion without a write', async t => {
+  const saved = row({ updated_at:'2026-10-13T11:00:00Z',yard_status:'completed',draft_status:'outside_carrier',mcleod_processing_phase:'complete',outside_carrier_override_eligible:false,outside_carrier_override_at:'2026-10-13T11:00:00Z' });
+  const h=await mount({page:true, respond:()=>json({ok:false,error:'Outcome uncertain'},503),readSaved:()=>json({ok:true,row:saved})});t.after(h.dispose);
+  await h.click('Process as Outside Carrier');assert.equal(h.button('Refresh').props.disabled,true);
+  assert.equal(h.button('Refresh saved status').props.disabled,false);
+  await h.click('Refresh saved status');assert.equal(h.calls.length,1);assert.match(h.text(),/already completed/);
+  assert.match(h.text(),/Completed movements/);assert.doesNotMatch(h.text(),/Process as Outside Carrier/);
+  assert.equal(h.button('Refresh').props.disabled,false);
+});
+
+test('response lost after commit retries the same request after Cancel and unchanged saved-status read',async t=>{
+  const ids=new Set();let receipts=0;let attempts=0;
+  const h=await mount({respond:body=>{if(!ids.has(body.requestId)){ids.add(body.requestId);receipts++;}if(++attempts===1)throw new Error('Response lost after commit');return json({ok:true,row:row({yard_status:'completed'})});}});t.after(h.dispose);
+  await h.click('Process as Outside Carrier');const requestId=h.calls[0].body.requestId;
+  await h.click('Refresh saved status');assert.equal(h.calls.length,1);
+  await h.click('Cancel');await h.click('Process as Outside Carrier');
+  assert.equal(h.calls[1].body.requestId,requestId);assert.equal(receipts,1);assert.equal(h.completed.length,1);
+});
+
+test('real conflict fences resubmit including stale callbacks until scoped status refresh',async t=>{
+  const h=await mount({respond:()=>json({ok:false,code:'CHECKOUT_CONFLICT',error:'This arrival changed'},409)});t.after(h.dispose);
+  const stale=h.button('Process as Outside Carrier').props.onClick;
+  await h.click('Process as Outside Carrier');assert.equal(h.button('Process as Outside Carrier').props.disabled,true);
+  stale();await h.flush();assert.equal(h.calls.length,1);
+  await h.click('Cancel');assert.equal(h.button('Process as Outside Carrier').props.disabled,true);
+  assert.equal(h.button('Retry Search').props.disabled,true);h.button('Retry Search').props.onClick();await h.flush();assert.equal(h.calls.length,1);
+  await h.click('Refresh saved status');assert.equal(h.calls.length,1);assert.equal(h.button('Process as Outside Carrier').props.disabled,false);
+});
+
+test('failed, stale, partial and wrong-yard saved reads never clear a conflict or update completion',async t=>{
+  for(const response of [()=>json({ok:false,error:'Unavailable'},503),()=>json({ok:true,row:row({updated_at:'2026-10-12T10:00:00Z'})}),
+    ()=>json({ok:true,row:row({site_code:'4331'})}),()=>json({ok:true,row:{id:row().id}})]){
+    const h=await mount({respond:()=>json({ok:false,error:'Conflict'},409),readSaved:response});t.after(h.dispose);
+    await h.click('Process as Outside Carrier');await h.click('Refresh saved status');
+    assert.equal(h.calls.length,1);assert.equal(h.completed.length,0);assert.equal(h.button('Process as Outside Carrier').props.disabled,true);
+    assert.equal(h.button('Refresh saved status').props.disabled,false);
+  }
+});
+
+test('newer saved attempt replaces stale confirmation without submitting automatically',async t=>{
+  const newer=row({updated_at:'2026-10-13T11:00:00Z',mcleod_lookup_attempt_id:'44444444-4444-4444-8444-444444444444'});
+  const h=await mount({respond:()=>json({ok:false,error:'Uncertain'},503),readSaved:()=>json({ok:true,row:newer})});t.after(h.dispose);
+  const stale=h.button('Process as Outside Carrier').props.onClick;
+  await h.click('Process as Outside Carrier');await h.click('Refresh saved status');stale();await h.flush();assert.equal(h.calls.length,1);
+  await h.click('Process as Outside Carrier');assert.equal(h.calls[1].body.lookupAttemptId,newer.mcleod_lookup_attempt_id);
+  assert.notEqual(h.calls[1].body.requestId,h.calls[0].body.requestId);
+});
+
+test('late saved-status response after navigation cannot change the next yard',async t=>{
+  const pending=deferred();let signal;
+  const h=await mount({page:true,respond:()=>json({ok:false,error:'Uncertain'},503),readSaved:(_url,options)=>{signal=options.signal;return pending.promise;}});t.after(h.dispose);
+  await h.click('Process as Outside Carrier');await h.click('Refresh saved status');await h.navigate('4331');assert.equal(signal.aborted,true);
+  pending.resolve(json({ok:true,row:row({yard_status:'completed',outside_carrier_override_eligible:false})}));await h.flush();
+  assert.doesNotMatch(h.text(),/already completed/);assert.equal(h.calls.length,1);
+});
+
+
+test('malformed conflict response still requires refresh and stale refresh callback cannot reopen a cancelled action',async t=>{
+  const h=await mount({respond:()=>new Response('not JSON',{status:409})});t.after(h.dispose);
+  await h.click('Process as Outside Carrier');assert.equal(h.button('Process as Outside Carrier').props.disabled,true);
+  const staleRefresh=h.button('Refresh saved status').props.onClick;
+  await h.click('Cancel');staleRefresh();await h.flush();assert.equal(h.button('Process as Outside Carrier').props.disabled,true);
+  await h.click('Refresh saved status');assert.equal(h.button('Process as Outside Carrier').props.disabled,false);
+});
+
+test('saved-status timeout releases refresh controls and preserves uncertain request ID',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const h=await mount({respond:()=>json({ok:false,error:'Uncertain'},503),readSaved:(_url,options)=>new Promise((_resolve,reject)=>{
+    options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});
+  })});t.after(h.dispose);
+  await h.click('Process as Outside Carrier');const requestId=h.calls[0].body.requestId;
+  await h.click('Refresh saved status');assert.ok(h.button('Refreshing…'));t.mock.timers.tick(20000);await h.flush();
+  assert.match(h.text(),/refresh timed out/);assert.equal(h.busyChanges.at(-1),false);assert.equal(h.button('Refresh saved status').props.disabled,false);
+  await h.click('Process as Outside Carrier');assert.equal(h.calls[1].body.requestId,requestId);
 });

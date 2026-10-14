@@ -53,6 +53,24 @@ function siteExists(terminal: string, siteCode: string) {
 
 function user(req: NextRequest) { return staffActor(req); }
 
+// Supabase resolves transport failures as plain error results (status 0), so
+// instanceof checks alone cannot distinguish them from database conflicts.
+function databaseFailure(result: { error?: any; status?: number }, uncertain = false) {
+  const code = String(result.error?.code ?? "");
+  const unavailable = result.status === 0 || result.status === 408 || result.status === 429 ||
+    Number(result.status) >= 500 || ["57014", "53300", "57P01", "57P02", "57P03"].includes(code) || code.startsWith("08") ||
+    /^(DependencyError|AbortError|TimeoutError|FetchError):/.test(String(result.error?.message ?? ""));
+  if (unavailable) return NextResponse.json({ ok: false, code: "DEPENDENCY_UNAVAILABLE",
+    error: uncertain ? "The saved checkout status could not be confirmed. It may already have completed. Refresh saved status or retry this same confirmation."
+      : "Saved status is temporarily unavailable. Please try again." },
+    { status: 503, headers: { "Retry-After": "10", "Cache-Control": "no-store" } });
+  const status = code === "42501" ? 403 : code === "22023" ? 400 : code === "P0002" ? 404 : code === "40001" ? 409 : 500;
+  return NextResponse.json({ ok: false, code: status === 409 ? "CHECKOUT_CONFLICT" : "CHECKOUT_UNAVAILABLE",
+    error: status === 409 ? "This arrival changed. Refresh saved status before taking another action."
+      : status === 403 ? "Active staff access for this yard is required." : status === 404 ? "This arrival is no longer available in this yard."
+      : status === 400 ? "Refresh saved status and check the confirmation details." : "Saved status could not be confirmed. Refresh saved status before taking another action." }, { status });
+}
+
 async function GETHandler(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -60,6 +78,19 @@ async function GETHandler(req: NextRequest) {
     const siteCode = String(searchParams.get("siteCode") ?? "");
     if (!siteExists(terminal, siteCode)) return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
 
+    // An exact scoped read avoids the active-line date/row limits and performs
+    // no carrier enrichment or McLeod calls during uncertain-write recovery.
+    if (searchParams.has("id")) {
+      const id = searchParams.get("id") || "";
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+        return NextResponse.json({ ok: false, error: "Invalid arrival identifier" }, { status: 400 });
+      const result = await database().from("inbound_checkin_rows").select(QUEUE_FIELDS)
+        .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+        .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
+      if (result.error) return databaseFailure(result);
+      if (!result.data) return NextResponse.json({ ok: false, error: "This arrival is no longer available in this yard." }, { status: 404 });
+      return NextResponse.json({ ok: true, row: queueRow(result.data) }, { headers: { "Cache-Control": "no-store" } });
+    }
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
       .select(QUEUE_FIELDS)
@@ -163,21 +194,20 @@ async function PATCHHandler(req: NextRequest) {
       // The server supplies new audit text; client prose cannot assert verification.
       // An exact replay may predate this UI. Preserve its immutable saved reason
       // so the existing atomic RPC can validate and return the original result.
-      const { data: previous, error: replayError } = await db.from("inbound_outside_carrier_events")
+      const replay = await db.from("inbound_outside_carrier_events")
         .select("reason").eq("checkin_id", id).eq("request_id", body.requestId)
         .eq("lookup_attempt_id", body.lookupAttemptId).eq("actor_id", staff.id)
         .eq("actor_user_id", staff.user_id).maybeSingle();
-      if (replayError) throw replayError;
-      const reason = previous?.reason ?? "Staff confirmed physical movement completed as outside carrier; McLeod verification remains unresolved; no McLeod update.";
-      const { data, error } = await db.rpc("complete_inbound_outside_carrier", {
+      if (replay.error) return databaseFailure(replay, true);
+      const reason = replay.data?.reason ?? "Staff confirmed physical movement completed as outside carrier; McLeod verification remains unresolved; no McLeod update.";
+      const result = await db.rpc("complete_inbound_outside_carrier", {
         p_id: id, p_terminal: terminal, p_site_code: siteCode,
         p_expected_updated_at: body.expectedUpdatedAt, p_lookup_attempt_id: body.lookupAttemptId,
         p_request_id: body.requestId, p_staff_id: staff.id, p_user_id: staff.user_id,
         p_acknowledge_unresolved: true, p_reason: reason,
       });
-      if (error) return NextResponse.json({ ok: false, error: error.message },
-        { status: error.code === "42501" ? 403 : error.code === "22023" ? 400 : error.code === "P0002" ? 404 : 409 });
-      const completed = data?.[0];
+      if (result.error) return databaseFailure(result, true);
+      const completed = result.data?.[0];
       if (!completed) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the line." }, { status: 409 });
       return NextResponse.json({ ok: true, row: queueRow(completed),
         mcleod: "outside carrier; McLeod verification unresolved; no McLeod delivery" });

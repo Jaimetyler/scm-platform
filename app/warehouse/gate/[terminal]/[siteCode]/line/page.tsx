@@ -279,6 +279,14 @@ export default function DomesticLinePage() {
               row={row} terminal={site.terminal} siteCode={site.siteCode} canWrite={canWrite} busy={!!working}
               onRetry={() => retrySearch(row)} onOpenChange={(open) => setOutsideReviewId(open ? row.id : null)}
               onBusy={(busy) => { workingRef.current = busy ? row.id : ""; setWorking(busy ? row.id : ""); }}
+              onReconcile={(saved) => {
+                setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...saved } : item));
+                if (saved.yard_status === "completed" || saved.yard_status === "cancelled" || saved.updated_at !== row.updated_at ||
+                    saved.mcleod_lookup_attempt_id !== row.mcleod_lookup_attempt_id || !canReviewOutsideCarrier(saved)) {
+                  workingRef.current = ""; setWorking(""); setCottonEditId(null); setOutsideReviewId(null);
+                }
+                setNotice(saved.yard_status === "completed" ? "This movement is already completed. Saved status refreshed." : "Saved status refreshed. No checkout action was taken.");
+              }}
               onComplete={(completed, message) => {
                 setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...completed } : item));
                 workingRef.current = ""; setWorking(""); setCottonEditId(null); setOutsideReviewId(null); setError("");
