@@ -35,7 +35,7 @@ test('actor and locked yard checks precede idempotent replay, which precedes rev
 
 test('automatic fallback preserves every 046 eligibility guard and strengthens nullable verification', () => {
   const slice = source => source.slice(source.indexOf("  if existing.draft_status is distinct from 'failed'"), source.indexOf('  update public.inbound_checkin_rows set draft_status='));
-  assert.equal(slice(sql), slice(old).replace('or not existing.verified then', 'or existing.verified is distinct from true then'));
+  assert.equal(slice(sql).replace(/\r\n/g, '\n'), slice(old).replace('or not existing.verified then', 'or existing.verified is distinct from true then').replace(/\r\n/g, '\n'));
 });
 
 test('receiving update and immutable audit stay atomic without changing lookup evidence or driver details', () => {

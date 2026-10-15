@@ -153,7 +153,19 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       const direction = clean(body?.movementDirection, 20).toLowerCase();
       if (!["pickup", "delivery"].includes(direction))
         return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
-      const result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      let result;
+      try {
+        result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      } catch (error) {
+        // A McLeod outage is not a verified no-match. Allow cotton delivery paperwork
+        // to proceed as *unverified* outside freight; submission performs a fresh
+        // lookup and never sends McLeod writes on this fallback path.
+        if (direction === "delivery" && error instanceof DependencyError)
+          return NextResponse.json({ ok: true, status: "outside_unverified", matches: [],
+            allowUnmatched: true, selectionRequired: false, incomplete: false },
+            { headers: { "Cache-Control": "no-store" } });
+        throw error;
+      }
       return NextResponse.json({ ok: true, status: result.matches.length ? "matches" : "no_match",
         matches: result.matches.map(publicDriverMatch), allowUnmatched: result.allowUnmatched,
         selectionRequired: result.selectionRequired }, { headers: { "Cache-Control": "no-store" } });
@@ -321,8 +333,19 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // Do not trust a browser's previous no-match, selected order, or resolution path.
     // Both strategies are rerun before any insert, including paperwork-only arrivals.
     const selectedStopId = clean(body?.selectedStopId, 100) || undefined;
-    const lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
-      movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
+    let lookup;
+    let provisionalOutside = false;
+    try {
+      lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
+        movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
+    } catch (error) {
+      // Only a fresh, server-observed McLeod availability failure can take this
+      // path. Never accept a browser's claimed no-match, a known selected SCM
+      // order, another material, or a pickup as evidence of outside cotton.
+      if (!(error instanceof DependencyError) || orderId || materialType !== "cotton" || movementDirection !== "delivery") throw error;
+      provisionalOutside = true;
+      lookup = { matches: [], allowUnmatched: true, selectionRequired: false };
+    }
     if (!orderId && !lookup.allowUnmatched) {
       const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion);
       return NextResponse.json({ ok: false, code: "SELECTION_REQUIRED", error: completed ? "This load is already completed. Please speak with warehouse staff." :
@@ -386,7 +409,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       equipment_type: null,
       verified: false,
       comment_1: null,
-      comment_2: null,
+      // Retain the uncertainty; this is NOT a confirmed absence in McLeod.
+      comment_2: provisionalOutside ? "Provisional outside-carrier cotton arrival: McLeod lookup unavailable at driver check-in; warehouse must review before completion." : null,
       draft_status: "checked_in",
       processed_at: null,
       checked_in_at: checkedInAt.toISOString(),

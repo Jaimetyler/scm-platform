@@ -11,7 +11,7 @@ type ReferenceMatch = {
   orderId: string; stopId: string; carrierName: string; driverName?: string;
   driverPhoneLast4?: string; selectable?: boolean; completion?: McleodCompletion | null;
 };
-type LookupStatus = "idle" | "searching" | "matched" | "ambiguous" | "no_match" | "closed" | "error";
+type LookupStatus = "idle" | "searching" | "matched" | "ambiguous" | "no_match" | "outside_unverified" | "closed" | "error";
 
 type FormState = {
   checkinType: string;
@@ -290,6 +290,11 @@ export default function DriverCheckinPage() {
       if (!response.ok || !result.ok) throw new Error(result.error || `Load search failed (HTTP ${response.status})`);
       if (!Array.isArray(result.matches) || result.incomplete) throw new Error("The load search is incomplete. Try again or speak with warehouse staff.");
       const found = result.matches as ReferenceMatch[];
+      if (result.status === "outside_unverified" && result.allowUnmatched === true && found.length === 0) {
+        updateLookupStatus("outside_unverified");
+        setOrderMessage("McLeod is temporarily unavailable. Cotton deliveries may check in as provisional outside carriers; warehouse staff will review receiving.");
+        return;
+      }
       if (result.status === "no_match" && result.allowUnmatched === true && found.length === 0) {
         updateLookupStatus("no_match");
         setOrderMessage("No SCM order found. Continue with the details from your paperwork.");
@@ -333,9 +338,14 @@ export default function DriverCheckinPage() {
     event.preventDefault();
     const form = formRef.current;
     if (!site || submitInFlight.current) return;
-    if (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatusRef.current)) {
+    if (form.checkinType === "domestic" && !["matched", "no_match", "outside_unverified"].includes(lookupStatusRef.current)) {
       setError(lookupStatusRef.current === "closed" ? "This order is already closed in McLeod. Please speak with warehouse staff." :
         "Find your load and confirm any match before checking in. If the search cannot finish, speak with warehouse staff.");
+      return;
+    }
+    if (lookupStatusRef.current === "outside_unverified" &&
+        (form.materialType !== "cotton" || form.movementDirection !== "delivery")) {
+      setError("Only cotton deliveries may check in during an incomplete McLeod lookup. Ask warehouse staff about other freight.");
       return;
     }
     const orderReady = lookupStatusRef.current === "matched";
@@ -462,7 +472,7 @@ export default function DriverCheckinPage() {
             {lookingUp && <p role="status" style={bodyStyle}>Finding your load…</p>}
           </div>
           </> : null}
-          {form.checkinType === "domestic" && orderMessage && <p role={orderReady || lookupStatus === "no_match" ? "status" : "alert"} style={{ ...bodyStyle, gridColumn: "1 / -1", color: orderReady ? "#86efac" : lookupStatus === "no_match" ? "#a8b5c8" : "#fca5a5" }}>{orderMessage}</p>}
+          {form.checkinType === "domestic" && orderMessage && <p role={orderReady || ["no_match", "outside_unverified"].includes(lookupStatus) ? "status" : "alert"} style={{ ...bodyStyle, gridColumn: "1 / -1", color: orderReady ? "#86efac" : ["no_match", "outside_unverified"].includes(lookupStatus) ? "#a8b5c8" : "#fca5a5" }}>{orderMessage}</p>}
           <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
           {form.checkinType === "domestic" ? <>
           <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
@@ -500,7 +510,7 @@ export default function DriverCheckinPage() {
 
         {completedMatches.map((match) => match.completion ?
           <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} /> : null)}
-        {form.checkinType ? <button type="submit" disabled={submitting || (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatus))}
+        {form.checkinType ? <button type="submit" disabled={submitting || (form.checkinType === "domestic" && !["matched", "no_match", "outside_unverified"].includes(lookupStatus))}
           style={{ ...buttonStyle, opacity: submitting || lookingUp ? .65 : 1 }}>
           {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
         </button> : null}
