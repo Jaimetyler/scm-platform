@@ -1257,6 +1257,18 @@ export default function SiteCheckinPage() {
                           style={{ color: "#fca5a5", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "block" }}>
                           {row.processing_error || ui.message || "Save failed"}
                         </small>}
+                        {canWrite && row.processing_error && row.draft_status === "failed" &&
+                          (row.material_type ?? "cotton") === "cotton" &&
+                          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) && <div>
+                          <a href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line?arrival=${encodeURIComponent(row.id)}`}
+                            target="_blank" rel="noopener noreferrer" style={{ color: "#67e8f9", fontSize: 12 }}>
+                            Review checkout / outside carrier
+                          </a>
+                          <small style={{ display: "block", color: "#94a3b8", maxWidth: 260 }}>
+                            Opens a new tab; receiving edits stay here. Finish saving edits, then refresh checkout before reviewing.
+                            Availability is checked against the latest saved arrival. Return to this tab afterward; refresh once edits are saved.
+                          </small>
+                        </div>}
                         {cottonShortage(row) && <button type="button" style={{ ...smallActionButtonStyle, color: "#fde68a", borderColor: "#d97706" }} onClick={() => setExpandedIds((current) => new Set(current).add(row.id))}>
                           {cottonShortage(row)!.missing} bales short · {row.customer_notified_at ? "Customer notified" : "Notify customer"}
                         </button>}

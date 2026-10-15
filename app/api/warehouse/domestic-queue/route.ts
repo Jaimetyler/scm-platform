@@ -1,11 +1,13 @@
+import { outsideCarrierOverrideEligible, canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
-import { withStaffAccess, staffActor } from "@/lib/auth/guard";
+import { withStaffAccess, staffActor, staffProfile } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
+import { referenceMatchesInput } from "@/lib/inbound/checkin/reference-match";
 import { formatWarehouseTime, planLiveDeliveryActuals } from "@/lib/inbound/checkin/mcleod-time";
 import { isCompleteCheckin } from "@/lib/inbound/checkin/ready";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
@@ -14,6 +16,17 @@ import { enrichDisplayCarriers } from "@/lib/inbound/checkin/display-carrier";
 import { cottonShortage, shortageAcknowledged, acknowledgeShortage } from "@/lib/inbound/checkin/shortage";
 
 export const runtime = "nodejs";
+const QUEUE_FIELDS = "id,terminal,site_name,checkin_source,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,site_code,matched_stop_id,mcleod_lookup_status,mcleod_lookup_attempt_id,mcleod_lookup_failure_code,mcleod_lookup_failed_at,mcleod_lookup_has_known_match,mcleod_processing_phase,processing_error,outside_carrier_override_at,outside_carrier_override_by,outside_carrier_override_reason";
+function queueRow(row: Record<string, any>) {
+  return { ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
+      .map(key => [key, row[key]])),
+    has_bol_photo: Boolean(row.bol_photo_path),
+    outside_carrier_override_eligible: outsideCarrierOverrideEligible(row),
+    lookup_prepare_eligible: canPrepareMcleodLookup(row),
+    lookup_retry_eligible: row.draft_status === "processing" && row.mcleod_processing_phase === "lookup" &&
+      ["pending", "searching", "unresolved", "conflict", "error"].includes(row.mcleod_lookup_status) && Boolean(row.mcleod_lookup_attempt_id) &&
+      !row.outside_carrier_override_at && !row.matched_order_id && !row.matched_stop_id };
+}
 
 const NEXT: Record<string, string[]> = {
   waiting: ["called", "cancelled"],
@@ -40,6 +53,24 @@ function siteExists(terminal: string, siteCode: string) {
 
 function user(req: NextRequest) { return staffActor(req); }
 
+// Supabase resolves transport failures as plain error results (status 0), so
+// instanceof checks alone cannot distinguish them from database conflicts.
+function databaseFailure(result: { error?: any; status?: number }, uncertain = false) {
+  const code = String(result.error?.code ?? "");
+  const unavailable = result.status === 0 || result.status === 408 || result.status === 429 ||
+    Number(result.status) >= 500 || ["57014", "53300", "57P01", "57P02", "57P03"].includes(code) || code.startsWith("08") ||
+    /^(DependencyError|AbortError|TimeoutError|FetchError):/.test(String(result.error?.message ?? ""));
+  if (unavailable) return NextResponse.json({ ok: false, code: "DEPENDENCY_UNAVAILABLE",
+    error: uncertain ? "The saved checkout status could not be confirmed. It may already have completed. Refresh saved status or retry this same confirmation."
+      : "Saved status is temporarily unavailable. Please try again." },
+    { status: 503, headers: { "Retry-After": "10", "Cache-Control": "no-store" } });
+  const status = code === "42501" ? 403 : code === "22023" ? 400 : code === "P0002" ? 404 : code === "40001" ? 409 : 500;
+  return NextResponse.json({ ok: false, code: status === 409 ? "CHECKOUT_CONFLICT" : "CHECKOUT_UNAVAILABLE",
+    error: status === 409 ? "This arrival changed. Refresh saved status before taking another action."
+      : status === 403 ? "Active staff access for this yard is required." : status === 404 ? "This arrival is no longer available in this yard."
+      : status === 400 ? "Refresh saved status and check the confirmation details." : "Saved status could not be confirmed. Refresh saved status before taking another action." }, { status });
+}
+
 async function GETHandler(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -47,18 +78,29 @@ async function GETHandler(req: NextRequest) {
     const siteCode = String(searchParams.get("siteCode") ?? "");
     if (!siteExists(terminal, siteCode)) return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
 
+    // An exact scoped read avoids the active-line date/row limits and performs
+    // no carrier enrichment or McLeod calls during uncertain-write recovery.
+    if (searchParams.has("id")) {
+      const id = searchParams.get("id") || "";
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+        return NextResponse.json({ ok: false, error: "Invalid arrival identifier" }, { status: 400 });
+      const result = await database().from("inbound_checkin_rows").select(QUEUE_FIELDS)
+        .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+        .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
+      if (result.error) return databaseFailure(result);
+      if (!result.data) return NextResponse.json({ ok: false, error: "This arrival is no longer available in this yard." }, { status: 404 });
+      return NextResponse.json({ ok: true, row: queueRow(result.data) }, { headers: { "Cache-Control": "no-store" } });
+    }
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
-      .select("id,terminal,site_name,checkin_source,updated_at,checked_in_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at")
+      .select(QUEUE_FIELDS)
       .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
     if (error) throw error;
     const displayRows = await enrichDisplayCarriers(data ?? [], line);
-    return NextResponse.json({ ok: true, rows: displayRows.map(({ bol_photo_path, ...row }) => ({
-      ...row, has_bol_photo: Boolean(bol_photo_path),
-    })) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: true, rows: displayRows.map(row => ({ ...queueRow(row), carrier_code: row.carrier_code, scm_carrier: row.scm_carrier })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
@@ -95,7 +137,7 @@ async function POSTHandler(req: NextRequest) {
         return NextResponse.json({ ok: false, error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
       }
       if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
-      if (reference && !order.reference.includes(reference)) {
+      if (reference && !referenceMatchesInput(order.reference, reference)) {
         return NextResponse.json({ ok: false, error: `Order ${orderId} ${direction === "pickup" ? "BLNUM" : "consignee reference"} does not contain ${reference}` }, { status: 409 });
       }
       reference ||= order.reference;
@@ -135,6 +177,65 @@ async function PATCHHandler(req: NextRequest) {
     const to = String(body?.to ?? "");
     const terminal = String(body?.terminal ?? "").toUpperCase();
     const siteCode = String(body?.siteCode ?? "");
+    if (body?.action === "process_outside_carrier") {
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuid.test(id) || !siteExists(terminal, siteCode) ||
+          !uuid.test(String(body.lookupAttemptId ?? "")) || !uuid.test(String(body.requestId ?? "")) ||
+          typeof body.expectedUpdatedAt !== "string" || !Number.isFinite(Date.parse(body.expectedUpdatedAt)) ||
+          body.acknowledgeUnresolved !== true) {
+        return NextResponse.json({ ok: false, error: "Confirm the completed movement with unresolved McLeod verification using the current arrival and lookup attempt." }, { status: 400 });
+      }
+      const staff = staffProfile(req);
+      if (!staff || !["admin", "operator"].includes(staff.role) || !staff.user_id ||
+          staff.role === "operator" && staff.terminal !== terminal) {
+        return NextResponse.json({ ok: false, error: "Active staff access for this yard is required." }, { status: 403 });
+      }
+      const db = database();
+      // The server supplies new audit text; client prose cannot assert verification.
+      // An exact replay may predate this UI. Preserve its immutable saved reason
+      // so the existing atomic RPC can validate and return the original result.
+      const replay = await db.from("inbound_outside_carrier_events")
+        .select("reason").eq("checkin_id", id).eq("request_id", body.requestId)
+        .eq("lookup_attempt_id", body.lookupAttemptId).eq("actor_id", staff.id)
+        .eq("actor_user_id", staff.user_id).maybeSingle();
+      if (replay.error) return databaseFailure(replay, true);
+      const reason = replay.data?.reason ?? "Staff confirmed physical movement completed as outside carrier; McLeod verification remains unresolved; no McLeod update.";
+      const result = await db.rpc("complete_inbound_outside_carrier", {
+        p_id: id, p_terminal: terminal, p_site_code: siteCode,
+        p_expected_updated_at: body.expectedUpdatedAt, p_lookup_attempt_id: body.lookupAttemptId,
+        p_request_id: body.requestId, p_staff_id: staff.id, p_user_id: staff.user_id,
+        p_acknowledge_unresolved: true, p_reason: reason,
+      });
+      if (result.error) return databaseFailure(result, true);
+      const completed = result.data?.[0];
+      if (!completed) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the line." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: queueRow(completed),
+        mcleod: "outside carrier; McLeod verification unresolved; no McLeod delivery" });
+    }
+    if (body?.action === "retry_lookup") {
+      const staff = staffProfile(req);
+      if (!staff || !["admin", "operator"].includes(staff.role) || !staff.user_id ||
+          staff.role === "operator" && staff.terminal !== terminal) {
+        return NextResponse.json({ ok: false, error: "Active staff access for this yard is required." }, { status: 403 });
+      }
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode) ||
+          typeof body.expectedUpdatedAt !== "string" || !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
+        return NextResponse.json({ ok: false, error: "Refresh before retrying this lookup." }, { status: 400 });
+      }
+      const { data, error } = await database().rpc("retry_inbound_checkin_lookup", {
+        p_id: id, p_terminal: terminal, p_site_code: siteCode, p_expected_updated_at: body.expectedUpdatedAt,
+        p_staff_id: staff.id, p_user_id: staff.user_id,
+      });
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: error.code === "42501" ? 403 : 409 });
+      if (!data?.[0]) return NextResponse.json({ ok: false, error: "This lookup changed. Refresh the line." }, { status: 409 });
+      const processed = await processCheckinRow(req, id, data[0]);
+      const eligible = outsideCarrierOverrideEligible(processed);
+      const ok = ["processed", "outside_carrier"].includes(processed?.draft_status) && processed.yard_status === "completed";
+      return NextResponse.json({ ok, row: queueRow(processed),
+        ...(ok ? { mcleod: processed.draft_status === "outside_carrier" ? "outside carrier; no McLeod delivery" : "cotton delivery processed" }
+          : { error: processed?.processing_error || "The lookup has not completed. Refresh the line.",
+            ...(eligible ? { code: "MCLEOD_LOOKUP_UNRESOLVED", outsideCarrierEligible: true } : {}) }) }, { status: ok ? 200 : 409 });
+    }
     if (body?.action === "checkout") {
       if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode)) {
         return NextResponse.json({ ok: false, error: "Invalid check-out" }, { status: 400 });
@@ -145,13 +246,48 @@ async function PATCHHandler(req: NextRequest) {
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
       if (lookupError) throw lookupError;
+      // Finish cotton is the staff completion action. A stable operation ID is
+      // retained through lookup and fallback; incomplete lookup is never no-match.
+      const finishRequestId = body.finishCottonRequestId;
+      const automaticFallback = finishRequestId !== undefined;
+      const finishStaff = automaticFallback ? staffProfile(req) : null;
+      if (automaticFallback && (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(finishRequestId)) ||
+          row?.material_type !== "cotton" || row?.movement_direction !== "delivery"))
+        return NextResponse.json({ ok: false, error: "Invalid cotton completion request" }, { status: 400 });
+      if (automaticFallback && (!finishStaff || !["admin", "operator"].includes(finishStaff.role) || !finishStaff.user_id ||
+          finishStaff.role === "operator" && finishStaff.terminal !== terminal))
+        return NextResponse.json({ ok: false, error: "Active staff access for this yard is required." }, { status: 403 });
+      if (row?.yard_status === "completed" && body.finishCottonRequestId &&
+          row.material_type === "cotton" && row.movement_direction === "delivery")
+        return NextResponse.json({ ok: true, row: queueRow(row), mcleod: "already completed; saved status refreshed" });
       if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
         return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
+      }
+      if (row.mcleod_processing_phase === "write_pending") {
+        return NextResponse.json({ ok: false, error: "A McLeod write may already have happened. Reconcile it before retrying check-out.",
+          code: "MCLEOD_WRITE_UNCERTAIN", row: queueRow(row) }, { status: 409 });
+      }
+      async function completeFallback(candidate: any) {
+        if (!automaticFallback || !finishStaff || !outsideCarrierOverrideEligible(candidate)) return null;
+        const result = await sb.rpc("complete_inbound_outside_carrier_auto", {
+          p_id: id, p_terminal: terminal, p_site_code: siteCode,
+          p_expected_updated_at: candidate.updated_at, p_lookup_attempt_id: candidate.mcleod_lookup_attempt_id,
+          p_request_id: finishRequestId, p_staff_id: finishStaff.id, p_user_id: finishStaff.user_id,
+        });
+        if (result.error) return databaseFailure(result, true);
+        const saved = result.data?.[0];
+        if (!saved || saved.yard_status !== "completed") return NextResponse.json({ ok: false,
+          code: "CHECKOUT_UNCERTAIN", error: "Refresh saved status before taking another action." }, { status: 503 });
+        return NextResponse.json({ ok: true, row: queueRow(saved),
+          mcleod: "outside carrier; SCM verification unresolved; no McLeod update" });
       }
       const departure = new Date();
       let mcleod = "no linked order";
       if (row.material_type === "cotton" && row.movement_direction === "delivery" &&
           !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)) {
+        if (!canPrepareMcleodLookup(row)) return NextResponse.json({ ok: false,
+          error: "This older processing outcome needs review before another lookup or outside-carrier completion.",
+          code: "MCLEOD_LEGACY_REVIEW_REQUIRED", row: queueRow(row) }, { status: 409 });
         const cotton = body?.cotton;
         if (!cotton || body.expectedUpdatedAt !== row.updated_at ||
             !["checked_in", "ready", "failed"].includes(row.draft_status)) {
@@ -179,7 +315,8 @@ async function PATCHHandler(req: NextRequest) {
         const { data: prepared, error: prepareError } = await sb.from("inbound_checkin_rows")
           .update({ mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
             warehouse_location: location, equipment_type: equipment, verified: true,
-            verified_at: departure.toISOString(), draft_status: shortage ? "delivery_blocked" : "ready", processing_error: null, ...acknowledgement,
+            verified_at: departure.toISOString(), draft_status: shortage ? "delivery_blocked" : "ready", processing_error: null,
+            ...(!shortage ? { mcleod_processing_phase: "lookup" } : {}), ...acknowledgement,
             ...(shortage && cotton.shortageNote ? { comment_1: [row.comment_1, `Shortage acknowledged: ${shortage.received} of ${shortage.expected} bales. ${String(cotton.shortageNote).trim()}`].filter(Boolean).join("\n") } : {}) })
           .eq("id", id).eq("updated_at", row.updated_at)
           .in("draft_status", ["checked_in", "ready", "failed"]).select("*").maybeSingle();
@@ -187,7 +324,13 @@ async function PATCHHandler(req: NextRequest) {
         if (!prepared) return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
         const processed = shortage ? prepared : await processCheckinRow(req, id);
         if (!processed || !["processed", "outside_carrier", "delivery_blocked"].includes(processed.draft_status)) {
-          return NextResponse.json({ ok: false, error: processed?.processing_error || "Cotton delivery was not completed in McLeod. Check-in remains in the line." }, { status: 409 });
+          const fallback = await completeFallback(processed);
+          if (fallback) return fallback;
+          const eligible = outsideCarrierOverrideEligible(processed);
+          return NextResponse.json({ ok: false,
+            error: processed?.processing_error || "Cotton delivery was not completed in McLeod. Check-in remains in the line.",
+            ...(eligible ? { code: "MCLEOD_LOOKUP_UNRESOLVED", outsideCarrierEligible: true } : {}),
+            ...(processed ? { row: queueRow(processed) } : {}) }, { status: 409 });
         }
         mcleod = processed.draft_status === "delivery_blocked" ? "receiving complete; bale shortage blocks McLeod delivery — notify the customer" : processed.draft_status === "processed" ? "cotton delivery processed" : "outside carrier; no McLeod delivery";
         // The database completes the yard status atomically with an SCM cotton delivery.
@@ -211,7 +354,7 @@ async function PATCHHandler(req: NextRequest) {
           if (order.completion || !order.movementId ||
               (row.movement_direction === "delivery" && (!order.pickupMovementVerified || !order.pickupBackfillVerified)) ||
               order.materialType !== row.material_type || !String(row.reference_number ?? "").trim() ||
-              !order.reference.includes(String(row.reference_number).trim().toUpperCase())) {
+              !referenceMatchesInput(order.reference, row.reference_number)) {
             return NextResponse.json({ ok: false, error: "The saved order details or pickup prerequisites could not be verified. Review them before check-out." }, { status: 409 });
           }
           // Bind legacy unique matches before any write. A persisted selection must
@@ -312,7 +455,7 @@ async function PATCHHandler(req: NextRequest) {
         if (yardOrder.direction !== existing.movement_direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
         if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
         const reference = String(existing.reference_number ?? "").trim().toUpperCase();
-        if (!reference || !order.reference.includes(reference)) {
+        if (!reference || !referenceMatchesInput(order.reference, reference)) {
           return NextResponse.json({ ok: false, error: "That order does not contain the driver's reference in the required field" }, { status: 409 });
         }
         customer = order.customer;

@@ -1,3 +1,4 @@
+import { canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -207,6 +208,10 @@ async function PATCHHandler(
     }
     const draft_status = shortage && shortageAcknowledged(merged) && isCompleteCheckin(merged)
       ? "delivery_blocked" : isReadyCheckin(merged) ? "ready" : "checked_in";
+    if (draft_status === "ready" && !canPrepareMcleodLookup(existing)) {
+      return NextResponse.json({ ok: false, error: "The previous McLeod processing outcome needs review before retrying.",
+        code: "MCLEOD_LEGACY_REVIEW_REQUIRED" }, { status: 409 });
+    }
     merged.verified = ["ready", "delivery_blocked"].includes(draft_status);
     const identityCorrected = Boolean(existing.checked_in_at) && (
       existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
@@ -253,6 +258,7 @@ async function PATCHHandler(
       comment_1: merged.comment_1,
       comment_2: merged.comment_2,
       draft_status,
+      ...(draft_status === "ready" ? { mcleod_processing_phase: "lookup" } : {}),
       checked_in_at,
       yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
       verified_at,

@@ -1,3 +1,6 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { dependencyFetch } from "@/lib/http/dependency";
+import { McleodLookupIncompleteError } from "@/lib/inbound/checkin/lookup-failure";
 import { withStaffAccess, staffProfile } from "@/lib/auth/guard";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
@@ -135,7 +138,7 @@ function hasActuals(stop: McleodStop | undefined) {
 }
 
 async function getOrder(orderId: string) {
-  const res = await fetch(`${getBaseUrl()}/orders/${orderId}`, {
+  const res = await dependencyFetch(`${getBaseUrl()}/orders/${orderId}`, {
     method: "GET",
     headers: getHeaders(),
     cache: "no-store",
@@ -162,7 +165,7 @@ async function clearCarrierStop(
 
   const url = `${getBaseUrl()}/carrierDispatch/clearStop/${stopId}?${qs.toString()}`;
 
-  const res = await fetch(url, {
+  const res = await dependencyFetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,
@@ -272,26 +275,108 @@ function validationFailure(payload: Record<string, unknown>, status = 400) {
 }
 
 async function POSTHandler(req: NextRequest) {
+  let liveAttempt: { sb: SupabaseClient; id: string; attemptId: string; saved: Record<string, any> } | null = null;
+  let matchedOrderId: string | undefined;
+  async function persistLivePhase(phase: "matched" | "write_pending", orderId: string) {
+    if (!liveAttempt) return;
+    const { data, error } = await liveAttempt.sb.from("inbound_checkin_rows")
+      .update({ mcleod_processing_phase: phase, mcleod_lookup_status: "matched",
+        mcleod_lookup_has_known_match: true, matched_order_id: orderId })
+      .eq("id", liveAttempt.id).eq("draft_status", "processing")
+      .eq("mcleod_lookup_attempt_id", liveAttempt.attemptId)
+      .eq("mcleod_processing_phase", phase === "matched" ? "lookup" : "matched")
+      .select("id").maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("The processing attempt changed; McLeod writes are blocked");
+  }
   try {
-    const { row } = await req.json();
+    const body = await req.json();
+    let row = body.row;
 
     if (!row) {
       return NextResponse.json({ ok: false, error: "Missing row" }, { status: 400 });
     }
 
     if (row.source === "live_checkin") {
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuid.test(String(body.checkinId ?? "")) || !uuid.test(String(body.lookupAttemptId ?? ""))) {
+        return validationFailure({ error: "A claimed check-in processing attempt is required", reason: "INVALID_CHECKIN_ATTEMPT" });
+      }
+      const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!url || !key) throw new Error("Missing Supabase environment variables");
+      const sb = createClient(url, key, { global: { fetch: dependencyFetch } });
+      // Consume the server-created attempt exactly once. Concurrent/replayed sync
+      // requests cannot progress from searching to another set of remote writes.
+      const { data: saved, error } = await sb.from("inbound_checkin_rows")
+        .update({ mcleod_lookup_status: "searching" })
+        .eq("id", body.checkinId).eq("mcleod_lookup_attempt_id", body.lookupAttemptId)
+        .eq("draft_status", "processing").eq("material_type", "cotton").eq("movement_direction", "delivery")
+        .eq("mcleod_processing_phase", "lookup").eq("mcleod_lookup_status", "pending")
+        .select("*").maybeSingle();
+      if (error) throw error;
+      if (!saved || saved.outside_carrier_override_at) {
+        return validationFailure({ error: "This processing attempt is no longer available", reason: "CHECKIN_ATTEMPT_CHANGED" }, 409);
+      }
+      liveAttempt = { sb, id: body.checkinId, attemptId: body.lookupAttemptId, saved };
+      // Caller-supplied freight, timing and location never override the claimed row.
+      row = { source: "live_checkin", receivedDate: saved.received_date, mark: saved.mark,
+        shipper: saved.shipper, bolBC: String(saved.bol_bc ?? ""), balesUnloaded: saved.bale_count,
+        expectedBaleCount: saved.expected_bale_count, location: saved.warehouse_location,
+        sourceSheet: saved.sub_location, terminal: saved.terminal, siteCode: saved.site_code,
+        equipmentType: saved.equipment_type, checkedInAt: saved.checked_in_at, verifiedAt: saved.verified_at };
+      if (staffProfile(req)?.role === "operator" && staffProfile(req)?.terminal !== row.terminal) {
+        return validationFailure({ error: "This check-in belongs to another terminal", reason: "STAFF_TERMINAL_MISMATCH" }, 403);
+      }
       const expected = Number(row.expectedBaleCount ?? row.bolBC);
       const received = Number(row.balesUnloaded);
       if (Number.isSafeInteger(expected) && expected > 0 && Number.isSafeInteger(received) && received < expected) {
         return validationFailure({ error: "Bale shortage - cannot post McLeod delivery", reason: "BALE_COUNT_MISMATCH", expectedBales: expected, receivedBales: received });
       }
     }
-    const preview = (await buildPreview([row], {
-      strictSearch: row.source === "live_checkin",
-    }))[0] as SyncPreviewResult;
+    let preview: SyncPreviewResult;
+    try {
+      preview = (await buildPreview([row], {
+        strictSearch: row.source === "live_checkin",
+        ...(liveAttempt ? { onKnownMatch: async () => {
+          const attempt = liveAttempt!;
+          const { data, error } = await attempt.sb.from("inbound_checkin_rows")
+            .update({ mcleod_lookup_has_known_match: true })
+            .eq("id", attempt.id).eq("draft_status", "processing")
+            .eq("mcleod_lookup_attempt_id", attempt.attemptId).eq("mcleod_processing_phase", "lookup")
+            .eq("mcleod_lookup_status", "searching").select("id").maybeSingle();
+          if (error) throw error;
+          if (!data) throw new Error("The lookup attempt changed; processing is blocked");
+          attempt.saved.mcleod_lookup_has_known_match = true;
+        } } : {}),
+      }))[0] as SyncPreviewResult;
+    } catch (error) {
+      if (liveAttempt && error instanceof McleodLookupIncompleteError) {
+        const knownMatch = error.hasKnownMatches || liveAttempt.saved.mcleod_lookup_has_known_match ||
+          Boolean(liveAttempt.saved.matched_order_id || liveAttempt.saved.matched_stop_id);
+        const { data, error: saveError } = await liveAttempt.sb.from("inbound_checkin_rows")
+          .update({ mcleod_lookup_status: knownMatch ? "conflict" : "unresolved",
+            mcleod_lookup_failure_code: error.code, mcleod_lookup_failed_at: new Date().toISOString(),
+            ...(knownMatch ? { mcleod_lookup_has_known_match: true } : {}) })
+          .eq("id", liveAttempt.id).eq("draft_status", "processing")
+          .eq("mcleod_lookup_attempt_id", liveAttempt.attemptId).eq("mcleod_processing_phase", "lookup")
+          .eq("mcleod_lookup_status", "searching").select("id").maybeSingle();
+        if (saveError) throw saveError;
+        if (!data) throw new Error("The lookup attempt changed; processing is blocked");
+        return NextResponse.json({ ok: false, error: error.message,
+          code: knownMatch ? "MCLEOD_LOOKUP_CONFLICT" : "MCLEOD_LOOKUP_UNRESOLVED",
+          lookupFailure: { phase: "lookup", attemptId: liveAttempt.attemptId,
+            code: error.code, hasKnownMatches: Boolean(knownMatch) } }, { status: 409 });
+      }
+      throw error;
+    }
 
     if (!preview || !preview.matchedOrderId) {
       if (row.source === "live_checkin" && isOutsideCarrierNoMatch(preview)) {
+        if (liveAttempt?.saved.matched_order_id || liveAttempt?.saved.matched_stop_id || liveAttempt?.saved.mcleod_lookup_has_known_match) {
+          return validationFailure({ error: "The saved McLeod match was not found. Review it before completing receiving.",
+            reason: "KNOWN_MATCH_NOT_FOUND", matchedOrderId: liveAttempt.saved.matched_order_id });
+        }
         return NextResponse.json({
           ok: true, skipped: true, outsideCarrier: true,
           reason: "No McLeod order found for this mark; treated as outside carrier",
@@ -303,6 +388,12 @@ async function POSTHandler(req: NextRequest) {
       );
     }
 
+    matchedOrderId = preview.matchedOrderId;
+    if (liveAttempt?.saved.matched_order_id && liveAttempt.saved.matched_order_id !== matchedOrderId) {
+      return validationFailure({ error: "The lookup conflicts with the saved McLeod order", reason: "KNOWN_MATCH_CONFLICT",
+        matchedOrderId: liveAttempt.saved.matched_order_id });
+    }
+    await persistLivePhase("matched", matchedOrderId);
     const baleCount = resolveBales(row, preview);
 
     const isStrong = preview.status === "Matched";
@@ -426,6 +517,9 @@ async function POSTHandler(req: NextRequest) {
       );
     }
 
+    if (liveAttempt?.saved.matched_stop_id && liveAttempt.saved.matched_stop_id !== delivery.id) {
+      return validationFailure({ error: "The lookup conflicts with the saved McLeod stop", reason: "KNOWN_STOP_CONFLICT", matchedOrderId });
+    }
     const pickupHas = hasActuals(pickup);
     const deliveryHas = hasActuals(delivery);
 
@@ -467,6 +561,9 @@ async function POSTHandler(req: NextRequest) {
         });
       }
 
+      // Persist before the first pickup/backfill OR delivery write. Even a timeout
+      // or lost response after this point can never become an outside-carrier offer.
+      await persistLivePhase("write_pending", preview.matchedOrderId);
       const pickupRes = plannedActions.pickup.skipped
         ? { ok: true, status: 200, body: "Pickup already had actuals" }
         : await clearCarrierStop(pickup.id, plannedActions.pickup.arrivalDate, plannedActions.pickup.departureDate);
@@ -628,6 +725,7 @@ async function POSTHandler(req: NextRequest) {
       {
         ok: false,
         error: e instanceof Error ? e.message : "Unknown error",
+        ...(matchedOrderId ? { matchedOrderId } : {}),
       },
       { status: 500 }
     );
