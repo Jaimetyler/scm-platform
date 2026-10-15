@@ -5,7 +5,7 @@ const isSeparator = (value: string) => /[\s/-]/.test(value);
  * internal whitespace, token order, and leading zeroes significant. Callers keep
  * the original stored/input value for display and persistence. */
 export function normalizeReference(value: unknown): string {
-  return key(value).replace(/\s*\/\s*/g, "/");
+  return key(value).replace(/\s*\/\s*/g, "/").replace(/\/+$/g, "");
 }
 
 /** Match the entire entered reference, never fragments of the entered input.

@@ -586,3 +586,32 @@ test('offset-only default-descending pages retain a later whole-token load witho
     }, async url => url.searchParams.has('orderBy') ? new Response('synthetic sort failure', {status:url.searchParams.get('orderBy').includes('+')?400:500}) : undefined);
   }
 });
+
+test('1088937 pickup with optional slash and complete container reference resolves through BLNUM', async () => {
+  const order = fixture('REAL-1088937', { blnum: '1088937 / TGBU5277117' });
+  await withMock({ 'REAL-1088937': order }, [], async calls => {
+    for (const input of ['1088937', '1088937/', '1088937/TGBU5277117', '1088937 / TGBU5277117', '1088937/ TGBU5277117']) {
+      const result = await lookup(input);
+      assert.equal(result.matches.length, 1, input);
+      assert.equal(result.matches[0].orderId, 'REAL-1088937');
+      assert.equal(result.matches[0].order.reference, '1088937 / TGBU5277117');
+      assert.equal(result.allowUnmatched, false);
+    }
+    const searches = calls.filter(url => url.searchParams.has('orders.blnum'));
+    assert.equal(searches.length, 5);
+    assert.ok(searches.every(url => url.searchParams.get('orders.blnum') === '*1088937*'));
+  }, (url) => {
+    if (url.searchParams.get('orders.blnum') === '*1088937*') return Response.json([order]);
+    if (url.searchParams.has('orders.blnum')) return Response.json([]);
+    return undefined;
+  });
+});
+
+test('compound pickup must match both slash components, never just the first', async () => {
+  const order = fixture('REAL-1088937', { blnum: '1088937 / TGBU5277117' });
+  await withMock({ 'REAL-1088937': order }, [order], async () => {
+    const result = await lookup('1088937/TGBU0000000');
+    assert.equal(result.matches.length, 0);
+    assert.equal(result.allowUnmatched, true);
+  });
+});

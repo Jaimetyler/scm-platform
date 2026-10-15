@@ -35,8 +35,7 @@ export async function searchReferenceOrders(
   // Do not split meaningful hyphenated references, assume rarity, or claim that a
   // full anchor page proves completeness. The original stored value is returned.
   const normalized = normalizeReference(reference);
-  const anchor = normalized.split("/").filter(Boolean)
-    .reduce((longest, component) => component.length > longest.length ? component : longest, "") || normalized;
+  const anchor = normalized.split("/").find(Boolean) || normalized;
   const candidates = new Map<string, Record<string, any>>();
   const seenIds = new Set<string>();
   let scannedRows = 0;
