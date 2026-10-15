@@ -177,6 +177,41 @@ async function PATCHHandler(req: NextRequest) {
     const to = String(body?.to ?? "");
     const terminal = String(body?.terminal ?? "").toUpperCase();
     const siteCode = String(body?.siteCode ?? "");
+    if (body?.action === "yard_only_close") {
+      const staff = staffProfile(req);
+      if (!staff || !["admin", "operator"].includes(staff.role) || !staff.user_id ||
+          (staff.role === "operator" && staff.terminal !== terminal))
+        return NextResponse.json({ ok: false, error: "Warehouse operator access required." }, { status: 403 });
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(id) ||
+          !siteExists(terminal, siteCode) || body.departedConfirmed !== true ||
+          typeof body.expectedUpdatedAt !== "string" || !Number.isFinite(Date.parse(body.expectedUpdatedAt)))
+        return NextResponse.json({ ok: false, error: "Refresh and confirm the truck has physically departed." }, { status: 400 });
+      const sb = database();
+      const { data: existing, error: readError } = await sb.from("inbound_checkin_rows")
+        .select("id,terminal,site_code,updated_at,checked_in_at,yard_status,material_type,movement_direction,matched_order_id,matched_stop_id,mcleod_processing_phase,comment_2")
+        .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).maybeSingle();
+      if (readError) return databaseFailure({ error: readError });
+      if (!existing || existing.updated_at !== body.expectedUpdatedAt ||
+          !["waiting", "called", "in_door", "working"].includes(existing.yard_status) ||
+          !existing.checked_in_at || !["lumber", "other"].includes(existing.material_type) ||
+          !existing.matched_order_id || !existing.matched_stop_id ||
+          ["write_pending", "legacy_processing"].includes(existing.mcleod_processing_phase ?? ""))
+        return NextResponse.json({ ok: false, error: "Arrival changed or McLeod reconciliation is required before yard-only closure. Refresh the line." }, { status: 409 });
+      // Yard-only administrative closure: this path makes NO McLeod request and
+      // leaves saved SCM order, stop, freight status, and inventory untouched.
+      const recordedAt = new Date().toISOString();
+      const note = `YARD-ONLY CLOSE ${recordedAt}: Driver physically departed (confirmed by ${staff.email || staff.user_id}). McLeod checkout not posted; saved SCM order/stop require reconciliation. This is recording time, not verified departure time.`;
+      const { data: saved, error: saveError } = await sb.from("inbound_checkin_rows")
+        .update({ yard_status: "completed", yard_completed_at: recordedAt,
+          yard_updated_by: `${staff.email || staff.user_id} [yard-only]`,
+          comment_2: [existing.comment_2, note].filter(Boolean).join("\n") })
+        .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+        .eq("updated_at", existing.updated_at).eq("yard_status", existing.yard_status)
+        .select("id,yard_status,yard_completed_at").maybeSingle();
+      if (saveError) return databaseFailure({ error: saveError }, true);
+      if (!saved) return NextResponse.json({ ok: false, error: "Arrival changed during yard closure. Refresh its saved status." }, { status: 409 });
+      return NextResponse.json({ ok: true, row: saved, mcleod: "yard-only closure; McLeod NOT updated; reconcile saved stop" });
+    }
     if (body?.action === "process_outside_carrier") {
       const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuid.test(id) || !siteExists(terminal, siteCode) ||
@@ -355,7 +390,7 @@ async function PATCHHandler(req: NextRequest) {
               (row.movement_direction === "delivery" && (!order.pickupMovementVerified || !order.pickupBackfillVerified)) ||
               order.materialType !== row.material_type || !String(row.reference_number ?? "").trim() ||
               !referenceMatchesInput(order.reference, row.reference_number)) {
-            return NextResponse.json({ ok: false, error: "The saved order details or pickup prerequisites could not be verified. Review them before check-out." }, { status: 409 });
+            return NextResponse.json({ ok: false, code: "SCM_CHECKOUT_REVIEW", error: "The saved order details or pickup prerequisites could not be verified. Review them before check-out. If the truck has departed, choose Close yard only; McLeod will not be updated." }, { status: 409 });
           }
           // Bind legacy unique matches before any write. A persisted selection must
           // never silently fall through to a different stop after remote edits.
