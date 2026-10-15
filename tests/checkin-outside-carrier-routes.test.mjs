@@ -84,7 +84,8 @@ async function scenario(options, run) {
             !["pending","searching","unresolved","conflict","error"].includes(row.mcleod_lookup_status))return{error:{code:"40001",message:"Not a read-only lookup"}};
         return{data:[save({mcleod_lookup_attempt_id:crypto.randomUUID(),mcleod_processing_result_id:null,mcleod_lookup_status:"pending"})]};
       }
-      if(name==="complete_inbound_outside_carrier"){
+      if(name==="complete_inbound_outside_carrier" || name==="complete_inbound_outside_carrier_auto"){
+        if(name.endsWith("_auto")) { assert.equal(args.p_acknowledge_unresolved,undefined); args.p_reason="Automatic fallback during staff Finish cotton; verification unresolved; no McLeod update."; }
         if(options.manualError)return{error:options.manualError,status:options.manualStatus};
         const previous=events.find(event=>event.checkin_id===args.p_id);
         if(previous){
@@ -132,8 +133,8 @@ async function scenario(options, run) {
     }
     throw new Error(`Unexpected URL ${url}`);
   };
-  const checkout=()=>queue.PATCH(request({action:"checkout",id,terminal:"HOU",siteCode:"5300",expectedUpdatedAt:row.updated_at,
-    cotton:{mark:row.mark,customer:row.shipper,bolBC:row.bol_bc,baleCount:row.bale_count,warehouseLocation:row.warehouse_location,equipmentType:row.equipment_type}}));
+  const checkout=(extra={})=>queue.PATCH(request({action:"checkout",id,terminal:"HOU",siteCode:"5300",expectedUpdatedAt:row.updated_at,
+    cotton:{mark:row.mark,customer:row.shipper,bolBC:row.bol_bc,baleCount:row.bale_count,warehouseLocation:row.warehouse_location,equipmentType:row.equipment_type},...extra}));
   const manual=(extra={})=>queue.PATCH(request({action:"process_outside_carrier",id,terminal:"HOU",siteCode:"5300",
     expectedUpdatedAt:row.updated_at,lookupAttemptId:row.mcleod_lookup_attempt_id,requestId:crypto.randomUUID(),
     acknowledgeUnresolved:true,...extra}));
@@ -348,5 +349,69 @@ test("actual Supabase SDK transport wrapping retains status-zero evidence for th
   assert.equal(result.status,0);assert.equal(result.error.code,'');
   await scenario({row:manualFailure(),manualError:result.error,manualStatus:result.status},async s=>{
     const response=await s.manual();assert.equal(response.status,503);assert.equal((await response.json()).code,'DEPENDENCY_UNAVAILABLE');
+  });
+});
+
+
+test("Finish cotton automatically completes a fresh eligible lookup failure with one honest audit",async()=>{
+  await scenario({searchError:true},async s=>{
+    const finishCottonRequestId=crypto.randomUUID();
+    const first=await s.checkout({finishCottonRequestId}); assert.equal(first.status,200);
+    assert.equal(s.row().yard_status,"completed"); assert.equal(s.row().mcleod_lookup_status,"unresolved");
+    assert.equal(s.stats().events.length,1);assert.equal(s.stats().externalWrites,0);
+    assert.equal(s.stats().rpcCalls.at(-1).name,"complete_inbound_outside_carrier_auto");
+    assert.match(s.stats().events[0].reason,/Automatic fallback/);
+    const calls=s.stats().searchCalls;
+    assert.equal((await s.checkout({finishCottonRequestId})).status,200);
+    assert.equal(s.stats().events.length,1);assert.equal(s.stats().searchCalls,calls);
+    assert.equal((await s.checkout({finishCottonRequestId:crypto.randomUUID()})).status,200);
+    assert.equal(s.stats().events.length,1);
+  });
+});
+test("automatic fallback never consumes unversioned legacy errors, known matches, or uncertain writes",async()=>{
+  for(const row of [
+    {draft_status:"failed",processing_error:"HTTP500",mcleod_processing_phase:"legacy_review"},
+    {...manualFailure(),matched_order_id:"ORDER1",mcleod_lookup_has_known_match:true,mcleod_processing_phase:"write_pending"},
+    {...manualFailure(),mcleod_lookup_has_known_match:true},
+  ]) await scenario({row,searchError:true},async s=>{
+    const result=await s.checkout({finishCottonRequestId:crypto.randomUUID()});assert.notEqual(result.status,200);
+    assert.equal(s.stats().events.length,0);assert.equal(s.stats().externalWrites,0);
+  });
+});
+test("automatic fallback timeout exposes uncertain recovery without reprocessing",async()=>{
+  await scenario({searchError:true,manualError:{code:"57014",message:"timeout"}},async s=>{
+    const result=await s.checkout({finishCottonRequestId:crypto.randomUUID()}); assert.equal(result.status,503);
+    assert.match((await result.json()).error,/may already have completed/);assert.equal(s.stats().externalWrites,0);
+    const before=s.stats().searchCalls;
+    const saved=await s.queue.GET(new Request(`https://scm.test/api/warehouse/domestic-queue?terminal=HOU&siteCode=5300&id=${id}`));
+    assert.equal(saved.status,200);assert.equal(s.stats().searchCalls,before);
+  });
+});
+
+test("Finish cotton no-match stays confirmed no-match and does not create fallback audit",async()=>{
+  await scenario({},async s=>{
+    assert.equal((await s.checkout({finishCottonRequestId:crypto.randomUUID()})).status,200);
+    assert.equal(s.row().mcleod_lookup_status,"no_match");assert.equal(s.row().yard_status,"completed");
+    assert.equal(s.stats().events.length,0);assert.equal(s.stats().externalWrites,0);
+  });
+});
+test("Finish cotton validates inputs and staff before searching or falling back",async()=>{
+  for(const options of [{staff:{role:"viewer"}},{staff:{role:"operator",terminal:"SAV"}}])
+    await scenario(options,async s=>{
+      assert.equal((await s.checkout({finishCottonRequestId:crypto.randomUUID()})).status,403);
+      assert.equal(s.stats().searchCalls,0);assert.equal(s.stats().events.length,0);
+    });
+  await scenario({},async s=>{
+    assert.equal((await s.checkout({finishCottonRequestId:"invalid"})).status,400);
+    assert.equal((await s.checkout({finishCottonRequestId:crypto.randomUUID(),cotton:{}})).status,400);
+    assert.equal(s.stats().searchCalls,0);assert.equal(s.stats().events.length,0);
+  });
+});
+test("Finish cotton uses a fresh attempt instead of reusing old eligible unresolved evidence",async()=>{
+  await scenario({row:manualFailure(),searchError:true},async s=>{
+    const old=s.row().mcleod_lookup_attempt_id;
+    assert.equal((await s.checkout({finishCottonRequestId:crypto.randomUUID()})).status,200);
+    assert.notEqual(s.row().mcleod_lookup_attempt_id,old);assert.equal(s.stats().claims,1);
+    assert.equal(s.stats().events[0].lookup_attempt_id,s.row().mcleod_lookup_attempt_id);
   });
 });

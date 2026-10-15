@@ -2,7 +2,7 @@
 import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
-import OutsideCarrierReview, { canReviewOutsideCarrier, canRetryInterruptedLookup, canPrepareLegacyLookup, checkoutNeedsReview, OutsideCarrierMarker, type OutsideCarrierRow } from "@/components/warehouse/OutsideCarrierReview";
+import { canRetryInterruptedLookup, canPrepareLegacyLookup, checkoutNeedsReview, OutsideCarrierMarker, type OutsideCarrierRow } from "@/components/warehouse/OutsideCarrierReview";
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 
 import Link from "next/link";
@@ -52,6 +52,52 @@ export default function DomesticLinePage() {
   const currentCanWrite = useRef(canWrite); currentCanWrite.current = canWrite;
   const [cottonEditId, setCottonEditId] = useState<string | null>(null);
   const [cottonFields, setCottonFields] = useState<Record<string, CottonFields>>({});
+  const finishRequests = useRef<Record<string, string>>({});
+  const refreshRequired = useRef(new Set<string>());
+  const [uncertainIds, setUncertainIds] = useState<Set<string>>(new Set());
+  function finishRequestId(id: string) {
+    if (!finishRequests.current[id]) {
+      const key = `scm-finish-cotton:${site?.terminal}:${site?.siteCode}:${id}`;
+      let saved: string | null = null;
+      try { saved = sessionStorage.getItem(key); } catch { /* Memory remains authoritative in this tab. */ }
+      finishRequests.current[id] = saved && /^[0-9a-f-]{36}$/i.test(saved) ? saved : crypto.randomUUID();
+      try { sessionStorage.setItem(key, finishRequests.current[id]); } catch { /* No automatic retry after reload. */ }
+    }
+    return finishRequests.current[id];
+  }
+  async function refreshCottonStatus(row: Arrival) {
+    if (!site || workingRef.current || row.terminal !== site.terminal || row.site_code !== site.siteCode ||
+        !currentRows.current.some(item => item.id === row.id && item.updated_at === row.updated_at)) return;
+    const controller = operation.current;
+    if (!controller || controller.signal.aborted) return;
+    workingRef.current = row.id; setWorking(row.id);
+    const requestController = new AbortController();
+    const abort = () => requestController.abort();
+    controller.signal.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(abort, 20000);
+    try {
+      const query = new URLSearchParams({ id: row.id, terminal: site.terminal, siteCode: site.siteCode });
+      const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal: requestController.signal });
+      const result = await response.json();
+      if (controller.signal.aborted) return;
+      const saved = result.row;
+      if (!response.ok || !result.ok || saved?.id !== row.id || saved.terminal !== site.terminal || saved.site_code !== site.siteCode ||
+          !Number.isFinite(Date.parse(saved.updated_at)) || Date.parse(saved.updated_at) < Date.parse(row.updated_at) ||
+          !["waiting", "called", "in_door", "working", "completed", "cancelled"].includes(saved.yard_status) ||
+          typeof saved.draft_status !== "string" || typeof saved.outside_carrier_override_eligible !== "boolean")
+        throw new Error("Saved status could not be verified. Refresh again before finishing cotton.");
+      setRows(current => current.map(item => item.id === row.id ? { ...item, ...saved } : item));
+      refreshRequired.current.delete(row.id); setUncertainIds(new Set(refreshRequired.current));
+      setError(""); setCottonEditId(null);
+      setNotice(saved.yard_status === "completed" ? "This movement is completed. Saved status refreshed." : "Saved status refreshed. No checkout action was taken.");
+    } catch (reason) {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Saved status remains uncertain. Refresh again.");
+    } finally {
+      clearTimeout(timer); controller.signal.removeEventListener("abort", abort);
+      if (!controller.signal.aborted) { workingRef.current = ""; setWorking(""); }
+    }
+  }
+
 
   useLayoutEffect(() => {
     setRows([]); setLoading(true); setError(""); setNotice(""); setWorking("");
@@ -126,7 +172,7 @@ export default function DomesticLinePage() {
   async function move(row: Arrival & { yard_status: Status }, to: "checkout" | "cancelled" | "retry_lookup", cotton?: CottonFields) {
     const controller = operation.current;
     const fresh = currentRows.current.find((item) => item.id === row.id);
-    if (!site || !currentCanWrite.current || workingRef.current || outsideReviewId || !controller || controller.signal.aborted ||
+    if (!site || !currentCanWrite.current || workingRef.current || refreshRequired.current.has(row.id) || outsideReviewId || !controller || controller.signal.aborted ||
         !fresh || fresh.updated_at !== row.updated_at || fresh.yard_status !== row.yard_status) return;
     if (to === "retry_lookup" ? !canRetryInterruptedLookup(fresh) :
         checkoutNeedsReview(fresh) && !(to === "checkout" && canPrepareLegacyLookup(fresh))) return;
@@ -138,14 +184,17 @@ export default function DomesticLinePage() {
     const abortRequest = () => requestController.abort();
     controller.signal.addEventListener("abort", abortRequest, { once: true });
     const deadline = setTimeout(abortRequest, 30000);
+    let outcomeUncertain = true;
     try {
       const response = await fetch("/api/warehouse/domestic-queue", {
         method: "PATCH", headers: { "Content-Type": "application/json" }, signal: requestController.signal,
         body: JSON.stringify({ id: row.id, from: row.yard_status, to, action: to === "cancelled" ? undefined : to,
           expectedUpdatedAt: row.updated_at, cotton: to === "retry_lookup" ? undefined : cotton,
+          ...(to === "checkout" && cotton ? { finishCottonRequestId: finishRequestId(row.id) } : {}),
           terminal: site.terminal, siteCode: site.siteCode }),
       });
       const result = await response.json();
+      outcomeUncertain = response.status !== 400 && response.status !== 403;
       if (controller.signal.aborted) return;
       if (result.row?.id === row.id) {
         const explicitLookupFailure = result.code === "MCLEOD_LOOKUP_UNRESOLVED" && result.outsideCarrierEligible === true;
@@ -159,8 +208,11 @@ export default function DomesticLinePage() {
       setCottonEditId(null);
       setNotice(to === "cancelled" ? "Arrival removed" : `Checked out · ${result.mcleod}`);
     } catch (reason) {
+      if (cotton && outcomeUncertain && !controller.signal.aborted) {
+        refreshRequired.current.add(row.id); setUncertainIds(new Set(refreshRequired.current));
+      }
       if (!controller.signal.aborted) setError(requestController.signal.aborted
-        ? "The checkout response timed out. Its status is uncertain. Close the cotton form and refresh the line before trying again."
+        ? "The checkout response timed out. Its status is uncertain. Use Refresh saved status before taking another action."
         : reason instanceof Error ? reason.message : "Could not update this arrival");
     } finally {
       clearTimeout(deadline); controller.signal.removeEventListener("abort", abortRequest);
@@ -242,6 +294,7 @@ export default function DomesticLinePage() {
                 onClick={() => void move(row, "retry_lookup")}>Retry Search</button> : canPrepareLegacyLookup(row) ? <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={primary}
                 onClick={() => retrySearch(row)}>Retry Search</button> : <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)
                 ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>}
+              {uncertainIds.has(row.id) && <button disabled={Boolean(working)} style={button} onClick={() => void refreshCottonStatus(row)}>Refresh saved status</button>}
               <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
             </div></td>
           </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={11} style={{ ...cell, background: "#132337" }}>
@@ -266,7 +319,7 @@ export default function DomesticLinePage() {
                 <label style={{ display: "grid", gap: 5 }}>Shortage note<textarea disabled={!!working || !!outsideReviewId || !canWrite || checkoutNeedsReview(row)} value={cottonFields[row.id].shortageNote} maxLength={2000} onChange={(event) => changeCotton(row.id, "shortageNote", event.target.value)} style={input} /></label>
               </div>}
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button type="submit" disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={primary}>{working === row.id ? "Finishing…" : cottonShortage({ ...row, bol_bc: Number(cottonFields[row.id].bolBC) || null, bale_count: cottonFields[row.id].baleCount === "" ? null : Number(cottonFields[row.id].baleCount) }) ? "Finish receiving & check out" : "Process delivery & check out"}</button>
+                <button type="submit" disabled={uncertainIds.has(row.id) || !canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={primary}>{working === row.id ? "Finishing…" : cottonShortage({ ...row, bol_bc: Number(cottonFields[row.id].bolBC) || null, bale_count: cottonFields[row.id].baleCount === "" ? null : Number(cottonFields[row.id].baleCount) }) ? "Finish receiving & check out" : "Finish cotton"}</button>
                 <button type="button" disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={button} onClick={() => {
                   if (workingRef.current) return;
                   setCottonEditId(null);
@@ -274,24 +327,6 @@ export default function DomesticLinePage() {
                 }}>Cancel</button>
               </div>
             </form>
-          </td></tr>}{canReviewOutsideCarrier(row) && <tr><td colSpan={11} style={cell}>
-            <OutsideCarrierReview key={`${row.id}:${row.updated_at}:${row.mcleod_lookup_attempt_id}`}
-              row={row} terminal={site.terminal} siteCode={site.siteCode} canWrite={canWrite} busy={!!working}
-              onRetry={() => retrySearch(row)} onOpenChange={(open) => setOutsideReviewId(open ? row.id : null)}
-              onBusy={(busy) => { workingRef.current = busy ? row.id : ""; setWorking(busy ? row.id : ""); }}
-              onReconcile={(saved) => {
-                setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...saved } : item));
-                if (saved.yard_status === "completed" || saved.yard_status === "cancelled" || saved.updated_at !== row.updated_at ||
-                    saved.mcleod_lookup_attempt_id !== row.mcleod_lookup_attempt_id || !canReviewOutsideCarrier(saved)) {
-                  workingRef.current = ""; setWorking(""); setCottonEditId(null); setOutsideReviewId(null);
-                }
-                setNotice(saved.yard_status === "completed" ? "This movement is already completed. Saved status refreshed." : "Saved status refreshed. No checkout action was taken.");
-              }}
-              onComplete={(completed, message) => {
-                setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...completed } : item));
-                workingRef.current = ""; setWorking(""); setCottonEditId(null); setOutsideReviewId(null); setError("");
-                setNotice(`Checked out · ${message}`);
-              }} />
           </td></tr>}</Fragment>)}</tbody>
         </table></div>}
     </PlatformPanel>

@@ -246,12 +246,40 @@ async function PATCHHandler(req: NextRequest) {
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
       if (lookupError) throw lookupError;
+      // Finish cotton is the staff completion action. A stable operation ID is
+      // retained through lookup and fallback; incomplete lookup is never no-match.
+      const finishRequestId = body.finishCottonRequestId;
+      const automaticFallback = finishRequestId !== undefined;
+      const finishStaff = automaticFallback ? staffProfile(req) : null;
+      if (automaticFallback && (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(finishRequestId)) ||
+          row?.material_type !== "cotton" || row?.movement_direction !== "delivery"))
+        return NextResponse.json({ ok: false, error: "Invalid cotton completion request" }, { status: 400 });
+      if (automaticFallback && (!finishStaff || !["admin", "operator"].includes(finishStaff.role) || !finishStaff.user_id ||
+          finishStaff.role === "operator" && finishStaff.terminal !== terminal))
+        return NextResponse.json({ ok: false, error: "Active staff access for this yard is required." }, { status: 403 });
+      if (row?.yard_status === "completed" && body.finishCottonRequestId &&
+          row.material_type === "cotton" && row.movement_direction === "delivery")
+        return NextResponse.json({ ok: true, row: queueRow(row), mcleod: "already completed; saved status refreshed" });
       if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
         return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
       }
       if (row.mcleod_processing_phase === "write_pending") {
         return NextResponse.json({ ok: false, error: "A McLeod write may already have happened. Reconcile it before retrying check-out.",
           code: "MCLEOD_WRITE_UNCERTAIN", row: queueRow(row) }, { status: 409 });
+      }
+      async function completeFallback(candidate: any) {
+        if (!automaticFallback || !finishStaff || !outsideCarrierOverrideEligible(candidate)) return null;
+        const result = await sb.rpc("complete_inbound_outside_carrier_auto", {
+          p_id: id, p_terminal: terminal, p_site_code: siteCode,
+          p_expected_updated_at: candidate.updated_at, p_lookup_attempt_id: candidate.mcleod_lookup_attempt_id,
+          p_request_id: finishRequestId, p_staff_id: finishStaff.id, p_user_id: finishStaff.user_id,
+        });
+        if (result.error) return databaseFailure(result, true);
+        const saved = result.data?.[0];
+        if (!saved || saved.yard_status !== "completed") return NextResponse.json({ ok: false,
+          code: "CHECKOUT_UNCERTAIN", error: "Refresh saved status before taking another action." }, { status: 503 });
+        return NextResponse.json({ ok: true, row: queueRow(saved),
+          mcleod: "outside carrier; SCM verification unresolved; no McLeod update" });
       }
       const departure = new Date();
       let mcleod = "no linked order";
@@ -296,6 +324,8 @@ async function PATCHHandler(req: NextRequest) {
         if (!prepared) return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
         const processed = shortage ? prepared : await processCheckinRow(req, id);
         if (!processed || !["processed", "outside_carrier", "delivery_blocked"].includes(processed.draft_status)) {
+          const fallback = await completeFallback(processed);
+          if (fallback) return fallback;
           const eligible = outsideCarrierOverrideEligible(processed);
           return NextResponse.json({ ok: false,
             error: processed?.processing_error || "Cotton delivery was not completed in McLeod. Check-in remains in the line.",

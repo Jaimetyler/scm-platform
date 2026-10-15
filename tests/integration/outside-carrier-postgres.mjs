@@ -63,7 +63,7 @@ try {
   assert.equal(new Set([admin.pid,a.pid,b.pid,blocker.pid]).size,4);
   await admin.query(`create role anon;create role authenticated;create role service_role;
     create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);`);
-  for(const name of readdirSync(join(root,'supabase/migrations')).filter(n=>n.endsWith('.sql')&&Number(n.slice(0,3))<=46).sort()) {
+  for(const name of readdirSync(join(root,'supabase/migrations')).filter(n=>n.endsWith('.sql')&&Number(n.slice(0,3))<=47).sort()) {
     if(name.startsWith('046_')) {
       await admin.query('alter default privileges in schema public grant all on tables to service_role');
       await admin.query("insert into inbound_checkin_rows(id,terminal,site_code,site_name,sub_location,received_date,mark,shipper,bol_bc,draft_status,matched_order_id) values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','HOU','5300','Houston 5300','MAIN','2026-10-13','LEGACY','FIXTURE',88,'failed','LEGACY_ORDER')");
@@ -84,6 +84,39 @@ try {
     const names=Object.keys(v);return (await admin.query(`insert into inbound_checkin_rows(${names.join(',')}) values(${names.map((_,i)=>'$'+(i+1))}) returning *`,Object.values(v))).rows[0];
   }
   const finish=(c,row,key,reason='Staff confirms physical receiving completed')=>c.query(`select * from complete_inbound_outside_carrier($1,$2,$3,$4,$5,$6,$7,$8,true,$9)`,[row.id,row.terminal,row.site_code,row.updated_at,row.mcleod_lookup_attempt_id,key,staff.id,staff.user_id,reason]);
+  const finishAuto=(c,row,key,actor=staff)=>c.query(`select * from complete_inbound_outside_carrier_auto($1,$2,$3,$4,$5,$6,$7,$8)`,[row.id,row.terminal,row.site_code,row.updated_at,row.mcleod_lookup_attempt_id,key,actor.id,actor.user_id]);
+  await scenario('Automatic same-key concurrent Finish cotton has one receipt and honest audit',async()=>{
+    const row=await receipt(),key=randomUUID();
+    await blocker.query('begin');await blocker.query('select id from inbound_checkin_rows where id=$1 for update',[row.id]);
+    const pa=settle(finishAuto(a,row,key)),pb=settle(finishAuto(b,row,key));
+    await locked(admin,a.pid);await locked(admin,b.pid);await blocker.query('commit');
+    const results=await Promise.all([pa,pb]);assert.ok(results.every(r=>r.ok));
+    for(const r of results){assert.equal(r.value.rows[0].yard_status,'completed');assert.equal(r.value.rows[0].mcleod_lookup_status,'unresolved');}
+    const events=(await admin.query('select * from inbound_outside_carrier_events where checkin_id=$1',[row.id])).rows;
+    assert.equal(events.length,1);assert.match(events[0].reason,/fallback applied during staff Finish cotton/);
+    assert.match(events[0].acknowledgement,/No separate staff acknowledgment was requested or recorded/);
+    assert.equal(await scalar(admin,'select count(*)::int value from warehouse_inventory_lots where source_checkin_id=$1',[row.id]),1);
+    for(const field of ['reference_number','driver_name','trucking_company','comment_1','bol_photo_path'])assert.deepEqual(events[0].before_values[field],events[0].after_values[field]);
+    await assert.rejects(finishAuto(a,{...row,mcleod_lookup_attempt_id:randomUUID()},key));
+    await assert.rejects(finishAuto(a,row,key,{...staff,user_id:randomUUID()}));
+  });
+  await scenario('Automatic competing request IDs have exactly one winner and one receipt',async()=>{
+    const row=await receipt();const results=await Promise.all([settle(finishAuto(a,row,randomUUID())),settle(finishAuto(b,row,randomUUID()))]);
+    assert.equal(results.filter(r=>r.ok).length,1);
+    assert.equal(await scalar(admin,'select count(*)::int value from inbound_outside_carrier_events where checkin_id=$1',[row.id]),1);
+    assert.equal(await scalar(admin,'select count(*)::int value from warehouse_inventory_lots where source_checkin_id=$1',[row.id]),1);
+  });
+  await scenario('Automatic completion lock timeout changes nothing; saved same request safely replays',async()=>{
+    const row=await receipt(),key=randomUUID();
+    await blocker.query('begin');await blocker.query('select id from inbound_checkin_rows where id=$1 for update',[row.id]);
+    await a.query("set lock_timeout='100ms'");
+    const result=await settle(finishAuto(a,row,key));assert.equal(result.ok,false);assert.equal(result.error.code,'55P03');
+    await blocker.query('commit');await a.query("set lock_timeout='10s'");
+    assert.equal(await scalar(admin,'select count(*)::int value from inbound_outside_carrier_events where checkin_id=$1',[row.id]),0);
+    await finishAuto(b,row,key);const replay=(await finishAuto(a,row,key)).rows[0];assert.equal(replay.yard_status,'completed');
+    assert.equal(await scalar(admin,'select count(*)::int value from inbound_outside_carrier_events where checkin_id=$1',[row.id]),1);
+    assert.equal(await scalar(admin,'select count(*)::int value from warehouse_inventory_lots where source_checkin_id=$1',[row.id]),1);
+  });
   await scenario('Full migration chain and four independent PostgreSQL sessions',async()=>{assert.ok(migrationHashes['046_staff_outside_carrier_checkout.sql']);});
   await scenario('Migration seeds legacy match evidence and prevents later detachment',async()=>{
     assert.equal(await scalar(admin,"select mcleod_lookup_has_known_match value from inbound_checkin_rows where id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'"),true);
