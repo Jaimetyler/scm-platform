@@ -338,6 +338,7 @@ async function POSTHandler(req: NextRequest) {
     try {
       preview = (await buildPreview([row], {
         strictSearch: row.source === "live_checkin",
+        ...(liveAttempt?.saved.matched_order_id ? { preferredOrderId: String(liveAttempt.saved.matched_order_id) } : {}),
         ...(liveAttempt ? { onKnownMatch: async () => {
           const attempt = liveAttempt!;
           const { data, error } = await attempt.sb.from("inbound_checkin_rows")
