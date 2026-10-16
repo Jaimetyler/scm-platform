@@ -8,6 +8,7 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { referenceMatchesInput } from "@/lib/inbound/checkin/reference-match";
+import { resolveCustomer } from "@/lib/mcleod/inbound/resolveCustomer";
 import { formatWarehouseTime, planLiveDeliveryActuals } from "@/lib/inbound/checkin/mcleod-time";
 import { isCompleteCheckin } from "@/lib/inbound/checkin/ready";
 import { processCheckinRow } from "@/lib/inbound/checkin/process-row";
@@ -283,6 +284,48 @@ async function PATCHHandler(req: NextRequest) {
       }
       const departure = new Date();
       let mcleod = "no linked order";
+      // A previously completed McLeod stop must never be written again. The
+      // database RPC makes warehouse completion, inventory receipt and audit atomic.
+      async function reconcileAlreadyCompleted(checked: any, saved: any) {
+        const staff = staffProfile(req);
+        if (!staff || !["admin", "operator"].includes(staff.role) || !staff.user_id ||
+            staff.role === "operator" && staff.terminal !== terminal) {
+          return NextResponse.json({ ok: false, error: "Active warehouse operator access required" }, { status: 403 });
+        }
+        if (checked.direction !== saved.movement_direction || !checked.stopId ||
+            (saved.matched_stop_id && String(saved.matched_stop_id) !== checked.stopId) ||
+            !checked.actualArrival || !checked.actualDeparture ||
+            checked.completion?.kind === "cancelled" ||
+            (checked.materialType && checked.materialType !== saved.material_type)) {
+          return NextResponse.json({ ok: false, error: "The completed McLeod stop, material, or arrival/departure could not be verified. Review before closing SCM." }, { status: 409 });
+        }
+        if (saved.material_type === "cotton") {
+          const expectedMark = String(saved.mark ?? "").trim().toUpperCase();
+          if (!expectedMark || expectedMark !== String(checked.mark ?? "").trim().toUpperCase() ||
+              !Number.isSafeInteger(Number(saved.bale_count)) || Number(saved.bale_count) <= 0 ||
+              checked.baleCount && Number(checked.baleCount) !== Number(saved.bale_count) ||
+              !String(saved.shipper ?? "").trim() || !String(checked.customer ?? "").trim() ||
+              resolveCustomer(String(saved.shipper)).canonicalCustomer !== resolveCustomer(String(checked.customer)).canonicalCustomer) {
+            return NextResponse.json({ ok: false, error: "McLeod mark, bale count, or customer conflicts with receiving. Review before closing SCM." }, { status: 409 });
+          }
+        } else if (!String(saved.reference_number ?? "").trim() ||
+                   !referenceMatchesInput(checked.reference, saved.reference_number)) {
+          return NextResponse.json({ ok: false, error: "McLeod reference differs from this yard arrival. Review before closing SCM." }, { status: 409 });
+        }
+        const result = await sb.rpc("complete_inbound_mcleod_already_done", {
+          p_id: id, p_terminal: terminal, p_site_code: siteCode,
+          p_expected_updated_at: saved.updated_at, p_order_id: String(saved.matched_order_id),
+          p_stop_id: checked.stopId, p_staff_id: staff.id, p_user_id: staff.user_id,
+          p_mcleod_arrival: checked.actualArrival, p_mcleod_departure: checked.actualDeparture,
+        });
+        if (result.error) return databaseFailure(result, true);
+        const done = result.data?.[0];
+        if (!done || done.yard_status !== "completed") return NextResponse.json({ ok: false,
+          error: "Completion status is uncertain. Refresh the line before retrying.", code: "CHECKOUT_UNCERTAIN" }, { status: 503 });
+        return NextResponse.json({ ok: true, row: queueRow(done),
+          mcleod: "McLeod stop already completed; SCM warehouse/yard reconciled without McLeod write" });
+      }
+
       if (row.material_type === "cotton" && row.movement_direction === "delivery" &&
           !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)) {
         if (!canPrepareMcleodLookup(row)) return NextResponse.json({ ok: false,
@@ -322,6 +365,26 @@ async function PATCHHandler(req: NextRequest) {
           .in("draft_status", ["checked_in", "ready", "failed"]).select("*").maybeSingle();
         if (prepareError) throw prepareError;
         if (!prepared) return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
+        // Reconcile a closed SCM delivery before the regular live-sync path,
+        // which correctly forbids posting already-delivered stop actuals.
+        if (!shortage && prepared.matched_order_id) {
+          const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
+          let verifiedOrder: Awaited<ReturnType<typeof lookupMcleodGateOrder>>;
+          try {
+            verifiedOrder = await lookupMcleodGateOrder(String(prepared.matched_order_id), site.terminal,
+              site.siteName, "delivery", prepared.matched_stop_id);
+          } catch (error) {
+            return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "McLeod verification unavailable",
+              row: queueRow(prepared) }, { status: 409 });
+          }
+          if (verifiedOrder.actualDeparture || verifiedOrder.completion) {
+            if (!verifiedOrder.actualArrival || !verifiedOrder.actualDeparture)
+              return NextResponse.json({ ok: false,
+                error: "McLeod says completed but the selected delivery stop lacks both actual timestamps. Staff review required.",
+                row: queueRow(prepared) }, { status: 409 });
+            return reconcileAlreadyCompleted(verifiedOrder, prepared);
+          }
+        }
         const processed = shortage ? prepared : await processCheckinRow(req, id);
         if (!processed || !["processed", "outside_carrier", "delivery_blocked"].includes(processed.draft_status)) {
           const fallback = await completeFallback(processed);
@@ -341,14 +404,19 @@ async function PATCHHandler(req: NextRequest) {
       } else if (row.material_type === "cotton" && row.movement_direction === "delivery") {
         mcleod = row.draft_status === "delivery_blocked" ? "receiving complete; bale shortage blocks McLeod delivery — notify the customer" : row.draft_status === "processed" ? "cotton delivery already processed" : "outside carrier; no McLeod delivery";
       } else if (row.matched_order_id) {
-        if (process.env.MCLEOD_SYNC_ENABLED !== "true") {
-          return NextResponse.json({ ok: false, error: "McLeod writes are disabled. Check-out was not saved." }, { status: 503 });
-        }
         const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
         const order = await lookupMcleodGateOrder(row.matched_order_id, site.terminal, site.siteName,
           row.movement_direction, row.matched_stop_id);
         if (row.movement_direction !== order.direction || !order.stopId) {
           return NextResponse.json({ ok: false, error: "Could not confirm the matching McLeod stop. Check-out was not saved." }, { status: 409 });
+        }
+        if (order.actualDeparture || order.completion) {
+          if (!order.actualArrival || !order.actualDeparture)
+            return NextResponse.json({ ok: false, error: "McLeod is closed without verified arrival and departure for the selected stop. Review required." }, { status: 409 });
+          return reconcileAlreadyCompleted(order, row);
+        }
+        if (process.env.MCLEOD_SYNC_ENABLED !== "true") {
+          return NextResponse.json({ ok: false, error: "McLeod writes are disabled. Check-out was not saved." }, { status: 503 });
         }
         if (!order.actualDeparture) {
           if (order.completion || !order.movementId ||
