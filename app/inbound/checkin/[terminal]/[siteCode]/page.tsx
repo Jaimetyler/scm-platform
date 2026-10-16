@@ -53,6 +53,7 @@ type CheckinRow = ShortageFields & {
   draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed" | "delivery_blocked";
   processed_at: string | null;
   processing_error?: string | null;
+  inventory_recovered?: boolean;
   matched_order_id?: string | null;
   checkin_source?: "staff" | "driver_qr";
   driver_name?: string | null;
@@ -119,7 +120,12 @@ const CHECKIN_CUSTOMERS = Array.from(
   )
 ).sort((a, b) => a.localeCompare(b));
 
+function isInventoryRecovered(row: CheckinRow) {
+  return row.draft_status === "failed" && row.inventory_recovered === true;
+}
+
 function rowTone(row: CheckinRow): React.CSSProperties {
+  if (isInventoryRecovered(row)) return { background: "rgba(59,130,246,0.04)" };
   if (cottonShortage(row)) return { background: "rgba(180,83,9,.09)" };
   if (row.draft_status === "processed") {
     return { background: "rgba(59,130,246,0.03)" };
@@ -148,6 +154,8 @@ function rowDotStyle(row: CheckinRow): React.CSSProperties {
     background:
       gateOnly
         ? "#06b6d4"
+        : isInventoryRecovered(row)
+        ? "#3b82f6"
         : row.draft_status === "processed"
         ? "#3b82f6"
         : row.draft_status === "outside_carrier"
@@ -173,7 +181,7 @@ function willProcess(row: CheckinRow) {
 }
 
 function isClosedRow(row: CheckinRow) {
-  return row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
+  return isInventoryRecovered(row) || row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
     row.draft_status === "processing";
 }
 
@@ -947,7 +955,9 @@ export default function SiteCheckinPage() {
   const outsideCount = rows.filter((row) => row.draft_status === "outside_carrier").length;
   const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && usesMcleodCheckin(row)).length;
   const gateOnlyCount = rows.filter((row) => row.checkin_source === "driver_qr" && !usesMcleodCheckin(row)).length;
-  const failedCount = rows.filter((row) => row.draft_status === "failed" || Boolean(cottonShortage(row) && !row.customer_notified_at)).length;
+  const recoveredCount = rows.filter(isInventoryRecovered).length;
+  const failedCount = rows.filter((row) => !isInventoryRecovered(row) &&
+    (row.draft_status === "failed" || Boolean(cottonShortage(row) && !row.customer_notified_at))).length;
 
   if (!site || !site.materials.includes("cotton")) {
     return (
@@ -982,6 +992,7 @@ export default function SiteCheckinPage() {
             <div style={summaryStyle}>{waitingCount} waiting · {gateOnlyCount} pickups · {processedCount} processed
               {readyCount > 0 ? ` · ${readyCount} ready` : ""}
               {outsideCount > 0 ? ` · ${outsideCount} outside carrier` : ""}
+              {recoveredCount > 0 ? ` · ${recoveredCount} inventory recovered` : ""}
               {failedCount > 0 ? ` · ${failedCount} need attention` : ""}
             </div>
             {carryover.count > 0 && <div role="status" style={{ ...summaryStyle, color: "#fbbf24" }}>
@@ -1242,22 +1253,23 @@ export default function SiteCheckinPage() {
                       <div style={rowActionStatusStyle}>
                         <div style={rowStatusStyle}>
                       <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in"
+                      <small>{row.id.startsWith("local-") ? "" : isInventoryRecovered(row)
+                        ? "Inventory recovered · McLeod review pending" : row.draft_status === "checked_in"
                         ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
                         : row.draft_status === "delivery_blocked" ? "Receiving complete" : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (
                         <button type="button" title={row.processing_error || ui.message || "Save failed"}
-                          aria-label="Show check-in error"
+                          aria-label={isInventoryRecovered(row) ? "Show original McLeod issue" : "Show check-in error"}
                           onClick={() => setExpandedIds((current) => new Set(current).add(row.id))}
-                          style={errorButtonStyle}>View error</button>
+                          style={errorButtonStyle}>{isInventoryRecovered(row) ? "View McLeod issue" : "View error"}</button>
                       ) : null}
                         </div>
-                        {(row.processing_error || ui.saveState === "error") && <small
+                        {(row.processing_error || ui.saveState === "error") && !isInventoryRecovered(row) && <small
                           title={row.processing_error || ui.message || "Save failed"}
                           style={{ color: "#fca5a5", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "block" }}>
                           {row.processing_error || ui.message || "Save failed"}
                         </small>}
-                        {canWrite && row.processing_error && row.draft_status === "failed" &&
+                        {canWrite && row.processing_error && row.draft_status === "failed" && !isInventoryRecovered(row) &&
                           (row.material_type ?? "cotton") === "cotton" &&
                           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) && <div>
                           <a href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line?arrival=${encodeURIComponent(row.id)}`}
