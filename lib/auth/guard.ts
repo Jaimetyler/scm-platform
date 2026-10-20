@@ -25,7 +25,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
   if (path === "/api/reporting/warehouse-intelligence" && req.method === "GET" && staff.role === "financial") return;
-  if (["GET", "HEAD"].includes(req.method) && warehouseReadPath(path)) {
+  if ((staff.role === "operator" || staff.role === "viewer") && ["GET", "HEAD"].includes(req.method) && warehouseReadPath(path)) {
     if (staff.role === "operator") {
       const requested = new URL(req.url).searchParams.get("terminal");
       if (requested && requested.toLowerCase() !== "all") requireTerminal(staff, requested);
