@@ -1,4 +1,4 @@
-export type Staff = { id: string; email: string; name: string; role: "admin" | "operator" | "viewer";
+export type Staff = { id: string; email: string; name: string; role: "admin" | "operator" | "viewer" | "financial";
   terminal: "HOU" | "SAV" | null; status: "pending" | "active" | "disabled"; user_id: string | null };
 export class AccessError extends Error {
   status: number;
@@ -18,7 +18,7 @@ export function warehouseReadPath(path: string) {
     /^\/api\/inbound\/(?:history|checkin\/(?:cotton-match|rows(?:\/[^/]+\/dispatcher)?))$/.test(path);
 }
 export function staffHome(staff: Staff) {
-  return staff.role === "admin" ? "/" : `/warehouse?terminal=${staff.terminal ?? "all"}&warehouse=all`;
+  return staff.role === "admin" ? "/" : staff.role === "financial" ? "/reporting/warehouse-intelligence" : `/warehouse?terminal=${staff.terminal ?? "all"}&warehouse=all`;
 }
 export function validInvite(value: Record<string, unknown>) {
   const email = String(value.email ?? "").trim().toLowerCase();
@@ -26,7 +26,7 @@ export function validInvite(value: Record<string, unknown>) {
   const role = String(value.role ?? "");
   const terminal = role === "operator" ? String(value.terminal ?? "").toUpperCase() : null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !name || name.length > 100 ||
-      !["admin", "operator", "viewer"].includes(role) || role === "operator" && !["HOU", "SAV"].includes(terminal))
+      !["admin", "operator", "viewer", "financial"].includes(role) || role === "operator" && !["HOU", "SAV"].includes(terminal))
     throw new AccessError("Enter a name, email, role, and an operator terminal.", 400);
   return { email, name, role: role as Staff["role"], terminal: terminal as Staff["terminal"] };
 }

@@ -27,7 +27,7 @@ export default function UsersPage() {
     <form onSubmit={e=>{e.preventDefault(); void action({action:"invite",name,email,role,terminal},`Invitation sent to ${email}.`);}}>
       <label>Name<input required maxLength={100} value={name} onChange={e=>setName(e.target.value)} /></label>
       <label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} /></label>
-      <label>Role<select value={role} onChange={e=>setRole(e.target.value)}><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option><option value="admin">Administrator</option></select></label>
+      <label>Role<select value={role} onChange={e=>setRole(e.target.value)}><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option><option value="financial">Financial / reporting</option><option value="admin">Administrator</option></select></label>
       {role === "operator" && <label>Terminal<select value={terminal} onChange={e=>setTerminal(e.target.value)}><option value="HOU">Houston · 5300 + 4331</option><option value="SAV">Savannah · all sites</option></select></label>}
       <button disabled={busy}>Send invitation</button>
     </form>
@@ -35,7 +35,7 @@ export default function UsersPage() {
     <div style={{overflowX:"auto"}}><table><thead><tr><th>Person</th><th>Access</th><th>Status</th><th>Actions</th></tr></thead><tbody>{users.map(user=><tr key={user.id}>
       <td>{user.name}<br/><small>{user.email}</small></td><td>{user.status === "active" && user.id !== self?.id ? <>
         <select aria-label={`Role for ${user.email}`} disabled={busy} value={user.role} onChange={e=>setUsers(current=>current.map(item=>item.id===user.id ? {...item,role:e.target.value,terminal:e.target.value==="operator" ? "HOU" : null} : item))}>
-          <option value="admin">Administrator</option><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option>
+          <option value="admin">Administrator</option><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option><option value="financial">Financial / reporting</option>
         </select>{user.role === "operator" && <select aria-label={`Terminal for ${user.email}`} disabled={busy} value={user.terminal ?? "HOU"}
           onChange={e=>setUsers(current=>current.map(item=>item.id===user.id ? {...item,terminal:e.target.value} : item))}>
           <option value="HOU">Houston</option><option value="SAV">Savannah</option></select>}

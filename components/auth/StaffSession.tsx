@@ -39,7 +39,7 @@ export default function StaffSession({ children }: { children: ReactNode }) {
     if (response.ok) location.assign("/login");
   }
   return <Context.Provider value={staff}>{!publicPage && <div className="staff-bar">
-    <span>{staff ? `${staff.name} · ${staff.role === "operator" ? `${staff.terminal === "HOU" ? "Houston" : "Savannah"} operator` : staff.role === "viewer" ? "Read-only" : "Administrator"}` : "Loading staff account…"}</span>
+    <span>{staff ? `${staff.name} · ${staff.role === "operator" ? `${staff.terminal === "HOU" ? "Houston" : "Savannah"} operator` : staff.role === "viewer" ? "Read-only" : staff.role === "financial" ? "Financial reporting" : "Administrator"}` : "Loading staff account…"}</span>
     {unavailable && <span role="status">Staff access could not be refreshed. Your work is still here. <button disabled={polling.refreshing} onClick={() => void polling.refresh()}>Try again</button></span>}
     {staff?.role === "admin" && <Link href="/admin/users">Manage users</Link>}
     <button onClick={()=>void logout()}>Sign out</button>

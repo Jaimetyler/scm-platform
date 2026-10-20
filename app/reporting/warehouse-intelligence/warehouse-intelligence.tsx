@@ -1,5 +1,5 @@
 'use client';
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import styles from './warehouse-intelligence.module.css';
 type Metrics=Record<string,number>;
 type Month = {
@@ -44,7 +44,22 @@ const combine=(items:Customer[],name=items[0]?.name||'Unknown'):Relationship=>({
 const relationshipVal=(r:Relationship,k:string)=>r.metrics[k]||0;
 const relationshipIndicator=(r:Relationship)=>relationshipVal(r,'storage')+relationshipVal(r,'handling')+relationshipVal(r,'otrRevenue')-relationshipVal(r,'otrPay');
 
-export default function WarehouseIntelligence({initialData}:{initialData:Customer[]}){
+export default function WarehouseIntelligence(){
+ const [initialData,setInitialData]=useState<Customer[]>([]);
+ const [loading,setLoading]=useState(true);
+ const [loadError,setLoadError]=useState('');
+ useEffect(()=>{
+  const controller=new AbortController();
+  fetch('/api/reporting/warehouse-intelligence',{cache:'no-store',signal:controller.signal})
+   .then(async response=>{
+     if(!response.ok)throw new Error(response.status===403?'Financial reporting access required.':'Unable to load financial report.');
+     return response.json();
+   })
+   .then(result=>{if(!controller.signal.aborted)setInitialData(result.customers);})
+   .catch(error=>{if(!controller.signal.aborted)setLoadError(error instanceof Error?error.message:'Unable to load financial report.');})
+   .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
+  return ()=>controller.abort();
+ },[]);
  const [warehouse,setWarehouse]=useState('All');
  const [query,setQuery]=useState('');
  const [sort,setSort]=useState('indicator');
@@ -71,12 +86,14 @@ export default function WarehouseIntelligence({initialData}:{initialData:Custome
  })):[];
  return <main className={styles.shell}>
  <header className={styles.head}><div><p className={styles.eyebrow}>SCM / REPORTING & ANALYTICS</p><h1>Warehouse Intelligence</h1><p className={styles.sub}>Customer retention & financial contribution · Jan 2025 – Oct 20, 2026</p></div><div className={styles.tag}>Historical snapshot · Not live</div></header>
+ {loading && <p role="status">Loading protected financial data…</p>}
+ {loadError && <p role="alert">{loadError}</p>}
  <div className={styles.toolbar}>
   <div className={styles.segment} aria-label="Warehouse location filter">{['All','Savannah','Houston'].map(w=><button key={w} type="button" aria-pressed={warehouse===w} className={warehouse===w?styles.active:''} onClick={()=>setWarehouse(w)}>{w==='All'?'All locations':w}</button>)}</div>
   <input aria-label="Search customers" placeholder="Search customer or McLeod code…" value={query} onChange={e=>setQuery(e.target.value)}/>
   <select aria-label="Sort customers" value={sort} onChange={e=>setSort(e.target.value)}><option value="indicator">Sort: Contribution indicator</option><option value="storage">Sort: Storage revenue</option><option value="otr">Sort: OTR gross profit</option><option value="name">Sort: Customer name</option></select>
  </div>
- {selected? <section className={styles.panel}>
+ {!loading && !loadError && (selected? <section className={styles.panel}>
   <button className={styles.back} onClick={()=>setSelectedId(null)}>← All customers</button>
   <div className={styles.profileHead}><div><h2>{selected.name}</h2><p>{warehouse==='All'?'All SCM locations':warehouse} · {selected.locations.map(c=>`${c.warehouse}: 3PL ${c.code} / MAIN ${c.otrCode||'No bridge'}`).join(' · ')}</p></div><span>{num(relationshipVal(selected,'orders'))} 3PL orders</span></div>
   <div className={styles.kpis}><div><span>Storage</span><strong>{money(relationshipVal(selected,'storage'))}</strong></div><div><span>Handling</span><strong>{money(relationshipVal(selected,'handling'))}</strong></div><div><span>Drayage revenue</span><strong>{money(relationshipVal(selected,'drayage'))}</strong></div><div><span>Warehouse OTR loads</span><strong>{num(relationshipVal(selected,'otrLoads'))}</strong></div><div><span>Estimated OTR GP*</span><strong>{money(relationshipVal(selected,'otrRevenue')-relationshipVal(selected,'otrPay'))}</strong></div></div>
@@ -85,7 +102,7 @@ export default function WarehouseIntelligence({initialData}:{initialData:Custome
  </section>:<>
  <div className={styles.kpis}><div><span>Customers</span><strong>{num(filtered.length)}</strong></div><div><span>Storage billed</span><strong>{compact(total('storage'))}</strong></div><div><span>Handling billed</span><strong>{compact(total('handling'))}</strong></div><div><span>Drayage base revenue</span><strong>{compact(total('drayage'))}</strong></div><div><span>Connected OTR GP*</span><strong>{compact(connectedGP)}</strong></div></div>
  <div className={styles.columns}><section className={styles.panel}><h2>Customer ranking</h2><p className={styles.hint}>One row per customer relationship · {filtered.length} customers · Click to see combined and location-level details.</p><div className={styles.tableScroll}><table><thead><tr><th>Customer</th><th>Locations</th><th>Storage</th><th>Handling</th><th>Drayage rev.</th><th>OTR GP*</th><th>Indicator†</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id} onClick={()=>setSelectedId(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setSelectedId(r.id)}}><td className={styles.customer}>{r.name}<small>{r.locations.map(c=>c.code).join(' · ')}</small></td><td>{r.locations.map(c=>c.warehouse).join(' + ')}</td><td>{money(relationshipVal(r,'storage'))}</td><td>{money(relationshipVal(r,'handling'))}</td><td>{money(relationshipVal(r,'drayage'))}</td><td>{money(relationshipVal(r,'otrRevenue')-relationshipVal(r,'otrPay'))}</td><td><b>{money(relationshipIndicator(r))}</b> →</td></tr>)}</tbody></table></div></section><section className={styles.panel}><h2>Top 10 customer indicators</h2><p className={styles.hint}>Storage + handling revenue + estimated connected OTR gross profit</p><BarChart rows={top}/><h3>Revenue mix</h3><BarChart rows={[{name:'Storage',value:total('storage')},{name:'Handling',value:total('handling')},{name:'Drayage base',value:total('drayage')},{name:'OTR GP',value:connectedGP}]}/></section></div>
- </>}
+ </>)}
  <footer className={styles.foot}>* OTR gross profit is provisional: billed OTR revenue less movement.override_pay_amt, not audited final settlements. † The customer indicator mixes warehouse revenue with OTR gross profit; it is not net profit. Drayage carrier pay and warehouse operating expenses are not yet included. Source: McLeod CSV exports. Customer relationships are grouped by normalized customer name from the existing 3PL bridge export; different names are not automatically merged.</footer>
  </main>;
 }
