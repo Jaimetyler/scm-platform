@@ -353,12 +353,8 @@ async function PATCHHandler(req: NextRequest) {
         if (row.movement_direction !== order.direction || !order.stopId) {
           return NextResponse.json({ ok: false, error: "Could not confirm the matching McLeod stop. Check-out was not saved." }, { status: 409 });
         }
-        // A verified McLeod stop that already has a departure actual is
-        // successful remote completion. Preserve that actual and only close
-        // this yard visit; never post a second clearStop.
-        if (order.actualDeparture) {
-          mcleod = "OK — Already delivered in McLeod. Truck checked out.";
-        }
+        // A verified stop with an existing departure actual is already complete.
+        // Never post a second clearStop or alter that McLeod timestamp.
         if (!order.actualDeparture) {
           if (order.completion || !order.movementId ||
               (row.movement_direction === "delivery" && (!order.pickupMovementVerified || !order.pickupBackfillVerified)) ||
@@ -404,7 +400,9 @@ async function PATCHHandler(req: NextRequest) {
           if (!response.ok) throw new Error(`McLeod did not save the stop departure (${response.status}). Check-out was not saved.`);
           mcleod = "departure sent to McLeod";
         } else {
-          mcleod = "McLeod departure already recorded";
+          mcleod = order.direction === "delivery"
+            ? "OK — Already delivered in McLeod. Truck checked out."
+            : "OK — McLeod departure already recorded. Truck checked out.";
         }
       }
       const { data, error } = await sb.from("inbound_checkin_rows")
