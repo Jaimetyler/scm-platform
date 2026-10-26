@@ -285,6 +285,21 @@ async function PATCHHandler(req: NextRequest) {
           mcleod: "outside carrier; SCM verification unresolved; no McLeod update" });
       }
       const departure = new Date();
+      // For non-cotton movements, persist physical departure before any
+      // fallible McLeod lookup/write. The yard board uses this independent
+      // marker, while the remote integration retains its reconciliation state.
+      if (row.material_type !== "cotton" && !row.physical_departed_at) {
+        const { data: departed, error: departureError } = await sb.from("inbound_checkin_rows")
+          .update({ physical_departed_at: departure.toISOString() })
+          .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+          .eq("updated_at", row.updated_at).is("physical_departed_at", null)
+          .select("updated_at,physical_departed_at").maybeSingle();
+        if (departureError) throw departureError;
+        if (!departed) return NextResponse.json({ ok: false,
+          error: "This arrival changed. Refresh saved status before checking out." }, { status: 409 });
+        row.updated_at = departed.updated_at;
+        row.physical_departed_at = departed.physical_departed_at;
+      }
       let mcleod = "no linked order";
       if (row.material_type === "cotton" && row.movement_direction === "delivery" &&
           !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)) {
