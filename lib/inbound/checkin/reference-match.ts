@@ -20,7 +20,7 @@ export function referenceMatchesInput(value: unknown, input: unknown): boolean {
   // Two-component numeric agricultural references are sometimes entered
   // with their components reversed. Require the entire two-part field to
   // match; never reverse arbitrary text, fragments, or multi-part references.
-  const numericPair = /^(\\d+)-(\\d+)$/;
+  const numericPair = /^(\d+)-(\d+)$/;
   const storedPair = reference.match(numericPair);
   const enteredPair = entered.match(numericPair);
   if (storedPair && enteredPair && storedPair[1] === enteredPair[2] &&
