@@ -350,3 +350,12 @@ test("staff create, staff link, and driver submit persist only a freshly verifie
     }
   }
 });
+
+test("United Agricultural reversed numeric pair resolves with both components intact", async () => {
+  const { referenceMatchesInput } = await import("../lib/inbound/checkin/reference-match.ts");
+  assert.equal(referenceMatchesInput("987-60136", "60136-987"), true);
+  assert.equal(referenceMatchesInput("60136-987", "987-60136"), true);
+  assert.equal(referenceMatchesInput("987-60137", "60136-987"), false);
+  assert.equal(referenceMatchesInput("987-60136-2", "60136-987"), false);
+  assert.equal(referenceMatchesInput("ABC-60136", "60136-ABC"), false);
+});
