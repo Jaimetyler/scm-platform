@@ -348,7 +348,7 @@ export default function SiteCheckinPage() {
 
   async function saveNewCheckin() {
     if (!canWrite) return;
-    if (!site || !newCheckin || newSaving || newSearching) return;
+    if (!site || !newCheckin || newSaving) return;
     if (newMatches.length > 0 && newMatches.every((match) => match.completion)) {
       setNewError("These orders are already closed in McLeod. Verify the mark with warehouse staff.");
       return;
@@ -1455,7 +1455,7 @@ export default function SiteCheckinPage() {
           <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>Unloaded bales and final warehouse location can be confirmed on the grid after arrival.</p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Cancel</button>
-            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || newSearching || (newMatches.length > 0 && newMatches.every((match) => match.completion))}>{newSaving ? "Checking in…" : "Check in truck"}</button>
+            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || (newMatches.length > 0 && newMatches.every((match) => match.completion))}>{newSaving ? "Checking in…" : "Check in truck"}</button>
           </div>
         </form>
       </div>}
