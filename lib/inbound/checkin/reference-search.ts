@@ -35,7 +35,7 @@ export async function searchReferenceOrders(
   // Do not split meaningful hyphenated references, assume rarity, or claim that a
   // full anchor page proves completeness. The original stored value is returned.
   const normalized = normalizeReference(reference);
-  const pair = normalized.match(/^(\\d+)-(\\d+)$/);
+  const pair = normalized.match(/^(\d+)-(\d+)$/);
   // Numeric two-part references may be reversed in the paperwork. Search
   // the longer literal component, then validate BOTH parts locally.
   const anchor = pair
