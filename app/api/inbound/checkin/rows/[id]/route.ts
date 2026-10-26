@@ -278,6 +278,7 @@ async function PATCHHandler(
       .update(updatePayload)
       .eq("id", id)
       .eq("updated_at", existing.updated_at)
+      .eq("yard_status", existing.yard_status)
       .in("draft_status", ["draft", "checked_in", "ready", "failed", "delivery_blocked"])
       .select("*")
       .maybeSingle();
