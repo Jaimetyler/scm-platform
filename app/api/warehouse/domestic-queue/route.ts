@@ -290,7 +290,7 @@ async function PATCHHandler(req: NextRequest) {
       // marker, while the remote integration retains its reconciliation state.
       if (row.material_type !== "cotton" && !row.physical_departed_at) {
         const { data: departed, error: departureError } = await sb.from("inbound_checkin_rows")
-          .update({ physical_departed_at: departure.toISOString() })
+          .update({ physical_departed_at: departure.toISOString(), yard_updated_by: user(req) })
           .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
           .eq("updated_at", row.updated_at).is("physical_departed_at", null)
           .select("updated_at,physical_departed_at").maybeSingle();
