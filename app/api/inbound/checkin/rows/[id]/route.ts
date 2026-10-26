@@ -264,6 +264,11 @@ async function PATCHHandler(
       // completed yard visits, preserve the active status during processing.
       // Closing here would bypass the guarded reconciliation workflow.
       yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
+      // Save physical departure alongside complete receiving, regardless of
+      // whether McLeod later processes, fails, or requires reconciliation.
+      ...(["ready", "delivery_blocked"].includes(draft_status) && checked_in_at &&
+          !existing.physical_departed_at
+        ? { physical_departed_at: at } : {}),
       verified_at,
       identity_corrected_at: identityCorrected ? new Date().toISOString() : existing.identity_corrected_at,
       processing_error: shortage ? "Bale shortage: McLeod delivery cannot be posted. Notify the customer and record follow-up in Notes." : null,
