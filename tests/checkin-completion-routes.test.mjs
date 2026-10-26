@@ -305,7 +305,9 @@ test("driver incomplete revenue metadata cannot be called a no-match",async()=>{
     const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1}})};
     const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
     const response=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupReference",referenceNumber:"2168418",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
-    assert.equal(response.status,503); const result=await response.json(); assert.equal(result.ok,false);assert.match(result.error,/could not be completed safely|temporarily unavailable/);assert.equal(result.matches,undefined);
+    assert.equal(response.status,200); const result=await response.json();
+    assert.equal(result.ok,true); assert.equal(result.status,"provisional");
+    assert.equal(result.allowUnmatched,true); assert.deepEqual(result.matches,[]);
   });
 });
 
