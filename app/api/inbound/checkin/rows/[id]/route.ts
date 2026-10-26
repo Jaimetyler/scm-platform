@@ -260,7 +260,14 @@ async function PATCHHandler(
       draft_status,
       ...(draft_status === "ready" ? { mcleod_processing_phase: "lookup" } : {}),
       checked_in_at,
-      yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
+      // Completing receiving closes the physical yard visit independently of
+      // the McLeod processing outcome. Never reopen a completed visit on edits.
+      yard_status: ["ready", "delivery_blocked"].includes(draft_status) && checked_in_at
+        ? "completed"
+        : !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
+      ...(["ready", "delivery_blocked"].includes(draft_status) && checked_in_at &&
+          existing.yard_status !== "completed"
+        ? { yard_completed_at: at, yard_updated_by: staffActor(req) } : {}),
       verified_at,
       identity_corrected_at: identityCorrected ? new Date().toISOString() : existing.identity_corrected_at,
       processing_error: shortage ? "Bale shortage: McLeod delivery cannot be posted. Notify the customer and record follow-up in Notes." : null,
