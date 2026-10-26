@@ -32,3 +32,22 @@ test("already-delivered cotton bypasses new actual-time planning", () => {
   assert.ok(completed >= 0 && plan > completed, "Completed deliveries must be accepted before new timeline planning");
   assert.match(route.slice(completed, plan), /skipped: true, reason: "Delivery already has actuals"/);
 });
+
+test("domestic checkout records physical departure before remote writes", () => {
+  const route = read("app/api/warehouse/domestic-queue/route.ts");
+  const departure = route.indexOf('physical_departed_at: departure.toISOString()');
+  const remote = route.indexOf('carrierDispatch/clearStop/');
+  assert.ok(departure >= 0 && remote > departure);
+});
+
+test("active line excludes physically departed trucks while McLeod reconciles", () => {
+  const line = read("app/warehouse/gate/[terminal]/[siteCode]/line/page.tsx");
+  assert.match(line, /!row\.physical_departed_at && \(row\.yard_status/);
+});
+
+test("physical departure migration audits and preserves immutable timestamps", () => {
+  const sql = read("supabase/migrations/048_physical_departure.sql");
+  assert.match(sql, /enable row level security/);
+  assert.match(sql, /physical_departure_events/);
+  assert.match(sql, /Physical departure is immutable/);
+});
