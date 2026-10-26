@@ -46,7 +46,7 @@ test("active line excludes physically departed trucks while McLeod reconciles", 
 });
 
 test("physical departure migration audits and preserves immutable timestamps", () => {
-  const sql = read("supabase/migrations/048_physical_departure.sql");
+  const sql = read("supabase/migrations/049_physical_departure.sql");
   assert.match(sql, /enable row level security/);
   assert.match(sql, /physical_departure_events/);
   assert.match(sql, /Physical departure is immutable/);
