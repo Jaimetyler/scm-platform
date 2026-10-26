@@ -238,6 +238,10 @@ export default function DomesticLinePage() {
       row.yard_status === "in_door" || row.yard_status === "working"))
     .sort((a, b) => new Date(a.checked_in_at).getTime() - new Date(b.checked_in_at).getTime() || a.id.localeCompare(b.id));
   const unresolvedCompleted = rows.filter((row) => row.yard_status === "completed" && row.outside_carrier_override_at && row.mcleod_lookup_status === "unresolved");
+  // Physical departures remain available for reconciliation, but never count
+  // as trucks waiting in the yard. An unresolved McLeod state is not a visit.
+  const departedForReview = rows.filter((row) => Boolean(row.physical_departed_at) &&
+    row.yard_status !== "completed" && row.yard_status !== "cancelled");
   const selectedArrival = rows.find((row) => row.id === requestedArrival);
   const selectedInactive = selectedArrival && !active.some((row) => row.id === selectedArrival.id);
   const waiting = active.filter((row) => row.yard_status === "waiting").length;
@@ -331,6 +335,16 @@ export default function DomesticLinePage() {
           </td></tr>}</Fragment>)}</tbody>
         </table></div>}
     </PlatformPanel>
+    {departedForReview.length > 0 && <PlatformPanel>
+      <strong>Departed trucks · McLeod reconciliation</strong>
+      <p>These trucks have departed and are not in the active yard line. Their McLeod completion still needs verification; do not send a duplicate delivery update.</p>
+      <ul>{departedForReview.map((row) => <li key={row.id} style={{ marginTop: 10 }}>
+        <Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>
+          {row.reference_number || row.mark || "Arrival"} · {row.driver_name || "Staff entry"}
+        </Link>
+        <span style={{ display: "block" }}>Departed {time(row.physical_departed_at!)} · McLeod {row.draft_status === "processed" ? "processed" : "needs review"}</span>
+      </li>)}</ul>
+    </PlatformPanel>}
     {unresolvedCompleted.length > 0 && <PlatformPanel>
       <strong>Completed movements · SCM verification unresolved</strong>
       <ul>{unresolvedCompleted.map((row) => <li key={row.id} style={{ marginTop: 10 }}>
