@@ -257,9 +257,12 @@ async function PATCHHandler(req: NextRequest) {
       if (automaticFallback && (!finishStaff || !["admin", "operator"].includes(finishStaff.role) || !finishStaff.user_id ||
           finishStaff.role === "operator" && finishStaff.terminal !== terminal))
         return NextResponse.json({ ok: false, error: "Active staff access for this yard is required." }, { status: 403 });
-      if (row?.yard_status === "completed" && body.finishCottonRequestId &&
-          row.material_type === "cotton" && row.movement_direction === "delivery")
-        return NextResponse.json({ ok: true, row: queueRow(row), mcleod: "already completed; saved status refreshed" });
+      // An already completed local visit is a successful, read-only checkout.
+      // Do not repeat a McLeod write or change its original departure timestamp.
+      // Still require a valid yard-scoped row and staff authorization above.
+      if (row?.yard_status === "completed")
+        return NextResponse.json({ ok: true, row: queueRow(row),
+          mcleod: "already completed; saved status refreshed" });
       if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
         return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
       }
