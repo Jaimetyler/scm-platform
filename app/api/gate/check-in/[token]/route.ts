@@ -153,7 +153,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       const direction = clean(body?.movementDirection, 20).toLowerCase();
       if (!["pickup", "delivery"].includes(direction))
         return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
-      const result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      let result: Awaited<ReturnType<typeof lookupDriverReference>>;
+      try {
+        result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      } catch (error) {
+        if (error instanceof DependencyError ||
+            error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP")
+          return NextResponse.json({ ok: true, status: "provisional", matches: [],
+            allowUnmatched: true, selectionRequired: false,
+            message: "McLeod lookup is unavailable. You can check in; staff will verify your load." },
+            { headers: { "Cache-Control": "no-store" } });
+        throw error;
+      }
       return NextResponse.json({ ok: true, status: result.matches.length ? "matches" : "no_match",
         matches: result.matches.map(publicDriverMatch), allowUnmatched: result.allowUnmatched,
         selectionRequired: result.selectionRequired }, { headers: { "Cache-Control": "no-store" } });
