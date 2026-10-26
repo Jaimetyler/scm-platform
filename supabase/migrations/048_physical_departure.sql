@@ -12,6 +12,7 @@ create table if not exists public.inbound_physical_departure_events (
   previous_draft_status text,
   previous_mcleod_phase text
 );
+alter table public.inbound_physical_departure_events enable row level security;
 revoke all on public.inbound_physical_departure_events from public, anon, authenticated;
 grant select, insert on public.inbound_physical_departure_events to service_role;
 
