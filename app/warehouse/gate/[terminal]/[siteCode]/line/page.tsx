@@ -20,7 +20,7 @@ import { cottonShortage, type ShortageFields } from "@/lib/inbound/checkin/short
 
 type Status = "waiting" | "called" | "in_door" | "working";
 type Arrival = ShortageFields & OutsideCarrierRow & {
-  id: string; checked_in_at: string; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
+  id: string; checked_in_at: string; physical_departed_at?: string | null; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
   shipper: string | null; yard_status: Status | "completed" | "cancelled" | null;
   updated_at: string; matched_order_id: string | null; carrier_code?: string | null; scm_carrier?: boolean;
@@ -234,7 +234,8 @@ export default function DomesticLinePage() {
 
   if (!site) return <main><PlatformPageHeader title="Domestic Line Not Found" /></main>;
   const active = rows.filter((row): row is Arrival & { yard_status: Status } =>
-    row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working")
+    !row.physical_departed_at && (row.yard_status === "waiting" || row.yard_status === "called" ||
+      row.yard_status === "in_door" || row.yard_status === "working"))
     .sort((a, b) => new Date(a.checked_in_at).getTime() - new Date(b.checked_in_at).getTime() || a.id.localeCompare(b.id));
   const unresolvedCompleted = rows.filter((row) => row.yard_status === "completed" && row.outside_carrier_override_at && row.mcleod_lookup_status === "unresolved");
   const selectedArrival = rows.find((row) => row.id === requestedArrival);
