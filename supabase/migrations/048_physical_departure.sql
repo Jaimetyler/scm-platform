@@ -8,6 +8,7 @@ create table if not exists public.inbound_physical_departure_events (
   checkin_id uuid primary key references public.inbound_checkin_rows(id),
   departed_at timestamptz not null,
   recorded_at timestamptz not null default clock_timestamp(),
+  actor text not null,
   previous_yard_status text,
   previous_draft_status text,
   previous_mcleod_phase text
@@ -29,8 +30,9 @@ begin
       raise exception 'Invalid physical departure timestamp';
     end if;
     insert into public.inbound_physical_departure_events
-      (checkin_id, departed_at, previous_yard_status, previous_draft_status, previous_mcleod_phase)
-      values (new.id, new.physical_departed_at, old.yard_status, old.draft_status, old.mcleod_processing_phase);
+      (checkin_id, departed_at, actor, previous_yard_status, previous_draft_status, previous_mcleod_phase)
+      values (new.id, new.physical_departed_at, coalesce(nullif(new.yard_updated_by,''),'receiving staff'),
+        old.yard_status, old.draft_status, old.mcleod_processing_phase);
   end if;
   return new;
 end $$;
