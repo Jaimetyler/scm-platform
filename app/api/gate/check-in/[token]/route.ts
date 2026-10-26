@@ -321,16 +321,29 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // Do not trust a browser's previous no-match, selected order, or resolution path.
     // Both strategies are rerun before any insert, including paperwork-only arrivals.
     const selectedStopId = clean(body?.selectedStopId, 100) || undefined;
-    const lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
-      movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
-    if (!orderId && !lookup.allowUnmatched) {
+    // On a transient/incomplete McLeod lookup, accept a GPS-verified,
+    // unlinked provisional arrival. Do not claim that the load is an outside
+    // carrier, and never attach a guessed order or stop.
+    let lookup: Awaited<ReturnType<typeof lookupDriverReference>> | null = null;
+    let provisionalLookup = false;
+    try {
+      lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
+        movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
+    } catch (error) {
+      if (error instanceof DependencyError ||
+          error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP") {
+        provisionalLookup = true;
+        orderId = "";
+      } else throw error;
+    }
+    if (!provisionalLookup && !orderId && lookup && !lookup.allowUnmatched) {
       const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion);
       return NextResponse.json({ ok: false, code: "SELECTION_REQUIRED", error: completed ? "This load is already completed. Please speak with warehouse staff." :
         "Select and confirm your load before checking in. Look it up again.",
         ...(completed ? { completion: publicDriverCompletion(lookup.matches[0].order.completion!) } : {}) }, { status: 409 });
     }
     if (orderId) {
-      const match = selectDriverMatch(lookup, orderId, selectedStopId, body?.explicitSelection === true || body?.explicitSelection === "true");
+      const match = selectDriverMatch(lookup!, orderId, selectedStopId, body?.explicitSelection === true || body?.explicitSelection === "true");
       const order = match.order;
       orderId = match.orderId;
       matchedStopId = order.stopId;
@@ -385,7 +398,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       warehouse_location: null,
       equipment_type: null,
       verified: false,
-      comment_1: null,
+      comment_1: provisionalLookup ? "Provisional driver check-in: McLeod lookup incomplete or unavailable. Staff must reconcile before any McLeod update." : null,
       comment_2: null,
       draft_status: "checked_in",
       processed_at: null,
