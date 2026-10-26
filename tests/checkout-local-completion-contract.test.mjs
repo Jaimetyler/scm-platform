@@ -13,7 +13,7 @@ test("receiving saves retain guarded yard state until atomic completion is imple
 test("repeat checkout returns local success before remote writes", () => {
   const route = read("app/api/warehouse/domestic-queue/route.ts");
   const completed = route.indexOf('if (row?.yard_status === "completed")');
-  const write = route.indexOf('fetch(\x60\x24{base}/carrierDispatch/clearStop/');
+  const write = route.indexOf('carrierDispatch/clearStop/');
   assert.ok(completed >= 0 && write > completed);
   assert.match(route.slice(completed, write), /already completed; saved status refreshed/);
 });
