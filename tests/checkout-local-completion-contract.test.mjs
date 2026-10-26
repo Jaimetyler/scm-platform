@@ -4,10 +4,9 @@ import { readFileSync } from "node:fs";
 
 const read = path => readFileSync(new URL("../" + path, import.meta.url), "utf8");
 
-test("saving complete cotton receiving closes the local yard visit", () => {
+test("receiving saves retain guarded yard state until atomic completion is implemented", () => {
   const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
-  assert.match(route, /yard_status: \["ready", "delivery_blocked"\]\.includes\(draft_status\) && checked_in_at/);
-  assert.match(route, /yard_completed_at: at/);
+  assert.match(route, /yard_status: !existing\.checked_in_at && checked_in_at \? "waiting" : existing\.yard_status/);
   assert.match(route, /\.eq\("yard_status", existing\.yard_status\)/);
 });
 
