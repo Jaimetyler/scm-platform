@@ -268,7 +268,7 @@ async function PATCHHandler(
       // whether McLeod later processes, fails, or requires reconciliation.
       ...(["ready", "delivery_blocked"].includes(draft_status) && checked_in_at &&
           !existing.physical_departed_at
-        ? { physical_departed_at: at } : {}),
+        ? { physical_departed_at: at, yard_updated_by: staffActor(req) } : {}),
       verified_at,
       identity_corrected_at: identityCorrected ? new Date().toISOString() : existing.identity_corrected_at,
       processing_error: shortage ? "Bale shortage: McLeod delivery cannot be posted. Notify the customer and record follow-up in Notes." : null,
