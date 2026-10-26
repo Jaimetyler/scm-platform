@@ -290,6 +290,11 @@ export default function DriverCheckinPage() {
       if (!response.ok || !result.ok) throw new Error(result.error || `Load search failed (HTTP ${response.status})`);
       if (!Array.isArray(result.matches) || result.incomplete) throw new Error("The load search is incomplete. Try again or speak with warehouse staff.");
       const found = result.matches as ReferenceMatch[];
+      if (result.status === "provisional" && result.allowUnmatched === true && found.length === 0) {
+        updateLookupStatus("no_match");
+        setOrderMessage("McLeod lookup is temporarily unavailable. You can check in now; warehouse staff will verify your load.");
+        return;
+      }
       if (result.status === "no_match" && result.allowUnmatched === true && found.length === 0) {
         updateLookupStatus("no_match");
         setOrderMessage("No SCM order found. Continue with the details from your paperwork.");
