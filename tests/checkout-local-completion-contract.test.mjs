@@ -24,3 +24,11 @@ test("verified already-delivered stop skips second remote completion", () => {
   assert.match(route, /Already delivered in McLeod\. Truck checked out/);
   assert.match(route, /McLeod departure already recorded\. Truck checked out/);
 });
+
+test("already-delivered cotton bypasses new actual-time planning", () => {
+  const route = read("app/api/inbound/sync/route.ts");
+  const completed = route.indexOf('row.source === "live_checkin" && deliveryHas && isSyncEnabled()');
+  const plan = route.indexOf('plannedActions = planLiveDeliveryActuals(');
+  assert.ok(completed >= 0 && plan > completed, "Completed deliveries must be accepted before new timeline planning");
+  assert.match(route.slice(completed, plan), /skipped: true, reason: "Delivery already has actuals"/);
+});
