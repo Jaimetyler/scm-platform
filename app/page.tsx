@@ -109,6 +109,11 @@ export default function Home() {
           <div style={cardDesc}>Review late fee candidates and totals</div>
         </Link>
 
+        <Link href="/ecotton-import" style={cardStylePrimary}>
+          <div style={cardTitle}>eCotton Order Import</div>
+          <div style={cardDesc}>Review warehouse reports, check duplicates, and create and rate orders</div>
+        </Link>
+
         <Link href="/order-charges" style={cardStylePrimary}>
           <div style={cardTitle}>Billing Upload</div>
           <div style={cardDesc}>
