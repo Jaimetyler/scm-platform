@@ -270,7 +270,14 @@ async function PATCHHandler(
       // Until the database processing/fallback guards support independently
       // completed yard visits, preserve the active status during processing.
       // Closing here would bypass the guarded reconciliation workflow.
-      yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
+      // For local-only completed receipts, commit the physical departure and
+      // completed yard status in the SAME database update. This avoids a
+      // partially saved departure if the second request fails.
+      yard_status: localOnly && completeReceiving ? "completed"
+        : !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
+      ...(localOnly && completeReceiving
+        ? { yard_completed_at: existing.physical_departed_at || at,
+            yard_updated_by: staffActor(req) } : {}),
       // Save physical departure alongside complete receiving, regardless of
       // whether McLeod later processes, fails, or requires reconciliation.
       ...((["ready", "delivery_blocked"].includes(draft_status) || localOnly && completeReceiving) && checked_in_at &&
@@ -302,23 +309,7 @@ async function PATCHHandler(
       return NextResponse.json({ ok: false, error: "Row changed while saving. Refresh and try again." }, { status: 409 });
     }
 
-    let saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
-    // A local-only receipt is complete as soon as the physical receiving
-    // details are saved. Clear the yard status here rather than requiring a
-    // second button press on the domestic line.
-    if (localOnly && completeReceiving && saved.physical_departed_at &&
-        saved.yard_status !== "completed") {
-      const { data: closed, error: closeError } = await sb.from("inbound_checkin_rows")
-        .update({ yard_status: "completed", yard_completed_at: saved.physical_departed_at,
-          yard_updated_by: staffActor(req) })
-        .eq("id", id).eq("updated_at", saved.updated_at)
-        .eq("local_receiving_only", true).is("matched_order_id", null)
-        .select("*").maybeSingle();
-      if (closeError) throw closeError;
-      if (!closed) return NextResponse.json({ ok: false,
-        error: "Receiving saved but checkout status changed. Refresh the line." }, { status: 409 });
-      saved = closed;
-    }
+    const saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
     return NextResponse.json({
       ok: true,
       row: publicCheckinRow(saved as unknown as Record<string, unknown>),
