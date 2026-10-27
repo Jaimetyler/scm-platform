@@ -25,7 +25,7 @@ export default async function DriverCheckinDetailsPage({
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const { data: row, error } = await database().from("inbound_checkin_rows")
-    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, bale_count, expected_bale_count, driver_reported_bales, shortage_acknowledged_at, shortage_acknowledged_by, shortage_expected_bales, shortage_received_bales, shortage_note, customer_notified_at, customer_notified_by, comment_1, comment_2, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path, pickup_agreement")
+    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, bale_count, expected_bale_count, driver_reported_bales, shortage_acknowledged_at, shortage_acknowledged_by, shortage_expected_bales, shortage_received_bales, shortage_note, customer_notified_at, customer_notified_by, comment_1, comment_2, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path, pickup_agreement, trailer_number")
     .eq("id", id)
     .eq("checkin_source", "driver_qr")
     .maybeSingle();
@@ -46,6 +46,7 @@ export default async function DriverCheckinDetailsPage({
         <ShortageNotice row={row} />
         <div style={detailsGridStyle}>
           <Detail label="Driver" value={row.driver_name || "—"} />
+          <Detail label="Trailer number" value={row.trailer_number || row.pickup_agreement?.trailerNumber || "—"} />
           <Detail label="Trucking company" value={row.trucking_company || "—"} />
           <Detail label="Phone" value={row.driver_phone ? <a href={`tel:${row.driver_phone}`} style={phoneStyle}>{row.driver_phone}</a> : "—"} />
           <Detail label="SCM order number" value={row.matched_order_id || "—"} />

@@ -101,7 +101,7 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
       if (agreementProps) { agreementProps.onChange({ ...agreementProps.value, printedName: api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value || 'Fixture Driver', trailerNumber: 'TEST', productDescription: 'Fixture product', pickupNumber: 'TEST', referencePo: 'TEST', acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] }); await flush(); }
     },
     get agreement() { return agreementProps; },
-    async submit(sign = true) { if (sign) { if (agreementProps && !api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value) await api.change(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *','Fixture Driver'); await api.sign(); } const result = all(tree, node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} }); await flush(); await result; await flush(); },
+    async submit(sign = true) { if (sign) { if (agreementProps && api.nodes(n=>n.type==='input'&&n.props.maxLength===80).length) await api.change(agreementProps.language === 'es' ? 'Número de remolque *' : 'Trailer number *','MAIN-TEST'); if (agreementProps && !api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value) await api.change(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *','Fixture Driver'); await api.sign(); } const result = all(tree, node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} }); await flush(); await result; await flush(); },
     get submitButton() { return all(tree, node => node.type === 'button' && node.props.type === 'submit')[0]; },
     get formSubmit() { return all(tree, node => node.type === 'form')[0].props.onSubmit; },
     setGeo(next) { geo = next; },
@@ -438,4 +438,11 @@ test('unsigned pickup is blocked and language or freight changes require renewed
  await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
  await h.sign();await h.change('Destino *','Changed destination');assert.equal(h.agreement.value.electronicConsent,false);
  await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+});
+
+test('trailer is entered once in main check-in and changing it invalidates agreement consent', async t => {
+ const h=await mount();t.after(h.dispose);await h.click('Find my load');await h.change('Trailer number *','TRAILER-ONE');await h.sign();
+ assert.equal(h.agreement.value.acknowledged,true);await h.change('Trailer number *','TRAILER-TWO');assert.equal(h.agreement.value.acknowledged,false);
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+ await h.submit();const payload=h.calls.at(-1).body;assert.equal(payload.get('trailerNumber'),'MAIN-TEST');
 });

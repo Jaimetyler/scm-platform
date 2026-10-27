@@ -27,14 +27,12 @@ export const PICKUP_TERMS = {
   },
 } as const;
 export type SignatureStroke = [number, number][];
-export type PickupAcceptance = { version: string; language: "en" | "es"; printedName: string; trailerNumber: string; productDescription: string; pickupNumber: string; referencePo: string; acknowledged: boolean; electronicConsent: boolean; strokes: SignatureStroke[] };
+export type PickupAcceptance = { version: string; language: "en" | "es"; acknowledged: boolean; electronicConsent: boolean; strokes: SignatureStroke[] };
 export function validatePickupAcceptance(value: unknown): PickupAcceptance {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Read and sign the pickup agreement before checking in.");
   const a = value as PickupAcceptance;
   if (a.version !== PICKUP_AGREEMENT_VERSION || !["en", "es"].includes(a.language) || a.acknowledged !== true || a.electronicConsent !== true)
     throw new Error("Read and sign the current pickup agreement before checking in.");
-  for (const key of ["printedName", "trailerNumber", "productDescription", "pickupNumber", "referencePo"] as const)
-    if (typeof a[key] !== "string" || !a[key].trim() || a[key].length > 200) throw new Error("Complete every pickup agreement field before checking in.");
   if (!Array.isArray(a.strokes) || a.strokes.length < 1 || a.strokes.length > 100) throw new Error("Draw your signature before checking in.");
   let points = 0, distance = 0;
   for (const stroke of a.strokes) {
@@ -47,5 +45,5 @@ export function validatePickupAcceptance(value: unknown): PickupAcceptance {
     }
   }
   if (points > 4000 || points < 3 || distance < .05) throw new Error("Draw your signature before checking in.");
-  return { version: a.version, language: a.language, printedName: a.printedName.trim(), trailerNumber: a.trailerNumber.trim(), productDescription: a.productDescription.trim(), pickupNumber: a.pickupNumber.trim(), referencePo: a.referencePo.trim(), acknowledged: true, electronicConsent: true, strokes: a.strokes };
+  return { version: a.version, language: a.language, acknowledged: true, electronicConsent: true, strokes: a.strokes };
 }

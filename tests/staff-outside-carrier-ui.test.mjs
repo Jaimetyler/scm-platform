@@ -239,8 +239,8 @@ test('normal Finish cotton pauses polling and shows the automatic unresolved com
   assert.match(h.calls[0].body.finishCottonRequestId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   assert.equal(h.calls[0].body.acknowledgeUnresolved, undefined);
   assert.equal(h.calls[0].body.cotton.warehouseLocation, 'A1');
-  assert.match(h.text(), /Completed movements · SCM verification unresolved/);
-  assert.match(h.text(), /Outside carrier · SCM verification unresolved · No McLeod update/);
+  assert.doesNotMatch(h.text(), /Completed movements · SCM verification unresolved/);
+  assert.doesNotMatch(h.text(), /Outside carrier · SCM verification unresolved · No McLeod update/);
   assert.doesNotMatch(h.text(), /Process as Outside Carrier/);
   assert.match(h.text(), /No active domestic arrivals/);
 });
@@ -411,7 +411,7 @@ test('saved-status refresh reconciles another tab completion without an addition
   await h.click('Finish cotton'); await h.submitForm(); assert.equal(h.button('Refresh').props.disabled,true);
   assert.equal(h.button('Refresh saved status').props.disabled,false);
   await h.click('Refresh saved status');assert.equal(h.calls.length,1);assert.equal(h.reads.length,1);assert.match(h.text(),/This movement is completed/);
-  assert.match(h.text(),/Completed movements/);assert.doesNotMatch(h.text(),/Process as Outside Carrier/);
+  assert.doesNotMatch(h.text(),/Completed movements/);assert.doesNotMatch(h.text(),/Process as Outside Carrier/);
   assert.equal(h.button('Refresh').props.disabled,false);
 });
 
@@ -548,7 +548,7 @@ test('lost automatic completion response recovers its one receipt by read only',
   await h.click('Finish cotton'); await h.submitForm(); assert.equal(receipts, 1);
   await h.click('Refresh saved status');
   assert.equal(h.calls.length, 1); assert.equal(h.reads.length, 1); assert.equal(receipts, 1);
-  assert.match(h.text(), /No active domestic arrivals/); assert.match(h.text(), /SCM verification unresolved/);
+  assert.match(h.text(), /No active domestic arrivals/); assert.doesNotMatch(h.text(), /SCM verification unresolved/);
 });
 
 test('newer saved receiving revision invalidates stale Finish handlers without submitting automatically', async t => {

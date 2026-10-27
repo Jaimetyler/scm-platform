@@ -92,6 +92,10 @@ export const driverSpanish: Record<string, string> = {
 };
 
 Object.assign(driverSpanish, {
+  "Trailer number *": "Número de remolque *",
+  "Trailer number (optional)": "Número de remolque (opcional)",
+  "Enter the trailer number before checking in.": "Ingrese el número de remolque antes de registrarse.",
+  "Trailer number must be 80 characters or fewer.": "El número de remolque debe tener 80 caracteres o menos.",
   "Read and sign the pickup agreement before checking in.": "Lea y firme el acuerdo de recolección antes de registrarse.",
   "Read and sign the current pickup agreement before checking in.": "Lea y firme la versión actual del acuerdo de recolección antes de registrarse.",
   "Complete every pickup agreement field before checking in.": "Complete todos los campos del acuerdo de recolección antes de registrarse.",

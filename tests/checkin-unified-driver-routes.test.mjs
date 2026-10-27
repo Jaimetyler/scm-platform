@@ -339,16 +339,22 @@ test('a stalled search reaches the deadline and records provisional evidence onl
   } finally { clearTimeout(keepAlive); AbortSignal.timeout = originalTimeout; }
 });
 
-test('pickup submit rejects absent, stale or mismatched consent without saving a check-in', async () => {
+test('pickup submit rejects absent or stale consent without saving a check-in', async () => {
   await withFixture({ '92157': fixture() }, [], async ({ send, writes }) => {
-    for (const pickupAgreement of [undefined, { ...acceptance, version: 'old' }, { ...acceptance, printedName: 'Another Driver' }, { ...acceptance, strokes: [] }]) {
+    for (const pickupAgreement of [undefined, { ...acceptance, version: 'old' }, { ...acceptance, strokes: [] }]) {
       const result = await send({ ...submit, pickupAgreement });
       assert.equal(result.response.status, 400, JSON.stringify(result.body));
       assert.equal(writes.length, 0);
     }
-    const result = await send(submit);
+    const result = await send({ ...submit, trailerNumber: 'MAIN-TRAILER', pickupAgreement: { ...acceptance, printedName: 'FORGED', pickupNumber: 'FORGED', referencePo: 'FORGED', productDescription: 'FORGED', trailerNumber: 'IGNORED' } });
     assert.equal(result.response.status, 200, JSON.stringify(result.body));
     assert.equal(writes.length, 1);
+    assert.equal(writes[0].trailer_number, 'MAIN-TRAILER');
+    assert.equal(writes[0].pickup_agreement.trailerNumber, 'MAIN-TRAILER');
+    assert.equal(writes[0].pickup_agreement.printedName, 'ENTERED DRIVER');
+    assert.equal(writes[0].pickup_agreement.pickupNumber, '92157');
+    assert.equal(writes[0].pickup_agreement.productDescription, 'lumber');
+    assert.notEqual(writes[0].pickup_agreement.referencePo, 'FORGED');
     assert.deepEqual(writes[0].pickup_agreement.terms, pickupAgreement.PICKUP_TERMS.en);
     assert.equal(writes[0].pickup_agreement.driverName, 'ENTERED DRIVER');
   });

@@ -21,6 +21,7 @@ type FormState = {
   driverName: string;
   driverPhone: string;
   truckingCompany: string;
+  trailerNumber: string;
   movementDirection: string;
   materialType: string;
   orderId: string;
@@ -33,7 +34,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", movementDirection: "", materialType: "",
+  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", trailerNumber: "", movementDirection: "", materialType: "",
   orderId: "", selectedStopId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "", balesOnTruck: "",
 };
 
@@ -88,11 +89,11 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
   const [site, setSite] = useState<Site | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const formRef = useRef<FormState>(EMPTY_FORM);
-  const [agreement, setAgreement] = useState<PickupAcceptance>({ version: PICKUP_AGREEMENT_VERSION, language, printedName: "", trailerNumber: "", productDescription: "", pickupNumber: "", referencePo: "", acknowledged: false, electronicConsent: false, strokes: [] });
+  const [agreement, setAgreement] = useState<PickupAcceptance>({ version: PICKUP_AGREEMENT_VERSION, language, acknowledged: false, electronicConsent: false, strokes: [] });
   const agreementRef = useRef(agreement); agreementRef.current = agreement;
   const agreementContext = useRef("");
   const languageRef = useRef(language); languageRef.current = language;
-  useEffect(() => { setAgreement(value => ({ ...value, language, acknowledged: false, electronicConsent: false })); }, [language, form.driverName, form.driverPhone, form.truckingCompany, form.referenceNumber, form.orderId, form.selectedStopId, form.destination, form.materialType, form.movementDirection, form.checkinType]);
+  useEffect(() => { setAgreement(value => ({ ...value, language, acknowledged: false, electronicConsent: false })); }, [language, form.driverName, form.driverPhone, form.truckingCompany, form.trailerNumber, form.referenceNumber, form.orderId, form.selectedStopId, form.destination, form.materialType, form.movementDirection, form.checkinType]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
@@ -365,7 +366,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
       if (form.checkinType === "domestic" && form.movementDirection === "pickup") {
         if (agreementContext.current !== JSON.stringify({ language, form })) throw new Error("Read and sign the current pickup agreement before checking in.");
         validatePickupAcceptance(agreement);
-        if (agreement.printedName.trim().toUpperCase() !== form.driverName.trim().toUpperCase()) throw new Error(language === "es" ? "El nombre en la firma debe coincidir con el nombre del conductor." : "The signature printed name must match the driver name.");
+        if (!form.trailerNumber.trim()) throw new Error("Enter the trailer number before checking in.");
       }
       const position = await currentPosition();
       const preparedPhoto = form.checkinType === "domestic" && bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
@@ -379,6 +380,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
       request.set("driverName", form.driverName);
       request.set("driverPhone", form.driverPhone);
       request.set("truckingCompany", form.truckingCompany);
+      request.set("trailerNumber", form.trailerNumber);
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
       request.set("orderId", orderReady ? form.orderId : "");
@@ -490,6 +492,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
           {form.checkinType === "domestic" ? <>
           <Field label={t("Mobile number *")} value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
           <Field label={t("Trucking company *")} value={form.truckingCompany} onChange={(value) => change("truckingCompany", value)} />
+          <Field label={t(form.movementDirection === "pickup" ? "Trailer number *" : "Trailer number (optional)")} value={form.trailerNumber} onChange={value => change("trailerNumber", value)} optional={form.movementDirection !== "pickup"} maxLength={80} />
           <label style={labelStyle}>{t("Material *")}{" "}<select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
               <option value="">{t("Select")}</option>
               {site?.materials.includes("cotton") && <option value="cotton">{t("Cotton")}</option>}

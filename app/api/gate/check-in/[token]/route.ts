@@ -44,6 +44,7 @@ async function requestBody(req: NextRequest) {
         driverName: form.get("driverName"),
         driverPhone: form.get("driverPhone"),
         truckingCompany: form.get("truckingCompany"),
+        trailerNumber: form.get("trailerNumber"),
         movementDirection: form.get("movementDirection"),
         materialType: form.get("materialType"),
         orderId: form.get("orderId"),
@@ -388,13 +389,19 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!orderId) referenceNumber = driverLookupInput.toUpperCase();
     if (movementDirection !== "pickup") destination = "";
 
+    // Old open tabs carried trailer number inside the agreement; accept that
+    // location for compatibility, but derive all repeated identity/load fields.
+    let trailerNumber = String(body.trailerNumber ?? "").trim();
     let pickupAgreement = null;
     if (movementDirection === "pickup") {
       try {
         const raw = typeof body.pickupAgreement === "string" ? JSON.parse(body.pickupAgreement) : body.pickupAgreement;
         const accepted = validatePickupAcceptance(raw);
-        if (accepted.printedName.toUpperCase() !== driverName) throw new Error("The signature printed name must match the driver name.");
-        pickupAgreement = { ...accepted, terms: PICKUP_TERMS[accepted.language],
+        if (!trailerNumber && raw && typeof raw.trailerNumber === "string") trailerNumber = raw.trailerNumber.trim();
+        if (!trailerNumber || trailerNumber.length > 80) throw new Error("Enter the trailer number before checking in.");
+        pickupAgreement = { ...accepted, printedName: driverName, trailerNumber,
+          productDescription: materialType, pickupNumber: orderId || driverLookupInput,
+          referencePo: referenceNumber || driverLookupInput, terms: PICKUP_TERMS[accepted.language],
           acceptedAt: checkedInAt.toISOString(), driverName, driverPhone, truckingCompany,
           terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name,
           orderId: orderId || null, referenceNumber, driverLookupInput, destination, materialType };
@@ -403,8 +410,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       }
     }
 
+    if (trailerNumber.length > 80) return NextResponse.json({ ok: false, error: "Trailer number must be 80 characters or fewer." }, { status: 400 });
+
     const insertPayload = {
       id: clientId,
+      trailer_number: trailerNumber || null,
       pickup_agreement: pickupAgreement,
       terminal: gate.terminal,
       site_code: gate.site_code,
