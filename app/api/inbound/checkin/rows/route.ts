@@ -207,6 +207,7 @@ async function POSTHandler(req: NextRequest) {
       driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       matched_order_id: matchedOrderId || null,
+      local_receiving_only: body?.localReceivingOnly === true && !matchedOrderId,
       expected_bale_count: expectedBales,
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),
