@@ -88,3 +88,11 @@ test("local-only checkout never requires a McLeod write", () => {
   assert.match(route.slice(local, remote), /Local-only receiving complete; no McLeod update/);
   assert.match(route.slice(local, remote), /physical_departed_at/);
 });
+
+test("local-only receiving completes yard status in the same guarded update", () => {
+  const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
+  assert.match(route, /yard_status: localOnly && completeReceiving \? "completed"/);
+  assert.match(route, /yard_completed_at: existing\.physical_departed_at \|\| at/);
+  assert.match(route, /physical_departed_at: at, yard_updated_by: staffActor\(req\)/);
+  assert.doesNotMatch(route, /Receiving saved but checkout status changed/);
+});
