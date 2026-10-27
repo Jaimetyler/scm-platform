@@ -206,13 +206,20 @@ async function PATCHHandler(
       merged.customer_notified_by = staffActor(req);
       merged.comment_1 = [merged.comment_1, `Customer notified: ${followup}`].filter(Boolean).join("\n");
     }
-    const draft_status = shortage && shortageAcknowledged(merged) && isCompleteCheckin(merged)
+    // Explicit local-only receiving is permitted for customers whose orders
+    // are not yet managed in McLeod. Never infer this from a failed search.
+    const localOnly = existing.matched_order_id == null &&
+      String(existing.comment_1 ?? "").includes("local receiving only, reconcile before any McLeod update.");
+    const completeReceiving = isCompleteCheckin(merged);
+    const draft_status = localOnly && completeReceiving && !shortage
+      ? "checked_in"
+      : shortage && shortageAcknowledged(merged) && completeReceiving
       ? "delivery_blocked" : isReadyCheckin(merged) ? "ready" : "checked_in";
     if (draft_status === "ready" && !canPrepareMcleodLookup(existing)) {
       return NextResponse.json({ ok: false, error: "The previous McLeod processing outcome needs review before retrying.",
         code: "MCLEOD_LEGACY_REVIEW_REQUIRED" }, { status: 409 });
     }
-    merged.verified = ["ready", "delivery_blocked"].includes(draft_status);
+    merged.verified = ["ready", "delivery_blocked"].includes(draft_status) || (localOnly && completeReceiving && !shortage);
     const identityCorrected = Boolean(existing.checked_in_at) && (
       existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
       existing.bol_bc !== merged.bol_bc
@@ -266,7 +273,7 @@ async function PATCHHandler(
       yard_status: !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
       // Save physical departure alongside complete receiving, regardless of
       // whether McLeod later processes, fails, or requires reconciliation.
-      ...(["ready", "delivery_blocked"].includes(draft_status) && checked_in_at &&
+      ...((["ready", "delivery_blocked"].includes(draft_status) || localOnly && completeReceiving) && checked_in_at &&
           !existing.physical_departed_at
         ? { physical_departed_at: at, yard_updated_by: staffActor(req) } : {}),
       verified_at,
