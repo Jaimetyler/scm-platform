@@ -1,5 +1,7 @@
 # eCotton import: Houston pilot and terminal profiles
 
+Update: the approved Houston production pilot completed; see [ECOTTON-PILOT-20261027.md](ECOTTON-PILOT-20261027.md) for the carrier repair, live receipts, backup and current rollout state. The staging-only statements below describe the pre-pilot checkpoint.
+
 Status: implementation and synthetic execution tests complete; staging-only ledger installed. Production deployment and real McLeod creation/rating are NOT authorized by the earlier Dallas billing deployment approval.
 
 ## Accounting flow

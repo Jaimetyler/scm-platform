@@ -3,6 +3,7 @@ import {
   findDuplicates,
   identityMatches,
   verifyRatedOrder,
+  movementUpdatePayload,
 } from "./mcleod.ts";
 import type { Invoice, Profile } from "./model.ts";
 export type Ledger = {
@@ -115,43 +116,80 @@ export async function processInvoice(
     const claimed = await store.claim(row.id, "created", "rating");
     if (!claimed) throw new Error("This order was claimed by another request.");
     row = claimed;
+    let before: any;
     try {
-      const before = await vendor.read(
-        "/orders/" + encodeURIComponent(row.order_id),
-      );
-      const errors = verifyRatedOrder(before, row.invoice, row.profile);
-      if (String(before.id) !== row.order_id)
-        errors.push("Returned order ID differs from saved creation receipt");
-      // Check identity/charge lines first; autorate is allowed to establish total_charge.
-      if (
-        String(before.status).toUpperCase() !== "A" ||
-        !Array.isArray(before.stops) ||
-        before.stops.some((s) => String(s.status).toUpperCase() !== "A")
-      )
-        errors.push(
-          "New order or stops are not Available; review before rating",
-        );
-      const critical = errors.filter(
-        (s) => s !== "McLeod order total differs from source invoice",
-      );
-      if (critical.length) {
-        await store.finish(
-          row,
-          "blocked",
-          row.order_id,
-          "Created order failed verification: " + critical.join("; "),
-        );
-        return;
-      }
+      before = await vendor.read("/orders/" + encodeURIComponent(row.order_id));
     } catch (e) {
       await store.finish(
         row,
         "created",
         row.order_id,
-        "Read failed before autorate; no rate write attempted.",
+        "Read failed before any movement/rate write.",
       );
       throw e;
     }
+    let errors = verifyRatedOrder(before, row.invoice, row.profile);
+    if (
+      errors.includes(
+        "Movement payee or zero-payment settings differ from approved profile",
+      )
+    ) {
+      let update: any;
+      try {
+        update = movementUpdatePayload(
+          before,
+          row.invoice,
+          row.profile,
+          row.order_id,
+        );
+      } catch (e) {
+        await store.finish(row, "blocked", row.order_id, (e as Error).message);
+        return;
+      }
+      // The persisted rating claim fences BOTH setup and autorate. Never reset it
+      // to created after a movement write or an uncertain verification response.
+      try {
+        await vendor.write("/movement/update", update);
+        await vendor.write(
+          "/carrierDispatch/setPay/" +
+            encodeURIComponent(update.id) +
+            "?method=F&units=1&rate=0&carrierPay=0",
+        );
+        before = await vendor.read(
+          "/orders/" + encodeURIComponent(row.order_id),
+        );
+        errors = verifyRatedOrder(before, row.invoice, row.profile);
+      } catch (e) {
+        await store.finish(
+          row,
+          "rating_uncertain",
+          row.order_id,
+          "Movement setup or read-back uncertain; do not retry.",
+        );
+        throw e;
+      }
+    }
+    if (String(before.id) !== row.order_id)
+      errors.push("Returned order ID differs from saved creation receipt");
+    if (
+      String(before.status).toUpperCase() !== "A" ||
+      !Array.isArray(before.stops) ||
+      before.stops.some((s) => String(s.status).toUpperCase() !== "A")
+    )
+      errors.push("New order or stops are not Available; review before rating");
+    const critical = errors.filter(
+      (s) => s !== "McLeod order total differs from source invoice",
+    );
+    if (critical.length) {
+      await store.finish(
+        row,
+        "blocked",
+        row.order_id,
+        "Created order failed verification: " + critical.join("; "),
+      );
+      return;
+    }
+
     try {
       await vendor.write(
         "/orders/autorate/" + encodeURIComponent(row.order_id),

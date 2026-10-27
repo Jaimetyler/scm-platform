@@ -28,9 +28,13 @@ const { PROFILES, CUSTOMER_ALIASES, money, invoiceDate } = load(
   "lib/ecotton/model.ts",
 );
 const { parseInvoices } = load("lib/ecotton/parse.ts");
-const { buildPayload, dateStamp, findDuplicates, verifyRatedOrder } = load(
-  "lib/ecotton/mcleod.ts",
-);
+const {
+  buildPayload,
+  dateStamp,
+  findDuplicates,
+  verifyRatedOrder,
+  movementDefaultsUpdate,
+} = load("lib/ecotton/mcleod.ts");
 const { processInvoice, reconcileInvoice } = load("lib/ecotton/engine.ts");
 const profile = PROFILES[0];
 const summary =
@@ -100,7 +104,22 @@ function harness(options = {}) {
         throw Error("timeout");
       if (path === "/orders/create") {
         order = { ...payload, id: "SYN1", total_charge: 0 };
+        if (options.missingMovementDefaults)
+          order.movements = [{ id: "M1", status: "A", company_id: "TMS" }];
         return options.missingId ? {} : { id: "SYN1" };
+      }
+      if (path === "/movement/update") {
+        if (options.setupTimeout) throw Error("setup timeout");
+        order = {
+          ...order,
+          movements: [{ ...order.movements[0], ...payload }],
+        };
+        return order;
+      }
+      if (path.startsWith("/carrierDispatch/setPay/")) {
+        if (options.payTimeout) throw Error("setPay timeout");
+        order.movements[0].override_pay_rate = 0;
+        return { raw: "success" };
       }
       order.total_charge = current.invoice.cents / 100;
       return order;
@@ -457,4 +476,63 @@ test("read-back detects changed payee, nonzero pay and unexpected linehaul defau
     change(o);
     assert.ok(verifyRatedOrder(o, invoice(), profile).length);
   }
+});
+
+test("live create shape with missing movement overrides is configured once before autorate", async () => {
+  const h = harness({ missingMovementDefaults: true });
+  await processInvoice(h.row(), h.store, h.vendor);
+  assert.equal(h.row().status, "verified");
+  assert.deepEqual(h.writes, [
+    "/orders/create",
+    "/movement/update",
+    "/carrierDispatch/setPay/M1?method=F&units=1&rate=0&carrierPay=0",
+    "/orders/autorate/SYN1",
+  ]);
+});
+test("uncertain movement update stays fenced and cannot be retried", async () => {
+  const h = harness({ missingMovementDefaults: true, setupTimeout: true });
+  await assert.rejects(processInvoice(h.row(), h.store, h.vendor));
+  assert.equal(h.row().status, "rating_uncertain");
+  await assert.rejects(processInvoice(h.row(), h.store, h.vendor));
+  assert.deepEqual(h.writes, ["/orders/create", "/movement/update"]);
+});
+test("movement setup preserves other data and refuses other carriers, payments or actuals", () => {
+  const before = actual();
+  before.movements = [{ id: "M1", status: "A" }];
+  const fixed = movementDefaultsUpdate(before, invoice(), profile, "SYN1");
+  assert.equal(fixed.movements[0].override_payee_id, "SCMIRIGA");
+  assert.deepEqual(fixed.stops, before.stops);
+  assert.deepEqual(fixed.otherCharges, before.otherCharges);
+  assert.equal(before.movements[0].override_payee_id, undefined);
+  for (const change of [
+    (o) => (o.movements[0].override_pay_amt = 10),
+    (o) => (o.movements[0].override_payee_id = "OTHER"),
+    (o) => (o.stops[0].actual_arrival = "20261020"),
+  ]) {
+    const o = structuredClone(before);
+    change(o);
+    assert.throws(() => movementDefaultsUpdate(o, invoice(), profile, "SYN1"));
+  }
+});
+
+test("fixed pay requires explicit zero in both rate fields and amount", () => {
+  const o = actual();
+  delete o.movements[0].override_pay_rate;
+  assert.ok(verifyRatedOrder(o, invoice(), profile).length);
+  delete o.movements[0].override_paye_rate;
+  assert.ok(verifyRatedOrder(o, invoice(), profile).length);
+});
+test("a nonzero supplemental rate remains a payment verification failure", () => {
+  const o = actual();
+  o.movements[0].override_pay_rate = 5;
+  assert.ok(verifyRatedOrder(o, invoice(), profile).length);
+});
+
+test("a carrier-pay response timeout stays fenced before autorate", async () => {
+  const h = harness({ missingMovementDefaults: true, payTimeout: true });
+  await assert.rejects(processInvoice(h.row(), h.store, h.vendor));
+  assert.equal(h.row().status, "rating_uncertain");
+  await assert.rejects(processInvoice(h.row(), h.store, h.vendor));
+  assert.equal(h.writes.filter((p) => p.includes("setPay")).length, 1);
+  assert.equal(h.writes.filter((p) => p.includes("autorate")).length, 0);
 });

@@ -246,3 +246,99 @@ export function verifyRatedOrder(
     errors.push("McLeod order total differs from source invoice");
   return errors;
 }
+
+/** McLeod create may generate a movement without applying nested movement overrides.
+ * Only complete missing defaults on a newly-created, still-Available invoice order.
+ * Never overwrite another carrier, a payment, a progressed stop, or other order data. */
+export function movementDefaultsUpdate(
+  order: any,
+  invoice: Invoice,
+  profile: Profile,
+  expectedId: string,
+) {
+  const errors = verifyRatedOrder(order, invoice, profile).filter(
+    (e) =>
+      ![
+        "Movement payee or zero-payment settings differ from approved profile",
+        "McLeod order total differs from source invoice",
+      ].includes(e),
+  );
+  if (
+    String(order.id) !== expectedId ||
+    normalize(order.status) !== "A" ||
+    !Array.isArray(order.stops) ||
+    order.stops.some(
+      (s) =>
+        normalize(s.status) !== "A" || s.actual_arrival || s.actual_departure,
+    )
+  )
+    errors.push("Order has progressed or its identity changed");
+  if (errors.length)
+    throw new Error("Movement setup blocked: " + errors.join("; "));
+  if (
+    !Array.isArray(order.movements) ||
+    order.movements.length !== 1 ||
+    !order.movements[0].id
+  )
+    throw new Error("Expected one saved movement for setup.");
+  const movement = order.movements[0];
+  const blank = (v) => v == null || String(v).trim() === "";
+  for (const field of ["override_payee_id", "carrier_id", "vendor_id"])
+    if (!blank(movement[field]) && normalize(movement[field]) !== profile.payee)
+      throw new Error(
+        "Existing movement carrier differs; refusing to overwrite.",
+      );
+  if (
+    !blank(movement.override_type) &&
+    normalize(movement.override_type) !== "F"
+  )
+    throw new Error("Existing movement rate type differs.");
+  if (!blank(movement.override_units) && Number(movement.override_units) !== 1)
+    throw new Error("Existing movement units differ.");
+  for (const field of [
+    "override_paye_rate",
+    "override_pay_rate",
+    "override_pay_amt",
+  ])
+    if (!blank(movement[field]) && Number(movement[field]) !== 0)
+      throw new Error(
+        "Existing movement payment differs; refusing to overwrite.",
+      );
+  return {
+    ...order,
+    movements: [
+      {
+        ...movement,
+        override_payee_id: profile.payee,
+        override_type: "F",
+        override_units: 1,
+        override_paye_rate: 0,
+        override_pay_rate: 0,
+        override_pay_amt: 0,
+      },
+    ],
+  };
+}
+
+// Documented TableRowService PUT /{table}/update. Send only the approved
+// movement columns and its saved primary key; never replay order/stops/charges.
+export function movementUpdatePayload(
+  order: any,
+  invoice: Invoice,
+  profile: Profile,
+  expectedId: string,
+) {
+  const fixed = movementDefaultsUpdate(order, invoice, profile, expectedId)
+    .movements[0];
+  return {
+    __type: fixed.__type || "movement",
+    company_id: fixed.company_id || "TMS",
+    id: fixed.id,
+    override_payee_id: fixed.override_payee_id,
+    override_type: fixed.override_type,
+    override_units: fixed.override_units,
+    override_paye_rate: fixed.override_paye_rate,
+    override_pay_rate: fixed.override_pay_rate,
+    override_pay_amt: fixed.override_pay_amt,
+  };
+}

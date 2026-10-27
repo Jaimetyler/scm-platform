@@ -80,14 +80,18 @@ export function vendor(readOnly = false): Vendor {
     if (
       isRead
         ? !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
-        : !/^\/orders\/(?:create|autorate\/[A-Za-z0-9_-]+)$/.test(path)
+        : !/^(?:\/orders\/(?:create|autorate\/[A-Za-z0-9_-]+)|\/movement\/update|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=0&carrierPay=0)$/.test(
+            path,
+          )
     )
       throw new Error("Unsupported import operation.");
     const r = await fetch(base.replace(/\/$/, "") + path, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+        Accept: path.startsWith("/carrierDispatch/setPay/")
+          ? "text/plain, application/json"
+          : "application/json",
         "Content-Type": "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -97,6 +101,7 @@ export function vendor(readOnly = false): Vendor {
     const text = await r.text();
     if (!r.ok)
       throw new Error(`McLeod HTTP ${r.status}: ${text.slice(0, 350)}`);
+    if (path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
     try {
       return JSON.parse(text);
     } catch {
@@ -106,7 +111,11 @@ export function vendor(readOnly = false): Vendor {
   return {
     read: (path) => request(path, "GET"),
     write: (path, body) =>
-      request(path, path === "/orders/create" ? "PUT" : "POST", body),
+      request(
+        path,
+        ["/orders/create", "/movement/update"].includes(path) ? "PUT" : "POST",
+        body,
+      ),
   };
 }
 export async function readRun(
