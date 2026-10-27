@@ -16,7 +16,7 @@ import { enrichDisplayCarriers } from "@/lib/inbound/checkin/display-carrier";
 import { cottonShortage, shortageAcknowledged, acknowledgeShortage } from "@/lib/inbound/checkin/shortage";
 
 export const runtime = "nodejs";
-const QUEUE_FIELDS = "id,terminal,site_name,checkin_source,updated_at,checked_in_at,physical_departed_at,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,site_code,matched_stop_id,mcleod_lookup_status,mcleod_lookup_attempt_id,mcleod_lookup_failure_code,mcleod_lookup_failed_at,mcleod_lookup_has_known_match,mcleod_processing_phase,processing_error,outside_carrier_override_at,outside_carrier_override_by,outside_carrier_override_reason";
+const QUEUE_FIELDS = "id,terminal,site_name,checkin_source,updated_at,checked_in_at,physical_departed_at,local_receiving_only,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,site_code,matched_stop_id,mcleod_lookup_status,mcleod_lookup_attempt_id,mcleod_lookup_failure_code,mcleod_lookup_failed_at,mcleod_lookup_has_known_match,mcleod_processing_phase,processing_error,outside_carrier_override_at,outside_carrier_override_by,outside_carrier_override_reason";
 function queueRow(row: Record<string, any>) {
   return { ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
       .map(key => [key, row[key]])),
@@ -263,6 +263,23 @@ async function PATCHHandler(req: NextRequest) {
       if (row?.yard_status === "completed")
         return NextResponse.json({ ok: true, row: queueRow(row),
           mcleod: "already completed; saved status refreshed" });
+      // Local-only customer receipts are never sent to McLeod. The receiving
+      // screen already records physical departure when all details are saved.
+      if (row?.local_receiving_only === true && !row.matched_order_id) {
+        if (!row.physical_departed_at) return NextResponse.json({ ok: false,
+          error: "Complete and save receiving details before checking out this local-only load." }, { status: 409 });
+        const { data: localDone, error: localError } = await sb.from("inbound_checkin_rows")
+          .update({ yard_status: "completed", yard_completed_at: row.physical_departed_at,
+            yard_updated_by: user(req) })
+          .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+          .eq("yard_status", row.yard_status).eq("updated_at", row.updated_at)
+          .select("*").maybeSingle();
+        if (localError) throw localError;
+        if (!localDone) return NextResponse.json({ ok: false,
+          error: "This arrival changed. Refresh saved status." }, { status: 409 });
+        return NextResponse.json({ ok: true, row: queueRow(localDone),
+          mcleod: "Local-only receiving complete; no McLeod update." });
+      }
       if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
         return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
       }
