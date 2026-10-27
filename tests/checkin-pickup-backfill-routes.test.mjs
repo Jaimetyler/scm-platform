@@ -162,7 +162,16 @@ test("live cotton fills a missing pickup departure without replacing arrival", a
   await scenario({ pickup: { actual_arrival: "20261001073000-0500" } }, async ({ post, writes }) => {
     assert.equal((await post()).body.ok, true);
     assert.equal(writes[0].arrival, "20261001073000-0500");
-    assert.equal(writes[0].departure, "20261001080500-0500");
+    assert.equal(writes[0].departure, "20261001073500-0500");
+  });
+});
+
+test("cotton pickup with afternoon arrival and no departure completes without replacing arrival", async () => {
+  await scenario({ pickup: { actual_arrival: "20261001143000-0500" } }, async ({ post, writes }) => {
+    const { body } = await post();
+    assert.equal(body.ok, true);
+    assert.deepEqual(writes[0], { id: "PU1", arrival: "20261001143000-0500", departure: "20261001143500-0500" });
+    assert.equal(writes[1].id, "SO1");
   });
 });
 
@@ -197,7 +206,7 @@ test("preview mode shows pickup fallback but performs no McLeod writes", async (
 test("shortages, reference mismatch, invalid dates and reversed chronology block before writes", async () => {
   for (const change of [({ row }) => { row.balesUnloaded = 80; }, ({ row }) => { row.mark = "WRONG"; },
     ({ row }) => { row.receivedDate = "bad date"; }, ({ row }) => { row.verifiedAt = "2026-10-01T00:00:00Z"; },
-    ({ pickup }) => { pickup.actual_arrival = "20261001100000-0500"; }]) {
+    ({ pickup }) => { pickup.actual_arrival = "20261002101000-0500"; }]) {
     await scenario({}, async (state) => {
       change(state);
       assert.equal((await state.post()).body.ok, false);

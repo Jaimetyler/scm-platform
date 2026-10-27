@@ -60,7 +60,7 @@ test("all existing pickup actuals and a recorded delivery arrival are preserved"
 test("a partial pickup preserves its existing field and fills only the missing field", () => {
   const a = planLiveDeliveryActuals(input({ pickups: [{ id: "PU", actual_arrival: "20261001073000-0400" }] }));
   assert.equal(a.pickup.arrivalDate, "20261001073000-0400");
-  assert.equal(a.pickup.departureDate, "20261001080500-0400");
+  assert.equal(a.pickup.departureDate, "20261001073500-0400");
   assert.equal(a.pickup.generatedArrival, false);
   const b = planLiveDeliveryActuals(input({ pickups: [{ id: "PU", actual_departure: "20261001090000-0400" }] }));
   assert.equal(b.pickup.arrivalDate, "20261001080000-0400");
@@ -69,12 +69,29 @@ test("a partial pickup preserves its existing field and fills only the missing f
 });
 
 test("inferred times cannot overwrite an existing time or reverse stop chronology", () => {
-  for (const pickups of [[{ id: "PU", actual_arrival: "20261001100000-0400" }],
-    [{ id: "PU", actual_departure: "20261001060000-0400" }],
+  for (const pickups of [[{ id: "PU", actual_departure: "20261001060000-0400" }],
     [{ id: "PU", actual_arrival: "20261002103000-0400", actual_departure: "20261002110000-0400" }]]) {
     assert.throws(() => planLiveDeliveryActuals(input({ pickups })), /out of order/);
   }
   assert.throws(() => planLiveDeliveryActuals(input({ delivery: { id: "SO", actual_arrival: "20261002070000-0400", actual_departure: "20261002060000-0400" } })), /out of order/);
+});
+
+test("recorded pickup arrival anchors missing departure even after the default fallback", () => {
+  for (const [terminal, arrival, departure] of [
+    ["HOU", "20261001143000-0500", "20261001143500-0500"],
+    ["SAV", "20261001235800-0400", "20261002000300-0400"],
+    ["HOU", "2026-10-01T19:30:00Z", "20261001143500-0500"],
+  ]) {
+    const plan = planLiveDeliveryActuals(input({ terminal, pickups: [{ id: "PU", actual_arrival: arrival }] }));
+    assert.equal(plan.pickup.arrivalDate, arrival);
+    assert.equal(plan.pickup.departureDate, departure);
+    assert.equal(plan.pickup.generatedArrival, false);
+    assert.equal(plan.pickup.generatedDeparture, true);
+  }
+});
+
+test("partial pickup still blocks before writes when departure would follow delivery arrival", () => {
+  assert.throws(() => planLiveDeliveryActuals(input({ pickups: [{ id: "PU", actual_arrival: "20261002101000-0400" }] })), /out of order/);
 });
 
 test("invalid dates and ambiguous missing pickup stops require review before writes", () => {

@@ -79,6 +79,13 @@ export function planLiveDeliveryActuals(input: {
       arrivalDate: existingArrival || arrival, departureDate: existingDeparture || departure,
       generatedArrival: !existingArrival, generatedDeparture: !existingDeparture };
   }
+  // A recorded pickup arrival anchors a partial pickup. The previous-day
+  // 08:05 fallback is only a default for a wholly missing pickup timeline;
+  // it must not put departure before the actual arrival already in McLeod.
+  if (needsPickup && text(input.pickups[0].actual_arrival) && !text(input.pickups[0].actual_departure)) {
+    const recordedArrival = actualInstant(text(input.pickups[0].actual_arrival));
+    fallbackDeparture = formatWarehouseTime(new Date(recordedArrival + 5 * 60000), input.terminal);
+  }
   const pickup = plan(input.pickups[0], fallbackArrival, fallbackDeparture);
   const delivery = plan(input.delivery, formatWarehouseTime(input.checkedInAt, input.terminal),
     formatWarehouseTime(input.verifiedAt, input.terminal));
