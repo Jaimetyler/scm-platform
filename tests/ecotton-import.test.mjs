@@ -443,3 +443,18 @@ test("shared parser/payload supports every configured terminal with explicit war
     /Dallas report/,
   );
 });
+
+test("read-back detects changed payee, nonzero pay and unexpected linehaul defaults", () => {
+  for (const change of [
+    (o) => (o.movements[0].override_pay_amt = 20),
+    (o) => (o.movements[0].override_payee_id = "OTHER"),
+    (o) => (o.rate = 1),
+    (o) => (o.rate = null),
+    (o) => (o.movements[0].override_pay_amt = null),
+    (o) => (o.collection_method = "P"),
+  ]) {
+    const o = actual();
+    change(o);
+    assert.ok(verifyRatedOrder(o, invoice(), profile).length);
+  }
+});

@@ -34,7 +34,7 @@ McLeod itself does not provide a cross-system unique constraint here: a person s
 - Engine fixtures cover successful create/rate/read-back, existing-order skip, two simultaneous requests, vendor timeout, missing creation ID, database receipt failure, autorate uncertainty, immutable fences, extra/missing charge lines and read-only reconciliation. Vendor writes are simulated; this does not certify real create/autorate compatibility.
 - Actual PostgreSQL-compatible migration tests cover repeated import digests, source conflicts across different runs, atomic CAS claims, illegal transitions, private table/function permissions and append-only audit grants.
 - Route tests verify independent write flags, saved-run row membership, explicit confirmation and five-minute in-flight reconciliation guard. Existing staff guard restricts new operational paths to administrators and enforces request origin.
-- Full local suite: 409 passing; TypeScript passes.
+- Full local suite: 410 passing; TypeScript passes.
 - Staging RLS verification: all four ledger tables have RLS enabled; anon/authenticated have no SELECT. Functions have fixed search_path, SECURITY INVOKER and service_role-only EXECUTE. Security advisor changes consist only of four expected INFO notices for RLS without public policies; no new WARN findings. Existing 15 mutable-function warnings and leaked-password-protection warning predate this change.
 
 ## Staging configuration
@@ -61,3 +61,5 @@ The actual Houston reports were parsed with production mapping configuration and
 The full 29-order / 197-charge create+rate engine simulation passed with 58 simulated writes and zero real writes. Unauthenticated hosted page smoke redirects to login and API returns 401. Agent did not complete authenticated hosted browser upload or execution: the cloud browser has no staging session, and protected staging service credentials are not readable. Route, database, full-batch simulation and real GET checks are distinct evidence, not a claim of end-to-end real-write success. Accounting should review the hosted saved preview using its existing staging login.
 
 A fresh production database backup, production ledger migration, deployment, enabling creation, and the first real Houston create/rate pilot all remain approval gates. Do not apply those based on the earlier Dallas billing approval.
+
+Read-back also enforces approved order defaults, zero linehaul, SCMIRIGA movement payee and zero payment fields, saved McLeod ID consistency, and Available status on newly created/rated orders. A returned mismatch blocks further processing rather than silently accepting it.

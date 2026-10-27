@@ -175,6 +175,43 @@ export function verifyRatedOrder(
   } catch {
     errors.push("Expected invoice total missing from planning comment");
   }
+  if (
+    normalize(order.rate_type) !== "F" ||
+    Number(order.rate_units) !== 1 ||
+    order.rate == null ||
+    String(order.rate).trim() === "" ||
+    Number(order.rate) !== 0
+  )
+    errors.push("Base linehaul settings differ from import defaults");
+  if (
+    normalize(order.collection_method) !== "T" ||
+    normalize(order.commodity_id) !== profile.commodity ||
+    normalize(order.equipment_type_id) !== profile.equipment ||
+    normalize(order.order_mode) !== profile.mode ||
+    normalize(order.ordered_by) !== profile.orderedBy
+  )
+    errors.push("Order defaults differ from approved profile");
+  const movements = order.movements;
+  if (
+    !Array.isArray(movements) ||
+    movements.length !== 1 ||
+    movements.some(
+      (m) =>
+        normalize(m.override_payee_id) !== profile.payee ||
+        normalize(m.override_type) !== "F" ||
+        Number(m.override_units) !== 1 ||
+        [m.override_paye_rate, m.override_pay_rate, m.override_pay_amt].some(
+          (value) =>
+            value == null ||
+            String(value).trim() === "" ||
+            !Number.isFinite(Number(value)) ||
+            Number(value) !== 0,
+        ),
+    )
+  )
+    errors.push(
+      "Movement payee or zero-payment settings differ from approved profile",
+    );
   const charges = order.otherCharges ?? order.other_charges;
   if (!Array.isArray(charges)) {
     errors.push("Charges unavailable");
@@ -201,6 +238,8 @@ export function verifyRatedOrder(
   if (JSON.stringify(expected) !== JSON.stringify(actual))
     errors.push("Charge lines differ from source invoice");
   if (
+    order.total_charge == null ||
+    String(order.total_charge).trim() === "" ||
     !Number.isFinite(Number(order.total_charge)) ||
     Math.round(Number(order.total_charge) * 100) !== invoice.cents
   )

@@ -120,7 +120,17 @@ export async function processInvoice(
         "/orders/" + encodeURIComponent(row.order_id),
       );
       const errors = verifyRatedOrder(before, row.invoice, row.profile);
+      if (String(before.id) !== row.order_id)
+        errors.push("Returned order ID differs from saved creation receipt");
       // Check identity/charge lines first; autorate is allowed to establish total_charge.
+      if (
+        String(before.status).toUpperCase() !== "A" ||
+        !Array.isArray(before.stops) ||
+        before.stops.some((s) => String(s.status).toUpperCase() !== "A")
+      )
+        errors.push(
+          "New order or stops are not Available; review before rating",
+        );
       const critical = errors.filter(
         (s) => s !== "McLeod order total differs from source invoice",
       );
@@ -150,6 +160,16 @@ export async function processInvoice(
         "/orders/" + encodeURIComponent(row.order_id),
       );
       const errors = verifyRatedOrder(after, row.invoice, row.profile);
+      if (String(after.id) !== row.order_id)
+        errors.push("Returned order ID differs from saved creation receipt");
+      if (
+        String(after.status).toUpperCase() !== "A" ||
+        !Array.isArray(after.stops) ||
+        after.stops.some((s) => String(s.status).toUpperCase() !== "A")
+      )
+        errors.push(
+          "Rated order status requires review; delivery remains separate",
+        );
       await store.finish(
         row,
         errors.length ? "blocked" : "verified",
@@ -195,6 +215,10 @@ export async function reconcileInvoice(
   )
     throw new Error(
       "Could not establish one matching order. The write fence remains in place.",
+    );
+  if (row.order_id && String(candidates[0].id) !== row.order_id)
+    throw new Error(
+      "Saved McLeod ID could not be reconciled. The fence remains in place.",
     );
   const errors = verifyRatedOrder(candidates[0], row.invoice, row.profile);
   // A known creation receipt may resume rating only when all identity/charge checks pass.
