@@ -96,3 +96,9 @@ test("local-only receiving completes yard status in the same guarded update", ()
   assert.match(route, /physical_departed_at: at, yard_updated_by: staffActor\(req\)/);
   assert.doesNotMatch(route, /Receiving saved but checkout status changed/);
 });
+
+test("completed local-only receiving cannot be reopened through edit route", () => {
+  const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
+  assert.match(route, /existing\.local_receiving_only === true && existing\.yard_status === "completed"/);
+  assert.match(route, /This local-only receiving visit is completed/);
+});
