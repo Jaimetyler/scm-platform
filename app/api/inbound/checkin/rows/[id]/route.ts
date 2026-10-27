@@ -108,6 +108,11 @@ async function PATCHHandler(
       );
     }
 
+    // A completed local-only visit is immutable for receiving edits. Notes
+    // and historical corrections require an explicitly audited workflow.
+    if (existing.local_receiving_only === true && existing.yard_status === "completed")
+      return NextResponse.json({ ok: false,
+        error: "This local-only receiving visit is completed. Review its history before making corrections." }, { status: 409 });
     const correctingProcessed = body?.correctionOnly === true && existing.draft_status === "processed";
     if (["processed", "outside_carrier", "processing"].includes(existing.draft_status) && !correctingProcessed) {
       return NextResponse.json(
