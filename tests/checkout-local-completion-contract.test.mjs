@@ -60,3 +60,16 @@ test("unrecognized customer can be checked in without a McLeod order", () => {
   assert.match(page, /if \(!site \|\| !newCheckin \|\| newSaving\) return/);
   assert.match(route, /matched_order_id: matchedOrderId \|\| null/);
 });
+
+test("local-only receiving flag survives editable notes and bypasses McLeod", () => {
+  const create = read("app/api/inbound/checkin/rows/route.ts");
+  const edit = read("app/api/inbound/checkin/rows/[id]/route.ts");
+  const page = read("app/inbound/checkin/[terminal]/[siteCode]/page.tsx");
+  const migration = read("supabase/migrations/050_local_receiving_only.sql");
+  assert.match(create, /local_receiving_only: body\?\.localReceivingOnly === true && !matchedOrderId/);
+  assert.match(page, /localReceivingOnly: manualUnlinkedCheckin/);
+  assert.match(edit, /existing\.local_receiving_only === true && !matchedOrderId/);
+  assert.match(edit, /local_receiving_only: localOnly/);
+  assert.match(edit, /const saved = draft_status === "ready" \? await processCheckinRow/);
+  assert.match(migration, /add column if not exists local_receiving_only boolean not null default false/);
+});
