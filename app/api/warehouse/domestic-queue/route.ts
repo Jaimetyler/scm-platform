@@ -331,7 +331,7 @@ async function PATCHHandler(req: NextRequest) {
             mcleod_processing_phase: "write_pending", mcleod_lookup_status: "matched" })
           .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
           .eq("updated_at", row.updated_at).eq("yard_status", row.yard_status)
-          .in("draft_status", ["checked_in", "ready", "failed"])
+          .in("draft_status", ["checked_in", "ready"])
           .select("*").maybeSingle();
         if (error) throw error;
         if (!claimed) throw new Error("Checkout changed before the McLeod write. Refresh saved status; do not retry blindly.");
