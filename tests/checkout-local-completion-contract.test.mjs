@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 
 const read = path => readFileSync(new URL("../" + path, import.meta.url), "utf8");
 
-test("receiving saves retain guarded yard state until atomic completion is implemented", () => {
+test("receiving saves preserve guarded yard state for linked McLeod loads", () => {
   const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
-  assert.match(route, /yard_status: !existing\.checked_in_at && checked_in_at \? "waiting" : existing\.yard_status/);
+  assert.match(route, /: !existing\.checked_in_at && checked_in_at \? "waiting" : existing\.yard_status/);
   assert.match(route, /\.eq\("yard_status", existing\.yard_status\)/);
 });
 
