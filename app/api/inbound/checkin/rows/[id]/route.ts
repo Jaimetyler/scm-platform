@@ -218,7 +218,7 @@ async function PATCHHandler(
       return NextResponse.json({ ok: false, error: "The previous McLeod processing outcome needs review before retrying.",
         code: "MCLEOD_LEGACY_REVIEW_REQUIRED" }, { status: 409 });
     }
-    merged.verified = ["ready", "delivery_blocked"].includes(draft_status) || (localOnly && completeReceiving && !shortage);
+    merged.verified = ["ready", "delivery_blocked"].includes(draft_status) || (localOnly && completeReceiving);
     const identityCorrected = Boolean(existing.checked_in_at) && (
       existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
       existing.bol_bc !== merged.bol_bc
