@@ -110,9 +110,13 @@ async function PATCHHandler(
 
     // A completed local-only visit is immutable for receiving edits. Notes
     // and historical corrections require an explicitly audited workflow.
-    if (existing.local_receiving_only === true && existing.yard_status === "completed")
+    const localShortageFollowup = existing.local_receiving_only === true && existing.yard_status === "completed" &&
+      existing.draft_status === "delivery_blocked" && body?.customerNotified === true;
+    if (existing.local_receiving_only === true && existing.yard_status === "completed" && !localShortageFollowup)
       return NextResponse.json({ ok: false,
         error: "This local-only receiving visit is completed. Review its history before making corrections." }, { status: 409 });
+    if (localShortageFollowup && cleanText(body?.matchedOrderId) !== cleanText(existing.matched_order_id))
+      return NextResponse.json({ ok: false, error: "Completed receiving cannot link a different McLeod order during notification." }, { status: 409 });
     const correctingProcessed = body?.correctionOnly === true && existing.draft_status === "processed";
     if (["processed", "outside_carrier", "processing"].includes(existing.draft_status) && !correctingProcessed) {
       return NextResponse.json(
@@ -157,6 +161,11 @@ async function PATCHHandler(
       processed_at: existing.processed_at,
       id: existing.id,
     };
+
+    if (localShortageFollowup && ["terminal", "site_code", "site_name", "sub_location", "received_date", "mark", "shipper",
+        "trucking_company", "bol_bc", "bale_count", "warehouse_location", "equipment_type", "comment_1", "comment_2"]
+        .some(key => merged[key] !== existing[key]))
+      return NextResponse.json({ ok: false, error: "Completed receiving details cannot change during customer notification." }, { status: 409 });
 
     if (existing.draft_status === "delivery_blocked" &&
         ["terminal", "site_code", "site_name", "sub_location", "received_date", "mark", "shipper", "bol_bc", "bale_count", "warehouse_location", "equipment_type"].some((key) => merged[key] !== existing[key])) {
@@ -215,15 +224,16 @@ async function PATCHHandler(
     // are not yet managed in McLeod. Never infer this from a failed search.
     const localOnly = existing.local_receiving_only === true && !matchedOrderId;
     const completeReceiving = isCompleteCheckin(merged);
+    const localReceivingComplete = localOnly && completeReceiving && (!shortage || shortageAcknowledged(merged));
     const draft_status = localOnly && completeReceiving
-      ? shortage ? "delivery_blocked" : "checked_in"
+      ? shortage && shortageAcknowledged(merged) ? "delivery_blocked" : "checked_in"
       : shortage && shortageAcknowledged(merged) && completeReceiving
       ? "delivery_blocked" : isReadyCheckin(merged) ? "ready" : "checked_in";
     if (draft_status === "ready" && !canPrepareMcleodLookup(existing)) {
       return NextResponse.json({ ok: false, error: "The previous McLeod processing outcome needs review before retrying.",
         code: "MCLEOD_LEGACY_REVIEW_REQUIRED" }, { status: 409 });
     }
-    merged.verified = ["ready", "delivery_blocked"].includes(draft_status) || (localOnly && completeReceiving);
+    merged.verified = ["ready", "delivery_blocked"].includes(draft_status) || (localReceivingComplete);
     const identityCorrected = Boolean(existing.checked_in_at) && (
       existing.mark !== merged.mark || existing.shipper !== merged.shipper ||
       existing.bol_bc !== merged.bol_bc
@@ -278,14 +288,14 @@ async function PATCHHandler(
       // For local-only completed receipts, commit the physical departure and
       // completed yard status in the SAME database update. This avoids a
       // partially saved departure if the second request fails.
-      yard_status: localOnly && completeReceiving ? "completed"
+      yard_status: localReceivingComplete ? "completed"
         : !existing.checked_in_at && checked_in_at ? "waiting" : existing.yard_status,
-      ...(localOnly && completeReceiving
+      ...(localReceivingComplete
         ? { yard_completed_at: existing.physical_departed_at || at,
             yard_updated_by: staffActor(req) } : {}),
       // Save physical departure alongside complete receiving, regardless of
       // whether McLeod later processes, fails, or requires reconciliation.
-      ...((["ready", "delivery_blocked"].includes(draft_status) || localOnly && completeReceiving) && checked_in_at &&
+      ...((["ready", "delivery_blocked"].includes(draft_status) || localReceivingComplete) && checked_in_at &&
           !existing.physical_departed_at
         ? { physical_departed_at: at, yard_updated_by: staffActor(req) } : {}),
       verified_at,

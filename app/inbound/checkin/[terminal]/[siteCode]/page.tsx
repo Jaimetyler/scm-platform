@@ -181,6 +181,11 @@ function willProcess(row: CheckinRow) {
   return isReadyCheckin(row);
 }
 
+function canRecordShortageFollowup(row: CheckinRow) {
+  return row.local_receiving_only === true && row.yard_status === "completed" &&
+    row.draft_status === "delivery_blocked" && Boolean(row.shortage_acknowledged_at) && !row.customer_notified_at;
+}
+
 function isClosedRow(row: CheckinRow) {
   return isInventoryRecovered(row) || row.local_receiving_only === true && row.yard_status === "completed" ||
     row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
@@ -586,7 +591,7 @@ export default function SiteCheckinPage() {
 
   async function saveRowSnapshot(row: CheckinRow, action?: ShortageAction) {
     if (!canWrite) return;
-    if (!row || row.id.startsWith("local-") || isClosedRow(row)) return;
+    if (!row || row.id.startsWith("local-") || isClosedRow(row) && !(action?.customerNotified && canRecordShortageFollowup(row))) return;
     if (willProcess(row) &&
         (document.activeElement?.getAttribute("data-checkin-identity") === row.id ||
          document.activeElement?.getAttribute("data-checkin-location") === row.id)) return;
@@ -1344,7 +1349,7 @@ export default function SiteCheckinPage() {
                   </tr>
                   {expandedIds.has(row.id) && <tr style={{ background: "#132337" }}>
                     <td colSpan={10} style={detailsCellStyle}>
-                      <ShortageNotice row={row} complete={isCompleteCheckin(row)} disabled={ui.saveState === "saving" || isClosedRow(row)} onAction={isClosedRow(row) ? undefined : async (action) => {
+                      <ShortageNotice row={row} complete={isCompleteCheckin(row)} disabled={ui.saveState === "saving" || isClosedRow(row) && !canRecordShortageFollowup(row)} onAction={isClosedRow(row) && !canRecordShortageFollowup(row) ? undefined : async (action) => {
                         const timer = saveTimersRef.current[row.id];
                         if (timer) { window.clearTimeout(timer); delete saveTimersRef.current[row.id]; }
                         const latest = rowsRef.current.find((item) => item.id === row.id);

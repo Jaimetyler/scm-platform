@@ -361,3 +361,50 @@ test("United Agricultural reversed numeric pair resolves with both components in
   assert.equal(referenceMatchesInput("987-60136-2", "60136-987"), false);
   assert.equal(referenceMatchesInput("ABC-60136", "60136-ABC"), false);
 });
+
+test('local-only shortage waits for acknowledgment, then permits audited notification without reopening receiving', async () => {
+  await withMcleod(fixture(), async () => {
+    let current = { id: '11111111-1111-4111-8111-111111111111', updated_at: 'revision-1',
+      terminal: 'SAV', site_code: '175', site_name: 'Savannah - 175', sub_location: 'MAIN',
+      received_date: '2026-10-26', mark: 'LOCALSHORT', shipper: 'KING RANCH', bol_bc: 90,
+      bale_count: null, warehouse_location: 'D3', equipment_type: 'V', verified: false,
+      comment_1: null, comment_2: null, checked_in_at: '2026-10-26T12:00:00Z',
+      draft_status: 'checked_in', yard_status: 'working', local_receiving_only: true,
+      material_type: 'cotton', movement_direction: 'delivery', matched_order_id: null };
+    let revision = 1, remoteProcessing = 0;
+    const db = { from() {
+      let payload; const filters = [];
+      return { select() { return this; }, eq(k,v) { filters.push(r => r[k] === v); return this; },
+        in(k,vs) { filters.push(r => vs.includes(r[k])); return this; },
+        update(v) { payload=v; return this; }, async single() { return { data: { ...current } }; },
+        async maybeSingle() {
+          if (!filters.every(f=>f(current))) return { data:null };
+          current={...current,...payload,updated_at:`revision-${++revision}`}; return { data:{...current} };
+        } };
+    } };
+    const { PATCH } = load('app/api/inbound/checkin/rows/[id]/route.ts', {
+      '@/lib/inbound/checkin/ready': load('lib/inbound/checkin/ready.ts'),
+      '@/lib/inbound/checkin/shortage': load('lib/inbound/checkin/shortage.ts'),
+      '@supabase/supabase-js': { createClient:()=>db },
+      '@/lib/inbound/checkin/process-row': { processCheckinRow:async()=>{remoteProcessing++;throw new Error('Local receiving cannot process McLeod');} },
+    });
+    const patch = async body => {
+      const response=await PATCH({ json:async()=>({expectedUpdatedAt:current.updated_at,...body}) },
+        {params:Promise.resolve({id:current.id})}); return {status:response.status,body:await response.json()};
+    };
+    assert.equal((await patch({baleCount:80})).status,200);
+    assert.equal(current.draft_status,'checked_in'); assert.equal(current.yard_status,'working');
+    assert.equal(current.physical_departed_at,undefined); assert.equal(current.verified,false);
+    assert.equal((await patch({acknowledgeShortage:true,shortageNote:'Ten bales missing; customer follow-up required.'})).status,200);
+    assert.equal(current.draft_status,'delivery_blocked'); assert.equal(current.yard_status,'completed');
+    const departed=current.physical_departed_at; assert.ok(departed); assert.ok(current.shortage_acknowledged_at);
+    assert.equal((await patch({customerNotified:true,notificationNote:'Synthetic customer notified',baleCount:79})).status,409);
+    assert.equal(current.bale_count,80);
+    assert.equal((await patch({customerNotified:true,notificationNote:'Synthetic customer notified',matchedOrderId:'FORGED'})).status,409);
+    const notified=await patch({customerNotified:true,notificationNote:'Synthetic customer notified'});
+    assert.equal(notified.status,200,JSON.stringify(notified.body)); assert.ok(current.customer_notified_at);
+    assert.equal(current.physical_departed_at,departed); assert.equal(current.yard_status,'completed');
+    assert.equal((await patch({baleCount:90})).status,409); assert.equal(current.bale_count,80);
+    assert.equal(remoteProcessing,0);
+  });
+});

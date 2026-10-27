@@ -76,8 +76,8 @@ test("local-only receiving flag survives editable notes and bypasses McLeod", ()
 
 test("local-only cotton shortages never enter automatic McLeod processing", () => {
   const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
-  assert.match(route, /const draft_status = localOnly && completeReceiving\s*\? shortage \? "delivery_blocked" : "checked_in"/);
-  assert.match(route, /merged\.verified = \["ready", "delivery_blocked"\]\.includes\(draft_status\) \|\| \(localOnly && completeReceiving\)/);
+  assert.match(route, /const draft_status = localOnly && completeReceiving\s*\? shortage && shortageAcknowledged\(merged\) \? "delivery_blocked" : "checked_in"/);
+  assert.match(route, /merged\.verified = \["ready", "delivery_blocked"\]\.includes\(draft_status\) \|\| \(localReceivingComplete\)/);
 });
 
 test("local-only checkout never requires a McLeod write", () => {
@@ -91,7 +91,7 @@ test("local-only checkout never requires a McLeod write", () => {
 
 test("local-only receiving completes yard status in the same guarded update", () => {
   const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
-  assert.match(route, /yard_status: localOnly && completeReceiving \? "completed"/);
+  assert.match(route, /yard_status: localReceivingComplete \? "completed"/);
   assert.match(route, /yard_completed_at: existing\.physical_departed_at \|\| at/);
   assert.match(route, /physical_departed_at: at, yard_updated_by: staffActor\(req\)/);
   assert.doesNotMatch(route, /Receiving saved but checkout status changed/);
