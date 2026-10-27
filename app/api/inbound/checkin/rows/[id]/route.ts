@@ -208,8 +208,7 @@ async function PATCHHandler(
     }
     // Explicit local-only receiving is permitted for customers whose orders
     // are not yet managed in McLeod. Never infer this from a failed search.
-    const localOnly = existing.matched_order_id == null &&
-      String(existing.comment_1 ?? "").includes("local receiving only, reconcile before any McLeod update.");
+    const localOnly = existing.local_receiving_only === true && !matchedOrderId;
     const completeReceiving = isCompleteCheckin(merged);
     const draft_status = localOnly && completeReceiving && !shortage
       ? "checked_in"
@@ -249,6 +248,7 @@ async function PATCHHandler(
       shipper: merged.shipper,
       trucking_company: merged.trucking_company,
       matched_order_id: matchedOrderId || null,
+      local_receiving_only: localOnly,
       expected_bale_count: merged.expected_bale_count,
       shortage_acknowledged_at: merged.shortage_acknowledged_at,
       shortage_acknowledged_by: merged.shortage_acknowledged_by,
