@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import ts from 'typescript';
+import * as agreementModule from '../lib/inbound/checkin/pickup-agreement.ts';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { validatePickupAcceptance, PICKUP_AGREEMENT_VERSION, PICKUP_TERMS } from '../lib/inbound/checkin/pickup-agreement.ts';
@@ -32,4 +34,20 @@ test('database snapshot is atomic, timestamped and immutable while normal receiv
   await db.exec("set role authenticated"); await assert.rejects(db.query('select pickup_agreement from inbound_checkin_rows'),/permission denied/); await db.exec('reset role');
   assert.equal((await db.query('select count(*) from inbound_checkin_rows')).rows[0].count,1);
  } finally {await db.close();}
+});
+
+
+test('actual signature component captures pointer strokes, clears safely and revokes consent on edits',()=>{
+ const source=ts.transpileModule(readFileSync(new URL('../components/warehouse/PickupAgreement.tsx',import.meta.url),'utf8'),{fileName:'PickupAgreement.tsx',compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+ const refs=[];let cursor=0,value={...signed(),strokes:[]},tree;
+ const jsx=(type,props)=>({type,props});const modules={'react':{useRef(initial){const i=cursor++;return refs[i]??=( {current:initial} );}},'react/jsx-runtime':{jsx,jsxs:jsx},'@/lib/inbound/checkin/pickup-agreement':agreementModule};const module={exports:{}};
+ new Function('require','module','exports',source)(name=>{assert.ok(name in modules);return modules[name];},module,module.exports);
+ const render=()=>{cursor=0;tree=module.exports.default({value,language:'en',onChange(next){value=next;render();}});};
+ function nodes(node,type){if(!node||typeof node!=='object')return [];if(Array.isArray(node))return node.flatMap(n=>nodes(n,type));return [...(node.type===type?[node]:[]),...nodes(node.props?.children,type)];}
+ const event=(x,y)=>({preventDefault(){},pointerId:1,clientX:x,clientY:y,currentTarget:{setPointerCapture(){},getBoundingClientRect(){return {left:0,top:0,width:600,height:180};}}});
+ render();nodes(tree,'svg')[0].props.onPointerDown(event(60,36));nodes(tree,'svg')[0].props.onPointerMove(event(180,72));nodes(tree,'svg')[0].props.onPointerMove(event(300,36));nodes(tree,'svg')[0].props.onPointerUp();
+ assert.deepEqual(value.strokes,[[[.1,.2],[.3,.4],[.5,.2]]]);assert.equal(value.acknowledged,false);assert.equal(value.electronicConsent,false);
+ value={...value,acknowledged:true,electronicConsent:true};render();assert.equal(validatePickupAcceptance(value).strokes.length,1);
+ nodes(tree,'input')[0].props.onChange({target:{value:'CHANGED'}});assert.equal(value.acknowledged,false);
+ nodes(tree,'button')[0].props.onClick();assert.equal(value.strokes.length,0);assert.throws(()=>validatePickupAcceptance({...value,acknowledged:true,electronicConsent:true}),/signature/);
 });
