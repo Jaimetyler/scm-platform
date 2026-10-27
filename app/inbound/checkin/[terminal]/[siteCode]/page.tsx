@@ -1,4 +1,5 @@
 "use client";
+import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
 import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import PollingStatus from "@/components/warehouse/PollingStatus";
 import { mergePollingRows } from "@/lib/polling/merge-rows";
@@ -255,7 +256,7 @@ export default function SiteCheckinPage() {
 
   useEffect(() => {
     for (const row of rows) {
-      if (viewCarryover || row.local_receiving_only || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
+      if (viewCarryover || row.local_receiving_only || isLocalReceivingCustomer(row.shipper) || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
       const mark = (row.mark ?? "").trim().toUpperCase();
       const key = `${mark}|${(row.shipper ?? "").trim().toUpperCase()}`;
       if (lookupKeysRef.current[row.id] === key) continue;
@@ -328,8 +329,8 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
-    if (!site || !newCheckin || newCheckin.matched_order_id || manualUnlinkedCheckin) {
-      if (manualUnlinkedCheckin) { setNewMatches([]); setNewSearching(false); setNewError(""); }
+    if (!site || !newCheckin || newCheckin.matched_order_id || manualUnlinkedCheckin || isLocalReceivingCustomer(newCheckin.shipper)) {
+      if (manualUnlinkedCheckin || isLocalReceivingCustomer(newCheckin?.shipper)) { setNewMatches([]); setNewSearching(false); setNewError(""); }
       return;
     }
     const mark = (newCheckin.mark ?? "").trim().toUpperCase();

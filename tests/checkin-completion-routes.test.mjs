@@ -408,3 +408,18 @@ test('local-only shortage waits for acknowledgment, then permits audited notific
     assert.equal(remoteProcessing,0);
   });
 });
+
+test('staff-created King Ranch receipts default local-only without a client flag or vendor lookup',async()=>{
+  await withMcleod(fixture(),async()=>{
+  let payload;
+  const query={insert(v){payload=v;return this;},select(){return this;},async single(){return{data:{id:'fixture',...payload}};}};
+  const {POST}=load('app/api/inbound/checkin/rows/route.ts',{
+    '@supabase/supabase-js':{createClient:()=>({from:()=>query})},
+    '@/lib/inbound/checkin/verify-cotton-order':{verifyCottonOrder:async()=>{throw new Error('Local creation must not search McLeod');}},
+  });
+  const result=await POST({json:async()=>({terminal:'HOU',siteCode:'5300',siteName:'Houston 5300',
+    receivedDate:'2026-10-27',mark:'LOCALPOLICY',shipper:'KING RANCH',bolBC:90,localReceivingOnly:false})});
+  assert.equal(result.status,200,JSON.stringify(await result.clone().json()));
+  assert.equal(payload.local_receiving_only,true);assert.equal(payload.matched_order_id,null);
+  });
+});

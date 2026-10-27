@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
 import { outsideCarrierOverrideEligible, canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
@@ -268,7 +269,7 @@ async function PATCHHandler(req: NextRequest) {
           mcleod: "already completed; saved status refreshed" });
       // Local-only customer receipts are never sent to McLeod. The receiving
       // screen already records physical departure when all details are saved.
-      if (row?.local_receiving_only === true && !row.matched_order_id) {
+      if (row?.local_receiving_only === true && !row.matched_order_id && !body?.cotton) {
         if (!row.physical_departed_at) return NextResponse.json({ ok: false,
           error: "Complete and save receiving details before checking out this local-only load." }, { status: 409 });
         const { data: localDone, error: localError } = await sb.from("inbound_checkin_rows")
@@ -418,6 +419,8 @@ async function PATCHHandler(req: NextRequest) {
           return NextResponse.json({ ok: false, error: "Enter the mark, customer, BOL count, unloaded bales, equipment, and warehouse location." }, { status: 400 });
         }
         const shortage = cottonShortage(ready);
+        const localOnly = !row.matched_order_id && !row.matched_stop_id && !row.mcleod_lookup_has_known_match &&
+          (row.local_receiving_only === true || configuredLocalReceiving({ ...row, shipper: customer }));
         let acknowledgement = {};
         if (shortage && !shortageAcknowledged(ready)) {
           if (cotton.acknowledgeShortage !== true) return NextResponse.json({ ok: false, error: "Acknowledge the bale shortage with a note before finishing receiving. McLeod delivery cannot be posted." }, { status: 400 });
@@ -427,13 +430,17 @@ async function PATCHHandler(req: NextRequest) {
         const { data: prepared, error: prepareError } = await sb.from("inbound_checkin_rows")
           .update({ mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
             warehouse_location: location, equipment_type: equipment, verified: true,
-            verified_at: departure.toISOString(), draft_status: shortage ? "delivery_blocked" : "ready", processing_error: null,
-            ...(!shortage ? { mcleod_processing_phase: "lookup" } : {}), ...acknowledgement,
+            verified_at: departure.toISOString(), draft_status: shortage ? "delivery_blocked" : localOnly ? "checked_in" : "ready", processing_error: null,
+            ...(localOnly ? { local_receiving_only: true, physical_departed_at: row.physical_departed_at || departure.toISOString(),
+              yard_status: "completed", yard_completed_at: row.yard_completed_at || departure.toISOString(), yard_updated_by: user(req) }
+              : !shortage ? { mcleod_processing_phase: "lookup" } : {}), ...acknowledgement,
             ...(shortage && cotton.shortageNote ? { comment_1: [row.comment_1, `Shortage acknowledged: ${shortage.received} of ${shortage.expected} bales. ${String(cotton.shortageNote).trim()}`].filter(Boolean).join("\n") } : {}) })
           .eq("id", id).eq("updated_at", row.updated_at)
           .in("draft_status", ["checked_in", "ready", "failed"]).select("*").maybeSingle();
         if (prepareError) throw prepareError;
         if (!prepared) return NextResponse.json({ ok: false, error: "This cotton row changed. Refresh before finishing it." }, { status: 409 });
+        if (localOnly) return NextResponse.json({ ok: true, row: queueRow(prepared),
+          mcleod: shortage ? "Local receiving complete; shortage acknowledged. No McLeod update." : "Local receiving complete; no McLeod update." });
         // Reconcile a closed SCM delivery before the regular live-sync path,
         // which correctly forbids posting already-delivered stop actuals.
         if (!shortage && prepared.matched_order_id) {

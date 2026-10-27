@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import * as driverLanguage from '../lib/inbound/checkin/driver-language.ts';
 
 // Execute the actual page and its event handlers with a tiny hook renderer.
 // Network, location, and React scheduling are controlled boundaries; no live I/O.
@@ -55,6 +56,7 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
   };
   const jsx = (type, props, key) => ({ type, props, key });
   const modules = {
+    '@/lib/inbound/checkin/driver-language': driverLanguage,
     react: hooks,
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
     'next/navigation': { useParams: () => ({ token }) },
@@ -118,6 +120,33 @@ test('QR renders one exact-label input, retains pickup/delivery and cotton field
   assert.ok(h.input('Mark *')); assert.ok(h.input('Bale count on BOL *'));
   await h.change('Pickup or delivery? *', 'delivery');
   assert.ok(h.input('Bales on truck (if different from BOL)'));
+});
+
+test('English/Español switching preserves lookup, form evidence and submission identity', async t => {
+  const h=await mount();t.after(h.dispose);
+  await h.change('Mobile number *','555-123-8888');
+  const switchLanguage=async value=>{
+    h.nodes(n=>n.type==='select'&&n.props['aria-label']==='English / Español')[0].props.onChange({target:{value}});
+    await h.flush();
+  };
+  await switchLanguage('es');
+  assert.ok(h.text().includes('REGISTRO DE CONDUCTORES SCM'));
+  assert.equal(h.input('Referencia de recolección / entrega o número de orden SCM').props.value,'0824528');
+  assert.equal(h.input('Número de celular *').props.value,'555-123-8888');
+  await h.click('Buscar mi carga');
+  assert.ok(h.text().includes('Se encontró la orden SCM: recolección'));
+  assert.equal(h.submitButton.props.disabled,false);
+  const orderEvidence=h.calls[1].body.orderId;
+  await switchLanguage('en');
+  assert.equal(h.input(label).props.value,'0824528');
+  assert.equal(h.submitButton.props.disabled,false);
+  await switchLanguage('es');
+  await h.submit();
+  const payload=h.calls.at(-1).body;
+  assert.equal(payload.get('language'),'es');
+  assert.equal(payload.get('orderId'),orderEvidence);
+  assert.equal(payload.get('driverPhone'),'555-123-8888');
+  assert.ok(h.text().includes('Su registro está completo'));
 });
 
 test('unique SCM ID or reference uses one lookup flow, preserves typed input and entered phone, and submits actual order/stop separately', async t => {

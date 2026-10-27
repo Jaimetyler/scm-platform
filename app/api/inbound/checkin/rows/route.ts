@@ -1,3 +1,4 @@
+import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { NextRequest, NextResponse } from "next/server";
@@ -232,7 +233,7 @@ async function POSTHandler(req: NextRequest) {
       driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       matched_order_id: matchedOrderId || null,
-      local_receiving_only: body?.localReceivingOnly === true && !matchedOrderId,
+      local_receiving_only: !matchedOrderId && (body?.localReceivingOnly === true || isLocalReceivingCustomer(shipper)),
       expected_bale_count: expectedBales,
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),

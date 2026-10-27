@@ -1,3 +1,4 @@
+import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
 import { canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
@@ -222,7 +223,8 @@ async function PATCHHandler(
     }
     // Explicit local-only receiving is permitted for customers whose orders
     // are not yet managed in McLeod. Never infer this from a failed search.
-    const localOnly = existing.local_receiving_only === true && !matchedOrderId;
+    const localOnly = !matchedOrderId && (existing.local_receiving_only === true ||
+      configuredLocalReceiving({ ...existing, shipper: merged.shipper }));
     const completeReceiving = isCompleteCheckin(merged);
     const localReceivingComplete = localOnly && completeReceiving && (!shortage || shortageAcknowledged(merged));
     const draft_status = localOnly && completeReceiving

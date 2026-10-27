@@ -192,6 +192,17 @@ test("complete no-match remains automatic outside-carrier receiving",async()=>{
   });
 });
 
+test("configured King Ranch receiving finishes locally without any McLeod lookup",async()=>{
+  await scenario({row:{shipper:"KING RANCH"}},async s=>{
+    const response=await s.checkout();const body=await response.json();
+    assert.equal(response.status,200,JSON.stringify(body));
+    assert.equal(s.row().yard_status,"completed");assert.equal(s.row().local_receiving_only,true);
+    assert.ok(s.row().physical_departed_at);
+    assert.equal(s.stats().searchCalls,0);assert.equal(s.stats().externalWrites,0);
+    assert.equal(s.stats().claims,0);
+  });
+});
+
 test("unlinked known candidate already delivered is reconciled once without McLeod writes",async()=>{
   const closed=order();closed.status="D";closed.__statusDescr="Delivered";
   Object.assign(closed.stops[1],{location:{name:"SCM Houston 5300"},actual_arrival:"20261013070000-0500",actual_departure:"20261013080000-0500"});
