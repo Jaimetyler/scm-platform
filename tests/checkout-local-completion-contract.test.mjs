@@ -73,3 +73,9 @@ test("local-only receiving flag survives editable notes and bypasses McLeod", ()
   assert.match(edit, /const saved = draft_status === "ready" \? await processCheckinRow/);
   assert.match(migration, /add column if not exists local_receiving_only boolean not null default false/);
 });
+
+test("local-only cotton shortages never enter automatic McLeod processing", () => {
+  const route = read("app/api/inbound/checkin/rows/[id]/route.ts");
+  assert.match(route, /const draft_status = localOnly && completeReceiving\s*\? shortage \? "delivery_blocked" : "checked_in"/);
+  assert.match(route, /merged\.verified = \["ready", "delivery_blocked"\]\.includes\(draft_status\) \|\| \(localOnly && completeReceiving\)/);
+});
