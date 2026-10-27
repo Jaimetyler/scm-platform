@@ -210,8 +210,8 @@ async function PATCHHandler(
     // are not yet managed in McLeod. Never infer this from a failed search.
     const localOnly = existing.local_receiving_only === true && !matchedOrderId;
     const completeReceiving = isCompleteCheckin(merged);
-    const draft_status = localOnly && completeReceiving && !shortage
-      ? "checked_in"
+    const draft_status = localOnly && completeReceiving
+      ? shortage ? "delivery_blocked" : "checked_in"
       : shortage && shortageAcknowledged(merged) && completeReceiving
       ? "delivery_blocked" : isReadyCheckin(merged) ? "ready" : "checked_in";
     if (draft_status === "ready" && !canPrepareMcleodLookup(existing)) {
