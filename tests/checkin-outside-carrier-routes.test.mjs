@@ -73,6 +73,14 @@ async function scenario(options, run) {
       async maybeSingle(){if(options.savedReadError)return{error:options.savedReadError,status:options.savedStatus};if(filters.some(fn=>!fn(row)))return{data:null};return{data:update?save(update):{...row}};},
       async single(){return this.maybeSingle();},then(resolve){return Promise.resolve({data:[{...row}]}).then(resolve);}};return query;},
     async rpc(name,args){rpcCalls.push({name,args});
+      if(name==="complete_inbound_mcleod_already_done") {
+        assert.equal(args.p_order_id,row.matched_order_id);
+        assert.equal(args.p_stop_id,row.matched_stop_id);
+        assert.equal(args.p_expected_updated_at,row.updated_at);
+        assert.equal(row.mcleod_processing_phase,"lookup");
+        assert.equal(args.p_staff_id,staff.id);
+        return {data:[save({draft_status:"processed",yard_status:"completed",mcleod_processing_phase:"complete",processing_error:null})]};
+      }
       if(name==="claim_inbound_checkin_row_v2"){
         if(row.draft_status!=="ready"||row.mcleod_processing_phase!=="lookup")return{data:[]};
         claims++;
@@ -125,7 +133,7 @@ async function scenario(options, run) {
       if(options.bodyError)return{ok:true,status:200,text:async()=>{throw new TypeError("Lost read body");}};
       return Response.json(options.search ? options.search(parsed) : null);
     }
-    if(parsed.pathname==="/orders/ORDER1")return Response.json(order());
+    if(parsed.pathname==="/orders/ORDER1")return Response.json(options.detail ?? order());
     if(parsed.pathname.startsWith("/carrierDispatch/clearStop/")){
       externalWrites++;assert.equal(row.mcleod_processing_phase,"write_pending");
       if(options.writeError)throw new DOMException("Write timeout","TimeoutError");
@@ -182,6 +190,40 @@ test("complete no-match remains automatic outside-carrier receiving",async()=>{
     assert.equal(s.row().draft_status,"outside_carrier");assert.equal(s.row().mcleod_lookup_status,"no_match");
     assert.equal(s.stats().rpcCalls.some(call=>call.name==="complete_inbound_outside_carrier"),false);assert.equal(s.stats().externalWrites,0);
   });
+});
+
+test("unlinked known candidate already delivered is reconciled once without McLeod writes",async()=>{
+  const closed=order();closed.status="D";closed.__statusDescr="Delivered";
+  Object.assign(closed.stops[1],{location:{name:"SCM Houston 5300"},actual_arrival:"20261013070000-0500",actual_departure:"20261013080000-0500"});
+  await scenario({row:{mcleod_lookup_has_known_match:true},search:()=>[closed],detail:closed},async s=>{
+    const response=await s.checkout();const body=await response.json();
+    assert.equal(response.status,200,JSON.stringify(body));
+    assert.match(body.mcleod,/reconciled without McLeod write/);
+    assert.equal(s.row().matched_order_id,"ORDER1");assert.equal(s.row().matched_stop_id,"SO1");
+    assert.equal(s.row().mcleod_lookup_has_known_match,true);
+    assert.equal(s.row().yard_status,"completed");assert.equal(s.stats().externalWrites,0);
+    const calls=s.stats().rpcCalls.filter(c=>c.name==="complete_inbound_mcleod_already_done");
+    assert.equal(calls.length,1);
+    assert.equal(calls[0].args.p_mcleod_arrival,"20261013070000-0500");
+    assert.equal(calls[0].args.p_mcleod_departure,"20261013080000-0500");
+    assert.equal((await s.checkout()).status,200);
+    assert.equal(s.stats().rpcCalls.filter(c=>c.name==="complete_inbound_mcleod_already_done").length,1);
+  });
+});
+
+test("completed candidate with conflicting receiving or yard stays blocked without binding or writes",async()=>{
+  for(const change of [o=>{o.customer_id="OTHER";},o=>{o.blnum="60136 90 BALES";},
+    o=>{o.stops[1].location={name:"SCM Savannah 175"};},o=>{o.stops[1].actual_departure="";}]) {
+    const closed=order();closed.status="D";closed.__statusDescr="Delivered";
+    Object.assign(closed.stops[1],{location:{name:"SCM Houston 5300"},actual_arrival:"20261013070000-0500",actual_departure:"20261013080000-0500"});
+    change(closed);
+    await scenario({row:{mcleod_lookup_has_known_match:true},search:()=>[closed],detail:closed},async s=>{
+      assert.equal((await s.checkout()).status,409);
+      assert.equal(s.row().matched_order_id,null);assert.equal(s.row().mcleod_lookup_has_known_match,true);
+      assert.equal(s.stats().externalWrites,0);
+      assert.equal(s.stats().rpcCalls.some(c=>c.name==="complete_inbound_mcleod_already_done"),false);
+    });
+  }
 });
 test("known eligible SCM match processes normally; post-write timeout stays blocked",async()=>{
   for(const writeError of [false,true])await scenario({search:()=>[order()],writeError},async s=>{

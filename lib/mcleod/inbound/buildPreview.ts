@@ -1,5 +1,5 @@
 import { McleodLookupIncompleteError } from "@/lib/inbound/checkin/lookup-failure";
-import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
+import { currentCottonOrder, reconcilableCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -402,7 +402,7 @@ function buildProposed(candidate: SearchCandidate | null) {
   };
 }
 
-export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string } = {}): Promise<PreviewResult[]> {
+export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string; includeCompletedForReconciliation?: boolean } = {}): Promise<PreviewResult[]> {
   console.log("BUILD_PREVIEW_LOADED", BUILD_PREVIEW_VERSION);
 
   const results: PreviewResult[] = [];
@@ -541,7 +541,7 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
           const order = await response.json();
           const eligibility = currentCottonOrder(order, row.receivedDate);
           if (!eligibility.eligible && !eligibility.historical) searchContext.incomplete.add(eligibility.reason);
-          return eligibility.eligible ? candidate : null;
+          return eligibility.eligible || options.includeCompletedForReconciliation && reconcilableCottonOrder(order, row.receivedDate) ? candidate : null;
         } catch {
           searchContext.incomplete.add("network or response body error verifying known match");
           return null;
