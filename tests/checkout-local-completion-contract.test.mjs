@@ -51,3 +51,12 @@ test("physical departure migration audits and preserves immutable timestamps", (
   assert.match(sql, /physical_departure_events/);
   assert.match(sql, /Physical departure is immutable/);
 });
+
+test("unrecognized customer can be checked in without a McLeod order", () => {
+  const page = read("app/inbound/checkin/[terminal]/[siteCode]/page.tsx");
+  const route = read("app/api/inbound/checkin/rows/route.ts");
+  assert.match(page, /Customer\/order not yet in McLeod/);
+  assert.match(page, /matchedOrderId: manualUnlinkedCheckin \? null/);
+  assert.match(page, /if \(!site \|\| !newCheckin \|\| newSaving\) return/);
+  assert.match(route, /matched_order_id: matchedOrderId \|\| null/);
+});
