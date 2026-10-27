@@ -302,7 +302,23 @@ async function PATCHHandler(
       return NextResponse.json({ ok: false, error: "Row changed while saving. Refresh and try again." }, { status: 409 });
     }
 
-    const saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
+    let saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
+    // A local-only receipt is complete as soon as the physical receiving
+    // details are saved. Clear the yard status here rather than requiring a
+    // second button press on the domestic line.
+    if (localOnly && completeReceiving && saved.physical_departed_at &&
+        saved.yard_status !== "completed") {
+      const { data: closed, error: closeError } = await sb.from("inbound_checkin_rows")
+        .update({ yard_status: "completed", yard_completed_at: saved.physical_departed_at,
+          yard_updated_by: staffActor(req) })
+        .eq("id", id).eq("updated_at", saved.updated_at)
+        .eq("local_receiving_only", true).is("matched_order_id", null)
+        .select("*").maybeSingle();
+      if (closeError) throw closeError;
+      if (!closed) return NextResponse.json({ ok: false,
+        error: "Receiving saved but checkout status changed. Refresh the line." }, { status: 409 });
+      saved = closed;
+    }
     return NextResponse.json({
       ok: true,
       row: publicCheckinRow(saved as unknown as Record<string, unknown>),
