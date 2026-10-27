@@ -1237,7 +1237,7 @@ export default function SiteCheckinPage() {
                         ref={(el) => registerCellRef(index, "comment_1", el)}
                         style={cellTextareaStyle}
                         placeholder="Damage, shortage, and customer follow-up notes"
-                        disabled={row.draft_status !== "delivery_blocked" && isReadOnlyRow(row)}
+                        disabled={row.local_receiving_only === true && row.yard_status === "completed" || row.draft_status !== "delivery_blocked" && isReadOnlyRow(row)}
                       />
                     </td>
 
