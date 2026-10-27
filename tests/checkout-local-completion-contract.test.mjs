@@ -79,3 +79,12 @@ test("local-only cotton shortages never enter automatic McLeod processing", () =
   assert.match(route, /const draft_status = localOnly && completeReceiving\s*\? shortage \? "delivery_blocked" : "checked_in"/);
   assert.match(route, /merged\.verified = \["ready", "delivery_blocked"\]\.includes\(draft_status\) \|\| \(localOnly && completeReceiving\)/);
 });
+
+test("local-only checkout never requires a McLeod write", () => {
+  const route = read("app/api/warehouse/domestic-queue/route.ts");
+  const local = route.indexOf('row?.local_receiving_only === true && !row.matched_order_id');
+  const remote = route.indexOf('carrierDispatch/clearStop/');
+  assert.ok(local >= 0 && remote > local);
+  assert.match(route.slice(local, remote), /Local-only receiving complete; no McLeod update/);
+  assert.match(route.slice(local, remote), /physical_departed_at/);
+});
