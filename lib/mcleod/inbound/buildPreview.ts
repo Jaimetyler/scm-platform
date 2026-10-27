@@ -402,7 +402,7 @@ function buildProposed(candidate: SearchCandidate | null) {
   };
 }
 
-export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void> } = {}): Promise<PreviewResult[]> {
+export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string } = {}): Promise<PreviewResult[]> {
   console.log("BUILD_PREVIEW_LOADED", BUILD_PREVIEW_VERSION);
 
   const results: PreviewResult[] = [];
@@ -434,6 +434,49 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
         parsedBlnum: null,
         proposed: null,
       });
+      continue;
+    }
+
+    // A warehouse operator may already have selected an exact SCM order during
+    // check-in. Verify that saved identity directly instead of losing it when a
+    // later broad mark search returns no candidates (or hits a search limit).
+    // All delivery checks in /api/inbound/sync still run before any McLeod write.
+    if (options.strictSearch && options.preferredOrderId) {
+      const orderId = options.preferredOrderId.trim();
+      if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) {
+        throw new McleodLookupIncompleteError("Invalid saved SCM order identity; review this arrival.", true, ["invalid saved order"]);
+      }
+      // This is a known SCM match, not outside-carrier evidence. A failed read
+      // must leave it in review rather than converting it to a no-match.
+      await options.onKnownMatch?.();
+      let order: Record<string, any>;
+      try {
+        const response = await fetch(`${getBaseUrl()}/orders/${encodeURIComponent(orderId)}`, {
+          headers: getHeaders(), cache: "no-store", signal: searchContext.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const value: unknown = await response.json();
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid order detail");
+        order = value as Record<string, any>;
+      } catch {
+        throw new McleodLookupIncompleteError("Saved SCM order could not be verified; retry or review it before receiving.", true, ["saved order detail unavailable"]);
+      }
+      const candidate: SearchCandidate = {
+        orderId: String(order.id ?? ""),
+        revenueCode: String(order.revenue_code_id ?? "").toUpperCase(),
+        movementId: String(order.curr_movement_id ?? order.movements?.[0]?.id ?? ""),
+        customerId: String(order.customer_id ?? order.customer?.id ?? ""),
+        blnum: typeof order.blnum === "string" ? order.blnum : null,
+        consigneeRefNo: typeof order.consignee_refno === "string" ? order.consignee_refno : null,
+        movementStatus: String(order.status ?? ""),
+      };
+      const [verified] = enrichCandidates([candidate], targetMark, targetBales);
+      const eligibility = currentCottonOrder(order, row.receivedDate);
+      if (candidate.orderId !== orderId || candidate.revenueCode !== "MAIN" || !verified.exactMark || !eligibility.eligible) {
+        throw new McleodLookupIncompleteError("Saved SCM order does not verify against the cotton mark, revenue code, or current order date; review before processing.", true, ["saved order verification conflict"]);
+      }
+      results.push({ row, resolvedCustomer, candidateCount: 1, status: "Matched",
+        matchedOrderId: orderId, reason: "Verified saved SCM order by exact ID and mark",
+        parsedBlnum: verified.parsedBlnum, proposed: buildProposed(candidate) });
       continue;
     }
 

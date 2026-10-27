@@ -24,5 +24,9 @@ jobs:
       - run: npm ci
       - name: Full regression suite
         run: node --test tests/*.test.mjs
+      - name: Synthetic McLeod acceptance
+        run: |
+          node tests/fixtures/mcleod-acceptance/tests/integration.mjs
+          node tests/fixtures/mcleod-acceptance/tests/hosted.mjs
       - name: TypeScript
         run: npx tsc --noEmit

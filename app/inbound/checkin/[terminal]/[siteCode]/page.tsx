@@ -56,6 +56,7 @@ type CheckinRow = ShortageFields & {
   draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed" | "delivery_blocked";
   processed_at: string | null;
   processing_error?: string | null;
+  inventory_recovered?: boolean;
   matched_order_id?: string | null;
   checkin_source?: "staff" | "driver_qr";
   driver_name?: string | null;
@@ -122,7 +123,12 @@ const CHECKIN_CUSTOMERS = Array.from(
   )
 ).sort((a, b) => a.localeCompare(b));
 
+function isInventoryRecovered(row: CheckinRow) {
+  return row.draft_status === "failed" && row.inventory_recovered === true;
+}
+
 function rowTone(row: CheckinRow): React.CSSProperties {
+  if (isInventoryRecovered(row)) return { background: "rgba(59,130,246,0.04)" };
   if (cottonShortage(row)) return { background: "rgba(180,83,9,.09)" };
   if (row.draft_status === "processed") {
     return { background: "rgba(59,130,246,0.03)" };
@@ -176,7 +182,7 @@ function willProcess(row: CheckinRow) {
 }
 
 function isClosedRow(row: CheckinRow) {
-  return row.local_receiving_only === true && row.yard_status === "completed" ||
+  return isInventoryRecovered(row) || row.local_receiving_only === true && row.yard_status === "completed" ||
     row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
     row.draft_status === "processing";
 }
@@ -1258,22 +1264,22 @@ export default function SiteCheckinPage() {
                       <div style={rowActionStatusStyle}>
                         <div style={rowStatusStyle}>
                       <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.id.startsWith("local-") ? "" : row.local_receiving_only && row.yard_status === "completed" ? "Receiving complete" : row.draft_status === "checked_in"
+                      <small>{row.id.startsWith("local-") ? "" : row.local_receiving_only && row.yard_status === "completed" ? "Receiving complete" : isInventoryRecovered(row) ? "Received — reconciliation pending" : row.draft_status === "checked_in"
                         ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
                         : row.draft_status === "delivery_blocked" ? "Receiving complete" : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (
                         <button type="button" title={row.processing_error || ui.message || "Save failed"}
-                          aria-label="Show check-in error"
+                          aria-label={isInventoryRecovered(row) ? "Show original McLeod issue" : "Show check-in error"}
                           onClick={() => setExpandedIds((current) => new Set(current).add(row.id))}
-                          style={errorButtonStyle}>View error</button>
+                          style={errorButtonStyle}>{isInventoryRecovered(row) ? "View McLeod issue" : "View error"}</button>
                       ) : null}
                         </div>
-                        {(row.processing_error || ui.saveState === "error") && <small
+                        {(row.processing_error || ui.saveState === "error") && !isInventoryRecovered(row) && <small
                           title={row.processing_error || ui.message || "Save failed"}
                           style={{ color: "#fca5a5", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "block" }}>
                           {row.processing_error || ui.message || "Save failed"}
                         </small>}
-                        {canWrite && row.processing_error && row.draft_status === "failed" &&
+                        {canWrite && row.processing_error && row.draft_status === "failed" && !isInventoryRecovered(row) &&
                           (row.material_type ?? "cotton") === "cotton" &&
                           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) && <div>
                           <a href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line?arrival=${encodeURIComponent(row.id)}`}
