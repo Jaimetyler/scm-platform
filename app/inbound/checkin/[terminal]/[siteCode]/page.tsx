@@ -380,6 +380,7 @@ export default function SiteCheckinPage() {
           driverName: newCheckin.driver_name, driverPhone: newCheckin.driver_phone,
           truckingCompany: newCheckin.trucking_company,
           matchedOrderId: manualUnlinkedCheckin ? null : newCheckin.matched_order_id,
+          localReceivingOnly: manualUnlinkedCheckin,
         }),
       });
       const result = await response.json();
