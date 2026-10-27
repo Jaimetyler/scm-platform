@@ -70,7 +70,7 @@ test("local-only receiving flag survives editable notes and bypasses McLeod", ()
   assert.match(page, /localReceivingOnly: manualUnlinkedCheckin/);
   assert.match(edit, /existing\.local_receiving_only === true && !matchedOrderId/);
   assert.match(edit, /local_receiving_only: localOnly/);
-  assert.match(edit, /let saved = draft_status === "ready" \? await processCheckinRow/);
+  assert.match(edit, /const saved = draft_status === "ready" \? await processCheckinRow/);
   assert.match(migration, /add column if not exists local_receiving_only boolean not null default false/);
 });
 
