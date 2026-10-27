@@ -34,7 +34,7 @@ McLeod itself does not provide a cross-system unique constraint here: a person s
 - Engine fixtures cover successful create/rate/read-back, existing-order skip, two simultaneous requests, vendor timeout, missing creation ID, database receipt failure, autorate uncertainty, immutable fences, extra/missing charge lines and read-only reconciliation. Vendor writes are simulated; this does not certify real create/autorate compatibility.
 - Actual PostgreSQL-compatible migration tests cover repeated import digests, source conflicts across different runs, atomic CAS claims, illegal transitions, private table/function permissions and append-only audit grants.
 - Route tests verify independent write flags, saved-run row membership, explicit confirmation and five-minute in-flight reconciliation guard. Existing staff guard restricts new operational paths to administrators and enforces request origin.
-- Full local suite: 408 passing; TypeScript passes.
+- Full local suite: 409 passing; TypeScript passes.
 - Staging RLS verification: all four ledger tables have RLS enabled; anon/authenticated have no SELECT. Functions have fixed search_path, SECURITY INVOKER and service_role-only EXECUTE. Security advisor changes consist only of four expected INFO notices for RLS without public policies; no new WARN findings. Existing 15 mutable-function warnings and leaked-password-protection warning predate this change.
 
 ## Staging configuration
@@ -53,3 +53,11 @@ Migration `20261027190536_ecotton_import_ledger.sql` was applied only to project
 ## Rollback
 
 Disable ECOTTON_IMPORT_WRITES_ENABLED and redeploy, then restore the prior production deployment 2b1af0b / dpl_6WACjEuf1br9HkxvBLgRANnefSz1 (or the recorded immediately preceding deployment). Retain the new tables, run snapshots, assigned McLeod IDs and audit events. Never restore a stale database backup over current warehouse records. App rollback cannot undo created McLeod orders; reconcile them manually. Never delete an uncertain ledger row to permit a retry.
+
+## Staging review checkpoint
+
+The actual Houston reports were parsed with production mapping configuration and checked against real McLeod using GET only. The resulting source snapshots were saved directly through the staging ledger RPC as run `4d4ce3c9-9bfa-4f4e-ae18-5e89ad7051a8`: 29 ready rows, 2,437,768 cents, zero assigned order IDs, 29 preview audit events. The saved run is intentionally staging-only. Reopening/reuploading uses the same deterministic digest and ledger ownership.
+
+The full 29-order / 197-charge create+rate engine simulation passed with 58 simulated writes and zero real writes. Unauthenticated hosted page smoke redirects to login and API returns 401. Agent did not complete authenticated hosted browser upload or execution: the cloud browser has no staging session, and protected staging service credentials are not readable. Route, database, full-batch simulation and real GET checks are distinct evidence, not a claim of end-to-end real-write success. Accounting should review the hosted saved preview using its existing staging login.
+
+A fresh production database backup, production ledger migration, deployment, enabling creation, and the first real Houston create/rate pilot all remain approval gates. Do not apply those based on the earlier Dallas billing approval.

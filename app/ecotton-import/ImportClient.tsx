@@ -71,7 +71,12 @@ export default function ImportClient() {
     return data;
   }
   useEffect(() => {
-    refresh().catch((e) => setError(e.message));
+    refresh()
+      .then(() => {
+        const runId = new URLSearchParams(window.location.search).get("run");
+        if (runId) return refresh(runId);
+      })
+      .catch((e) => setError(e.message));
   }, []);
   async function act(fn: () => Promise<void>) {
     setBusy(true);

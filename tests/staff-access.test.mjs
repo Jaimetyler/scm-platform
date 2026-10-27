@@ -113,3 +113,15 @@ test("operator reads are restricted by query AND saved record ownership",async()
   const sav={...hou,terminal:"SAV"};
   assert.equal((await call("/api/warehouse/domestic-queue?terminal=HOU","GET",undefined,sav)).status,403);
 });
+
+test("eCotton import previews and execution require an active admin and same-origin writes", async()=>{
+  const path="/api/ecotton-import";
+  for(const staff of [hou,viewer]) for(const method of ["GET","POST"]){
+    const result=await call(path,method,method==="POST"?{action:"execute"}:undefined,staff);
+    assert.equal(result.status,403);assert.equal(result.ran,false);
+  }
+  const admin={...hou,role:"admin",terminal:null};
+  assert.equal((await call(path,"GET",undefined,admin)).status,200);
+  assert.equal((await call(path,"POST",{action:"preview"},admin,{origin:false})).status,403);
+  assert.equal((await call(path,"POST",{action:"preview"},admin)).status,200);
+});
