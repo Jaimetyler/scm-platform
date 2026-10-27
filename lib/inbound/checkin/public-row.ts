@@ -1,4 +1,5 @@
 const PRIVATE_DRIVER_FIELDS = new Set([
+  "pickup_agreement",
   "driver_phone",
   "driver_name",
   "driver_latitude",
@@ -17,6 +18,7 @@ const PRIVATE_DRIVER_FIELDS = new Set([
 // stay behind the authenticated warehouse details page.
 export function publicCheckinRow<T extends Record<string, unknown>>(row: T) {
   return {
+    has_pickup_agreement: Boolean(row.pickup_agreement),
     has_bol_photo: Boolean(row.bol_photo_path),
     ...Object.fromEntries(
     Object.entries(row).filter(([key]) => !PRIVATE_DRIVER_FIELDS.has(key))

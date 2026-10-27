@@ -1,3 +1,4 @@
+import { validatePickupAcceptance, PICKUP_TERMS } from "@/lib/inbound/checkin/pickup-agreement";
 import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { NextRequest, NextResponse } from "next/server";
@@ -37,6 +38,7 @@ async function requestBody(req: NextRequest) {
     return {
       body: {
         clientId: form.get("clientId"),
+        pickupAgreement: form.get("pickupAgreement"),
         deviceId: form.get("deviceId"),
         checkinType: form.get("checkinType"),
         driverName: form.get("driverName"),
@@ -386,8 +388,24 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!orderId) referenceNumber = driverLookupInput.toUpperCase();
     if (movementDirection !== "pickup") destination = "";
 
+    let pickupAgreement = null;
+    if (movementDirection === "pickup") {
+      try {
+        const raw = typeof body.pickupAgreement === "string" ? JSON.parse(body.pickupAgreement) : body.pickupAgreement;
+        const accepted = validatePickupAcceptance(raw);
+        if (accepted.printedName.toUpperCase() !== driverName) throw new Error("The signature printed name must match the driver name.");
+        pickupAgreement = { ...accepted, terms: PICKUP_TERMS[accepted.language],
+          acceptedAt: checkedInAt.toISOString(), driverName, driverPhone, truckingCompany,
+          terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name,
+          orderId: orderId || null, referenceNumber, driverLookupInput, destination, materialType };
+      } catch (error) {
+        return NextResponse.json({ ok: false, error: error instanceof SyntaxError ? "Invalid pickup agreement." : error instanceof Error ? error.message : "Invalid pickup agreement." }, { status: 400 });
+      }
+    }
+
     const insertPayload = {
       id: clientId,
+      pickup_agreement: pickupAgreement,
       terminal: gate.terminal,
       site_code: gate.site_code,
       site_name: gate.site_name,

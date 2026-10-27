@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { translateDriverText, translateDriverError, type DriverLanguage } from "@/lib/inbound/checkin/driver-language";
+import PickupAgreement from "@/components/warehouse/PickupAgreement";
+import { PICKUP_AGREEMENT_VERSION, validatePickupAcceptance, type PickupAcceptance } from "@/lib/inbound/checkin/pickup-agreement";
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 
@@ -86,6 +88,11 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
   const [site, setSite] = useState<Site | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const formRef = useRef<FormState>(EMPTY_FORM);
+  const [agreement, setAgreement] = useState<PickupAcceptance>({ version: PICKUP_AGREEMENT_VERSION, language, printedName: "", trailerNumber: "", productDescription: "", pickupNumber: "", referencePo: "", acknowledged: false, electronicConsent: false, strokes: [] });
+  const agreementRef = useRef(agreement); agreementRef.current = agreement;
+  const agreementContext = useRef("");
+  const languageRef = useRef(language); languageRef.current = language;
+  useEffect(() => { setAgreement(value => ({ ...value, language, acknowledged: false, electronicConsent: false })); }, [language, form.driverName, form.driverPhone, form.truckingCompany, form.referenceNumber, form.orderId, form.selectedStopId, form.destination, form.materialType, form.movementDirection, form.checkinType]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
@@ -340,6 +347,8 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const form = formRef.current;
+    const agreement = agreementRef.current;
+    const language = languageRef.current;
     if (!site || submitInFlight.current) return;
     if (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatusRef.current)) {
       setError(lookupStatusRef.current === "closed" ? "This order is already closed in McLeod. Please speak with warehouse staff." :
@@ -353,11 +362,17 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
     setSubmitting(true);
     setError("");
     try {
+      if (form.checkinType === "domestic" && form.movementDirection === "pickup") {
+        if (agreementContext.current !== JSON.stringify({ language, form })) throw new Error("Read and sign the current pickup agreement before checking in.");
+        validatePickupAcceptance(agreement);
+        if (agreement.printedName.trim().toUpperCase() !== form.driverName.trim().toUpperCase()) throw new Error(language === "es" ? "El nombre en la firma debe coincidir con el nombre del conductor." : "The signature printed name must match the driver name.");
+      }
       const position = await currentPosition();
       const preparedPhoto = form.checkinType === "domestic" && bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
       if (version !== gateVersion.current) return;
       const request = new FormData();
       request.set("language", language);
+      if (form.checkinType === "domestic" && form.movementDirection === "pickup") request.set("pickupAgreement", JSON.stringify(agreement));
       request.set("clientId", clientId);
       request.set("deviceId", deviceId);
       request.set("checkinType", form.checkinType);
@@ -503,6 +518,8 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
             {bolPhoto ? bolPhoto.name : t("Take a clear photo of the BOL, pickup order, or other paperwork.")}
           </small>
         </label> : null}
+
+        {form.checkinType === "domestic" && form.movementDirection === "pickup" && <PickupAgreement value={agreement} onChange={value => { agreementContext.current = JSON.stringify({ language, form: formRef.current }); agreementRef.current = value; setAgreement(value); }} language={language} />}
 
         {completedMatches.map((match) => match.completion ?
           <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} language={language} /> : null)}

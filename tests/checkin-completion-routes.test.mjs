@@ -334,7 +334,7 @@ test("staff create, staff link, and driver submit persist only a freshly verifie
         } };
         const overrides = { "@supabase/supabase-js": { createClient: () => db },
           "@/lib/inbound/checkin/shortage": { cottonShortage: () => null } };
-        const payload = { terminal: "HOU", siteCode: "5300", movementDirection: "pickup", materialType: "lumber",
+        const payload = { pickupAgreement: { version: "scm-pickup-2026-10-27-v1", language: "en", printedName: "Driver", trailerNumber: "TEST", productDescription: "Lumber", pickupNumber: "TEST", referencePo: "TEST", acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] }, terminal: "HOU", siteCode: "5300", movementDirection: "pickup", materialType: "lumber",
           orderId: "0824528", selectedStopId, referenceNumber: "2168418", driverName: "Driver", driverPhone: "555-0100",
           truckingCompany: "Carrier", destination: "Customer Receiver", clientId: existing.id, checkinType: "domestic" };
         let response;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import * as pickupAgreement from '../lib/inbound/checkin/pickup-agreement.ts';
 import * as driverLanguage from '../lib/inbound/checkin/driver-language.ts';
 
 // Execute the actual page and its event handlers with a tiny hook renderer.
@@ -37,6 +38,7 @@ function expand(node) {
 }
 async function mount(respond = body => body.action === 'lookupReference' ? json(matches(candidate())) : json(details()), submitResponse = () => json({ ok: true })) {
   const slots = [], calls = [];
+  let agreementProps;
   let cursor = 0, dirty = true, tree, pendingEffects = [], token = 'gate-one';
   let geo = resolve => resolve({ coords: { latitude: 1, longitude: 2, accuracy: 3 }, timestamp: Date.now() });
   const hooks = {
@@ -57,6 +59,8 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
   const jsx = (type, props, key) => ({ type, props, key });
   const modules = {
     '@/lib/inbound/checkin/driver-language': driverLanguage,
+    '@/lib/inbound/checkin/pickup-agreement': pickupAgreement,
+    '@/components/warehouse/PickupAgreement': { default: props => { agreementProps = props; return jsx('section',{ 'data-agreement': true }); } },
     react: hooks,
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
     'next/navigation': { useParams: () => ({ token }) },
@@ -93,7 +97,11 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
     },
     async change(text, value) { api.input(text).props.onChange({ target: { value } }); await flush(); },
     async click(text) { const button = api.button(text); assert.notEqual(button.props.disabled, true, `disabled button ${text}`); button.props.onClick(); await flush(); },
-    async submit() { const result = all(tree, node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} }); await flush(); await result; await flush(); },
+    async sign() {
+      if (agreementProps) { agreementProps.onChange({ ...agreementProps.value, printedName: api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value || 'Fixture Driver', trailerNumber: 'TEST', productDescription: 'Fixture product', pickupNumber: 'TEST', referencePo: 'TEST', acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] }); await flush(); }
+    },
+    get agreement() { return agreementProps; },
+    async submit(sign = true) { if (sign) { if (agreementProps && !api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value) await api.change(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *','Fixture Driver'); await api.sign(); } const result = all(tree, node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} }); await flush(); await result; await flush(); },
     get submitButton() { return all(tree, node => node.type === 'button' && node.props.type === 'submit')[0]; },
     get formSubmit() { return all(tree, node => node.type === 'form')[0].props.onSubmit; },
     setGeo(next) { geo = next; },
@@ -419,4 +427,15 @@ test('editing a deliberate selection resets explicit selection before a subseque
   assert.equal(h.calls[3].body.explicitSelection, false);
   await h.submit();
   assert.equal(h.calls.at(-1).body.get('explicitSelection'), 'false');
+});
+
+test('unsigned pickup is blocked and language or freight changes require renewed acknowledgment', async t => {
+ const h=await mount();t.after(h.dispose);await h.click('Find my load');
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+ await h.sign();assert.equal(h.agreement.value.acknowledged,true);
+ h.nodes(n=>n.type==='select'&&n.props['aria-label']==='English / Español')[0].props.onChange({target:{value:'es'}});await h.flush();
+ assert.equal(h.agreement.value.acknowledged,false);assert.equal(h.agreement.value.strokes.length,1);
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+ await h.sign();await h.change('Destino *','Changed destination');assert.equal(h.agreement.value.electronicConsent,false);
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
 });

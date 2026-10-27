@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 import * as driverLookup from '../lib/inbound/checkin/driver-lookup.ts';
+import * as pickupAgreement from '../lib/inbound/checkin/pickup-agreement.ts';
 import * as dependency from '../lib/http/dependency.ts';
 import * as yard from '../lib/inbound/checkin/yard-stop.ts';
 import { CHECKIN_SITES } from '../lib/inbound/checkin/sites.ts';
@@ -17,6 +18,7 @@ function fixture(id = '92157', extra = {}) {
 }
 function route(writes, { locationOk = true, gate: configuredGate = gate } = {}) {
   const modules = {
+    '@/lib/inbound/checkin/pickup-agreement': pickupAgreement,
     'next/server': { NextResponse: Response },
     '@/lib/inbound/checkin/driver-lookup': driverLookup,
     '@/lib/http/dependency': dependency,
@@ -63,7 +65,7 @@ async function withFixture(orders, search, run, override, options = {}) {
   const handler = route(writes, options);
   const send = async (body, multipart = false) => {
     const request = multipart ? (() => {
-      const form = new FormData(); for (const [key, value] of Object.entries(body)) form.set(key, value);
+      const form = new FormData(); for (const [key, value] of Object.entries(body)) form.set(key, key === "pickupAgreement" ? JSON.stringify(value) : value);
       return new Request('https://scm.invalid/', { method: 'POST', body: form });
     })() : new Request('https://scm.invalid/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const response = await handler(request, { params: Promise.resolve({ token }) });
@@ -74,7 +76,8 @@ async function withFixture(orders, search, run, override, options = {}) {
     for (const name of names) if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name];
   }
 }
-const submit = { clientId: token, checkinType: 'domestic', materialType: 'lumber', movementDirection: 'pickup',
+const acceptance = { version: pickupAgreement.PICKUP_AGREEMENT_VERSION, language: 'en', printedName: 'Entered Driver', trailerNumber: 'TEST-TRAILER', productDescription: 'Test lumber', pickupNumber: '92157', referencePo: 'PO-TEST', acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] };
+const submit = { pickupAgreement: acceptance, clientId: token, checkinType: 'domestic', materialType: 'lumber', movementDirection: 'pickup',
   driverName: 'Entered Driver', driverPhone: '555-555-9999', truckingCompany: 'Entered Company', destination: 'Paperwork Receiver',
   orderId: '92157', selectedStopId: 'PU1', referenceNumber: '92157', driverLookupInput: '92157' };
 
@@ -334,4 +337,19 @@ test('a stalled search reaches the deadline and records provisional evidence onl
       });
     }
   } finally { clearTimeout(keepAlive); AbortSignal.timeout = originalTimeout; }
+});
+
+test('pickup submit rejects absent, stale or mismatched consent without saving a check-in', async () => {
+  await withFixture({ '92157': fixture() }, [], async ({ send, writes }) => {
+    for (const pickupAgreement of [undefined, { ...acceptance, version: 'old' }, { ...acceptance, printedName: 'Another Driver' }, { ...acceptance, strokes: [] }]) {
+      const result = await send({ ...submit, pickupAgreement });
+      assert.equal(result.response.status, 400, JSON.stringify(result.body));
+      assert.equal(writes.length, 0);
+    }
+    const result = await send(submit);
+    assert.equal(result.response.status, 200, JSON.stringify(result.body));
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0].pickup_agreement.terms, pickupAgreement.PICKUP_TERMS.en);
+    assert.equal(writes[0].pickup_agreement.driverName, 'ENTERED DRIVER');
+  });
 });

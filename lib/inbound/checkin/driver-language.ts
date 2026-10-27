@@ -91,6 +91,15 @@ export const driverSpanish: Record<string, string> = {
   "This order cannot be checked in again. Contact warehouse staff if the record needs correction.": "Esta orden no puede registrarse de nuevo. Comuníquese con el personal del almacén si se necesita corregir el registro.",
 };
 
+Object.assign(driverSpanish, {
+  "Read and sign the pickup agreement before checking in.": "Lea y firme el acuerdo de recolección antes de registrarse.",
+  "Read and sign the current pickup agreement before checking in.": "Lea y firme la versión actual del acuerdo de recolección antes de registrarse.",
+  "Complete every pickup agreement field before checking in.": "Complete todos los campos del acuerdo de recolección antes de registrarse.",
+  "Draw your signature before checking in.": "Dibuje su firma antes de registrarse.",
+  "The signature printed name must match the driver name.": "El nombre en la firma debe coincidir con el nombre del conductor.",
+  "Invalid signature.": "La firma no es válida. Bórrela y firme de nuevo.",
+});
+
 export function translateDriverText(text: string, language: DriverLanguage): string {
   if (language === "en") return text;
   if (Object.hasOwn(driverSpanish, text)) return driverSpanish[text];
