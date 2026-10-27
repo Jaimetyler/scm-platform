@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { dallasReportLocation } from "@/lib/billing/dallas-report-location";
 
 type Terminal = "SAV" | "HOU" | "DAL";
 
@@ -16,6 +17,8 @@ type OrderCandidate = {
   id: string | null;
   revenue_code_id: string;
   status?: string;
+  location_id?: string;
+  order_type_id?: string;
   error?: string;
 };
 
@@ -27,6 +30,7 @@ type PreviewOrder = {
 
 export default function OrderChargesPage() {
   const [terminal, setTerminal] = useState<Terminal>("HOU");
+  const [location, setLocation] = useState("");
   const [fileName, setFileName] = useState("");
   const [csvText, setCsvText] = useState("");
   const [preview, setPreview] = useState<PreviewOrder[]>([]);
@@ -43,6 +47,7 @@ export default function OrderChargesPage() {
       0
     );
 
+    const lookupErrorCount = preview.filter(o => (o.order_candidates || []).some(c => !c.id || c.error)).length;
     const noMatchCount = preview.filter(
       (o) => !o.order_candidates || o.order_candidates.length === 0
     ).length;
@@ -51,13 +56,15 @@ export default function OrderChargesPage() {
       (o) => (o.order_candidates || []).length > 1
     ).length;
 
-    return { orderCount, chargeCount, amount, noMatchCount, multiMatchCount };
+    return { orderCount, chargeCount, amount, noMatchCount, multiMatchCount, lookupErrorCount };
   }, [preview]);
 
   async function handleFile(file: File | null) {
     if (!file) return;
     setFileName(file.name);
-    setCsvText(await file.text());
+    const contents = await file.text();
+    setCsvText(contents);
+    if (terminal === "DAL") setLocation(dallasReportLocation(contents) || "");
     setPreview([]);
     setSkipped([]);
     setResult(null);
@@ -71,12 +78,13 @@ export default function OrderChargesPage() {
       const res = await fetch("/api/order-charges/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terminal, csvText }),
+        body: JSON.stringify({ terminal, location, csvText }),
       });
 
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Preview failed");
 
+      if (terminal === "DAL" && data.location) setLocation(data.location);
       setPreview(data.preview || []);
       setSkipped(data.skipped || []);
     } catch (err: any) {
@@ -87,7 +95,7 @@ export default function OrderChargesPage() {
   }
 
   async function applyCharges() {
-    if (!preview.length) return;
+    if (!preview.length || totals.lookupErrorCount || totals.noMatchCount || totals.multiMatchCount) return;
 
     const confirmed = window.confirm(
       `Apply ${totals.chargeCount} charges to ${totals.orderCount} McLeod orders?\n\nMultiple-match BOLs: ${totals.multiMatchCount}\nNo-match BOLs: ${totals.noMatchCount}`
@@ -101,7 +109,7 @@ export default function OrderChargesPage() {
       const res = await fetch("/api/order-charges/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preview, terminal }),
+        body: JSON.stringify({ preview, terminal, location }),
       });
 
       const data = await res.json();
@@ -141,14 +149,14 @@ export default function OrderChargesPage() {
     if (!c.id) {
       return (
         <span style={{ color: "#ef4444", fontWeight: 700 }}>
-          Lookup failed
+          Lookup failed: {c.error || "McLeod did not return a verified order"}
         </span>
       );
     }
 
     return (
       <span style={{ color: "#22c55e", fontWeight: 600 }}>
-        {c.id} ({c.revenue_code_id || "unknown"})
+        {c.id} ({c.revenue_code_id || "unknown"}) {c.location_id || ""}
       </span>
     );
   }
@@ -165,7 +173,8 @@ export default function OrderChargesPage() {
         <label>Terminal</label>
         <select
           value={terminal}
-          onChange={(e) => setTerminal(e.target.value as Terminal)}
+          disabled={loading}
+          onChange={(e) => { setTerminal(e.target.value as Terminal); setLocation(e.target.value === "DAL" ? dallasReportLocation(csvText) || "" : ""); setPreview([]); setResult(null); }}
           style={input}
         >
           <option value="HOU">Houston</option>
@@ -173,9 +182,20 @@ export default function OrderChargesPage() {
           <option value="SAV">Savannah</option>
         </select>
 
+        {terminal === "DAL" && <div style={{ marginTop: 16 }}>
+          <label htmlFor="billing-location">Dallas warehouse (pickup and delivery)</label>
+          <select id="billing-location" value={location} disabled={loading} style={input}
+            onChange={e => { setLocation(e.target.value); setPreview([]); setResult(null); }}>
+            <option value="">Select warehouse</option>
+            <option value="SCMDDETX">SCMDDETX</option>
+            <option value="SCMDDATX">SCMDDATX</option>
+          </select>
+          <p>Only ECOTTON orders with both stops at this warehouse are eligible.</p>
+        </div>}
         <div style={{ marginTop: 16 }}>
           <input
             type="file"
+            disabled={loading}
             accept=".csv,text/csv"
             onChange={(e) => handleFile(e.target.files?.[0] || null)}
           />
@@ -184,7 +204,7 @@ export default function OrderChargesPage() {
 
         <button
           onClick={runPreview}
-          disabled={!csvText || loading}
+          disabled={!csvText || loading || (terminal === "DAL" && !location)}
           style={button}
         >
           {loading ? "Working..." : "Preview Charges"}
@@ -200,6 +220,7 @@ export default function OrderChargesPage() {
             <div>Charges: {totals.chargeCount}</div>
             <div>Total Net: ${totals.amount.toFixed(2)}</div>
             <div>Skipped: {skipped.length}</div>
+            <div style={{ color: totals.lookupErrorCount ? "#ef4444" : "white" }}>Lookup Errors: {totals.lookupErrorCount}</div>
             <div style={{ color: totals.multiMatchCount ? "#f59e0b" : "white" }}>
               Multiple Matches: {totals.multiMatchCount}
             </div>
@@ -218,7 +239,7 @@ export default function OrderChargesPage() {
 
           <button
             onClick={applyCharges}
-            disabled={loading || preview.length === 0}
+            disabled={loading || preview.length === 0 || totals.lookupErrorCount > 0 || totals.noMatchCount > 0 || totals.multiMatchCount > 0}
             style={{
               marginTop: 20,
               padding: "12px 18px",

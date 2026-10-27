@@ -1,3 +1,4 @@
+import { findDallasBillingOrders, validateDallasLocation } from "@/lib/billing/dallas-order-lookup";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -74,7 +75,12 @@ function sameCharge(existing: any, incoming: any) {
   );
 }
 
-async function findOrderByBlnumAndTerminal(blnum: string, terminal: string) {
+async function findOrderByBlnumAndTerminal(blnum: string, terminal: string, location?: string) {
+  if (normalize(terminal) === "DAL") {
+    const candidates = await findDallasBillingOrders(path => mcleodRequest(path), blnum, location);
+    if (candidates.length !== 1) throw new Error(`Expected one verified Dallas ECOTTON order for ${blnum} at ${location}; found ${candidates.length}. No charges applied to this reference.`);
+    return candidates[0];
+  }
   const terminalKey = normalize(terminal);
   const requiredRevenueCode = REQUIRED_REVENUE_CODE_BY_TERMINAL[terminalKey];
 
@@ -147,7 +153,8 @@ async function POSTHandler(req: NextRequest) {
       );
     }
 
-    const { preview, terminal } = await req.json();
+    const { preview, terminal, location } = await req.json();
+    if (normalize(terminal) === "DAL") validateDallasLocation(location);
 
     const terminalKey = normalize(terminal);
     const requiredRevenueCode = REQUIRED_REVENUE_CODE_BY_TERMINAL[terminalKey];
@@ -185,6 +192,10 @@ async function POSTHandler(req: NextRequest) {
       );
     }
 
+    if (preview.some((item: any) => !Array.isArray(item.order_candidates) || item.order_candidates.length !== 1 || !item.order_candidates[0]?.id || item.order_candidates[0]?.error)) {
+      return NextResponse.json({ ok: false, error: "Resolve every lookup error, missing match and multiple match before applying this batch." }, { status: 400 });
+    }
+
     let success = 0;
     let failed = 0;
     let skippedDuplicates = 0;
@@ -205,7 +216,8 @@ async function POSTHandler(req: NextRequest) {
 
         const order = await findOrderByBlnumAndTerminal(
           String(blnum),
-          terminalKey
+          terminalKey,
+          location
         );
 
         if (!order?.id) {
@@ -214,6 +226,9 @@ async function POSTHandler(req: NextRequest) {
           );
         }
 
+        if (String(order.id) !== String(item.order_candidates[0].id)) {
+          throw new Error(`Order match changed for ${blnum}. Refresh Preview before applying charges.`);
+        }
         const orderId = order.id;
         const existingCharges = getOtherCharges(order);
 
