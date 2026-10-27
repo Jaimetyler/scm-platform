@@ -142,12 +142,12 @@ export default function DomesticLinePage() {
         const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, view: "line" });
         const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal });
         const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the domestic line");
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the active line");
         if (signal.aborted) return;
         if (workingRef.current) return;
         setRows((current) => mergePollingRows(current, result.rows, atRequestStart, new Set())); setError("");
       } catch (reason) {
-        if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the domestic line");
+        if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the active line");
         throw reason;
       } finally { if (!signal.aborted) setLoading(false); }
     } });
@@ -232,7 +232,7 @@ export default function DomesticLinePage() {
     }
   }
 
-  if (!site) return <main><PlatformPageHeader title="Domestic Line Not Found" /></main>;
+  if (!site) return <main><PlatformPageHeader title="Active Line Not Found" /></main>;
   const active = rows.filter((row): row is Arrival & { yard_status: Status } =>
     !row.physical_departed_at && (row.yard_status === "waiting" || row.yard_status === "called" ||
       row.yard_status === "in_door" || row.yard_status === "working"))
@@ -250,7 +250,7 @@ export default function DomesticLinePage() {
     timeZone: site.terminal === "HOU" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit",
   });
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
-    <PlatformPageHeader title={`${site.siteName} Domestic Line`}
+    <PlatformPageHeader title={`${site.siteName} Active Line`}
       subtitle="Cotton, lumber, and other freight in arrival order. Check out when a truck leaves the yard." />
     {(requestedArrival || invalidArrival) && <PlatformPanel>
       <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={{ color: "#67e8f9" }}>Back to receiving</Link>
