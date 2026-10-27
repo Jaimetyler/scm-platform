@@ -220,6 +220,7 @@ export default function SiteCheckinPage() {
   const [newCheckin, setNewCheckin] = useState<CheckinRow | null>(null);
   const [newMatches, setNewMatches] = useState<CottonMatch[]>([]);
   const [newSearching, setNewSearching] = useState(false);
+  const [manualUnlinkedCheckin, setManualUnlinkedCheckin] = useState(false);
   const [newError, setNewError] = useState("");
   const [newSaving, setNewSaving] = useState(false);
   const lookupKeysRef = useRef<Record<string, string>>({});
@@ -312,7 +313,10 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
-    if (!site || !newCheckin || newCheckin.matched_order_id) return;
+    if (!site || !newCheckin || newCheckin.matched_order_id || manualUnlinkedCheckin) {
+      if (manualUnlinkedCheckin) { setNewMatches([]); setNewSearching(false); setNewError(""); }
+      return;
+    }
     const mark = (newCheckin.mark ?? "").trim().toUpperCase();
     if (mark.length < 3) { setNewMatches([]); setNewSearching(false); return; }
     let cancelled = false;
@@ -344,14 +348,14 @@ export default function SiteCheckinPage() {
       }
     }, 650);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id]);
+  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id, manualUnlinkedCheckin]);
 
   async function saveNewCheckin() {
     if (!canWrite) return;
     if (!site || !newCheckin || newSaving) return;
     // An incomplete McLeod search cannot establish that every possible
     // order is completed. Permit a manual unlinked arrival for staff review.
-    if (newMatches.length > 0 && newMatches.every((match) => match.completion) &&
+    if (!manualUnlinkedCheckin && newMatches.length > 0 && newMatches.every((match) => match.completion) &&
         !newError) {
       setNewError("These orders are already closed in McLeod. Verify the mark with warehouse staff.");
       return;
@@ -369,16 +373,20 @@ export default function SiteCheckinPage() {
           clientId: newCheckin.id.slice(6), terminal: site.terminal, siteCode: site.siteCode, siteName: site.siteName,
           subLocation: newCheckin.sub_location, receivedDate: newCheckin.received_date,
           mark: newCheckin.mark, shipper: newCheckin.shipper, bolBC: newCheckin.bol_bc,
-          equipmentType: newCheckin.equipment_type, comment1: newCheckin.comment_1,
+          equipmentType: newCheckin.equipment_type,
+          comment1: manualUnlinkedCheckin
+            ? [newCheckin.comment_1, "Staff confirmed customer/order is not currently managed in McLeod; local receiving only, reconcile before any McLeod update."].filter(Boolean).join("\n")
+            : newCheckin.comment_1,
           driverName: newCheckin.driver_name, driverPhone: newCheckin.driver_phone,
           truckingCompany: newCheckin.trucking_company,
-          matchedOrderId: newCheckin.matched_order_id,
+          matchedOrderId: manualUnlinkedCheckin ? null : newCheckin.matched_order_id,
         }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
       setRows((current) => orderCheckinRows([...current.filter((row) => row.id !== result.row.id), result.row]));
       setNewCheckin(null);
+      setManualUnlinkedCheckin(false);
       setNewMatches([]);
       void loadRows();
     } catch (error) {
@@ -1455,10 +1463,18 @@ export default function SiteCheckinPage() {
               <input style={modalInputStyle} value={newCheckin.comment_1 ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, comment_1: event.target.value })} placeholder="Optional note" /></label>
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+            <input type="checkbox" checked={manualUnlinkedCheckin} onChange={(event) => {
+              setManualUnlinkedCheckin(event.target.checked);
+              setNewMatches([]);
+              setNewCheckin((current) => current ? { ...current, matched_order_id: null } : current);
+            }} />
+            Customer/order not yet in McLeod — save local check-in without searching
+          </label>
           <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>Unloaded bales and final warehouse location can be confirmed on the grid after arrival.</p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Cancel</button>
-            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || (newMatches.length > 0 && newMatches.every((match) => match.completion) && !newError)}>{newSaving ? "Checking in…" : "Check in truck"}</button>
+            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || (!manualUnlinkedCheckin && newMatches.length > 0 && newMatches.every((match) => match.completion) && !newError)}>{newSaving ? "Checking in…" : "Check in truck"}</button>
           </div>
         </form>
       </div>}
