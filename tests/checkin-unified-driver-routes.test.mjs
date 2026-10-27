@@ -242,7 +242,7 @@ for (const site of CHECKIN_SITES) {
           assert.equal(lookup.body.status, 'no_match', context);
           assert.equal(lookup.body.allowUnmatched, true, context);
           assert.deepEqual(lookup.body.matches, [], context);
-          const result = await send({ ...submit, materialType, movementDirection, orderId: '', selectedStopId: '',
+          const result = await send({ ...submit, pickupAgreement: site.terminal === 'HOU' ? acceptance : undefined, materialType, movementDirection, orderId: '', selectedStopId: '',
             referenceNumber: '4040451', driverLookupInput: '4040451', mark: 'OUTSIDE MARK', bolBaleCount: 10,
           });
           assert.equal(result.response.status, 200, `${context}: ${JSON.stringify(result.body)}`);
@@ -254,6 +254,7 @@ for (const site of CHECKIN_SITES) {
           assert.equal(write.shipper, null); assert.equal(write.reference_number, '4040451');
           assert.equal(write.driver_lookup_input, '4040451'); assert.equal(write.checkin_source, 'driver_qr');
           assert.equal(write.trucking_company, 'Entered Company');
+          assert.equal(Boolean(write.pickup_agreement), site.terminal === 'HOU' && movementDirection === 'pickup');
           const requestCalls = calls.slice(before);
           assert.equal(requestCalls.length, 4, 'Lookup and submit each perform two fresh searches');
           assert.ok(requestCalls.every(url => url.pathname === '/orders/search'), 'Never point-read an unknown input');
@@ -358,4 +359,11 @@ test('pickup submit rejects absent or stale consent without saving a check-in', 
     assert.deepEqual(writes[0].pickup_agreement.terms, pickupAgreement.PICKUP_TERMS.en);
     assert.equal(writes[0].pickup_agreement.driverName, 'ENTERED DRIVER');
   });
+});
+
+test('Savannah gate never saves Houston agreement even if a client sends one', async () => {
+ await withFixture({}, [], async ({send,writes})=>{
+  const result=await send({...submit,orderId:'',selectedStopId:'',referenceNumber:'UNKNOWN-SAV',driverLookupInput:'UNKNOWN-SAV'});
+  assert.equal(result.response.status,200,JSON.stringify(result.body));assert.equal(writes.length,1);assert.equal(writes[0].pickup_agreement,null);assert.equal(writes[0].terminal,'SAV');
+ },undefined,{gate:{...gate,terminal:'SAV',site_code:'1601',site_name:'Savannah 1601'}});
 });

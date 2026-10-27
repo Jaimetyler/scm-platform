@@ -64,3 +64,9 @@ test('popup locks background scrolling and pad touch gestures, captures strokes,
  nodes(tree,'dialog')[0].props.onCancel({preventDefault(){}});assert.equal(modal.open,false);assert.equal(document.body.style.overflow,'auto');
  for(const slot of slots)slot?.cleanup?.();assert.equal(listeners.size,0);
 });
+
+test('Houston pickup agreement policy excludes Savannah, deliveries and unknown terminals',()=>{
+ assert.equal(agreementModule.requiresPickupAgreement('HOU','pickup'),true);
+ for(const terminal of ['SAV','','UNKNOWN']) for(const direction of ['pickup','delivery']) assert.equal(agreementModule.requiresPickupAgreement(terminal,direction),false);
+ assert.equal(agreementModule.requiresPickupAgreement('HOU','delivery'),false);
+});

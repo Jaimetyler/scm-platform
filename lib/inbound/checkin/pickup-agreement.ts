@@ -47,3 +47,8 @@ export function validatePickupAcceptance(value: unknown): PickupAcceptance {
   if (points > 4000 || points < 3 || distance < .05) throw new Error("Draw your signature before checking in.");
   return { version: a.version, language: a.language, acknowledged: true, electronicConsent: true, strokes: a.strokes };
 }
+
+// The supplied form belongs to Houston. Savannah requires its own future form.
+export function requiresPickupAgreement(terminal: string, direction: string): boolean {
+  return terminal === "HOU" && direction === "pickup";
+}

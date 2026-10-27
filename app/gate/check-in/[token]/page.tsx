@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { translateDriverText, translateDriverError, type DriverLanguage } from "@/lib/inbound/checkin/driver-language";
 import PickupAgreement from "@/components/warehouse/PickupAgreement";
-import { PICKUP_AGREEMENT_VERSION, validatePickupAcceptance, type PickupAcceptance } from "@/lib/inbound/checkin/pickup-agreement";
+import { PICKUP_AGREEMENT_VERSION, validatePickupAcceptance, requiresPickupAgreement, type PickupAcceptance } from "@/lib/inbound/checkin/pickup-agreement";
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 
@@ -363,7 +363,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
     setSubmitting(true);
     setError("");
     try {
-      if (form.checkinType === "domestic" && form.movementDirection === "pickup") {
+      if (form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection)) {
         if (agreementContext.current !== JSON.stringify({ language, form })) throw new Error("Read and sign the current pickup agreement before checking in.");
         validatePickupAcceptance(agreement);
         if (!form.trailerNumber.trim()) throw new Error("Enter the trailer number before checking in.");
@@ -373,7 +373,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
       if (version !== gateVersion.current) return;
       const request = new FormData();
       request.set("language", language);
-      if (form.checkinType === "domestic" && form.movementDirection === "pickup") request.set("pickupAgreement", JSON.stringify(agreement));
+      if (form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection)) request.set("pickupAgreement", JSON.stringify(agreement));
       request.set("clientId", clientId);
       request.set("deviceId", deviceId);
       request.set("checkinType", form.checkinType);
@@ -505,9 +505,10 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
             <Field label={t("Destination *")} value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
           ) : null}
           {form.materialType === "cotton" ? <>
-            <Field label={t("Mark *")} value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
-            <Field label={t("Bale count on BOL *")} value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
-            {form.movementDirection === "delivery" && <Field label={t("Bales on truck (if different from BOL)")} value={form.balesOnTruck} onChange={(value) => change("balesOnTruck", value.replace(/\D/g, ""))} inputMode="numeric" />}
+            <Field name="cottonMark" autoComplete="off" label={t("Mark *")} value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
+            <div><Field name="bolBaleCount" autoComplete="off" label={t("Bale count on BOL *")} value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
+            <small style={{ color: "#94a3b8" }}>{t("Enter the bale quantity, not the cotton mark.")}</small></div>
+            {form.movementDirection === "delivery" && <Field name="balesOnTruck" autoComplete="off" label={t("Bales on truck (if different from BOL)")} value={form.balesOnTruck} onChange={(value) => change("balesOnTruck", value.replace(/\D/g, ""))} inputMode="numeric" />}
           </> : null}
           </> : null}
         </div> : null}
@@ -522,7 +523,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
           </small>
         </label> : null}
 
-        {form.checkinType === "domestic" && form.movementDirection === "pickup" && <PickupAgreement value={agreement} onChange={value => { agreementContext.current = JSON.stringify({ language, form: formRef.current }); agreementRef.current = value; setAgreement(value); }} language={language} />}
+        {form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection) && <PickupAgreement value={agreement} onChange={value => { agreementContext.current = JSON.stringify({ language, form: formRef.current }); agreementRef.current = value; setAgreement(value); }} language={language} />}
 
         {completedMatches.map((match) => match.completion ?
           <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} language={language} /> : null)}
@@ -587,11 +588,11 @@ function Choice({ selected, title, detail, onClick }: { selected: boolean; title
 }
 
 function Field(props: {
-  label: string; value: string; onChange: (value: string) => void;
+  name?: string; label: string; value: string; onChange: (value: string) => void;
   inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean; required?: boolean; maxLength?: number;
 }) {
   return <label style={labelStyle}>{props.label}
-    <input required={props.required || (!props.optional && props.label.endsWith("*"))} value={props.value} maxLength={props.maxLength}
+    <input name={props.name} required={props.required || (!props.optional && props.label.endsWith("*"))} value={props.value} maxLength={props.maxLength}
       onChange={(event) => props.onChange(event.target.value)} style={inputStyle}
       inputMode={props.inputMode} autoComplete={props.autoComplete} autoCapitalize={props.autoCapitalize} />
   </label>;

@@ -1,4 +1,4 @@
-import { validatePickupAcceptance, PICKUP_TERMS } from "@/lib/inbound/checkin/pickup-agreement";
+import { validatePickupAcceptance, PICKUP_TERMS, requiresPickupAgreement } from "@/lib/inbound/checkin/pickup-agreement";
 import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { NextRequest, NextResponse } from "next/server";
@@ -393,7 +393,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // location for compatibility, but derive all repeated identity/load fields.
     let trailerNumber = String(body.trailerNumber ?? "").trim();
     let pickupAgreement = null;
-    if (movementDirection === "pickup") {
+    if (requiresPickupAgreement(gate.terminal, movementDirection)) {
       try {
         const raw = typeof body.pickupAgreement === "string" ? JSON.parse(body.pickupAgreement) : body.pickupAgreement;
         const accepted = validatePickupAcceptance(raw);
