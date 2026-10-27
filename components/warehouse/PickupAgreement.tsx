@@ -37,7 +37,7 @@ export default function PickupAgreement({ value, onChange, language }: { value: 
       {signed ? label("Review signed pickup agreement", "Revisar el acuerdo de recolección firmado") : label("Review & sign pickup agreement", "Leer y firmar el acuerdo de recolección")}
     </button>
     <p role="status">{signed ? label("Signature and acknowledgments ready. They will be saved with your check-in.", "La firma y las confirmaciones están listas. Se guardarán con su registro.") : label("Your check-in details will be used. No need to enter them again.", "Se usarán los datos de su registro. No necesita ingresarlos de nuevo.")}</p>
-    <dialog ref={dialog} aria-label={terms.title} onCancel={event => { event.preventDefault(); setOpen(false); }} style={{ width: "min(94vw, 660px)", maxHeight: "90dvh", margin: "auto", padding: 20, color: "#e2e8f0", background: "#0f172a", border: "1px solid #64748b", borderRadius: 16, overflowY: "auto", overscrollBehavior: "contain" }}>
+    <dialog ref={dialog} aria-label={terms.title} onCancel={event => { event.preventDefault(); setOpen(false); }} style={{ position: "fixed", inset: 0, boxSizing: "border-box", width: "min(94vw, 660px)", maxHeight: "90dvh", margin: "auto", padding: 20, color: "#e2e8f0", background: "#0f172a", border: "1px solid #64748b", borderRadius: 16, overflowY: "auto", overscrollBehavior: "contain" }}>
       <button type="button" onClick={() => setOpen(false)} style={{ ...buttonStyle, float: "right", marginBottom: 12 }}>{label("Close", "Cerrar")}</button>
       <h2 style={{ clear: "both", fontSize: 22, fontWeight: 800, marginBottom: 12 }}>{terms.title}</h2>
       <p>{terms.introduction}</p>
