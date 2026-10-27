@@ -18,11 +18,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const MCLEOD_BASE_URL = process.env.MCLEOD_BASE_URL!;
-const MCLEOD_TOKEN = process.env.MCLEOD_AUTH_TOKEN!;
+const MCLEOD_BASE_URL = process.env.MCLEOD_BILLING_READ_BASE_URL || process.env.MCLEOD_BASE_URL!;
+const MCLEOD_TOKEN = process.env.MCLEOD_BILLING_READ_AUTH_TOKEN || process.env.MCLEOD_AUTH_TOKEN!;
 
 async function mcleodRequest(path: string) {
+  if (!/^\/orders(?:\/search\?|\?|\/[A-Za-z0-9_-]+$)/.test(path)) throw new Error("Billing preview only permits order reads.");
   const res = await fetch(`${MCLEOD_BASE_URL}${path}`, {
+    method: "GET",
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000),
     headers: {
       Authorization: `Bearer ${MCLEOD_TOKEN}`,
       Accept: "application/json",

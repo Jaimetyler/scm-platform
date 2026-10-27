@@ -23,3 +23,7 @@ Actual local preview handler replay, with synthetic tariff mappings and simulate
 Found/fixed amount-header compatibility: accept both TotalCharges and Total Charges; reject files missing quantity/amount headers instead of silently defaulting all amounts to zero. Blank-description per-reference subtotal and grand-total rows remain excluded. Added actual-handler regression coverage.
 
 Operations subsequently confirmed 875260 = SCMDDETX. Exact recognized report headings now auto-select the confirmed warehouse; server preview independently rejects a conflicting selected warehouse. Unknown headings retain explicit selection. This supersedes the earlier unresolved mapping note.
+
+## Staging dependency repair
+
+User preview exposed two staging-only setup gaps: missing billing_charge_description_xref and warehouse simulator configured as MCLEOD_BASE_URL. Provisioned description table with RLS and server-only grants, copied 25 active Dallas description mappings and 18 tariff mappings from production configuration. No production writes. Separate branch-scoped MCLEOD_BILLING_READ_BASE_URL / MCLEOD_BILLING_READ_AUTH_TOKEN now provide real order reads only to the preview route; existing warehouse simulator and MCLEOD_SYNC_ENABLED=false remain intact. Preview fetch explicitly uses GET, no-store, and a 20-second request timeout. Apply does not consume these read-specific variables.
