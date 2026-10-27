@@ -88,11 +88,32 @@ async function scenario(options, run) {
   });
   const checkin = { id: "12345678-1234-4234-8234-123456789012", terminal: "HOU", site_code: "5300",
     material_type: "lumber", movement_direction: "delivery", matched_order_id: "ORDER1", matched_stop_id: "SO1", reference_number: "MARK1",
-    yard_status: "working", checked_in_at: row.checkedInAt };
-  const query = { select() { return this; }, eq() { return this; }, in() { return this; },
-    update(value) { dbWrites.push(value); return this; }, maybeSingle: async () => ({ data: checkin }) };
+    draft_status: "checked_in", yard_status: "working", checked_in_at: row.checkedInAt };
+  const departureWrites = [], writeClaims = [];
+  let revision = 0;
+  const query = () => {
+    let patch;
+    const filters = [];
+    return {
+      select() { return this; },
+      eq(key, value) { filters.push(row => row[key] === value); return this; },
+      in(key, values) { filters.push(row => values.includes(row[key])); return this; },
+      is(key, value) { filters.push(row => value === null ? row[key] == null : row[key] === value); return this; },
+      update(value) { patch = value; return this; },
+      async maybeSingle() {
+        if (!filters.every(matches => matches(checkin))) return { data: null };
+        if (patch) {
+          if (patch.physical_departed_at) departureWrites.push(patch);
+          else if (patch.mcleod_processing_phase === "write_pending") writeClaims.push(patch);
+          else dbWrites.push(patch);
+          Object.assign(checkin, patch, { updated_at: `revision-${++revision}` });
+        }
+        return { data: { ...checkin } };
+      },
+    };
+  };
   const domestic = load("app/api/warehouse/domestic-queue/route.ts", {
-    "@supabase/supabase-js": { createClient: () => ({ from: () => query }) },
+    "@supabase/supabase-js": { createClient: () => ({ from: () => query() }) },
   });
   const post = async () => {
     cottonRecord ??= { id: checkin.id, draft_status: "processing", material_type: "cotton", movement_direction: "delivery",
@@ -109,7 +130,7 @@ async function scenario(options, run) {
       id: checkin.id, terminal: "HOU", siteCode: "5300" }) });
     return { status: response.status, body: await response.json() };
   };
-  try { await run({ post, checkout, writes, dbWrites, row, order, pickup, delivery, checkin }); }
+  try { await run({ post, checkout, writes, dbWrites, row, order, pickup, delivery, checkin, departureWrites, writeClaims }); }
   finally {
     globalThis.fetch = previousFetch;
     for (const key of keys) if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
@@ -204,13 +225,15 @@ test("lumber pickup failure leaves both delivery and checkout unposted", async (
   });
 });
 
-test("lumber checkout retries delivery after successful pickup without rewriting it", async () => {
+test("lumber failed delivery leaves a durable fence and never blindly retries", async () => {
   await scenario({ failDeliveryOnce: true }, async ({ checkout, writes, dbWrites }) => {
     assert.equal((await checkout()).body.ok, false);
     assert.equal(dbWrites.length, 0);
-    assert.equal((await checkout()).body.ok, true);
-    assert.deepEqual(writes.map((w) => w.id), ["PU1", "SO1", "SO1"]);
-    assert.equal(dbWrites.length, 1);
+    const retry = await checkout();
+    assert.equal(retry.body.ok, false);
+    assert.equal(retry.body.code, "MCLEOD_WRITE_UNCERTAIN");
+    assert.deepEqual(writes.map((w) => w.id), ["PU1", "SO1"]);
+    assert.equal(dbWrites.length, 0);
   });
 });
 
@@ -301,5 +324,19 @@ test("complete earlier same-yard pickup actuals remain usable without rewriting 
     const result = await checkout();
     assert.equal(result.body.ok, true, JSON.stringify(result.body));
     assert.deepEqual(writes.map(item => item.id), ["SO1"]);
+  });
+});
+
+
+test("simultaneous non-cotton checkout claims permit one remote write sequence", async () => {
+  await scenario({}, async ({ checkout, writes, writeClaims, checkin }) => {
+    const results = await Promise.all([checkout(), checkout()]);
+    assert.equal(results.filter(r => r.body.ok).length, 1, JSON.stringify(results));
+    assert.equal(writeClaims.length, 1);
+    assert.deepEqual(writes.map(w => w.id), ["PU1", "SO1"]);
+    assert.equal(checkin.mcleod_processing_phase, "complete");
+    assert.equal(checkin.mcleod_lookup_attempt_id, checkin.mcleod_processing_result_id);
+    assert.equal((await checkout()).body.ok, true);
+    assert.equal(writes.length, 2, "Completed replay cannot issue another vendor write");
   });
 });

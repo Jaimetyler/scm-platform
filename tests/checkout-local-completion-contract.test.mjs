@@ -21,8 +21,8 @@ test("repeat checkout returns local success before remote writes", () => {
 test("verified already-delivered stop skips second remote completion", () => {
   const route = read("app/api/warehouse/domestic-queue/route.ts");
   assert.match(route, /if \(!order\.actualDeparture\)/);
-  assert.match(route, /Already delivered in McLeod\. Truck checked out/);
-  assert.match(route, /McLeod departure already recorded\. Truck checked out/);
+  assert.match(route, /return reconcileAlreadyCompleted\(order, row\)/);
+  assert.match(route, /sb\.rpc\("complete_inbound_mcleod_already_done"/);
 });
 
 test("already-delivered cotton bypasses new actual-time planning", () => {

@@ -78,6 +78,22 @@ const submit = { clientId: token, checkinType: 'domestic', materialType: 'lumber
   driverName: 'Entered Driver', driverPhone: '555-555-9999', truckingCompany: 'Entered Company', destination: 'Paperwork Receiver',
   orderId: '92157', selectedStopId: 'PU1', referenceNumber: '92157', driverLookupInput: '92157' };
 
+function assertProvisional(result, writes) {
+  assert.equal(result.response.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.ok, true);
+  const row = writes.at(-1);
+  assert.ok(row);
+  assert.equal(row.matched_order_id, null);
+  assert.equal(row.matched_stop_id, null);
+  assert.equal(row.mcleod_lookup_status, 'unresolved');
+  assert.equal(row.mcleod_lookup_failure_code, 'LOOKUP_INCOMPLETE');
+  assert.equal(row.draft_status, 'checked_in');
+  assert.equal(row.verified, false);
+  assert.equal(row.processed_at, null);
+  assert.notEqual(row.local_receiving_only, true);
+  assert.match(row.comment_1, /Provisional driver check-in/);
+}
+
 test('SCM-only JSON and multipart submissions persist actual order/stop, canonical reference, and original input separately', async () => {
   for (const multipart of [false, true]) {
     const order = fixture('SCM-ABC');
@@ -140,10 +156,10 @@ test('lookup success never authorizes stale completed, wrong-yard, or changed-re
   }
 });
 
-test('partial upstream failure blocks selected and fake no-match submissions with retryable 503', async () => {
+test('upstream failure accepts only an unlinked provisional arrival', async () => {
   for (const orderId of ['92157', '']) await withFixture({ 92157: fixture() }, [], async ({ send, writes }) => {
-    const result = await send({ ...submit, orderId }); assert.equal(result.response.status, 503);
-    assert.equal(result.response.headers.get('Retry-After'), '10'); assert.equal(writes.length, 0);
+    const result = await send({ ...submit, orderId });
+    assertProvisional(result, writes);
   }, async url => url.pathname === '/orders/search' ? new Response('', { status: 503 }) : undefined);
 });
 
@@ -262,18 +278,20 @@ test('numeric reference-only pickup and delivery preserve the matched order and 
   }
 });
 
-test('invalid search evidence and HTTP 400/404/500 remain retryable 503 and never permit outside submission', async () => {
+test('invalid search evidence and HTTP failures remain provisional, never outside-carrier evidence', async () => {
   for (const strategy of ['orders.id', 'orders.blnum']) {
     for (const failure of [400, 404, 500, 'json', 'wrapper-null', 'error-envelope']) {
       await withFixture({}, null, async ({ send, writes }) => {
         for (const action of ['lookupReference', 'submit']) {
           const result = await send({ ...submit, action, orderId: '', selectedStopId: '',
             driverLookupInput: '9999999', referenceNumber: '9999999' });
-          assert.equal(result.response.status, 503, `${strategy} ${failure} ${action}: ${JSON.stringify(result.body)}`);
-          assert.equal(result.response.headers.get('Retry-After'), '10');
-          assert.equal(result.body.ok, false); assert.notEqual(result.body.allowUnmatched, true);
+          assert.equal(result.response.status, 200, JSON.stringify(result.body));
+          if (action === 'lookupReference') {
+            assert.equal(result.body.status, 'provisional');
+            assert.deepEqual(result.body.matches, []);
+          } else assertProvisional(result, writes);
         }
-        assert.equal(writes.length, 0);
+        assert.equal(writes.length, 1);
       }, async url => {
         if (!url.searchParams.has(strategy)) return undefined;
         if (failure === 'json') return new Response('bad JSON');
@@ -285,18 +303,17 @@ test('invalid search evidence and HTTP 400/404/500 remain retryable 503 and neve
   }
 });
 
-test('an exact-ID search hit whose detail disappears fails closed for selected and outside submissions', async () => {
+test('disappearing order detail creates an unlinked provisional arrival for staff review', async () => {
   await withFixture({ 92157: fixture() }, [], async ({ send, writes }) => {
     for (const orderId of ['92157', '']) {
       const result = await send({ ...submit, orderId });
-      assert.equal(result.response.status, 503, JSON.stringify(result.body));
-      assert.equal(result.response.headers.get('Retry-After'), '10');
+      assertProvisional(result, writes);
     }
-    assert.equal(writes.length, 0);
+    assert.equal(writes.length, 2);
   }, async url => url.pathname === '/orders/92157' ? Response.json(null, { status: 404 }) : undefined);
 });
 
-test('a stalled search body reaches the aggregate deadline and never authorizes an outside submission', async () => {
+test('a stalled search reaches the deadline and records provisional evidence only', async () => {
   const originalTimeout = AbortSignal.timeout;
   AbortSignal.timeout = milliseconds => originalTimeout(milliseconds === 20_000 ? 10 : milliseconds);
   const keepAlive = setTimeout(() => {}, 1000);
@@ -306,9 +323,8 @@ test('a stalled search body reaches the aggregate deadline and never authorizes 
       await withFixture({}, null, async ({ send, writes }) => {
         const result = await send({ ...submit, orderId: '', selectedStopId: '',
           driverLookupInput: '9999999', referenceNumber: '9999999' });
-        assert.equal(result.response.status, 503, JSON.stringify(result.body));
-        assert.equal(result.response.headers.get('Retry-After'), '10');
-        assert.equal(aborted, true); assert.equal(writes.length, 0);
+        assertProvisional(result, writes);
+        assert.equal(aborted, true); assert.equal(writes.length, 1);
       }, async (url, init) => {
         if (!url.searchParams.has(strategy)) return undefined;
         return { ok: true, status: 200, json: () => new Promise((resolve, reject) => {

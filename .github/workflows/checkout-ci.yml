@@ -22,9 +22,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Checkout source contract
-        run: node --test tests/checkout-local-completion-contract.test.mjs
-      - name: Checkout and reference integration fixtures
-        run: node --test tests/checkin-completion-routes.test.mjs
+      - name: Full regression suite
+        run: node --test tests/*.test.mjs
       - name: TypeScript
         run: npx tsc --noEmit
