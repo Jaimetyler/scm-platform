@@ -32,6 +32,9 @@ type CheckinRow = ShortageFields & {
   client_id?: string;
   created_at: string;
   checked_in_at?: string | null;
+  local_receiving_only?: boolean;
+  yard_status?: string | null;
+  physical_departed_at?: string | null;
   verified_at?: string | null;
   identity_corrected_at?: string | null;
   updated_at: string;
@@ -173,7 +176,8 @@ function willProcess(row: CheckinRow) {
 }
 
 function isClosedRow(row: CheckinRow) {
-  return row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
+  return row.local_receiving_only === true && row.yard_status === "completed" ||
+    row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
     row.draft_status === "processing";
 }
 
@@ -240,7 +244,7 @@ export default function SiteCheckinPage() {
 
   useEffect(() => {
     for (const row of rows) {
-      if (viewCarryover || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
+      if (viewCarryover || row.local_receiving_only || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
       const mark = (row.mark ?? "").trim().toUpperCase();
       const key = `${mark}|${(row.shipper ?? "").trim().toUpperCase()}`;
       if (lookupKeysRef.current[row.id] === key) continue;
@@ -957,7 +961,7 @@ export default function SiteCheckinPage() {
   const readyCount = rows.filter((row) => row.draft_status === "ready").length;
   const processedCount = rows.filter((row) => row.draft_status === "processed").length;
   const outsideCount = rows.filter((row) => row.draft_status === "outside_carrier").length;
-  const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && usesMcleodCheckin(row)).length;
+  const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && !isClosedRow(row) && usesMcleodCheckin(row)).length;
   const gateOnlyCount = rows.filter((row) => row.checkin_source === "driver_qr" && !usesMcleodCheckin(row)).length;
   const failedCount = rows.filter((row) => row.draft_status === "failed" || Boolean(cottonShortage(row) && !row.customer_notified_at)).length;
 
@@ -1254,7 +1258,7 @@ export default function SiteCheckinPage() {
                       <div style={rowActionStatusStyle}>
                         <div style={rowStatusStyle}>
                       <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in"
+                      <small>{row.id.startsWith("local-") ? "" : row.local_receiving_only && row.yard_status === "completed" ? "Receiving complete" : row.draft_status === "checked_in"
                         ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
                         : row.draft_status === "delivery_blocked" ? "Receiving complete" : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (

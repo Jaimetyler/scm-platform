@@ -10,7 +10,7 @@ export default function DomesticFreightNav({ terminalSlug, siteCode, current }: 
   const site = getCheckinSite(terminalSlug, siteCode);
   const base = `/warehouse/gate/${terminalSlug}/${siteCode}`;
   const views: { key: View; label: string; href: string }[] = [
-    { key: "line", label: "Domestic Line", href: `${base}/line` },
+    { key: "line", label: "Active Line", href: `${base}/line` },
     ...(site?.materials.includes("cotton") ? [{ key: "cotton" as const, label: "Cotton", href: `/inbound/checkin/${terminalSlug}/${siteCode}` }] : []),
     ...(site?.materials.includes("lumber") ? [{ key: "domestic" as const, label: "Lumber & Other", href: `${base}/domestic` }] : []),
     { key: "history", label: "Domestic History", href: `${base}/history` },
