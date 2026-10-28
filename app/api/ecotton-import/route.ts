@@ -10,6 +10,7 @@ import {
 } from "@/lib/ecotton/mcleod";
 import { processInvoice, reconcileInvoice } from "@/lib/ecotton/engine";
 import { hash, databaseStore, readRun, vendor } from "@/lib/ecotton/server";
+import { buildDeliveryPlan, deliverInvoice, reconcileDelivery } from "@/lib/ecotton/delivery";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const uuid = (v: unknown) =>
@@ -155,7 +156,24 @@ async function POSTHandler(req: NextRequest) {
     );
   const row = item.order,
     store = databaseStore(db, actor);
-  if (body.action === "execute") {
+  if (body.action === "delivery-preview") {
+    if (row.status !== "verified") throw new Error("Only verified orders can be delivered.");
+    const plan = buildDeliveryPlan(await vendor(true).read("/orders/" + encodeURIComponent(row.order_id)), row);
+    return NextResponse.json({ ok: true, plan, planHash: hash(plan) });
+  } else if (body.action === "deliver") {
+    if (body.confirmed !== true) throw new Error("Review and confirm delivery details first.");
+    if (process.env.ECOTTON_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true")
+      throw new Error("Delivery writes are disabled in this environment.");
+    if (row.status !== "verified") throw new Error("Only verified orders can be delivered.");
+    const v = vendor();
+    const plan = buildDeliveryPlan(await v.read("/orders/" + encodeURIComponent(row.order_id)), row);
+    if (typeof body.planHash !== "string" || hash(plan) !== body.planHash) throw new Error("Delivery details changed. Review a fresh preview.");
+    await deliverInvoice(row, store, v, plan);
+  } else if (body.action === "reconcile-delivery") {
+    if (row.status === "delivering" && Date.now() - new Date(row.updated_at).getTime() < 300000)
+      throw new Error("Delivery may still be running. Wait five minutes before reconciling.");
+    await reconcileDelivery(row, store, vendor(true));
+  } else if (body.action === "execute") {
     if (body.confirmed !== true)
       throw new Error(
         "Review and confirm this import before creating or rating orders.",

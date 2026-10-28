@@ -14,7 +14,7 @@ export type Ledger = {
   profile: Profile;
 };
 export type Store = {
-  claim: (id: string, from: string, to: string) => Promise<Ledger | null>;
+  claim: (id: string, from: string, to: string, note?: string) => Promise<Ledger | null>;
   finish: (
     row: Ledger,
     state: string,

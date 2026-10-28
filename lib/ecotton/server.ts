@@ -34,7 +34,7 @@ export function databaseStore(
     return row;
   }
   return {
-    claim: async (id, from, to) => {
+    claim: async (id, from, to, note) => {
       const { data: row, error } = await db
         .from("ecotton_import_orders")
         .select("*")
@@ -43,7 +43,7 @@ export function databaseStore(
       if (error) throw new Error("Import row unavailable.");
       if (row.status !== from) return null;
       try {
-        return await transition(row, to, row.order_id, `Claimed ${to}`);
+        return await transition(row, to, row.order_id, note ?? `Claimed ${to}`);
       } catch (e) {
         if ((e as Error).message.includes("another request")) return null;
         throw e;
@@ -80,7 +80,7 @@ export function vendor(readOnly = false): Vendor {
     if (
       isRead
         ? !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
-        : !/^(?:\/orders\/(?:create|autorate\/[A-Za-z0-9_-]+)|\/movement\/update|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=0&carrierPay=0)$/.test(
+        : !/^(?:\/orders\/(?:create|autorate\/[A-Za-z0-9_-]+)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=0&carrierPay=0)$/.test(
             path,
           )
     )
@@ -113,7 +113,7 @@ export function vendor(readOnly = false): Vendor {
     write: (path, body) =>
       request(
         path,
-        ["/orders/create", "/movement/update"].includes(path) ? "PUT" : "POST",
+        ["/orders/create", "/movement/update", "/stop/update", "/orders/updateRow"].includes(path) ? "PUT" : "POST",
         body,
       ),
   };

@@ -30,8 +30,8 @@ function route() {
       ],
     }),
     databaseStore: () => ({}),
-    vendor: () => ({}),
-    hash: () => "",
+    vendor: () => ({ read: async () => ({}) }),
+    hash: () => "reviewed",
   };
   const local = (n) =>
     n === "@/lib/auth/guard"
@@ -45,7 +45,9 @@ function route() {
                 processInvoice: async () => writes++,
                 reconcileInvoice: async () => {},
               }
-            : n.startsWith("@/lib/ecotton/")
+            : n === "@/lib/ecotton/delivery" ? {
+              buildDeliveryPlan: () => ({}), deliverInvoice: async () => writes++, reconcileDelivery: async () => {},
+            } : n.startsWith("@/lib/ecotton/")
               ? { PROFILES: [{ id: "HOU", confirmed: true }] }
               : require(n);
   new Function("require", "module", "exports", code)(local, mod, mod.exports);
@@ -112,4 +114,25 @@ test("fresh in-flight claims cannot be reconciled while a request might still be
   });
   assert.match((await res.json()).error, /five minutes/);
   assert.equal(r.writes(), 0);
+});
+
+test("delivery requires saved membership, both write flags, reviewed plan hash and confirmation", async () => {
+  const oldI=process.env.ECOTTON_IMPORT_WRITES_ENABLED, oldM=process.env.MCLEOD_SYNC_ENABLED;
+  try {
+    for (const [imp,sync] of [["false","true"],["true","false"]]) {
+      process.env.ECOTTON_IMPORT_WRITES_ENABLED=imp;process.env.MCLEOD_SYNC_ENABLED=sync;
+      const r=route();r.row.status="verified";
+      const res=await r.handler({json:async()=>({...body,action:"deliver"})});
+      assert.equal(res.status,400);assert.match((await res.json()).error,/disabled/);assert.equal(r.writes(),0);
+    }
+    process.env.ECOTTON_IMPORT_WRITES_ENABLED="true";process.env.MCLEOD_SYNC_ENABLED="true";
+    for (const override of [{confirmed:false},{planHash:"stale"},{rowId:"33333333-3333-4333-8333-333333333333"}]) {
+      const r=route();r.row.status="verified";const res=await r.handler({json:async()=>({...body,action:"deliver",...override})});assert.equal(res.status,400);assert.equal(r.writes(),0);
+    }
+    const r=route();r.row.status="verified";
+    const res=await r.handler({json:async()=>({...body,action:"deliver",planHash:"reviewed"})});assert.equal(res.status,200);assert.equal(r.writes(),1);
+  } finally {
+    if(oldI===undefined)delete process.env.ECOTTON_IMPORT_WRITES_ENABLED;else process.env.ECOTTON_IMPORT_WRITES_ENABLED=oldI;
+    if(oldM===undefined)delete process.env.MCLEOD_SYNC_ENABLED;else process.env.MCLEOD_SYNC_ENABLED=oldM;
+  }
 });
