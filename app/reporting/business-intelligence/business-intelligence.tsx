@@ -39,7 +39,7 @@ function Services({metrics}:{metrics:CottonMetrics}){
  <tbody><tr><td>Warehouse total</td><td>{num(val(metrics,'warehouseOrders'))}</td><td>{money(val(metrics,'warehouseRevenue'))}</td><td>—</td><td>—</td></tr>
  {[["Handling","warehouseHandling"],["Storage","warehouseStorage"],["Other warehouse fees","warehouseOther"]].map(([label,key])=><tr key={key}><td>{label}</td><td>—</td><td>{detail(metrics,key)}</td><td>—</td><td>—</td></tr>)}
  {!!val(metrics,'contractDocuments')&&<tr><td>Contract storage (included in Storage)</td><td>{num(val(metrics,'contractDocuments'))}</td><td>{money(val(metrics,'contractStorage'))}</td><td>—</td><td>—</td></tr>}
- {transport.map(r=><tr key={r.kind}><td>{r.label}</td><td>{num(r.orders)}</td><td>{money(r.revenue)}</td><td>{r.pay===null?'—':money(r.pay)}</td><td>{r.gp===null?'—':`${money(r.gp)}${r.payMissing?' *':''}`}</td></tr>)}</tbody></table></div>;
+ {transport.map(r=><tr key={r.kind}><td>{r.label}</td><td>{num(r.orders)}</td><td>{money(r.revenue)}</td><td>{r.payMissing&&!Object.hasOwn(metrics,r.kind+'Pay')?'Pending cost':r.pay===null?'—':money(r.pay)}</td><td>{r.payMissing&&!Object.hasOwn(metrics,r.kind+'Pay')?'—':r.gp===null?'—':`${money(r.gp)}${r.payMissing?' *':''}`}</td></tr>)}</tbody></table></div>;
 }
 export default function BusinessIntelligence(){
  const [data,setData]=useState<Account[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('');

@@ -21,6 +21,7 @@ test('combined customer drilldown rolls scopes into each unit once and keeps mon
  const cotton=render('All','Cotton','C');assert.ok(cotton.includes('$100.00'));assert.ok(cotton.includes('$200.00'));assert.ok(!cotton.includes('$500.00'));
  const non=render('All','Non-Cotton','C');assert.ok(non.includes('$300.00'));assert.ok(!non.includes('>EC ·'));
  const unclassified=render('All','Unclassified','C');assert.ok(unclassified.includes('$25.00'));assert.ok(!unclassified.includes('Pending charge detail</td>'));
+ const pending=render('All','All','P',()=>{},false,[{...data[0],code:'P',name:'Pending cost account',metrics:{warehouseTruckBillingRevenue:50,localDrayRevenue:50,drayRevenue:50,localDrayPayMissing:1,drayPayMissing:1},months:[]}]);assert.ok(pending.includes('Pending cost'));
  const brokerage=render('Brokerage');assert.ok(brokerage.includes('Synthetic brokerage'));assert.ok(!brokerage.includes('>Synthetic combined</button>'));
 });
 test('combined row and view button select the customer',()=>{
