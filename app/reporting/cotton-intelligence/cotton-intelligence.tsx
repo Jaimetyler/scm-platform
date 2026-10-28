@@ -10,7 +10,7 @@ const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency
 const compact=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',notation:'compact',maximumFractionDigits:2}).format(n);
 const num=(n:number)=>new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(n);
 const val=(m:CottonMetrics,k:string)=>m[k]||0;
-const terminalLabel=(terminal:string)=>terminal==='Unassigned'?'Non-Warehouse':terminal;
+const terminalLabel=(terminal:string)=>terminal==='Unassigned'?'Brokerage':terminal;
 function sum(items:Account[]) {
  const metrics:CottonMetrics={},months=new Map<string,Month>();
  for(const c of items){
@@ -86,6 +86,6 @@ export default function CottonIntelligence(){
     </>:<section className={styles.panel}><h2>Customer contribution</h2><p className={styles.hint}>{num(filtered.length)} customer relationships · Select a customer for account codes and monthly detail.</p><div className={styles.tableScroll}><table><thead><tr><th>Customer</th><th>Terminals</th><th>Warehouse billed</th><th>OTR revenue</th><th>Dray revenue</th><th>Transport GP*</th><th>Contribution proxy†</th></tr></thead><tbody>{filtered.map(c=><tr key={c.code}><td className={styles.customer}><button style={{background:'transparent',border:0,color:'inherit',padding:0,font:'inherit',textAlign:'left',cursor:'pointer'}} onClick={()=>setSelectedCode(c.code)}>{c.name}</button><small>{c.accounts.join(' · ')}</small></td><td>{c.locations.map(x=>terminalLabel(x.warehouse)).join(' + ')}</td><td>{money(val(c.metrics,'warehouseRevenue'))}</td><td>{money(val(c.metrics,'otrRevenue'))}</td><td>{money(val(c.metrics,'drayRevenue'))}</td><td>{money(cottonTransportGP(c.metrics))}</td><td>{money(cottonContribution(c.metrics))}</td></tr>)}</tbody></table></div></section>}
    </>}
   </>}
-  <footer className={styles.foot}>* Transport GP uses current-movement override pay, not audited final settlements; missing pay is never assumed zero. Zero-revenue transport orders remain visible, including their verified costs. † Contribution proxy = eCotton warehouse invoice revenue + known-pay OTR and dray GP. It excludes warehouse operating expenses and separate contract-storage billing outside ECOTTON. Customer accounts merge only through explicit McLeod bridge IDs. Local codes identify terminals; DAVIS/DDRAY identify Dallas. Non-Warehouse includes MAIN cotton loads with no recognized SCM warehouse endpoint in the current mapping; location codes may still need review. These loads remain in All terminals. No invoice is counted in two service categories.</footer>
+  <footer className={styles.foot}>* Transport GP uses current-movement override pay, not audited final settlements; missing pay is never assumed zero. Zero-revenue transport orders remain visible, including their verified costs. † Contribution proxy = eCotton warehouse invoice revenue + known-pay OTR and dray GP. It excludes warehouse operating expenses and separate contract-storage billing outside ECOTTON. Customer accounts merge only through explicit McLeod bridge IDs. Local codes identify terminals; DAVIS/DDRAY identify Dallas. Brokerage includes MAIN cotton loads with no recognized SCM warehouse endpoint in the current mapping; location codes may still need review. These loads remain in All terminals. No invoice is counted in two service categories.</footer>
  </main>;
 }
