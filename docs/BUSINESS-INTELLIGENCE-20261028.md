@@ -22,12 +22,14 @@ Verified customer bridge links merge accounts; names alone never merge customers
 
 All business includes Cotton, Non-Cotton, and Unclassified. Contract invoices have no commodity allocation, so they appear in All/Unclassified rather than being guessed into Cotton or Non-Cotton. References identify their warehouse; undated-unit references can use a single explicit warehouse evidenced for the same account, while multiple possible warehouses remain in allocation review.
 
-The initial combined view covers all customers in the supplied trucking revenue-code exports, cotton local drays, and loaded warehouse/contract billing. Remaining non-cotton LOCAL/HLOCA/HLOCAL/DLOCA trucking is not yet loaded. `queries/business-local-trucking-monthly.sql` provides a compact, disjoint export for that remaining scope. The UI states this limitation; these totals are not a certified all-company ledger.
+The initial combined view covers all customers in the supplied trucking revenue-code exports, cotton local drays, and loaded warehouse/contract billing. The remaining non-cotton LOCAL/HLOCA/HLOCAL/DLOCA trucking export has now been loaded. `queries/business-local-trucking-monthly.sql` provides the compact, disjoint export for that scope. these totals are not a certified all-company ledger.
 
 Current-movement override pay is provisional, not audited settlements. Missing cost is unknown, never zero. Transport GP covers verified-pay revenue only. Warehouse operating costs are unavailable. Contribution proxy is warehouse service billing plus known-pay transport GP and excludes the unverified margin on warehouse trucking invoice billing.
 
 ## Persistence and verification
 
-Private snapshot `business-intelligence-20261028-v1` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
+Private snapshot `business-intelligence-20261028-v2` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
 
 Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, inter-warehouse review, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
+
+Version 2 imports the supplied local monthly export through `--local-monthly-json`, with unique group keys, count/pay-coverage validation, retained zero-revenue costs, and receipt hashing. It also recognizes verified SCM facility IDs SUPPPOG4 (Savannah), SUPPBATX (Houston), and SUPPGAG3 (Savannah), applying endpoint-first unit assignment to all transport sources. Company totals change only by the additional export; facility mapping changes unit allocation only. Prior snapshots remain available.

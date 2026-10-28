@@ -9,6 +9,10 @@ class Business(unittest.TestCase):
  def test_unit_uses_endpoints_before_revenue_code_and_preserves_interwarehouse(self):
   self.assertEqual(m.assign_unit('SUPPRIGA','REMOTE','DAVIS'),'Savannah')
   self.assertEqual(m.assign_unit('REMOTE','SUPPPAT1','MAIN'),'Houston')
+  self.assertEqual(m.assign_unit('SUPPPOG4','REMOTE','CNTR'),'Savannah')
+  self.assertEqual(m.assign_unit('SUPPBATX','REMOTE','DDRAY'),'Houston')
+  self.assertEqual(m.assign_unit('SUPPGAG3','REMOTE','MAIN'),'Savannah')
+  self.assertEqual(m.assign_unit('SUPPPOG4','SUPPBAT1','HLOCA'),'Allocation review')
   self.assertEqual(m.assign_unit('SUPPRIGA','SCMDDETX','MAIN'),'Allocation review')
   self.assertEqual(m.assign_unit('REMOTE','PORT','DDRAY'),'Brokerage')
   self.assertEqual(m.assign_unit('REMOTE','PORT','HLOCA'),'Houston')
@@ -42,6 +46,12 @@ class Business(unittest.TestCase):
    prefix='directDray' if code in ['CNTR','DDRAY'] else 'localDray'
    self.assertEqual(metric[prefix+'Orders'],1);self.assertEqual(metric[prefix+'Revenue'],100);self.assertEqual(metric[prefix+'Pay'],60)
    self.assertEqual(metric['drayRevenue'],metric[prefix+'Revenue'])
+ def test_local_monthly_costs_zero_revenue_dedup_and_endpoint_assignment(self):
+  r=self.report();a=self.audit();row=dict(company_id='TMS',customer_code='C',revenue_code_id='HLOCA',bill_month='2025-04',pickup_location_id='REMOTE',delivery_location_id='SUPPRIGA',trucking_loads=2,trucking_revenue=0,verified_carrier_pay=700,revenue_with_verified_pay=0,missing_carrier_pay_loads=0,zero_revenue_loads=2,missing_revenue_loads=0)
+  m.local_monthly(r,[row],a);c=r.finish()[0];self.assertEqual(c['warehouse'],'Savannah');self.assertEqual(c['metrics']['localDrayPay'],700);self.assertEqual(c['metrics']['localDrayRevenue'],0);self.assertEqual(c['metrics']['uniqueTransportOrders'],2)
+  with self.assertRaises(ValueError):m.local_monthly(self.report(),[row,row],self.audit())
+  for change in [{'missing_revenue_loads':1},{'missing_carrier_pay_loads':3},{'revenue_with_verified_pay':1},{'trucking_loads':-1}]:
+   with self.assertRaises(ValueError):m.local_monthly(self.report(),[{**row,**change}],self.audit())
  def test_report_end_date_is_enforced(self):
   self.assertTrue(m.inperiod('2026-10-20'));self.assertFalse(m.inperiod('2026-10-21'));self.assertFalse(m.inperiod('2024-12-31'))
 if __name__=='__main__':unittest.main()

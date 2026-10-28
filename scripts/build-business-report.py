@@ -6,7 +6,9 @@ from datetime import datetime
 from decimal import Decimal as D
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('cotton',Path(__file__).with_name('build-cotton-report.py'));cotton=importlib.util.module_from_spec(spec);spec.loader.exec_module(cotton)
-LOCAL=cotton.LOCAL_CODES;LOCATIONS=cotton.LOCATIONS
+LOCAL=cotton.LOCAL_CODES
+# Confirmed through read-only McLeod location records: Grange Rd, Baytown, Garden City.
+LOCATIONS={**cotton.LOCATIONS,'SUPPPOG4':'Savannah','SUPPBATX':'Houston','SUPPGAG3':'Savannah'}
 TRANSPORT={'MAIN':'otr','TERRY':'otr','DAVIS':'otr','CNTR':'dray','DDRAY':'dray'}
 WAREHOUSE_FIELDS={'handling':'warehouseHandling','storage':'warehouseStorage','other':'warehouseOther'}
 def dec(v):
@@ -107,6 +109,29 @@ def transport(report,orders,cotton_ids,audit):
   audit['transport_revenue']+=revenue
  return seen
 
+def local_monthly(report,rows,audit):
+ """Import the disjoint non-COTTON/non-warehouse local query's monthly groups."""
+ seen=set()
+ for r in rows:
+  code=r['revenue_code_id'];period=r['bill_month']
+  if r['company_id']!='TMS' or code not in LOCAL or not re.fullmatch(r'\d{4}-\d{2}',period) or not '2025-01'<=period<='2026-10':raise ValueError('Invalid local source scope')
+  key=(r['company_id'],r['customer_code'],code,period,r.get('pickup_location_id') or '',r.get('delivery_location_id') or '')
+  if key in seen:raise ValueError('Repeated local monthly source group')
+  seen.add(key)
+  count,missing,zero,missing_revenue=[D(str(r[k])) for k in ['trucking_loads','missing_carrier_pay_loads','zero_revenue_loads','missing_revenue_loads']]
+  if any(not n.is_finite() or n!=n.to_integral_value() for n in [count,missing,zero,missing_revenue]) or count<=0 or not 0<=missing<=count or not 0<=zero<=count or missing_revenue!=0:raise ValueError('Invalid local source counts')
+  revenue,pay,covered=[dec(r[k]) for k in ['trucking_revenue','verified_carrier_pay','revenue_with_verified_pay']]
+  if None in [revenue,pay,covered] or (missing==0 and covered!=revenue) or (missing==count and (pay!=0 or covered!=0)):raise ValueError('Invalid local source pay coverage')
+  unit=assign_unit(r.get('pickup_location_id'),r.get('delivery_location_id'),code)
+  base={'Orders':count,'Revenue':revenue,'PayMissing':missing,'ZeroRevenueOrders':zero}
+  if missing<count:base.update(Pay=pay,RevenueWithPay=covered)
+  values={prefix+k:v for prefix in ['dray','localDray'] for k,v in base.items()}
+  values['uniqueTransportOrders']=count
+  if unit=='Allocation review':values['allocationReviewLoads']=count
+  report.add(unit,'Non-Cotton',r['customer_code'],period,values,[code])
+  audit['transport_orders']+=count;audit['transport_revenue']+=revenue;audit['local_monthly_loads']+=count
+ audit['local_monthly_groups']=len(seen)
+
 def warehouse(report,cotton_snapshot,warehouse_snapshot,headers,audit,chassis_ids=()):
  # Cotton contributes warehouse components only; transport is rebuilt from order IDs.
  for c in cotton_snapshot:
@@ -170,11 +195,16 @@ def contracts(report,rows,audit):
   report.add(unit,'Unclassified',r['Customer'],date[:7],values,['CONTRACT'])
   audit['contract_documents']+=1;audit['contract_net']+=value
 
-def build(root,cotton_snapshot,warehouse_snapshot,context):
+def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None):
  root=Path(root);context=Path(context)
  manifest=json.loads((context/'manifest.json').read_text())
  if not manifest.get('complete'):raise ValueError('Combined classification context incomplete')
- families=Families(json.loads((context/'accounts.json').read_text()),warehouse_snapshot);report=Report(families)
+ accounts=json.loads((context/'accounts.json').read_text());local_rows=json.loads(Path(local_source).read_text()) if local_source else []
+ known={x['code'] for x in accounts}
+ for row in local_rows:
+  if row['customer_code'] not in known:
+   accounts.append({'code':row['customer_code'],'name':row.get('customer_name') or row['customer_code'],'bridge':row.get('customer_bridge')});known.add(row['customer_code'])
+ families=Families(accounts,warehouse_snapshot);report=Report(families)
  audit=collections.defaultdict(D);audit['sources']={};orders=[];cotton_ids=set()
  for name in ['freshdata.csv','terry.csv']:
   source=csvrows(root/'upload'/name);orders.extend(normalize_csv(x) for x in source);audit['sources'][name]=len(source)
@@ -206,6 +236,8 @@ def build(root,cotton_snapshot,warehouse_snapshot,context):
  invoice_ids={x['order_id'] for x in headers}
  if any(o['id'] in invoice_ids for o in orders if o['type']!='ECOTTON'):raise ValueError('Warehouse invoice also present in transport ledger')
  transport(report,orders,cotton_ids,audit)
+ if local_source:
+  local_monthly(report,local_rows,audit);audit['sources']['local_monthly_sha256']=hashlib.sha256(Path(local_source).read_bytes()).hexdigest()
  chassis_ids={x['order_id'] for x in csvrows(root/'report_sources/storage and handling full period.csv','cp1252') if x['charge_code'] in ['019','HPC','HSPT','SCS','SPC'] and dec(x['charge_amount'])!=0}
  warehouse(report,cotton_snapshot,warehouse_snapshot,headers,audit,chassis_ids)
  contracts(report,csvrows(root/'report_sources/contract storage histroy.csv','cp1252'),audit)
@@ -221,7 +253,7 @@ def build(root,cotton_snapshot,warehouse_snapshot,context):
 if __name__=='__main__':
  p=argparse.ArgumentParser()
  for k in ['root','cotton-snapshot','warehouse-snapshot','context-dir','output','audit']:p.add_argument('--'+k,required=True)
- a=p.parse_args();result,audit=build(a.root,json.loads(Path(a.cotton_snapshot).read_text()),json.loads(Path(a.warehouse_snapshot).read_text()),a.context_dir)
+ p.add_argument('--local-monthly-json');a=p.parse_args();result,audit=build(a.root,json.loads(Path(a.cotton_snapshot).read_text()),json.loads(Path(a.warehouse_snapshot).read_text()),a.context_dir,a.local_monthly_json)
  def number(v):
   if isinstance(v,D):return float(v)
   raise TypeError(type(v))
