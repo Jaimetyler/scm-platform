@@ -10,9 +10,6 @@
    Current-movement override pay is provisional, not final carrier settlement.
    NULL carrier pay/location must remain unknown, not be silently changed to 0.
 */
-DECLARE @start_date date = '20250101';
-DECLARE @end_exclusive date = '20261021';
-
 SELECT
     o.company_id,
     o.id AS order_id,
@@ -45,7 +42,7 @@ LEFT JOIN stop AS so
     ON so.company_id = o.company_id
    AND so.id = o.consignee_stop_id
 WHERE o.company_id = 'TMS'
-  AND o.bill_date >= @start_date
-  AND o.bill_date < @end_exclusive
+  AND o.bill_date >= '20250101'
+  AND o.bill_date < '20261021'
   AND o.revenue_code_id IN ('MAIN', 'CNTR', 'DAVIS', 'DDRAY')
 ORDER BY o.bill_date, o.revenue_code_id, o.id;
