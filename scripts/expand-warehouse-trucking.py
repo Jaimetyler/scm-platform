@@ -5,7 +5,7 @@ import argparse, collections, copy, csv, hashlib, json
 from decimal import Decimal
 from pathlib import Path
 
-LOCATIONS = {'SUPPRIGA': 'Savannah', 'SUPPRIG1': 'Savannah', 'SUPPRIG3': 'Savannah', 'SCMBSAGA': 'Savannah',
+LOCATIONS = {'SUPPRIGA': 'Savannah', 'SUPPRIG1': 'Savannah', 'SUPPRIG3': 'Savannah', 'SCMBSAGA': 'Savannah', 'SUPPPOG5': 'Savannah',
              'SUPPPAT1': 'Houston', 'SCMDDETX': 'Dallas', 'SCMDDATX': 'Dallas'}
 SEGMENTS = {'CNTR': 'cntr', 'DAVIS': 'davis', 'DDRAY': 'ddray', 'TERRY': 'terry'}
 
@@ -67,8 +67,8 @@ def expand(baseline, orders, bridges):
                  'otrCode': b['trucking_customer_code'], 'warehouseDataAvailable': False,
                  'metrics': {}, 'months': []}
             output.append(c); index[key] = c
-        if allocation_note: c['allocationNote'] = allocation_note
         c = index[key]
+        if allocation_note: c['allocationNote'] = allocation_note
         prefix = SEGMENTS[code]
         month = order['bill_date'][:7]
         m = next((x for x in c['months'] if x['month'] == month), None)

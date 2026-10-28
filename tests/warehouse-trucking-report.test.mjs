@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),React=require('react'),{renderToStaticMarkup}=require('react-dom/server');
-const data=[{warehouse:'Savannah',code:'3PL-SYN',name:'Synthetic',otrCode:'SYN',metrics:{otrLoads:1,otrRevenue:1000,otrPay:700,cntrLoads:2,cntrRevenue:600,cntrPay:400,truckingLoads:3,truckingRevenue:1600,truckingPay:1100},months:[{month:'2025-01',truckingLoads:3,truckingRevenue:1600,truckingPay:1100}]},{warehouse:'Dallas',code:'3PL-SYN',name:'Synthetic',otrCode:'SYN',warehouseDataAvailable:false,metrics:{davisLoads:1,davisRevenue:100,davisPay:60,ddrayLoads:1,ddrayRevenue:200,ddrayPay:140,truckingLoads:2,truckingRevenue:300,truckingPay:200},months:[{month:'2025-01',truckingLoads:2,truckingRevenue:300,truckingPay:200}]}];
+const data=[{warehouse:'Savannah',code:'3PL-SYN',name:'Synthetic',otrCode:'SYN',metrics:{otrLoads:1,otrRevenue:1000,otrPay:700,cntrLoads:2,cntrRevenue:600,cntrPay:400,terryLoads:3,terryRevenue:900,terryPay:700,truckingLoads:6,truckingRevenue:2500,truckingPay:1800},months:[{month:'2025-01',terryLoads:3,terryRevenue:900,terryPay:700,truckingLoads:6,truckingRevenue:2500,truckingPay:1800}]},{warehouse:'Dallas',code:'3PL-SYN',name:'Synthetic',otrCode:'SYN',warehouseDataAvailable:false,metrics:{davisLoads:1,davisRevenue:100,davisPay:60,ddrayLoads:1,ddrayRevenue:200,ddrayPay:140,truckingLoads:2,truckingRevenue:300,truckingPay:200},months:[{month:'2025-01',truckingLoads:2,truckingRevenue:300,truckingPay:200}]}];
 const sum=k=>Math.round(data.reduce((n,c)=>n+(c.metrics[k]||0),0)*100)/100;
 function render(warehouse='All',selected=null){
  const states=[data,false,'',warehouse,'','indicator',selected];
@@ -19,11 +19,11 @@ function render(warehouse='All',selected=null){
 test('original MAIN control and new segment totals reconcile',()=>{
  assert.equal(sum('otrLoads'),1);assert.equal(sum('otrRevenue'),1000);assert.equal(sum('otrPay'),700);
  assert.equal(sum('cntrLoads'),2);assert.equal(sum('davisLoads'),1);assert.equal(sum('ddrayLoads'),1);
- assert.equal(sum('truckingLoads'),5);assert.equal(sum('truckingRevenue'),1900);assert.equal(sum('truckingPay'),1300);
+ assert.equal(sum('truckingLoads'),8);assert.equal(sum('truckingRevenue'),2800);assert.equal(sum('truckingPay'),2000);
  for(const c of data)for(const k of ['truckingLoads','truckingRevenue','truckingPay'])assert.ok(Math.abs(c.metrics[k]-c.months.reduce((n,m)=>n+(m[k]||0),0))<0.01,`${c.code} ${k}`);
 });
 test('overview and customer views render all segments; Dallas marks missing warehouse data',()=>{
- const all=render();for(const label of ['MAIN · OTR','TERRY · OTR','CNTR · Direct drays','DAVIS · OTR','DDRAY · Drays','Dallas'])assert.ok(all.includes(label));
+ const all=render();for(const label of ['MAIN · OTR','TERRY · OTR','CNTR · Direct drays','DAVIS · OTR','DDRAY · Drays','Dallas'])assert.ok(all.includes(label));assert.ok(all.includes('Total OTR trucking'));assert.ok(all.includes('Total drays'));
  const dallas=render('Dallas');assert.ok(dallas.includes('Not loaded'));assert.ok(dallas.includes('$100'));assert.ok(!dallas.includes('$1,000'));
  const selected=data.find(c=>c.warehouse==='Dallas').name.trim().toLowerCase();
  const customer=render('Dallas',selected);assert.ok(customer.includes('Connected trucking by revenue code'));assert.ok(customer.includes('Not loaded'));

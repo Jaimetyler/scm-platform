@@ -28,6 +28,12 @@ class Expansion(unittest.TestCase):
   b=self.bridges+[dict(self.bridges[0],warehouse_customer_code='3PLOTHER',warehouse_customer_name='Other')]
   out,a=m.expand(self.baseline,[self.order()],b)
   self.assertEqual(len(a['included']),1);self.assertEqual(out[1]['code'],'SHARED:TEST');self.assertIn('allocationNote',out[1])
+ def test_interleaved_shared_notes_do_not_attach_to_other_customers(self):
+  bridges=self.bridges+[dict(self.bridges[0],warehouse_customer_code='3PLOTHER',warehouse_customer_name='Other'),dict(self.bridges[0],warehouse_customer_code='3PLSECOND',warehouse_customer_name='Second',trucking_customer_code='SECOND')]
+  orders=[self.order(),dict(self.order(),id='other',order_id='2',customer_code='SECOND'),dict(self.order(),order_id='3')]
+  out,a=m.expand(self.baseline,orders,bridges)
+  second=next(c for c in out if c['code']=='3PLSECOND');shared=next(c for c in out if c['code']=='SHARED:TEST')
+  self.assertNotIn('allocationNote',second);self.assertIn('allocationNote',shared);self.assertEqual(shared['metrics']['cntrLoads'],2)
  def test_ecotton_excluded(self):
   out,a=m.expand(self.baseline,[self.order(order_type_id='ECOTTON')],self.bridges);self.assertFalse(a['included'])
  def test_main_is_not_recomputed(self):

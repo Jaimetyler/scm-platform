@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useMemo,useState} from 'react';
-import {truckingSegments} from '@/lib/reporting/trucking';
+import {truckingSegments,truckingGroupTotals} from '@/lib/reporting/trucking';
 import styles from './warehouse-intelligence.module.css';
 type Metrics=Record<string,number>;
 type Month = {
@@ -26,7 +26,7 @@ const metrics=['storage','contractStorage','handling','drayage','truckingRevenue
 function SegmentTable({metrics}:{metrics:Metrics}) {
  return <section className={styles.panel}><h2>Connected trucking by revenue code</h2>
  <div className={styles.tableScroll}><table><thead><tr><th>Segment</th><th>Loads</th><th>Revenue</th><th>Carrier pay</th><th>GP*</th><th>Margin</th></tr></thead>
- <tbody>{truckingSegments(metrics).map(row=><tr key={row.code}><td>{row.label}</td><td>{num(row.loads)}</td><td>{money(row.revenue)}</td><td>{money(row.pay)}</td><td>{money(row.gp)}</td><td>{row.margin===null?'—':`${(row.margin*100).toFixed(1)}%`}</td></tr>)}</tbody></table></div></section>;
+ <tbody>{truckingSegments(metrics).map(row=><tr key={row.code}><td>{row.label}</td><td>{num(row.loads)}</td><td>{money(row.revenue)}</td><td>{money(row.pay)}</td><td>{money(row.gp)}</td><td>{row.margin===null?'—':`${(row.margin*100).toFixed(1)}%`}</td></tr>)}</tbody><tfoot>{truckingGroupTotals(metrics).map(row=><tr key={row.group}><th scope="row">{row.label}</th><td>{num(row.loads)}</td><td>{money(row.revenue)}</td><td>{money(row.pay)}</td><td>{money(row.gp)}</td><td>{row.margin===null?'—':`${(row.margin*100).toFixed(1)}%`}</td></tr>)}</tfoot></table></div></section>;
 }
 const warehouseMoney=(r:Relationship,key:string)=>r.locations.every(c=>c.warehouseDataAvailable===false)?'Not loaded':money(relationshipVal(r,key));
 function BarChart({rows}:{rows:{name:string;value:number}[]}){const max=Math.max(...rows.map(x=>x.value),1);return <div className={styles.bars}>{rows.map((r,i)=><div className={styles.barrow} key={i}><span title={r.name}>{r.name}</span><div className={styles.track}><div style={{width:`${Math.max(0,r.value/max*100)}%`}}/></div><strong>{money(r.value)}</strong></div>)}</div>}
