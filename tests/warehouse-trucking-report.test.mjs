@@ -23,7 +23,7 @@ test('original MAIN control and new segment totals reconcile',()=>{
  for(const c of data)for(const k of ['truckingLoads','truckingRevenue','truckingPay'])assert.ok(Math.abs(c.metrics[k]-c.months.reduce((n,m)=>n+(m[k]||0),0))<0.01,`${c.code} ${k}`);
 });
 test('overview and customer views render all segments; Dallas marks missing warehouse data',()=>{
- const all=render();for(const label of ['MAIN · OTR','CNTR · Direct drays','DAVIS · Trucking','DDRAY · Drays','Dallas'])assert.ok(all.includes(label));
+ const all=render();for(const label of ['MAIN · OTR','TERRY · OTR','CNTR · Direct drays','DAVIS · OTR','DDRAY · Drays','Dallas'])assert.ok(all.includes(label));
  const dallas=render('Dallas');assert.ok(dallas.includes('Not loaded'));assert.ok(dallas.includes('$100'));assert.ok(!dallas.includes('$1,000'));
  const selected=data.find(c=>c.warehouse==='Dallas').name.trim().toLowerCase();
  const customer=render('Dallas',selected);assert.ok(customer.includes('Connected trucking by revenue code'));assert.ok(customer.includes('Not loaded'));
