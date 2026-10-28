@@ -35,3 +35,5 @@ The snapshot identifier for this first view is `cotton-intelligence-20261028-v3`
 Confirmed non-cotton account KLEN74GA is excluded from the cotton snapshot even when its source commodity says COTTON. This reporting correction leaves McLeod records unchanged and records excluded counts in the build audit. The prior snapshot is retained.
 
 Additional confirmed non-cotton exclusions: CKTRCHIL, RSMCCHNC, EVANONCA, HAMPPOOR and HOBBOKOK. These exact account exclusions apply to future snapshot builds as well as the current correction.
+
+The UI displays handling, storage, and other warehouse fees separately in KPIs, service breakdown, customer lists, terminal comparisons, and monthly activity. Warehouse total remains a reconciliation control and is counted once in contribution. Incomplete charge coverage displays Pending charge detail rather than a partial total or zero. Brokerage is the display label for the historical Unassigned bucket.
