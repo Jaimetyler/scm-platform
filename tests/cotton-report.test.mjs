@@ -19,7 +19,7 @@ test('warehouse billing is not carrier GP; missing-pay revenue never becomes ass
  assert.equal(h.cottonContribution({warehouseRevenue:100,otrRevenueWithPay:150,otrPay:100}),150);
 });
 test('all terminals, customer detail and Dallas charge detail render correct scope',()=>{
- const all=render();assert.ok(all.includes('Cotton Intelligence'));assert.ok(all.includes('Synthetic cotton'));assert.ok(all.includes('Synthetic remote'));assert.ok(all.includes('lack verified current-movement pay'));
+ const all=render();assert.ok(all.includes('Cotton Intelligence'));assert.ok(all.includes('Non-Warehouse'));assert.ok(!all.includes('Unassigned'));assert.ok(all.includes('Synthetic cotton'));assert.ok(all.includes('Synthetic remote'));assert.ok(all.includes('lack verified current-movement pay'));
  const selected=render('Savannah','SYN');assert.ok(selected.includes('Pending charge detail'));assert.ok(selected.includes('$200.00'));assert.ok(selected.includes('ECOT-SYN'));
  const dallas=render('Dallas','DAL');assert.ok(dallas.includes('$50.00'));assert.ok(dallas.includes('$20.00'));assert.ok(dallas.includes('$10.00'));assert.ok(!dallas.includes('Pending charge detail</td>'));
  const noActivity=render('Dallas','SYN');assert.ok(noActivity.includes('No activity for this customer'));
