@@ -30,9 +30,30 @@ def terminal(order,kind):
  locations={LOCATIONS[x] for x in [order.get('pickup'),order.get('delivery')] if x in LOCATIONS}
  return next(iter(locations)) if len(locations)==1 else 'Unassigned'
 
+def invoice_charge_details(rows):
+ result={}
+ for x in rows:
+  if x['order_type_id']!='ECOTTON':continue
+  key=(x['company_id'],x['order_id'])
+  if key in result:raise ValueError('Repeated invoice summary')
+  total,freight,charges,lines=[amount(x[k]) for k in ['total_order_revenue','freight_charge','other_charge_total','charge_line_total']]
+  parts=[amount(x[k]) for k in ['warehouse_handling','warehouse_storage','warehouse_other']]
+  if None in [total,freight,charges,lines,*parts] or D(x['null_charge_amounts'])!=0:raise ValueError('Missing invoice summary amounts')
+  if lines!=charges or freight+charges!=total or sum(parts)!=total:raise ValueError('Invoice summary does not reconcile')
+  result[key]={'customer':x['customer_code'],'date':x['bill_date'],'total':total,'metrics':dict(zip(['warehouseHandling','warehouseStorage','warehouseOther'],parts))}
+ return result
+
 def charge_details(path):
  if not path:return {}
+ if isinstance(path,list):
+  result={}
+  for item in path:
+   part=charge_details(item)
+   if result.keys() & part.keys():raise ValueError('Invoice repeated across charge exports')
+   result.update(part)
+  return result
  with open(path,encoding='utf-8-sig',newline='') as f:rows=list(csv.DictReader(f))
+ if rows and 'warehouse_handling' in rows[0]:return invoice_charge_details(rows)
  groups=collections.defaultdict(list);seen=set()
  for x in rows:
   if x['order_type_id']!='ECOTTON':continue
@@ -121,7 +142,7 @@ def build(partitions,details=None,extra_accounts=None):
  return sorted(grouped.values(),key=lambda x:(x['name'].lower(),x['warehouse'])),audit
 
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('--source-dir',required=True);p.add_argument('--charge-csv');p.add_argument('--customer-metadata');p.add_argument('--output',required=True);p.add_argument('--audit',required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--source-dir',required=True);p.add_argument('--charge-csv',action='append');p.add_argument('--customer-metadata');p.add_argument('--output',required=True);p.add_argument('--audit',required=True);a=p.parse_args()
  manifest=json.loads((Path(a.source_dir)/'manifest.json').read_text())
  if not manifest.get('complete'):raise ValueError('Cotton extraction not complete')
  partitions=[json.loads((Path(a.source_dir)/(x['key']+'.json')).read_text()) for x in manifest['sources']]

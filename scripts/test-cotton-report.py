@@ -25,6 +25,12 @@ class Cotton(unittest.TestCase):
   o=self.order(code='DLOCA',type='ECOTTON',freight=0,chargeTotal=100)
   details={('TMS','O1'):{'customer':'CUST','date':'2025-01-02','total':m.D(100),'metrics':{'warehouseStorage':m.D(100)}}}
   out,a=m.build([self.part([o])],details);self.assertEqual(out[0]['metrics']['warehouseDetailedOrders'],1);self.assertEqual(out[0]['metrics']['warehouseStorage'],100)
+ def test_invoice_summary_components_reconcile_with_signed_credits(self):
+  row=dict(company_id='TMS',order_id='I',customer_code='SYN',order_type_id='ECOTTON',bill_date='2025-01-01',total_order_revenue='100',freight_charge='10',other_charge_total='90',charge_line_total='90',null_charge_amounts='0',warehouse_handling='120',warehouse_storage='-40',warehouse_other='20')
+  result=m.invoice_charge_details([row]);self.assertEqual(result[('TMS','I')]['metrics']['warehouseStorage'],m.D('-40'))
+  for change in [{'warehouse_storage':'0'},{'charge_line_total':'89'},{'null_charge_amounts':'1'}]:
+   with self.assertRaises(ValueError):m.invoice_charge_details([{**row,**change}])
+  with self.assertRaises(ValueError):m.invoice_charge_details([row,row])
  def test_unverified_customer_bridge_stays_separate(self):
   out,a=m.build([self.part([self.order(bridge='MISSING')])]);self.assertTrue(out[0]['relationshipReview']);self.assertEqual(out[0]['code'],'CUST')
  def test_confirmed_non_cotton_account_is_excluded(self):
