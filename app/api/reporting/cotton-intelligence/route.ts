@@ -4,7 +4,7 @@ import { staffDatabase } from '@/lib/auth/session';
 export const dynamic = 'force-dynamic';
 export const GET = withStaffAccess(async () => {
   const { data, error } = await staffDatabase().from('scm_reporting_snapshots')
-    .select('customers,source_date').eq('id','cotton-intelligence-20261028-v1').single();
+    .select('customers,source_date').eq('id','cotton-intelligence-20261028-v2').single();
   if (error || !Array.isArray(data?.customers))
     return NextResponse.json({ ok:false,error:'Cotton report is temporarily unavailable.' },
       { status:503,headers:{'Cache-Control':'private, no-store'} });

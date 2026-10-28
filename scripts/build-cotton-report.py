@@ -2,6 +2,8 @@
 import argparse, collections, csv, hashlib, json
 from decimal import Decimal as D
 from pathlib import Path
+# Confirmed non-cotton account: source commodity coding is incorrect.
+NON_COTTON_CUSTOMERS={'KLEN74GA'}
 LOCAL_CODES={'LOCAL':'Savannah','HLOCAL':'Houston','HLOCA':'Houston','DLOCA':'Dallas'}
 LOCATIONS={'SUPPRIGA':'Savannah','SUPPRIG1':'Savannah','SUPPRIG2':'Savannah','SUPPRIG3':'Savannah','SCMBSAGA':'Savannah','SUPPPOG5':'Savannah','SAVWHSE':'Savannah','SCMRIG2':'Savannah','SAVAGAG2':'Savannah','SUPPSAG2':'Savannah',
  'SUPPPAT1':'Houston','SUPPBAT1':'Houston','HOUWHSE':'Houston','SCMDDETX':'Dallas','SCMDDATX':'Dallas'}
@@ -13,6 +15,7 @@ def amount(value):
  return n.quantize(D('.01'))
 
 def category(order):
+ if order.get('customer') in NON_COTTON_CUSTOMERS:return None
  code=order['code'];typ=order['type'].upper();commodity=order['commodity'].upper()
  if order['status'].upper()=='V':return None
  if typ=='ECOTTON' and code in LOCAL_CODES:return 'warehouse'
@@ -85,7 +88,9 @@ def build(partitions,details=None,extra_accounts=None):
  grouped={};audit={'source_counts':source_counts,'unique_source_orders':len(orders),'included':collections.Counter(),'excluded':collections.Counter(),'review':[]}
  for key,o in orders.items():
   kind=category(o)
-  if kind is None:audit['excluded']['not_in_rules_or_void']+=1;continue
+  if kind is None:
+   reason='confirmed_non_cotton_account' if o['customer'] in NON_COTTON_CUSTOMERS else 'not_in_rules_or_void'
+   audit['excluded'][reason]+=1;continue
   revenue=amount(o['revenue'])
   if revenue is None:raise ValueError('Missing order invoice revenue')
   code,bridge_review=family(o['customer']);location=terminal(o,kind);gkey=(location,code)

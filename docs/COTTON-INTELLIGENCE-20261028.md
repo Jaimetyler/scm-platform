@@ -30,4 +30,6 @@ Financial snapshots are immutable versions in `scm_reporting_snapshots`, with RL
 
 Classification tests cover commodity/revenue/type precedence, voids, duplicate source partitions, customer bridges, unknown carrier pay, explicit zero pay, unassigned MAIN and validated warehouse charge detail. React server-render tests cover overall/customer/terminal/search behavior, pending detail and protected API structure. Native MAIN/DAVIS/DDRAY candidate orders were independently compared to the supplied full-period trucking CSV for identity and financial amounts.
 
-The snapshot identifier for this first view is `cotton-intelligence-20261028-v1`. No schema migration is needed. On rollback, restore the previous app deployment and retain private snapshot history.
+The snapshot identifier for this first view is `cotton-intelligence-20261028-v2`. No schema migration is needed. On rollback, restore the previous app deployment and retain private snapshot history.
+
+Confirmed non-cotton account KLEN74GA is excluded from the cotton snapshot even when its source commodity says COTTON. This reporting correction leaves McLeod records unchanged and records excluded counts in the build audit. The prior snapshot is retained.

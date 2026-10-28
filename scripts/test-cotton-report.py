@@ -27,6 +27,11 @@ class Cotton(unittest.TestCase):
   out,a=m.build([self.part([o])],details);self.assertEqual(out[0]['metrics']['warehouseDetailedOrders'],1);self.assertEqual(out[0]['metrics']['warehouseStorage'],100)
  def test_unverified_customer_bridge_stays_separate(self):
   out,a=m.build([self.part([self.order(bridge='MISSING')])]);self.assertTrue(out[0]['relationshipReview']);self.assertEqual(out[0]['code'],'CUST')
+ def test_confirmed_non_cotton_account_is_excluded(self):
+  o=self.order(customer=next(iter(m.NON_COTTON_CUSTOMERS)))
+  self.assertIsNone(m.category(o))
+  out,a=m.build([self.part([o,self.order(id='VALID')])]);self.assertEqual(len(out),1)
+  self.assertEqual(out[0]['metrics']['otrOrders'],1);self.assertEqual(a['excluded']['confirmed_non_cotton_account'],1)
  def test_verified_zero_pay_and_zero_revenue_are_not_missing(self):
   out,a=m.build([self.part([self.order(code='DDRAY',pay=0,revenue=0)])]);self.assertEqual(out[0]['metrics']['drayPay'],0);self.assertEqual(out[0]['metrics']['drayZeroRevenueOrders'],1);self.assertNotIn('drayPayMissing',out[0]['metrics'])
 if __name__=='__main__':unittest.main()
