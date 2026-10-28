@@ -24,6 +24,12 @@ class Expansion(unittest.TestCase):
   out,a=m.expand(self.baseline,[self.order(revenue_code_id='DAVIS',delivery_location_id='SCMDDETX')],self.bridges)
   self.assertFalse(out[1]['warehouseDataAvailable']);self.assertNotIn('storage',out[1]['metrics'])
   with self.assertRaises(ValueError):m.expand(self.baseline,[self.order(),self.order()],self.bridges)
+ def test_shared_customer_bridge_counts_once_without_guessing(self):
+  b=self.bridges+[dict(self.bridges[0],warehouse_customer_code='3PLOTHER',warehouse_customer_name='Other')]
+  out,a=m.expand(self.baseline,[self.order()],b)
+  self.assertEqual(len(a['included']),1);self.assertEqual(out[1]['code'],'SHARED:TEST');self.assertIn('allocationNote',out[1])
+ def test_ecotton_excluded(self):
+  out,a=m.expand(self.baseline,[self.order(order_type_id='ECOTTON')],self.bridges);self.assertFalse(a['included'])
  def test_main_is_not_recomputed(self):
   out,a=m.expand(self.baseline,[self.order(revenue_code_id='MAIN',total_invoice_revenue='999')],self.bridges);self.assertEqual(out[0]['metrics']['truckingRevenue'],100)
 if __name__=='__main__':unittest.main()

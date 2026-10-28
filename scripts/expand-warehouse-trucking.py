@@ -29,6 +29,8 @@ def expand(baseline, orders, bridges):
         seen.add(key)
         if order['company_id'] != 'TMS' or not '2025-01-01' <= order['bill_date'] < '2026-10-21':
             raise ValueError('Source company/date outside report scope')
+        if order.get('order_type_id') == 'ECOTTON':
+            audit['excluded']['ECOTTON'] += 1; continue
         code = order['revenue_code_id']
         if code == 'MAIN': continue  # Existing MAIN snapshot is authoritative.
         if code not in SEGMENTS: raise ValueError('Unexpected revenue code')
@@ -37,11 +39,19 @@ def expand(baseline, orders, bridges):
         if not connections: audit['excluded']['no_known_warehouse'] += 1; continue
         matches = list(bridge[order['customer_code']].values())
         if not matches: audit['excluded']['no_customer_bridge'] += 1; continue
-        if len(connections) != 1 or len(matches) != 1:
-            audit['review'].append({'order': order['order_id'], 'reason': 'Ambiguous location/customer bridge'}); continue
         revenue = Decimal(order['total_invoice_revenue'])
         if revenue <= 0:
             audit['excluded'][code + '_nonpositive_revenue'] += 1; continue
+        if len(connections) != 1:
+            audit['review'].append({'order': order['order_id'], 'reason': 'Ambiguous warehouse location'}); continue
+        allocation_note = None
+        if len(matches) > 1:
+            accounts = sorted(x['warehouse_customer_code'] for x in matches)
+            allocation_note = 'Shared trucking bridge: ' + ', '.join(accounts) + '. Counted once; customer allocation not assigned.'
+            matches = [{'warehouse_customer_code': 'SHARED:' + order['customer_code'],
+                        'warehouse_customer_name': 'Shared trucking — ' + order['customer_code'],
+                        'trucking_customer_code': order['customer_code']}]
+            audit['review'].append({'order': order['order_id'], 'reason': allocation_note})
         if not order['current_movement_override_pay_amt'] or not order['matched_current_movement_id'] or order['curr_movement_id'] != order['matched_current_movement_id']:
             audit['review'].append({'order': order['order_id'], 'reason': 'Carrier pay/current movement unavailable'}); continue
         pay = Decimal(order['current_movement_override_pay_amt'])
@@ -57,6 +67,7 @@ def expand(baseline, orders, bridges):
                  'otrCode': b['trucking_customer_code'], 'warehouseDataAvailable': False,
                  'metrics': {}, 'months': []}
             output.append(c); index[key] = c
+        if allocation_note: c['allocationNote'] = allocation_note
         c = index[key]
         prefix = SEGMENTS[code]
         month = order['bill_date'][:7]
@@ -78,8 +89,9 @@ def expand(baseline, orders, bridges):
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     for key in ['baseline', 'orders', 'bridges', 'output', 'audit']: p.add_argument('--' + key, required=True)
+    p.add_argument('--bridge-encoding', default='cp1252')
     a = p.parse_args()
-    result, audit = expand(json.loads(Path(a.baseline).read_text()), rows(a.orders), rows(a.bridges, 'cp1252'))
+    result, audit = expand(json.loads(Path(a.baseline).read_text()), rows(a.orders), rows(a.bridges, a.bridge_encoding))
     def number(v):
         if isinstance(v, Decimal): return int(v) if v == v.to_integral_value() else float(v)
         raise TypeError(type(v))
