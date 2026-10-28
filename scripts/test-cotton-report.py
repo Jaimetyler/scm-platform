@@ -1,4 +1,5 @@
-import importlib.util,unittest
+import importlib.util,unittest,csv,tempfile
+from pathlib import Path
 s=importlib.util.spec_from_file_location('cotton','scripts/build-cotton-report.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 class Cotton(unittest.TestCase):
  def order(self,**kw):
@@ -31,6 +32,33 @@ class Cotton(unittest.TestCase):
   for change in [{'warehouse_storage':'0'},{'charge_line_total':'89'},{'null_charge_amounts':'1'}]:
    with self.assertRaises(ValueError):m.invoice_charge_details([{**row,**change}])
   with self.assertRaises(ValueError):m.invoice_charge_details([row,row])
+ def test_monthly_summary_matches_source_before_applying_split(self):
+  o=self.order(code='LOCAL',type='ECOTTON',freight=0,chargeTotal=100)
+  partitions=[self.part([o])];out,a=m.build(partitions)
+  row=dict(company_id='TMS',customer_code='CUST',revenue_code_id='LOCAL',bill_month='2025-01',warehouse_invoices='1',warehouse_revenue='100',warehouse_handling='80',warehouse_storage='-10',warehouse_other='30',invoice_reconciliation_issues='0')
+  with tempfile.TemporaryDirectory() as d:
+   path=Path(d)/'summary.csv'
+   def write(rows):
+    with path.open('w',newline='') as f:
+     w=csv.DictWriter(f,fieldnames=row.keys());w.writeheader();w.writerows(rows)
+   write([row]);audit=m.apply_monthly_details(out,partitions,path)
+   self.assertEqual(audit['monthly_charge_groups'],1);self.assertEqual(out[0]['metrics']['warehouseStorage'],m.D(-10))
+   self.assertEqual(out[0]['months'][0]['warehouseHandling'],m.D(80))
+   for change in [{'warehouse_invoices':'2'},{'warehouse_revenue':'99'},{'warehouse_handling':'90'},{'invoice_reconciliation_issues':'1'}]:
+    write([{**row,**change}])
+    with self.assertRaises(ValueError):m.apply_monthly_details(out,partitions,path)
+   write([])
+   with self.assertRaises(ValueError):m.apply_monthly_details(out,partitions,path)
+ def test_abbreviated_storage_and_shipping_receipt_credits(self):
+  base=dict(company_id='TMS',order_id='I',customer_code='SYN',order_type_id='ECOTTON',bill_date='2025-01-01',total_order_revenue='60',freight_charge='0',other_charge_total='60')
+  charges=[('A','HCS','Standard storage','100'),('B','SC34','Cotton Stg Contract Adj','-60'),('C','001','Cotton receiving','25'),('D','SC21','Cotton Credit Ship Recei','-5')]
+  rows=[{**base,'charge_row_id':id,'charge_code':code,'charge_description':desc,'charge_amount':amt} for id,code,desc,amt in charges]
+  with tempfile.TemporaryDirectory() as d:
+   path=Path(d)/'detail.csv'
+   with path.open('w',newline='') as f:
+    w=csv.DictWriter(f,fieldnames=rows[0].keys());w.writeheader();w.writerows(rows)
+   detail=m.charge_details(path)[('TMS','I')]['metrics']
+  self.assertEqual(detail['warehouseStorage'],m.D(40));self.assertEqual(detail['warehouseHandling'],m.D(20))
  def test_unverified_customer_bridge_stays_separate(self):
   out,a=m.build([self.part([self.order(bridge='MISSING')])]);self.assertTrue(out[0]['relationshipReview']);self.assertEqual(out[0]['code'],'CUST')
  def test_confirmed_non_cotton_account_is_excluded(self):

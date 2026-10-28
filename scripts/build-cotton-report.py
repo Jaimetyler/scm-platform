@@ -71,8 +71,8 @@ def charge_details(path):
   for x in rows:
    if not x['charge_row_id']:continue
    v=amount(x['charge_amount']);code=x['charge_code'];desc=x['charge_description'].lower();s+=v
-   if 'stor' in desc or code in ['DCS','DC36','CTS']:bucket='warehouseStorage'
-   elif any(w in desc for w in ['receiv','receipt','shipping','handling','loading']) or code in ['DCRS','DCH','DC23']:bucket='warehouseHandling'
+   if 'stor' in desc or 'stg' in desc or code in ['DCS','DC36','CTS','HCS','SC34','SC44','H106']:bucket='warehouseStorage'
+   elif any(w in desc for w in ['recei','ship','handling','loading']) or code in ['DCRS','DCH','DC23','DC64','DC65']:bucket='warehouseHandling'
    else:bucket='warehouseOther'
    metrics[bucket]+=v
   if s!=amount(first['other_charge_total']) or s+amount(first['freight_charge'])!=amount(first['total_order_revenue']):raise ValueError('Warehouse charge detail does not reconcile')
@@ -141,8 +141,43 @@ def build(partitions,details=None,extra_accounts=None):
   c['months']=[{'month':month,**values} for month,values in sorted(c['months'].items())]
  return sorted(grouped.values(),key=lambda x:(x['name'].lower(),x['warehouse'])),audit
 
+def apply_monthly_details(customers,partitions,path):
+ """Match each compact export group to independent source invoice counts/totals."""
+ orders={}
+ for partition in partitions:
+  for o in partition['orders']:orders[(o['company'],o['id'])]=o
+ expected={}
+ for o in orders.values():
+  if category(o)!='warehouse':continue
+  k=(o['company'],o['customer'],o['code'],str(o['bill'])[:6])
+  g=expected.setdefault(k,{'count':0,'total':D(0)});g['count']+=1;g['total']+=amount(o['revenue'])
+ with open(path,encoding='utf-8-sig',newline='') as f:rows=list(csv.DictReader(f))
+ received={}
+ for x in rows:
+  if x['customer_code'] in NON_COTTON_CUSTOMERS:continue
+  k=(x['company_id'],x['customer_code'],x['revenue_code_id'],x['bill_month'].replace('-',''))
+  if k in received:raise ValueError('Duplicate monthly charge group')
+  if k not in expected:raise ValueError('Unexpected monthly charge group')
+  count=D(x['warehouse_invoices']);total=amount(x['warehouse_revenue'])
+  parts=[amount(x[n]) for n in ['warehouse_handling','warehouse_storage','warehouse_other']]
+  if count!=expected[k]['count'] or total!=expected[k]['total']:raise ValueError('Monthly source counts/revenue changed')
+  if D(x['invoice_reconciliation_issues'])!=0 or None in parts or sum(parts)!=total:raise ValueError('Monthly charge components do not reconcile')
+  received[k]={'warehouseDetailedOrders':count,**dict(zip(['warehouseHandling','warehouseStorage','warehouseOther'],parts))}
+ if received.keys()!=expected.keys():raise ValueError('Missing monthly charge groups')
+ fields=['warehouseDetailedOrders','warehouseHandling','warehouseStorage','warehouseOther'];targets={}
+ for c in customers:
+  for account in c['accounts']:targets[(c['warehouse'],account)]=c
+  for metrics in [c['metrics'],*c['months']]:
+   for field in fields:metrics.pop(field,None)
+ for (_,account,code,period),values in received.items():
+  c=targets[(LOCAL_CODES[code],account)];month=period[:4]+'-'+period[4:]
+  monthly=next(m for m in c['months'] if m['month']==month)
+  for target in [c['metrics'],monthly]:
+   for field,value in values.items():target[field]=target.get(field,D(0))+value
+ return {'monthly_charge_groups':len(received),'warehouse_invoices':sum(v['warehouseDetailedOrders'] for v in received.values())}
+
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('--source-dir',required=True);p.add_argument('--charge-csv',action='append');p.add_argument('--customer-metadata');p.add_argument('--output',required=True);p.add_argument('--audit',required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--source-dir',required=True);p.add_argument('--charge-csv',action='append');p.add_argument('--monthly-charge-csv');p.add_argument('--customer-metadata');p.add_argument('--output',required=True);p.add_argument('--audit',required=True);a=p.parse_args()
  manifest=json.loads((Path(a.source_dir)/'manifest.json').read_text())
  if not manifest.get('complete'):raise ValueError('Cotton extraction not complete')
  partitions=[json.loads((Path(a.source_dir)/(x['key']+'.json')).read_text()) for x in manifest['sources']]
@@ -150,9 +185,10 @@ if __name__=='__main__':
  if {x['key'] for x in manifest['sources']}!=required:raise ValueError('Missing cotton source partition')
  extra=json.loads(Path(a.customer_metadata).read_text()) if a.customer_metadata else []
  result,audit=build(partitions,charge_details(a.charge_csv),extra)
+ if a.monthly_charge_csv:audit['monthly_detail']=apply_monthly_details(result,partitions,a.monthly_charge_csv)
  def number(x):
   if isinstance(x,D):return float(x)
   raise TypeError(type(x))
  raw=json.dumps(result,indent=2,default=number)+'\n';Path(a.output).write_text(raw)
  audit['included']=dict(audit['included']);audit['excluded']=dict(audit['excluded']);audit['snapshot_sha256']=hashlib.sha256(raw.encode()).hexdigest()
- Path(a.audit).write_text(json.dumps(audit,indent=2)+'\n');print(json.dumps({'customers_locations':len(result),'included':audit['included'],'review_count':len(audit['review'])}))
+ Path(a.audit).write_text(json.dumps(audit,indent=2,default=number)+'\n');print(json.dumps({'customers_locations':len(result),'included':audit['included'],'review_count':len(audit['review'])}))
