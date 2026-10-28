@@ -1,0 +1,26 @@
+// GET-only classification/customer enrichment. Output is private and outside git.
+import fs from 'node:fs/promises';import path from 'node:path';import Papa from 'papaparse';
+const args=Object.fromEntries(process.argv.slice(2).reduce((a,v,i,all)=>i%2===0?[...a,[v.replace(/^--/,''),all[i+1]]]:a,[]));
+const env=JSON.parse(await fs.readFile(args['env-file'],'utf8')),root=args.root,output=args.output;
+await fs.mkdir(output,{recursive:true,mode:0o700});
+const base=env.MCLEOD_BASE_URL.replace(/\/$/,''),headers={Authorization:'Bearer '+env.MCLEOD_AUTH_TOKEN,Accept:'application/json'};
+async function get(url){const r=await fetch(base+url,{headers,signal:AbortSignal.timeout(45000)});if(!r.ok)throw Error('GET HTTP '+r.status);return r.status===204?null:r.json();}
+async function save(name,data){await fs.writeFile(path.join(output,name),JSON.stringify(data),{mode:0o600});}
+const accounts=new Map();const add=x=>{if(!x.code)return;const prior=accounts.get(x.code);accounts.set(x.code,{...prior,...x,bridge:x.bridge||prior?.bridge||null});};
+const csv=async(file,encoding='utf-8')=>Papa.parse(new TextDecoder(encoding).decode(await fs.readFile(path.join(root,file))),{header:true,skipEmptyLines:true}).data;
+for(const x of await csv('report_sources/customers bridges.csv','windows-1252')){add({code:x.warehouse_customer_code,name:x.warehouse_customer_name,bridge:x.trucking_customer_code||null});if(x.trucking_customer_code)add({code:x.trucking_customer_code,name:x.trucking_customer_name});}
+for(const key of (JSON.parse(await fs.readFile(path.join(root,'cotton_source_private/manifest.json')))).sources.map(x=>x.key))for(const x of JSON.parse(await fs.readFile(path.join(root,'cotton_source_private',key+'.json'))).orders)add({code:x.customer,name:x.name,bridge:x.bridge});
+for(const x of JSON.parse(await fs.readFile(path.join(root,'cotton_customer_metadata_private.json'))))add(x);
+const requested=new Set();for(const file of ['upload/freshdata.csv','upload/terry.csv'])for(const x of await csv(file)){requested.add(x.customer_code);if(x.trucking_customer_name)add({code:x.customer_code,name:x.trucking_customer_name});}
+for(const x of await csv('report_sources/contract storage histroy.csv','windows-1252'))requested.add(x.Customer);
+if(args['warehouse-snapshot'])for(const c of JSON.parse(await fs.readFile(args['warehouse-snapshot'],'utf8'))){if(c.code.startsWith('SHARED:'))continue;add({code:c.code,name:c.name,bridge:c.otrCode||null});if(c.otrCode)requested.add(c.otrCode);}
+let prior=[];try{prior=JSON.parse(await fs.readFile(path.join(output,'accounts.json')));}catch(e){if(e.code!=='ENOENT')throw e;}
+for(const x of prior)add(x);
+async function customers(){const attempted=new Set();for(let depth=0;depth<10;depth++){const pending=[...new Set([...requested,...[...accounts.values()].map(x=>x.bridge).filter(Boolean)])].filter(x=>!accounts.has(x)&&!attempted.has(x));if(!pending.length)break;let i=0;await Promise.all(Array.from({length:3},async()=>{while(i<pending.length){const code=pending[i++];attempted.add(code);try{const x=await get('/customers/'+encodeURIComponent(code));if(!x||String(x.id)!==code||x.company_id!=='TMS')throw Error('Customer identity mismatch');add({code,name:x.name||code,bridge:x.bridge_id||null});await save('accounts.json',[...accounts.values()]);}catch(e){console.log(JSON.stringify({customer:code,error:e.message}));}}}));}
+await save('accounts.json',[...accounts.values()]);console.log(JSON.stringify({accounts:accounts.size,unresolved:[...requested].filter(x=>!accounts.has(x))}));}
+async function cotton(code){let prior;try{prior=JSON.parse(await fs.readFile(path.join(output,code+'-cotton.json')));if(prior.complete){console.log(JSON.stringify({source:code,cached:true,count:prior.orders.length}));return;}}catch(e){if(e.code!=='ENOENT')throw e;}
+const orders=[],seen=new Set();let last='99999999',done=false;for(let offset=0;offset<100000;offset+=100){const q=new URLSearchParams({'orders.revenue_code_id':code,'orders.commodity_id':'COTTON',orderBy:'orders.bill_date DESC,orders.id DESC',recordLength:'100',recordOffset:String(offset)});const rows=(await get('/orders/search?'+q))??[];if(!Array.isArray(rows)||rows.length>100)throw Error('Invalid source page');let past=false;for(const o of rows){if(o.company_id!=='TMS'||o.revenue_code_id!==code||o.commodity_id!=='COTTON'||seen.has(o.id))throw Error('Classification filter/pagination mismatch');seen.add(o.id);const date=String(o.bill_date||'').slice(0,8);if(!date){past=true;continue;}if(date>last||!/^\d{8}$/.test(date))throw Error('Bill-date sorting mismatch');last=date;if(date<'20250101'){past=true;continue;}if(date<='20261020'){orders.push({id:String(o.id),customer:o.customer_id,company:o.company_id,bill:date,revenue:o.total_charge});add({code:o.customer_id,name:o.customer?.name||o.customer_id,bridge:o.customer?.bridge_id||null});}}
+if(rows.length<100||past){done=true;break;}}
+if(!done)throw Error('Classification paging incomplete');await save(code+'-cotton.json',{complete:true,code,start:'20250101',end:'20261020',orders});console.log(JSON.stringify({source:code,count:orders.length,complete:true}));}
+await Promise.all([customers(),cotton('CNTR'),cotton('TERRY')]);await customers();
+await save('manifest.json',{complete:true,start:'20250101',end:'20261020',sources:['CNTR','TERRY'],extractedAt:new Date().toISOString()});

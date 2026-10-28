@@ -96,6 +96,12 @@ export default function Home() {
           <div style={lockedTagStyle}>Auth Required</div>
         </Link>
 
+        <Link href="/reporting/business-intelligence" style={cardStyleLocked}>
+          <div style={cardTitle}>SCM Business Intelligence</div>
+          <div style={cardDesc}>Combined customers, warehouse services, and trucking by business unit, with cotton filters</div>
+          <div style={lockedTagStyle}>Administrator access</div>
+        </Link>
+
         <Link href="/reporting/cotton-intelligence" style={cardStyleLocked}>
           <div style={cardTitle}>Cotton Intelligence</div>
           <div style={cardDesc}>Cotton OTR, warehouse drays, and eCotton handling and storage billing</div>
