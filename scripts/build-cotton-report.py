@@ -2,8 +2,8 @@
 import argparse, collections, csv, hashlib, json
 from decimal import Decimal as D
 from pathlib import Path
-# Confirmed non-cotton account: source commodity coding is incorrect.
-NON_COTTON_CUSTOMERS={'KLEN74GA'}
+# Confirmed non-cotton accounts: source commodity coding is incorrect.
+NON_COTTON_CUSTOMERS={'KLEN74GA','CKTRCHIL','RSMCCHNC','EVANONCA','HAMPPOOR','HOBBOKOK'}
 LOCAL_CODES={'LOCAL':'Savannah','HLOCAL':'Houston','HLOCA':'Houston','DLOCA':'Dallas'}
 LOCATIONS={'SUPPRIGA':'Savannah','SUPPRIG1':'Savannah','SUPPRIG2':'Savannah','SUPPRIG3':'Savannah','SCMBSAGA':'Savannah','SUPPPOG5':'Savannah','SAVWHSE':'Savannah','SCMRIG2':'Savannah','SAVAGAG2':'Savannah','SUPPSAG2':'Savannah',
  'SUPPPAT1':'Houston','SUPPBAT1':'Houston','HOUWHSE':'Houston','SCMDDETX':'Dallas','SCMDDATX':'Dallas'}

@@ -28,8 +28,10 @@ class Cotton(unittest.TestCase):
  def test_unverified_customer_bridge_stays_separate(self):
   out,a=m.build([self.part([self.order(bridge='MISSING')])]);self.assertTrue(out[0]['relationshipReview']);self.assertEqual(out[0]['code'],'CUST')
  def test_confirmed_non_cotton_account_is_excluded(self):
+  for customer in m.NON_COTTON_CUSTOMERS:
+   for code in ['MAIN','DAVIS','DDRAY','LOCAL']:
+    self.assertIsNone(m.category(self.order(customer=customer,code=code)))
   o=self.order(customer=next(iter(m.NON_COTTON_CUSTOMERS)))
-  self.assertIsNone(m.category(o))
   out,a=m.build([self.part([o,self.order(id='VALID')])]);self.assertEqual(len(out),1)
   self.assertEqual(out[0]['metrics']['otrOrders'],1);self.assertEqual(a['excluded']['confirmed_non_cotton_account'],1)
  def test_verified_zero_pay_and_zero_revenue_are_not_missing(self):
