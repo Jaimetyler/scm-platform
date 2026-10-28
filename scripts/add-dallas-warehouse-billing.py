@@ -76,7 +76,7 @@ def merge(snapshot, source, customer_links, contracts):
         c['months'].sort(key=lambda x:x['month'])
         for obj in [c['metrics'],*c['months']]:
             for suffix in ['Loads','Revenue','Pay']:
-                obj['trucking'+suffix]=sum((D(str(obj.get(p+suffix,0))) for p in ['otr','cntr','davis','ddray']),D(0))
+                obj['trucking'+suffix]=sum((D(str(obj.get(p+suffix,0))) for p in ['otr','terry','cntr','davis','ddray']),D(0))
     audit['contract_net']=str(net);audit['excluded_order_types']=dict(audit['excluded_order_types'])
     return result,audit
 

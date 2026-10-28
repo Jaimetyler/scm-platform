@@ -1,8 +1,9 @@
 export const TRUCKING_SEGMENTS = [
-  { code: 'MAIN', prefix: 'otr', label: 'MAIN · OTR' },
-  { code: 'CNTR', prefix: 'cntr', label: 'CNTR · Direct drays' },
-  { code: 'DAVIS', prefix: 'davis', label: 'DAVIS · Trucking' },
-  { code: 'DDRAY', prefix: 'ddray', label: 'DDRAY · Drays' },
+  { code: 'MAIN', prefix: 'otr', label: 'MAIN · OTR', group: 'otr' },
+  { code: 'TERRY', prefix: 'terry', label: 'TERRY · OTR', group: 'otr' },
+  { code: 'CNTR', prefix: 'cntr', label: 'CNTR · Direct drays', group: 'drays' },
+  { code: 'DAVIS', prefix: 'davis', label: 'DAVIS · OTR', group: 'otr' },
+  { code: 'DDRAY', prefix: 'ddray', label: 'DDRAY · Drays', group: 'drays' },
 ] as const;
 export function truckingSegments(metrics: Record<string, number>) {
   return TRUCKING_SEGMENTS.map(segment => {

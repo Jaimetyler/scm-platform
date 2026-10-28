@@ -28,3 +28,9 @@ Raw exports, order-level audits and financial snapshots stay outside the public 
 4. Python classifier/merge tests cover aliases, shared bridges, excluded ECOTTON and zero revenue, missing pay, duplicate charges, credit/rebill signs, and unchanged MAIN. React server-render tests exercise the actual component with All, Savannah, Dallas and customer filters. Run TypeScript, existing regression suite and production build before release.
 
 The deployed source is based on production 79bf66d, retaining the current warehouse, eCotton delivery and authentication code rather than deploying the older reporting branch wholesale. A versioned private snapshot migration is additive. Rollback to deployment dpl_EaGiDg79KZDT5VyFxTBc633tgTEZ if necessary, retaining snapshot history.
+
+## Pending customer-completeness correction
+
+User confirmed MAIN, TERRY and DAVIS are OTR trucking; CNTR and DDRAY are drays. Native customer reads verified Wise Forest Products has a 3PL account linked to its regular trucking account; that bridge is absent from the older CSV. Its warehouse-connected MAIN data is present in the supplied trucking export. The original snapshot omitted that relationship entirely; adding the missing relationship must not recompute other MAIN customer rows. Warehouse billing for Wise is not present in the supplied warehouse exports and must not be invented.
+
+Performance Additives is already mapped, but its trucking is TERRY, a revenue code absent from the original extraction. The new single-statement `queries/terry-warehouse-trucking-export.sql` retrieves the full-period TERRY population plus explicit 3PL customer bridges. The classification and totals code is prepared for TERRY, but this correction must not be deployed as complete until that source is supplied and reconciled. Native location read also verified SCMBSAGA as SCM (Bourne), Savannah; include it in the warehouse matching used for this correction.

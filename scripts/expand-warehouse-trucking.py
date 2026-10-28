@@ -5,9 +5,9 @@ import argparse, collections, copy, csv, hashlib, json
 from decimal import Decimal
 from pathlib import Path
 
-LOCATIONS = {'SUPPRIGA': 'Savannah', 'SUPPRIG1': 'Savannah', 'SUPPRIG3': 'Savannah',
+LOCATIONS = {'SUPPRIGA': 'Savannah', 'SUPPRIG1': 'Savannah', 'SUPPRIG3': 'Savannah', 'SCMBSAGA': 'Savannah',
              'SUPPPAT1': 'Houston', 'SCMDDETX': 'Dallas', 'SCMDDATX': 'Dallas'}
-SEGMENTS = {'CNTR': 'cntr', 'DAVIS': 'davis', 'DDRAY': 'ddray'}
+SEGMENTS = {'CNTR': 'cntr', 'DAVIS': 'davis', 'DDRAY': 'ddray', 'TERRY': 'terry'}
 
 def rows(path, encoding='utf-8-sig'):
     with open(path, encoding=encoding, newline='') as f:
@@ -83,7 +83,7 @@ def expand(baseline, orders, bridges):
         c['months'].sort(key=lambda m: m['month'])
         for metric in ['Loads', 'Revenue', 'Pay']:
             for target in [c['metrics'], *c['months']]:
-                target['trucking' + metric] = sum((Decimal(str(target.get(prefix + metric, 0))) for prefix in ['otr', 'cntr', 'davis', 'ddray']), Decimal(0))
+                target['trucking' + metric] = sum((Decimal(str(target.get(prefix + metric, 0))) for prefix in ['otr', 'terry', 'cntr', 'davis', 'ddray']), Decimal(0))
     return output, audit
 
 if __name__ == '__main__':
