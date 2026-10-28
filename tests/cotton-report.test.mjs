@@ -6,12 +6,12 @@ const data=[
  {warehouse:'Dallas',code:'DAL',name:'Synthetic Dallas',accounts:['DAL'],codes:['DLOCA','DDRAY'],relationshipReview:false,metrics:{warehouseOrders:1,warehouseRevenue:80,warehouseDetailedOrders:1,warehouseStorage:50,warehouseHandling:20,warehouseOther:10,drayOrders:1,drayRevenue:50,drayPay:25,drayRevenueWithPay:50},months:[{month:'2025-01',warehouseRevenue:80,drayRevenue:50,drayPay:25,drayRevenueWithPay:50}]},
  {warehouse:'Unassigned',code:'REMOTE',name:'Synthetic remote',accounts:['REMOTE'],codes:['MAIN'],relationshipReview:false,metrics:{otrOrders:1,otrRevenue:30,otrPayMissing:1},months:[{month:'2025-01',otrRevenue:30,otrPayMissing:1}]},
 ];
-function render(terminal='All',selected=null,query=''){
+function render(terminal='All',selected=null,query='',onSelect=()=>{},asTree=false){
  const states=[data,false,'',terminal,query,'contribution',selected];
- const react={...React,useState:()=>[states.shift(),()=>{}],useMemo:fn=>fn(),useEffect:()=>{}};
+ const react={...React,useState:()=>[states.shift(),onSelect],useMemo:fn=>fn(),useEffect:()=>{}};
  const mod={exports:{}};const source=ts.transpileModule(fs.readFileSync('app/reporting/cotton-intelligence/cotton-intelligence.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
  new Function('require','module','exports',source)(n=>n==='react'?react:n==='next/link'?{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)}:n.endsWith('.css')?{}:n==='@/lib/reporting/cotton'?helper():require(n),mod,mod.exports);
- return renderToStaticMarkup(React.createElement(mod.exports.default));
+ return asTree?mod.exports.default():renderToStaticMarkup(React.createElement(mod.exports.default));
 }
 test('warehouse billing is not carrier GP; missing-pay revenue never becomes assumed GP',()=>{
  const h=helper();assert.equal(h.cottonServices({warehouseRevenue:100})[0].gp,null);
@@ -28,4 +28,13 @@ test('all terminals, customer detail and Dallas charge detail render correct sco
 test('financial API is staff guarded and data is never imported into the client',()=>{
  const api=fs.readFileSync('app/api/reporting/cotton-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('status:503'));
  const client=fs.readFileSync('app/reporting/cotton-intelligence/cotton-intelligence.tsx','utf8');assert.ok(!client.includes('data.json'));assert.ok(client.includes("cache:'no-store'"));
+});
+
+test('customer row, keyboard and visible details button open the customer drilldown',()=>{
+ const selections=[],tree=render('All',null,'',x=>selections.push(x),true),elements=[];
+ const visit=node=>{if(Array.isArray(node)){node.forEach(visit);return;}if(node&&typeof node==='object'&&node.props){elements.push(node);visit(node.props.children);}};visit(tree);
+ const row=elements.find(x=>x.type==='tr'&&x.props['aria-label']==='Open customer Synthetic cotton');assert.ok(row);row.props.onClick();
+ let prevented=false;row.props.onKeyDown({target:1,currentTarget:1,key:'Enter',preventDefault(){prevented=true;}});assert.ok(prevented);
+ const button=elements.find(x=>x.type==='button'&&x.props['aria-label']==='View customer Synthetic cotton');assert.ok(button);button.props.onClick();
+ assert.deepEqual(selections,['SYN','SYN','SYN']);assert.ok(render('All','SYN').includes('Monthly activity'));
 });
