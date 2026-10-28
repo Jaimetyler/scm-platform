@@ -1,0 +1,51 @@
+/* Warehouse Intelligence trucking expansion: read-only candidate export.
+   Existing snapshot: Jan 1, 2025 through Oct 20, 2026 inclusive.
+   Export all rows WITH COLUMN HEADERS to CSV. Do not use TOP or a sample.
+
+   This is a candidate population, NOT the final warehouse-connected report.
+   Final inclusion requires the existing warehouse customer bridge and location
+   attribution. A revenue code alone does not establish warehouse connection.
+   MAIN remains a reconciliation control; preserve the existing MAIN results.
+   Do not add total_charge to warehouse drayage revenue a second time.
+   Current-movement override pay is provisional, not final carrier settlement.
+   NULL carrier pay/location must remain unknown, not be silently changed to 0.
+*/
+DECLARE @start_date date = '20250101';
+DECLARE @end_exclusive date = '20261021';
+
+SELECT
+    o.company_id,
+    o.id AS order_id,
+    o.customer_id AS customer_code,
+    o.revenue_code_id,
+    o.order_type_id,
+    o.status AS order_status,
+    CONVERT(varchar(10), o.bill_date, 23) AS bill_date,
+    o.total_charge AS total_invoice_revenue,
+    o.freight_charge AS freight_charge,
+    o.otherchargetotal AS other_charge_total,
+    o.curr_movement_id,
+    m.id AS matched_current_movement_id,
+    m.status AS movement_status,
+    m.brokerage_status,
+    m.override_payee_id AS carrier_code,
+    m.override_pay_amt AS current_movement_override_pay_amt,
+    o.shipper_stop_id AS pickup_stop_id,
+    pu.location_id AS pickup_location_id,
+    o.consignee_stop_id AS delivery_stop_id,
+    so.location_id AS delivery_location_id
+FROM orders AS o
+LEFT JOIN movement AS m
+    ON m.company_id = o.company_id
+   AND m.id = o.curr_movement_id
+LEFT JOIN stop AS pu
+    ON pu.company_id = o.company_id
+   AND pu.id = o.shipper_stop_id
+LEFT JOIN stop AS so
+    ON so.company_id = o.company_id
+   AND so.id = o.consignee_stop_id
+WHERE o.company_id = 'TMS'
+  AND o.bill_date >= @start_date
+  AND o.bill_date < @end_exclusive
+  AND o.revenue_code_id IN ('MAIN', 'CNTR', 'DAVIS', 'DDRAY')
+ORDER BY o.bill_date, o.revenue_code_id, o.id;
