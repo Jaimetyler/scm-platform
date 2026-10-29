@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import {useEffect,useMemo,useState} from 'react';
-import {businessRevenue,businessTransport,type BusinessMetrics} from '@/lib/reporting/business';
+import {businessRevenue,businessTransport,businessPeriodRows,type BusinessMetrics} from '@/lib/reporting/business';
 import view from './business-intelligence.module.css';
 import styles from '../warehouse-intelligence/warehouse-intelligence.module.css';
 type Month={month:string;[key:string]:string|number};
@@ -67,7 +67,15 @@ export default function BusinessIntelligence(){
  useEffect(()=>{if(selectedCode)window.scrollTo({top:0,behavior:'smooth'});},[selectedCode]);
  const [scope,setScope]=useState('All');
  const [chassisComplete,setChassisComplete]=useState(false);
- const locationRows=useMemo(()=>data.filter(c=>(terminal==='All'||c.warehouse===terminal)&&(scope==='All'||c.scope===scope)),[data,terminal,scope]);
+ const [fromMonth,setFromMonth]=useState(''),[toMonth,setToMonth]=useState('');
+ const availableMonths=useMemo(()=>[...new Set(data.flatMap(c=>c.months.map(m=>m.month)))].sort(),[data]);
+ const firstMonth=availableMonths[0]||'2025-01',lastMonth=availableMonths.at(-1)||'2026-10';
+ const startMonth=fromMonth||firstMonth,endMonth=toMonth||lastMonth;
+ const validMonth=(month:string)=>/^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+ const dateError=!validMonth(startMonth)||!validMonth(endMonth)?'Enter valid start and end months.':startMonth>endMonth?'The start month must be before or equal to the end month.':startMonth<firstMonth||endMonth>lastMonth?`This snapshot covers ${firstMonth} through ${lastMonth}.`:'';
+ const periodRows=useMemo(()=>dateError?[]:businessPeriodRows(data,startMonth,endMonth),[data,startMonth,endMonth,dateError]);
+ const locationRows=useMemo(()=>periodRows.filter(c=>(terminal==='All'||c.warehouse===terminal)&&(scope==='All'||c.scope===scope)),[periodRows,terminal,scope]);
+ const years=[...new Set(availableMonths.map(m=>m.slice(0,4)))];
  const customers=useMemo(()=>{
   const groups=new Map<string,Account[]>();
   for(const c of locationRows)groups.set(c.code,[...(groups.get(c.code)||[]),c]);
@@ -85,17 +93,24 @@ export default function BusinessIntelligence(){
  const missing=val(metrics,'otrPayMissing')+val(metrics,'drayPayMissing');
  const linksMissing=(selected?selected.locations:filtered.flatMap(c=>c.locations)).filter(c=>c.relationshipReview).length;
  return <main className={styles.shell}>
-  <header className={styles.head}><div><p className={styles.eyebrow}>SCM / REPORTING & ANALYTICS</p><h1>SCM Business Intelligence</h1><p className={styles.sub}>All-customer warehouse billing and trucking · Jan 2025 – Oct 20, 2026 · Bill-date basis</p></div><div className={styles.tag}>Loaded-source snapshot · Not live</div></header>
+  <header className={styles.head}><div><p className={styles.eyebrow}>SCM / REPORTING & ANALYTICS</p><h1>SCM Business Intelligence</h1><p className={styles.sub}>All-customer warehouse billing and trucking · {startMonth} through {endMonth} · Monthly bill-date basis</p></div><div className={styles.tag}>Loaded-source snapshot · Not live</div></header>
   <p><Link style={{color:'#67e8f9'}} href="/reporting/cotton-intelligence">Cotton Intelligence</Link> · <Link style={{color:'#67e8f9'}} href="/reporting/warehouse-intelligence">Warehouse Intelligence</Link> · <Link style={{color:'#67e8f9'}} href="/">Platform home</Link></p>
   {loading&&<p role="status">Loading protected business data…</p>}
   {error&&<p role="alert">{error}</p>}
+  <div className={view.dateFilter} role="group" aria-label="Report month range">
+   <label>From month<input aria-label="From month" type="month" min={firstMonth} max={lastMonth} value={startMonth} onChange={e=>setFromMonth(e.target.value)}/></label>
+   <label>Through month<input aria-label="Through month" type="month" min={firstMonth} max={lastMonth} value={endMonth} onChange={e=>setToMonth(e.target.value)}/></label>
+   <div className={styles.segment} role="group" aria-label="Quick period"><button type="button" aria-pressed={startMonth===firstMonth&&endMonth===lastMonth} onClick={()=>{setFromMonth('');setToMonth('');}}>All available</button>{years.map(year=><button key={year} type="button" aria-pressed={startMonth===(year+'-01'<firstMonth?firstMonth:year+'-01')&&endMonth===(year+'-12'>lastMonth?lastMonth:year+'-12')} onClick={()=>{setFromMonth(year+'-01'<firstMonth?firstMonth:year+'-01');setToMonth(year+'-12'>lastMonth?lastMonth:year+'-12');}}>{year}</button>)}</div>
+  </div>
+  <p className={styles.hint}>Available snapshot: {firstMonth} through {lastMonth}. Filters use whole billed months; October 2026 includes data through October 20 only.</p>
+  {dateError&&<p role="alert">{dateError}</p>}
   <div className={styles.toolbar}><div className={styles.segment} aria-label="Commodity scope">{['All','Cotton','Non-Cotton',...(data.some(c=>c.scope==='Unclassified')?['Unclassified']:[])].map(value=><button key={value} type="button" aria-pressed={scope===value} className={scope===value?styles.active:''} onClick={()=>setScope(value)}>{value==='All'?'All business':value}</button>)}</div></div>
   <div className={styles.toolbar}>
    <div className={styles.segment} aria-label="Business unit filter">{['All','Savannah','Houston','Dallas','Brokerage'].map(t=><button key={t} type="button" aria-pressed={terminal===t} className={terminal===t?styles.active:''} onClick={()=>setTerminal(t)}>{t==='All'?'All business units':terminalLabel(t)}</button>)}</div>
    <input aria-label="Search customers" placeholder="Search customer, account or bridge…" value={query} onChange={e=>{setQuery(e.target.value);setSelectedCode(null);}}/>
    <select aria-label="Sort customers" value={sort} onChange={e=>setSort(e.target.value)}><option value="revenue">Sort: Billed revenue</option><option value="name">Sort: Customer name</option><option value="otrGP">Sort: OTR order GP</option><option value="localGP">Sort: Local drayage order GP</option><option value="directGP">Sort: Direct drayage order GP</option></select>
   </div>
-  {!loading&&!error&&<>
+  {!loading&&!error&&!dateError&&<>
    <p className={styles.hint}>Savannah, Houston, Dallas, and Brokerage are business units. Trucking is assigned by its SCM warehouse pickup or delivery, regardless of revenue code. OTR includes MAIN / TERRY / DAVIS; CNTR is direct drayage. DDRAY touching SCM Dallas is local drayage; other DDRAY moves remain direct. Local drayage also includes warehouse local moves and warehouse-invoice trucking billing. Confirmed non-cotton accounts remain in the overall business.</p>
    <p role="status" className={styles.hint}>Source coverage: full MAIN / TERRY / DAVIS / CNTR / DDRAY exports, cotton local drays, the non-cotton local trucking compact export, and the supplied warehouse and contract-storage billing. Voided source orders are excluded. This covers the loaded revenue-code sources for the stated period; it is not a certified company ledger.</p>
    {!chassisComplete&&<p role="status" className={styles.hint}>Chassis coverage is partial: loaded Savannah/Houston warehouse charges only. Full trucking-code chassis billing awaits the compact chassis export. The known subtotal is already in billed revenue and is not added again.</p>}
@@ -106,7 +121,7 @@ export default function BusinessIntelligence(){
    {!!missing&&<p role="status" className={styles.hint}>{num(missing)} transport loads or warehouse trucking-billing records lack verified carrier cost. Revenue is retained; no carrier cost is assumed. GP covers verified-pay loads only. Warehouse trucking invoice billing is not counted as an additional transport load.</p>}
    {!!linksMissing&&<p className={styles.hint}>Some customer bridge targets are not present in this snapshot. Those accounts remain separate.</p>}
    {!!val(metrics,'warehouseHeaderIssues')&&<p role="status">{num(val(metrics,'warehouseHeaderIssues'))} warehouse invoices need header reconciliation review.</p>}
-   {selectedCode&&!selected?<section className={styles.panel}><button className={styles.back} onClick={()=>setSelectedCode(null)}>All customers</button><p>No activity for this customer in the selected business unit or commodity scope.</p></section>:<>
+   {selectedCode&&!selected?<section className={styles.panel}><button className={styles.back} onClick={()=>setSelectedCode(null)}>All customers</button><p>No activity for this customer in the selected month range, business unit, or commodity scope.</p></section>:<>
     {selected&&<section className={styles.panel}><button className={styles.back} onClick={()=>setSelectedCode(null)}>All customers</button><h2>{selected.name}</h2><p>{selected.accounts.join(' · ')} · {selected.locations.map(c=>terminalLabel(c.warehouse)).join(' + ')} · {scope==='All'?'All commodity scopes':scope}</p></section>}
     <div className={styles.kpis}>
      <div><span>Total billed revenue</span><strong>{compact(totalRevenue(metrics))}</strong></div>

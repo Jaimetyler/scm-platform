@@ -8,8 +8,8 @@ const data=[
 ];
 const compiledClient=ts.transpileModule(fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
 let cachedHelper;
-function render(unit='All',scope='All',selected=null,onSet=()=>{},tree=false,records=data,chassisComplete=false){
- const states=[records,false,'',unit,'','contribution',selected,scope,chassisComplete],react={...React,useState:()=>[states.shift(),onSet],useMemo:f=>f(),useEffect:()=>{}};
+function render(unit='All',scope='All',selected=null,onSet=()=>{},tree=false,records=data,chassisComplete=false,fromMonth='',toMonth=''){
+ const states=[records,false,'',unit,'','contribution',selected,scope,chassisComplete,fromMonth,toMonth],react={...React,useState:()=>[states.shift(),onSet],useMemo:f=>f(),useEffect:()=>{}};
  function helper(){if(cachedHelper)return cachedHelper;const mod={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/business.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,mod,mod.exports);cachedHelper=mod.exports;return cachedHelper;}
  const mod={exports:{}};const source=compiledClient;
  new Function('require','module','exports',source)(n=>n==='react'?react:n==='next/link'?{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)}:n.endsWith('.css')?{}:n==='@/lib/reporting/business'?helper():require(n),mod,mod.exports);
@@ -21,7 +21,7 @@ test('combined customer drilldown rolls scopes into each unit once and keeps mon
  const cotton=render('All','Cotton','C');assert.ok(cotton.includes('$100.00'));assert.ok(cotton.includes('$200.00'));assert.ok(!cotton.includes('$500.00'));
  const non=render('All','Non-Cotton','C');assert.ok(non.includes('$300.00'));assert.ok(!non.includes('>EC ·'));
  const unclassified=render('All','Unclassified','C');assert.ok(unclassified.includes('$25.00'));assert.ok(!unclassified.includes('Pending charge detail</td>'));
- const pending=render('All','All','P',()=>{},false,[{...data[0],code:'P',name:'Pending cost account',metrics:{warehouseTruckBillingRevenue:50,localDrayRevenue:50,drayRevenue:50,localDrayPayMissing:1,drayPayMissing:1},months:[]}]);assert.ok(pending.includes('Pending cost'));
+ const pending=render('All','All','P',()=>{},false,[{...data[0],code:'P',name:'Pending cost account',metrics:{warehouseTruckBillingRevenue:50,localDrayRevenue:50,drayRevenue:50,localDrayPayMissing:1,drayPayMissing:1},months:[{month:'2025-01',warehouseTruckBillingRevenue:50,localDrayRevenue:50,drayRevenue:50,localDrayPayMissing:1,drayPayMissing:1}]}]);assert.ok(pending.includes('Pending cost'));
  const brokerage=render('Brokerage');assert.ok(brokerage.includes('Synthetic brokerage'));assert.ok(!brokerage.includes('>Synthetic combined</button>'));
 });
 test('combined row and view button select the customer',()=>{
@@ -39,4 +39,13 @@ test('chassis is non-additive and GP remains separate for each transport categor
  const module={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/business.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,module,module.exports);
  const h=module.exports,m={warehouseRevenue:100,otrRevenue:200,otrRevenueWithPay:200,otrPay:150,drayRevenue:300,localDrayRevenue:100,localDrayPayMissing:1,directDrayRevenue:200,directDrayRevenueWithPay:200,directDrayPay:125,chassisBilled:50};
  assert.equal(h.businessRevenue(m),600);const rows=h.businessTransport(m);assert.equal(rows[0].gp,50);assert.equal(rows[1].gp,null);assert.equal(rows[2].gp,75);assert.ok(!('chassisGP' in m));
+});
+
+test('month range filters every financial measure and preserves customer drilldowns',()=>{
+ const feb={month:'2025-02',warehouseOrders:1,warehouseDetailedOrders:1,warehouseRevenue:250,warehouseHandling:150,warehouseStorage:100,otrOrders:1,otrRevenue:400,otrPay:300,otrRevenueWithPay:400,chassisBilled:50,chassisChargeLines:1};
+ const records=[{...data[0],metrics:{warehouseRevenue:9999},months:[data[0].months[0],feb]}];
+ const html=render('Savannah','Cotton','C',()=>{},false,records,true,'2025-02','2025-02');
+ assert.ok(html.includes('$250.00'));assert.ok(html.includes('$400.00'));assert.ok(html.includes('$50.00'));assert.ok(!html.includes('$200.00'));assert.ok(!html.includes('9,999'));assert.ok(html.includes('<td>2025-02</td>'));assert.ok(!html.includes('<td>2025-01</td>'));assert.ok(html.includes('Through month'));
+ const invalid=render('All','All',null,()=>{},false,records,true,'2025-02','2025-01');assert.ok(invalid.includes('start month must be before'));assert.ok(!invalid.includes('Trucking performance'));
+ const missing=render('All','All','C',()=>{},false,[...records,{...data[1],months:[{...data[1].months[0],month:'2025-03'}]}],true,'2025-03','2025-03');assert.ok(missing.includes('Monthly activity'));
 });
