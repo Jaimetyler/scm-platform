@@ -94,7 +94,7 @@ export default function BusinessIntelligence(){
  const linksMissing=(selected?selected.locations:filtered.flatMap(c=>c.locations)).filter(c=>c.relationshipReview).length;
  return <main className={styles.shell}>
   <header className={styles.head}><div><p className={styles.eyebrow}>SCM / REPORTING & ANALYTICS</p><h1>SCM Business Intelligence</h1><p className={styles.sub}>All-customer warehouse billing and trucking · {startMonth} through {endMonth} · Monthly bill-date basis</p></div><div className={view.headerActions}><Link className={view.guideButton} href="/reporting/business-intelligence/guide"><span aria-hidden="true">▤</span> How this report works <span aria-hidden="true">→</span></Link><div className={styles.tag}>Loaded-source snapshot · Not live</div></div></header>
-  <p><Link style={{color:'#67e8f9'}} href="/reporting/cotton-intelligence">Cotton Intelligence</Link> · <Link style={{color:'#67e8f9'}} href="/reporting/warehouse-intelligence">Warehouse Intelligence</Link> · <Link style={{color:'#67e8f9'}} href="/">Platform home</Link></p>
+  <p><Link style={{color:'#67e8f9'}} href="/">Platform home</Link></p>
   {loading&&<p role="status">Loading protected business data…</p>}
   {error&&<p role="alert">{error}</p>}
   <div className={view.dateFilter} role="group" aria-label="Report month range">
