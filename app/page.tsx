@@ -102,18 +102,6 @@ export default function Home() {
           <div style={lockedTagStyle}>Administrator access</div>
         </Link>
 
-        <Link href="/reporting/cotton-intelligence" style={cardStyleLocked}>
-          <div style={cardTitle}>Cotton Intelligence</div>
-          <div style={cardDesc}>Cotton OTR, warehouse drays, and eCotton handling and storage billing</div>
-          <div style={lockedTagStyle}>Administrator access</div>
-        </Link>
-
-        <Link href="/reporting/warehouse-intelligence" style={cardStyleLocked}>
-          <div style={cardTitle}>Warehouse Intelligence</div>
-          <div style={cardDesc}>Customer contribution, warehouse billing, and connected trucking by revenue code</div>
-          <div style={lockedTagStyle}>Administrator access</div>
-        </Link>
-
         <Link href="/warehouse" style={cardStylePrimary}>
           <div style={cardTitle}>Warehouse</div>
           <div style={cardDesc}>
