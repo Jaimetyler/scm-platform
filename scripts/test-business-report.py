@@ -66,6 +66,13 @@ class Business(unittest.TestCase):
   report=self.report();m.transport(report,[self.order(code='DDRAY',pickup='PORT',delivery='SCMDDETX')],set(),self.audit())
   row=report.finish()[0];self.assertEqual(row['warehouse'],'Dallas');self.assertEqual(row['metrics']['localDrayRevenue'],100)
   self.assertNotIn('directDrayRevenue',row['metrics']);self.assertEqual(row['metrics']['drayRevenue'],100)
+ def test_user_confirmed_contract_storage_scopes(self):
+  for code in m.COTTON_CONTRACT_CUSTOMERS:self.assertEqual(m.contract_scope(code),'Cotton')
+  for code in ['PERFYAPA','BINDATG1','KLEN74GA']:self.assertEqual(m.contract_scope(code),'Non-Cotton')
+  self.assertEqual(m.contract_scope('NEW_ACCOUNT'),'Unclassified')
+  for code,expected in [('AMERDUPA','Cotton'),('PERFYAPA','Non-Cotton'),('BINDATG1','Non-Cotton'),('KLEN74GA','Non-Cotton')]:
+   r=self.report();m.contracts(r,[{'Customer':code,'Invoice number':'S','Bill type':'Invoice','Bill date':'01/02/25','Reference number':'Contract Storage Savannah','Total':'100'}],self.audit())
+   row=r.finish()[0];self.assertEqual(row['scope'],expected);self.assertEqual(row['metrics']['contractStorage'],100);self.assertNotIn('unclassifiedContractRevenue',row['metrics'])
  def test_report_end_date_is_enforced(self):
   self.assertTrue(m.inperiod('2026-10-20'));self.assertFalse(m.inperiod('2026-10-21'));self.assertFalse(m.inperiod('2024-12-31'))
 if __name__=='__main__':unittest.main()

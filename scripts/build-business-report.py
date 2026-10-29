@@ -174,6 +174,14 @@ def warehouse(report,cotton_snapshot,warehouse_snapshot,headers,audit,chassis_id
  audit['warehouse_invoice_count']=len(ids)+sum(int(c['metrics'].get('warehouseOrders',0)) for c in cotton_snapshot)
  audit['warehouse_invoice_control']=sum(x['revenue'] for x in control.values())+sum(D(str(c['metrics'].get('warehouseRevenue',0))) for c in cotton_snapshot)
 
+# User-confirmed contract-storage allocation for the current report's account list.
+COTTON_CONTRACT_CUSTOMERS={'ALLECOTN','AMERDUPA','BUNGOMNE','EDFMHOTX','GLENSTCT','NOBLHOTX','OLAMRITX','VITEOMNE'}
+NON_COTTON_CONTRACT_CUSTOMERS={'PERFYAPA','BINDATG1','KLEN74GA'}
+def contract_scope(code):
+ if code in NON_COTTON_CONTRACT_CUSTOMERS:return 'Non-Cotton'
+ if code in COTTON_CONTRACT_CUSTOMERS:return 'Cotton'
+ return 'Unclassified'
+
 def contracts(report,rows,audit):
  explicit=collections.defaultdict(set)
  def reference_unit(x):
@@ -195,9 +203,11 @@ def contracts(report,rows,audit):
   if value is None:raise ValueError('Missing contract invoice amount')
   if r['Bill type']=='Credit memo':value=-abs(value)
   elif r['Bill type']!='Invoice':raise ValueError('Unknown contract billing type')
-  values={'warehouseStorage':value,'warehouseRevenue':value,'contractStorage':value,'contractDocuments':D(1),'unclassifiedContractRevenue':value}
+  scope=contract_scope(r['Customer'])
+  values={'warehouseStorage':value,'warehouseRevenue':value,'contractStorage':value,'contractDocuments':D(1)}
+  if scope=='Unclassified':values['unclassifiedContractRevenue']=value
   if unit=='Allocation review':values['allocationReviewContracts']=D(1)
-  report.add(unit,'Unclassified',r['Customer'],date[:7],values,['CONTRACT'])
+  report.add(unit,scope,r['Customer'],date[:7],values,['CONTRACT'])
   audit['contract_documents']+=1;audit['contract_net']+=value
 
 def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None):

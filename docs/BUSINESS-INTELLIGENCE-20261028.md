@@ -20,7 +20,7 @@ Verified customer bridge links merge accounts; names alone never merge customers
 
 ## Scope and limits
 
-All business includes Cotton, Non-Cotton, and Unclassified. Contract invoices have no commodity allocation, so they appear in All/Unclassified rather than being guessed into Cotton or Non-Cotton. References identify their warehouse; undated-unit references can use a single explicit warehouse evidenced for the same account, while multiple possible warehouses remain in allocation review.
+All business includes Cotton, Non-Cotton, and Unclassified. Contract storage follows the user-confirmed account classification. PERFYAPA, BINDATG1, and KLEN74GA are Non-Cotton; the other accounts on the current contract-storage list are Cotton. New accounts without explicit confirmation remain Unclassified. References identify their warehouse; undated-unit references can use a single explicit warehouse evidenced for the same account, while multiple possible warehouses remain in allocation review.
 
 The initial combined view covers all customers in the supplied trucking revenue-code exports, cotton local drays, and loaded warehouse/contract billing. The remaining non-cotton LOCAL/HLOCA/HLOCAL/DLOCA trucking export has now been loaded. `queries/business-local-trucking-monthly.sql` provides the compact, disjoint export for that scope. these totals are not a certified all-company ledger.
 
@@ -28,7 +28,7 @@ Current-movement override pay is provisional, not audited settlements. Missing c
 
 ## Persistence and verification
 
-Private snapshot `business-intelligence-20261029-v3` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
+Private snapshot `business-intelligence-20261029-v4` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
 
 Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, receiving-warehouse allocation, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
 
@@ -37,3 +37,5 @@ Version 2 imports the supplied local monthly export through `--local-monthly-jso
 October 29: inbound/receiving warehouse allocation now applies to inter-warehouse trucking in both order-level and compact monthly sources. It replaces the allocation-review hold without changing company-wide financial totals or load counts. `inboundAllocatedLoads` records the reassigned count. Unresolved contract references remain separately reviewable.
 
 The DDRAY split uses verified SCM Dallas endpoint IDs rather than a code-only classification. This service reclassification preserves total trucking revenue, carrier pay, GP and load counts; business-unit credit independently follows the receiving warehouse for SCM-to-SCM moves.
+
+October 29: contract storage for the current account list is fully classified. The confirmed cotton allowlist and three non-cotton exceptions are explicit; classification is not a default for future unknown customers. This changes commodity-scope totals only, preserving every business-unit and company-wide financial measure. The Unclassified filter appears only when applicable.
