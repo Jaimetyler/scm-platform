@@ -9,14 +9,14 @@ const data=[
 const compiledClient=ts.transpileModule(fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
 let cachedHelper;
 function render(unit='All',scope='All',selected=null,onSet=()=>{},tree=false,records=data){
- const states=[records,false,'',unit,'','contribution',selected,scope],react={...React,useState:()=>[states.shift(),onSet],useMemo:f=>f(),useEffect:()=>{}};
- function helper(){if(cachedHelper)return cachedHelper;const mod={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/cotton.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,mod,mod.exports);cachedHelper=mod.exports;return cachedHelper;}
+ const states=[records,false,'',unit,'','contribution',selected,scope,false],react={...React,useState:()=>[states.shift(),onSet],useMemo:f=>f(),useEffect:()=>{}};
+ function helper(){if(cachedHelper)return cachedHelper;const mod={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/business.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,mod,mod.exports);cachedHelper=mod.exports;return cachedHelper;}
  const mod={exports:{}};const source=compiledClient;
- new Function('require','module','exports',source)(n=>n==='react'?react:n==='next/link'?{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)}:n.endsWith('.css')?{}:n==='@/lib/reporting/cotton'?helper():require(n),mod,mod.exports);
+ new Function('require','module','exports',source)(n=>n==='react'?react:n==='next/link'?{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)}:n.endsWith('.css')?{}:n==='@/lib/reporting/business'?helper():require(n),mod,mod.exports);
  return tree?mod.exports.default():renderToStaticMarkup(React.createElement(mod.exports.default));
 }
 test('combined customer drilldown rolls scopes into each unit once and keeps monthly detail',()=>{
- const selected=render('All','All','C');assert.ok(selected.includes('Monthly activity'));assert.ok(selected.includes('Local drayage'));assert.ok(selected.includes('Direct drayage · CNTR / other DDRAY'));assert.ok(selected.includes('$175.00'));assert.ok(selected.includes('$500.00'));assert.ok(selected.includes('3PL'));assert.ok(selected.includes('Contract storage (included in Storage)'));
+ const selected=render('All','All','C');assert.ok(selected.includes('Monthly activity'));assert.ok(selected.includes('Trucking performance'));assert.ok(!selected.includes('Contribution proxy'));assert.ok(!selected.includes('Known-pay transport GP'));assert.ok(selected.includes('Chassis billed (included in invoice revenue)'));assert.ok(selected.includes('Local drayage'));assert.ok(selected.includes('Direct drayage'));assert.ok(selected.includes('$175.00'));assert.ok(selected.includes('$500.00'));assert.ok(selected.includes('3PL'));assert.ok(selected.includes('Contract storage (included in Storage)'));
  assert.equal((selected.match(/>Savannah<\/button>/g)||[]).length,2); // filter + one combined unit comparison row
  const cotton=render('All','Cotton','C');assert.ok(cotton.includes('$100.00'));assert.ok(cotton.includes('$200.00'));assert.ok(!cotton.includes('$500.00'));
  const non=render('All','Non-Cotton','C');assert.ok(non.includes('$300.00'));assert.ok(!non.includes('>EC ·'));
@@ -29,8 +29,14 @@ test('combined row and view button select the customer',()=>{
  nodes.find(n=>n.type==='tr'&&n.props['aria-label']==='Open customer Synthetic combined').props.onClick();nodes.find(n=>n.type==='button'&&n.props['aria-label']==='View customer Synthetic combined').props.onClick();assert.deepEqual(calls,['C','C']);
 });
 test('combined endpoint is separate, staff guarded, private, and never imports financial JSON',()=>{
- const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v4'));
+ const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v5'));
  const client=fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8');assert.ok(client.includes('/api/reporting/business-intelligence'));assert.ok(!client.includes('data.json'));assert.ok(client.includes('non-cotton local trucking compact export'));
 });
 // This opt-in path is used only for private runtime QA, not repository fixtures.
 if(process.env.PRIVATE_BUSINESS_QA){const records=JSON.parse(fs.readFileSync(process.env.PRIVATE_BUSINESS_QA,'utf8'));let checks=0;for(const unit of ['All','Savannah','Houston','Dallas','Brokerage','Allocation review'])for(const scope of ['All','Cotton','Non-Cotton','Unclassified']){const html=render(unit,scope,null,()=>{},false,records);assert.ok(!html.includes('NaN'));checks++;for(const code of new Set(records.filter(x=>(unit==='All'||x.warehouse===unit)&&(scope==='All'||x.scope===scope)).map(x=>x.code))){const detail=render(unit,scope,code,()=>{},false,records);assert.ok(!detail.includes('NaN'));assert.ok(detail.includes('Monthly activity'));checks++;}}process.stdout.write(JSON.stringify({privateRenderChecks:checks})+'\n');}
+
+test('chassis is non-additive and GP remains separate for each transport category',()=>{
+ const module={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/business.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,module,module.exports);
+ const h=module.exports,m={warehouseRevenue:100,otrRevenue:200,otrRevenueWithPay:200,otrPay:150,drayRevenue:300,localDrayRevenue:100,localDrayPayMissing:1,directDrayRevenue:200,directDrayRevenueWithPay:200,directDrayPay:125,chassisBilled:50};
+ assert.equal(h.businessRevenue(m),600);const rows=h.businessTransport(m);assert.equal(rows[0].gp,50);assert.equal(rows[1].gp,null);assert.equal(rows[2].gp,75);assert.ok(!('chassisGP' in m));
+});

@@ -210,13 +210,43 @@ def contracts(report,rows,audit):
   report.add(unit,scope,r['Customer'],date[:7],values,['CONTRACT'])
   audit['contract_documents']+=1;audit['contract_net']+=value
 
-def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None):
+CHASSIS_CODES={'019','SPC','HPC','HSPT','SCS'}
+CHASSIS_REV_UNITS={**LOCAL,'DLOCAL':'Dallas','DAVIS':'Dallas','DDRAY':'Dallas','MAIN':'Brokerage','TERRY':'Brokerage','CNTR':'Brokerage'}
+def chassis_subtotal(report,rows,audit,complete=False):
+ """Non-additive revenue disclosure; never changes invoice revenue, costs or GP."""
+ seen=set();amount=D(0);lines=D(0)
+ for r in rows:
+  if complete:
+   code=r['revenue_code_id'];description=r.get('charge_description') or '';charge=r['charge_code'];period=r['bill_month'];customer=r['customer_code']
+   key=(r['company_id'],customer,code,r.get('order_type_id') or '',r.get('commodity_id') or '',period,charge,description)
+   if key in seen:raise ValueError('Repeated chassis summary group')
+   seen.add(key)
+   if r['company_id']!='TMS' or D(str(r['missing_charge_amounts']))!=0:raise ValueError('Invalid chassis company/amount coverage')
+   count=D(str(r['charge_lines']));value=dec(r['chassis_billed'])
+   if not count.is_finite() or count<=0 or count!=count.to_integral_value():raise ValueError('Invalid chassis line count')
+   typ=r.get('order_type_id') or '';commodity=r.get('commodity_id') or ''
+   scope='Cotton' if ((typ=='ECOTTON' and code in LOCAL) or commodity=='COTTON') else 'Non-Cotton'
+   if (typ=='3PL' and code in LOCAL) or customer in cotton.NON_COTTON_CUSTOMERS or customer in NON_COTTON_CONTRACT_CUSTOMERS:scope='Non-Cotton'
+  else:
+   code=r['warehouse'];description=r.get('charge_description') or '';charge=r['charge_code'];period=month(r['bill_date']);customer=r['customer_code'];count=D(1);value=dec(r['charge_amount']);scope='Non-Cotton'
+  if charge not in CHASSIS_CODES and 'chassis' not in description.lower():
+   if complete:raise ValueError('Unverified chassis charge')
+   continue
+  if not re.fullmatch(r'\d{4}-\d{2}',period) or not '2025-01'<=period<='2026-10' or value is None:raise ValueError('Invalid chassis period/amount')
+  unit=CHASSIS_REV_UNITS.get(code,'Allocation review')
+  values={'chassisBilled':value,'chassisChargeLines':count}
+  if unit=='Allocation review':values['chassisUnmappedCodeLines']=count
+  report.add(unit,scope,customer,period,values,[code]);amount+=value;lines+=count
+ audit['chassis_subtotal']={'coverage':'complete' if complete else 'warehouse-only','billed':amount,'charge_lines':lines}
+
+def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None,chassis_source=None):
  root=Path(root);context=Path(context)
  manifest=json.loads((context/'manifest.json').read_text())
  if not manifest.get('complete'):raise ValueError('Combined classification context incomplete')
  accounts=json.loads((context/'accounts.json').read_text());local_rows=json.loads(Path(local_source).read_text()) if local_source else []
+ chassis_rows=csvrows(chassis_source) if chassis_source else []
  known={x['code'] for x in accounts}
- for row in local_rows:
+ for row in local_rows+chassis_rows:
   if row['customer_code'] not in known:
    accounts.append({'code':row['customer_code'],'name':row.get('customer_name') or row['customer_code'],'bridge':row.get('customer_bridge')});known.add(row['customer_code'])
  families=Families(accounts,warehouse_snapshot);report=Report(families)
@@ -256,6 +286,7 @@ def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None):
  chassis_ids={x['order_id'] for x in csvrows(root/'report_sources/storage and handling full period.csv','cp1252') if x['charge_code'] in ['019','HPC','HSPT','SCS','SPC'] and dec(x['charge_amount'])!=0}
  warehouse(report,cotton_snapshot,warehouse_snapshot,headers,audit,chassis_ids)
  contracts(report,csvrows(root/'report_sources/contract storage histroy.csv','cp1252'),audit)
+ chassis_subtotal(report,chassis_rows if chassis_source else csvrows(root/'report_sources/storage and handling full period.csv','cp1252'),audit,bool(chassis_source))
  result=report.finish();totals=collections.defaultdict(D)
  for c in result:
   for k,v in c['metrics'].items():
@@ -268,7 +299,7 @@ def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None):
 if __name__=='__main__':
  p=argparse.ArgumentParser()
  for k in ['root','cotton-snapshot','warehouse-snapshot','context-dir','output','audit']:p.add_argument('--'+k,required=True)
- p.add_argument('--local-monthly-json');a=p.parse_args();result,audit=build(a.root,json.loads(Path(a.cotton_snapshot).read_text()),json.loads(Path(a.warehouse_snapshot).read_text()),a.context_dir,a.local_monthly_json)
+ p.add_argument('--local-monthly-json');p.add_argument('--chassis-monthly-csv');a=p.parse_args();result,audit=build(a.root,json.loads(Path(a.cotton_snapshot).read_text()),json.loads(Path(a.warehouse_snapshot).read_text()),a.context_dir,a.local_monthly_json,a.chassis_monthly_csv)
  def number(v):
   if isinstance(v,D):return float(v)
   raise TypeError(type(v))

@@ -28,7 +28,7 @@ Current-movement override pay is provisional, not audited settlements. Missing c
 
 ## Persistence and verification
 
-Private snapshot `business-intelligence-20261029-v4` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
+Private snapshot `business-intelligence-20261029-v5` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
 
 Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, receiving-warehouse allocation, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
 
@@ -39,3 +39,13 @@ October 29: inbound/receiving warehouse allocation now applies to inter-warehous
 The DDRAY split uses verified SCM Dallas endpoint IDs rather than a code-only classification. This service reclassification preserves total trucking revenue, carrier pay, GP and load counts; business-unit credit independently follows the receiving warehouse for SCM-to-SCM moves.
 
 October 29: contract storage for the current account list is fully classified. The confirmed cotton allowlist and three non-cotton exceptions are explicit; classification is not a default for future unknown customers. This changes commodity-scope totals only, preserving every business-unit and company-wide financial measure. The Unclassified filter appears only when applicable.
+
+## Revenue/GP display and chassis disclosure
+
+OTR, local drayage, and direct drayage each show revenue, verified carrier pay, and known-pay order GP together. Customer, unit, and monthly tables pair revenue with the matching service GP. Combined GP and contribution-proxy displays have been removed. GP coverage is explicit when costs are missing; revenue without verified cost is not treated as profit.
+
+Chassis billed is a non-additive, revenue-only invoice subtotal. It remains included in source invoice revenue and must not be added to company revenue a second time. No chassis cost or standalone chassis GP is calculated. Transport order GP still includes all revenue on its underlying orders, including accessorials.
+
+Chassis unit allocation uses revenue codes as requested: LOCAL Savannah; HLOCAL/HLOCA Houston; DLOCA/DLOCAL/DAVIS/DDRAY Dallas; MAIN/TERRY/CNTR Brokerage. Unmapped codes remain reviewable. This allocation is separate from the location-based allocation of transport orders.
+
+Version 5 initially discloses chassis from the supplied Savannah/Houston warehouse charge detail, explicitly marked Partial. Known verified chassis charge codes are 019, SPC, HPC, HSPT and SCS. One HPC description is overridden with a numeric value, so known code matches are included as well as descriptions containing chassis. Signed credits are retained. The compact `queries/business-chassis-billed-monthly.sql` export supports complete charge coverage through `--chassis-monthly-csv`; it replaces the partial source rather than adding to it. Both sources add disclosure metrics only and preserve every existing invoice/transport total. The API's chassisCoverage status is tied to the active snapshot release.

@@ -73,6 +73,15 @@ class Business(unittest.TestCase):
   for code,expected in [('AMERDUPA','Cotton'),('PERFYAPA','Non-Cotton'),('BINDATG1','Non-Cotton'),('KLEN74GA','Non-Cotton')]:
    r=self.report();m.contracts(r,[{'Customer':code,'Invoice number':'S','Bill type':'Invoice','Bill date':'01/02/25','Reference number':'Contract Storage Savannah','Total':'100'}],self.audit())
    row=r.finish()[0];self.assertEqual(row['scope'],expected);self.assertEqual(row['metrics']['contractStorage'],100);self.assertNotIn('unclassifiedContractRevenue',row['metrics'])
+ def test_chassis_subtotal_follows_revenue_code_without_adding_profit(self):
+  report=self.report();audit=self.audit()
+  m.chassis_subtotal(report,[dict(company_id='TMS',customer_code='C',revenue_code_id='MAIN',order_type_id='FSC',commodity_id='COTTON',bill_month='2025-01',charge_code='CHS',charge_description='Daily Chassis',charge_lines=2,chassis_billed='100',missing_charge_amounts=0)],audit,True)
+  row=report.finish()[0];self.assertEqual(row['warehouse'],'Brokerage');self.assertEqual(row['scope'],'Cotton');self.assertEqual(row['metrics']['chassisBilled'],100)
+  self.assertNotIn('warehouseRevenue',row['metrics']);self.assertNotIn('otrRevenue',row['metrics']);self.assertNotIn('chassisPay',row['metrics'])
+ def test_chassis_known_code_accepts_overridden_description_and_retains_credits(self):
+  report=self.report();a=self.audit()
+  m.chassis_subtotal(report,[dict(warehouse='HLOCA',customer_code='C',bill_date='2025-01-02',charge_code='HPC',charge_description='180',charge_amount='-20')],a)
+  row=report.finish()[0];self.assertEqual(row['warehouse'],'Houston');self.assertEqual(row['metrics']['chassisBilled'],-20);self.assertEqual(a['chassis_subtotal']['coverage'],'warehouse-only')
  def test_report_end_date_is_enforced(self):
   self.assertTrue(m.inperiod('2026-10-20'));self.assertFalse(m.inperiod('2026-10-21'));self.assertFalse(m.inperiod('2024-12-31'))
 if __name__=='__main__':unittest.main()
