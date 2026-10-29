@@ -58,14 +58,16 @@ class Business(unittest.TestCase):
   result=report.finish();self.assertEqual(len(result),1);self.assertEqual(result[0]['warehouse'],'Dallas')
   self.assertEqual(result[0]['metrics']['uniqueTransportOrders'],1);self.assertEqual(result[0]['metrics']['inboundAllocatedLoads'],1)
   self.assertEqual(result[0]['metrics']['otrRevenue'],100);self.assertEqual(result[0]['metrics']['otrPay'],60)
- def test_ddray_dallas_warehouse_moves_are_local_cntr_stays_direct(self):
-  self.assertEqual(m.dray_segment('DDRAY','SCMDDETX','PORT'),'localDray')
-  self.assertEqual(m.dray_segment('DDRAY','PORT','SCMDDATX'),'localDray')
-  self.assertEqual(m.dray_segment('DDRAY','REMOTE','PORT'),'directDray')
-  self.assertEqual(m.dray_segment('CNTR','SCMDDETX','PORT'),'directDray')
-  report=self.report();m.transport(report,[self.order(code='DDRAY',pickup='PORT',delivery='SCMDDETX')],set(),self.audit())
-  row=report.finish()[0];self.assertEqual(row['warehouse'],'Dallas');self.assertEqual(row['metrics']['localDrayRevenue'],100)
-  self.assertNotIn('directDrayRevenue',row['metrics']);self.assertEqual(row['metrics']['drayRevenue'],100)
+ def test_ddray_requires_both_dfw_endpoints_and_credits_dallas(self):
+  locations={k:dict(city_name=city,state=state) for k,city,state in [('A','DESOTO','TX'),('B','LANCASTER','TX'),('C','FORT WORTH','TX'),('H','HOUSTON','TX'),('X','DALLAS','GA')]}
+  for a,b in [('A','B'),('B','A'),('A','C')]:
+   self.assertEqual(m.dray_segment('DDRAY',a,b,locations),'localDray')
+  for a,b in [('A','H'),('H','A'),('A','X'),('A',None)]:
+   self.assertEqual(m.dray_segment('DDRAY',a,b,locations),'directDray')
+  self.assertEqual(m.dray_segment('CNTR','A','B',locations),'directDray')
+  r=self.report();m.transport(r,[self.order(code='DDRAY',pickup='A',delivery='B')],set(),self.audit(),locations)
+  out=r.finish()[0];self.assertEqual(out['warehouse'],'Dallas');self.assertEqual(out['metrics']['localDrayRevenue'],100);self.assertEqual(out['metrics']['localDrayPay'],60)
+
  def test_user_confirmed_contract_storage_scopes(self):
   for code in m.COTTON_CONTRACT_CUSTOMERS:self.assertEqual(m.contract_scope(code),'Cotton')
   for code in ['PERFYAPA','BINDATG1','KLEN74GA']:self.assertEqual(m.contract_scope(code),'Non-Cotton')

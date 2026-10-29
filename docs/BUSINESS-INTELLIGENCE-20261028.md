@@ -6,7 +6,7 @@ Separate administrator-only routes: `/reporting/business-intelligence` and `/api
 
 Savannah, Houston, Dallas, and Brokerage are business units. A recognized SCM warehouse pickup or delivery assigns trucking to that warehouse unit, regardless of revenue code. With no SCM endpoint, warehouse local revenue codes route to their local warehouse; other moves go to Brokerage. Moves between different SCM warehouses are credited once to the receiving SCM warehouse (the delivery endpoint), including revenue and verified carrier pay, per the user-approved inbound allocation rule. Location mappings remain reviewable.
 
-MAIN, TERRY and DAVIS are OTR. CNTR is direct drayage. DDRAY moves with an SCM Dallas warehouse pickup or delivery are local drayage; other DDRAY moves remain direct. Other local warehouse drays are local drayage. These remain separate in service, customer, business-unit and monthly views, while both drayage segments contribute once to total trucking revenue.
+MAIN, TERRY and DAVIS are OTR. CNTR is direct drayage. DDRAY moves with both endpoints in DFW are Dallas local drayage, including brokered moves; other DDRAY moves remain direct. Other local warehouse drays are local drayage. These remain separate in service, customer, business-unit and monthly views, while both drayage segments contribute once to total trucking revenue.
 
 Handling, storage and other fees are warehouse services. Trucking and chassis billing components on 3PL warehouse invoices are local drayage revenue, with cost unverified. They are not counted as additional transport loads. Unclassified charge residuals remain in Other with a visible review amount; invoice totals are preserved.
 
@@ -28,7 +28,7 @@ Current-movement override pay is provisional, not audited settlements. Missing c
 
 ## Persistence and verification
 
-Private snapshot `business-intelligence-20261029-v6` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
+Private snapshot `business-intelligence-20261029-v7` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
 
 Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, receiving-warehouse allocation, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
 
@@ -36,7 +36,7 @@ Version 2 imports the supplied local monthly export through `--local-monthly-jso
 
 October 29: inbound/receiving warehouse allocation now applies to inter-warehouse trucking in both order-level and compact monthly sources. It replaces the allocation-review hold without changing company-wide financial totals or load counts. `inboundAllocatedLoads` records the reassigned count. Unresolved contract references remain separately reviewable.
 
-The DDRAY split uses verified SCM Dallas endpoint IDs rather than a code-only classification. This service reclassification preserves total trucking revenue, carrier pay, GP and load counts; business-unit credit independently follows the receiving warehouse for SCM-to-SCM moves.
+The DDRAY split now uses verified endpoint cities: both must be in DFW, and these local brokered moves receive Dallas business-unit credit. This service reclassification preserves total trucking revenue, carrier pay, GP and load counts; business-unit credit independently follows the receiving warehouse for SCM-to-SCM moves.
 
 October 29: contract storage for the current account list is fully classified. The confirmed cotton allowlist and three non-cotton exceptions are explicit; classification is not a default for future unknown customers. This changes commodity-scope totals only, preserving every business-unit and company-wide financial measure. The Unclassified filter appears only when applicable.
 
@@ -59,3 +59,7 @@ Reconciliation exposed voided warehouse orders retained by the older status-less
 The report exposes From month and Through month inputs with All available and loaded-year shortcuts. These filter bill months, not exact days: the underlying financial snapshot is monthly, and the October 2026 source stops on October 20. Every displayed metric, customer profile, unit comparison, service GP and chassis subtotal is recomputed from the selected monthly rows before other scope/unit/search filters are applied. Original all-period metrics are not reused for filtered views. Empty periods drop from profiles; invalid or out-of-coverage ranges show an error instead of apparent zero financial totals. Inputs and source objects remain unchanged.
 
 Staff management explicitly displays unsupported legacy roles and requires a supported role selection before saving access, preventing an unmatched dropdown value from visually appearing to be Administrator. This UI correction does not grant permissions or change other accounts.
+
+## DFW local drayage revision
+
+Version 7 resolves all 52 DDRAY endpoint locations with GET-only McLeod location records. Both endpoints must be in the DFW metro; DeSoto and Lancaster qualify. Reviewed source cities use the current 11-county metro boundary (https://www.bls.gov/regions/southwest/news-release/areaemployment_dallasfortworth.htm). Unknown locations or new unreviewed cities fail the build. Outside-DFW DDRAY remains direct, CNTR remains direct, and MAIN/TERRY/DAVIS remain OTR. Total company revenue, pay, GP and order counts are preserved; only service and Dallas/Brokerage allocation change. Private endpoint metadata and financial snapshots are never committed.

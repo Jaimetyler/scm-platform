@@ -29,7 +29,7 @@ test('combined row and view button select the customer',()=>{
  nodes.find(n=>n.type==='tr'&&n.props['aria-label']==='Open customer Synthetic combined').props.onClick();nodes.find(n=>n.type==='button'&&n.props['aria-label']==='View customer Synthetic combined').props.onClick();assert.deepEqual(calls,['C','C']);
 });
 test('combined endpoint is separate, staff guarded, private, and never imports financial JSON',()=>{
- const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v6'));
+ const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v7'));
  const client=fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8');assert.ok(client.includes('/api/reporting/business-intelligence'));assert.ok(!client.includes('data.json'));assert.ok(client.includes('non-cotton local trucking compact export'));
 });
 // This opt-in path is used only for private runtime QA, not repository fixtures.

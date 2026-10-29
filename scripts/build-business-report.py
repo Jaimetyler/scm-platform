@@ -31,10 +31,17 @@ def assign_unit(pickup,delivery,code):
  if len(units)>1:return LOCATIONS[delivery]
  if units:return next(iter(units))
  return LOCAL.get(code,'Brokerage')
-def dray_segment(code,pickup,delivery):
- # DDRAY also carries SCM Dallas warehouse drays; the code alone is insufficient.
- if code=='DDRAY' and any(LOCATIONS.get(x)=='Dallas' for x in [pickup,delivery]):return 'localDray'
- return 'directDray' if code in ['CNTR','DDRAY'] else 'localDray'
+# Reviewed source cities in the Dallas-Fort Worth metro (BLS 11-county boundary).
+DFW_CITIES={'ARLINGTON','DALLAS','DESOTO','FARMERS BRANCH','FERRIS','FORNEY','FORT WORTH','GRAND PRAIRIE','HALTOM CITY','HASLET','HUTCHINS','LANCASTER','LEWISVILLE','MCKINNEY','MESQUITE','MIDLOTHIAN','WILMER','WYLIE'}
+# Explicitly reviewed outside cities; new cities require review instead of guessing.
+DDRAY_OUTSIDE_CITIES={'ALTUS','BALLINGER','BIG SPRING','BUCKHOLTS','CHICAGO','CORPUS CHRISTI','ELWOOD','GARDEN CITY','KATY','LEVELLAND','MONEE','OKLAHOMA CITY','PADUCAH','PLAINVIEW','POST','QUANAH','RULE','SEABROOK','SWEETWATER','TAHOKA','TULIA'}
+def dray_segment(code,pickup,delivery,locations=None):
+ if code=='DDRAY':
+  def dfw(id):
+   loc=(locations or {}).get(id,{})
+   return loc.get('state')=='TX' and re.sub(r'\s+',' ',loc.get('city_name','').strip().upper()) in DFW_CITIES
+  return 'localDray' if dfw(pickup) and dfw(delivery) else 'directDray'
+ return 'directDray' if code=='CNTR' else 'localDray'
 
 class Families:
  def __init__(self,accounts,warehouse_snapshot):
@@ -83,7 +90,7 @@ class Report:
   return sorted(out,key=lambda x:(x['name'].lower(),x['warehouse'],x['scope']))
 def normalize_csv(x):
  return dict(company=x['company_id'],id=x['order_id'],customer=x['customer_code'],code=x['revenue_code_id'],type=x.get('order_type_id',''),status=x['order_status'],bill=x['bill_date'],revenue=x['total_invoice_revenue'],movement=x['curr_movement_id'],matched=x['matched_current_movement_id'],pay=x['current_movement_override_pay_amt'],pickup=x['pickup_location_id'],delivery=x['delivery_location_id'])
-def transport(report,orders,cotton_ids,audit):
+def transport(report,orders,cotton_ids,audit,locations=None):
  seen={}
  for o in orders:
   if o['company']!='TMS' or not inperiod(o['bill']):raise ValueError('Trucking source scope mismatch')
@@ -106,7 +113,8 @@ def transport(report,orders,cotton_ids,audit):
   if matched and pay is not None:values.update({kind+'Pay':pay,kind+'RevenueWithPay':revenue})
   else:values[kind+'PayMissing']=D(1)
   if kind=='dray':
-   prefix=dray_segment(o['code'],o.get('pickup'),o.get('delivery'))
+   prefix=dray_segment(o['code'],o.get('pickup'),o.get('delivery'),locations)
+   if o['code']=='DDRAY' and prefix=='localDray':unit='Dallas'
    values.update({prefix+k[4:]:v for k,v in list(values.items()) if k.startswith('dray')})
   if len({LOCATIONS[x] for x in [o.get('pickup'),o.get('delivery')] if x in LOCATIONS})>1:values['inboundAllocatedLoads']=D(1)
   if revenue==0:values[kind+'ZeroRevenueOrders']=D(1)
@@ -318,7 +326,16 @@ def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None,chas
   audit['sources']['warehouse_void_sha256']=hashlib.sha256(Path(warehouse_void_source).read_bytes()).hexdigest()
  invoice_ids={x['order_id'] for x in headers}
  if any(o['id'] in invoice_ids for o in orders if o['type']!='ECOTTON'):raise ValueError('Warehouse invoice also present in transport ledger')
- transport(report,orders,cotton_ids,audit)
+ locations=json.loads((context/'ddray-locations.json').read_text())
+ for o in orders:
+  if o['code']!='DDRAY':continue
+  for endpoint in [o.get('pickup'),o.get('delivery')]:
+   loc=locations.get(endpoint)
+   if not loc or loc.get('id')!=endpoint or loc.get('company_id')!='TMS' or not loc.get('state'):raise ValueError('Missing DDRAY endpoint context')
+   city=re.sub(r'\s+',' ',loc.get('city_name','').strip().upper())
+   if city not in DFW_CITIES|DDRAY_OUTSIDE_CITIES:raise ValueError('Unreviewed DDRAY city')
+ audit['sources']['ddray_locations_sha256']=hashlib.sha256((context/'ddray-locations.json').read_bytes()).hexdigest()
+ transport(report,orders,cotton_ids,audit,locations)
  if local_source:
   local_monthly(report,local_rows,audit);audit['sources']['local_monthly_sha256']=hashlib.sha256(Path(local_source).read_bytes()).hexdigest()
  chassis_ids={x['order_id'] for x in charge_rows if x['charge_code'] in ['019','HPC','HSPT','SCS','SPC'] and dec(x['charge_amount'])!=0}
