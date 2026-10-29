@@ -82,6 +82,14 @@ class Business(unittest.TestCase):
   report=self.report();a=self.audit()
   m.chassis_subtotal(report,[dict(warehouse='HLOCA',customer_code='C',bill_date='2025-01-02',charge_code='HPC',charge_description='180',charge_amount='-20')],a)
   row=report.finish()[0];self.assertEqual(row['warehouse'],'Houston');self.assertEqual(row['metrics']['chassisBilled'],-20);self.assertEqual(a['chassis_subtotal']['coverage'],'warehouse-only')
+ def test_verified_voids_removed_without_mutating_legacy_snapshot(self):
+  snapshot=[dict(warehouse='Savannah',code='C',months=[dict(month='2025-01',handling=80,chassis=20)])]
+  headers=[dict(order_id='V',warehouse='LOCAL',customer_code='C',bill_date='2025-01-02',total_order_revenue='100',drayage_revenue='0',accessorial_revenue='100')]
+  charges=[dict(order_id='V',charge_code='045',charge_description='SAV Lumber Handling',charge_amount='80'),dict(order_id='V',charge_code='SPC',charge_description='SAV Private Chassis',charge_amount='20')]
+  voids=[dict(id='V',status='V',customer='C',code='LOCAL',revenue=100)];audit=self.audit()
+  result,h,c=m.exclude_verified_warehouse_voids(snapshot,headers,charges,voids,audit)
+  self.assertEqual(h,[]);self.assertEqual(c,[]);self.assertEqual(result[0]['months'][0]['handling'],0);self.assertEqual(result[0]['months'][0]['chassis'],0)
+  self.assertEqual(snapshot[0]['months'][0]['handling'],80);self.assertEqual(audit['warehouse_void_orders_excluded'],1);self.assertEqual(audit['warehouse_void_revenue_excluded'],100)
  def test_report_end_date_is_enforced(self):
   self.assertTrue(m.inperiod('2026-10-20'));self.assertFalse(m.inperiod('2026-10-21'));self.assertFalse(m.inperiod('2024-12-31'))
 if __name__=='__main__':unittest.main()

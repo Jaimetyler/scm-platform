@@ -28,7 +28,7 @@ Current-movement override pay is provisional, not audited settlements. Missing c
 
 ## Persistence and verification
 
-Private snapshot `business-intelligence-20261029-v5` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
+Private snapshot `business-intelligence-20261029-v6` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
 
 Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, receiving-warehouse allocation, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
 
@@ -49,3 +49,7 @@ Chassis billed is a non-additive, revenue-only invoice subtotal. It remains incl
 Chassis unit allocation uses revenue codes as requested: LOCAL Savannah; HLOCAL/HLOCA Houston; DLOCA/DLOCAL/DAVIS/DDRAY Dallas; MAIN/TERRY/CNTR Brokerage. Unmapped codes remain reviewable. This allocation is separate from the location-based allocation of transport orders.
 
 Version 5 initially discloses chassis from the supplied Savannah/Houston warehouse charge detail, explicitly marked Partial. Known verified chassis charge codes are 019, SPC, HPC, HSPT and SCS. One HPC description is overridden with a numeric value, so known code matches are included as well as descriptions containing chassis. Signed credits are retained. The compact `queries/business-chassis-billed-monthly.sql` export supports complete charge coverage through `--chassis-monthly-csv`; it replaces the partial source rather than adding to it. Both sources add disclosure metrics only and preserve every existing invoice/transport total. The API's chassisCoverage status is tied to the active snapshot release.
+
+Version 6 loads the complete billed-chassis monthly export, replacing the partial warehouse subtotal. All returned revenue codes map to the configured chassis units, no charge amounts are missing, and chassis remains non-additive with no standalone GP. The complete export excludes voided orders.
+
+Reconciliation exposed voided warehouse orders retained by the older status-less source export. `--warehouse-void-json` supplies GET-only API-verified V records. Matching source header identity and amounts and per-invoice charge components are checked before removing those orders from the combined view. The original warehouse snapshot remains unchanged; only a private copy of its monthly handling/chassis components is adjusted. Unrecognized voided charge classifications fail for review. This source correction changes billed revenue and warehouse invoice counts, while transport load counts, carrier pay, and business-unit allocation rules remain unchanged.

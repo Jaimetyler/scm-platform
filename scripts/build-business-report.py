@@ -210,6 +210,40 @@ def contracts(report,rows,audit):
   report.add(unit,scope,r['Customer'],date[:7],values,['CONTRACT'])
   audit['contract_documents']+=1;audit['contract_net']+=value
 
+def exclude_verified_warehouse_voids(snapshot,headers,charge_rows,voids,audit):
+ """Remove only API-verified V orders from the older status-less warehouse export."""
+ import copy
+ candidates={str(v['id']):v for v in voids if v['status']=='V'};removed={h['order_id']:h for h in headers if h['order_id'] in candidates}
+ charges=collections.defaultdict(list)
+ for row in charge_rows:
+  if row['order_id'] in removed:charges[row['order_id']].append(row)
+ correction=collections.defaultdict(lambda:collections.defaultdict(D));net=D(0)
+ for id,h in removed.items():
+  v=candidates[id]
+  if v['customer']!=h['customer_code'] or v['code']!=h['warehouse'] or dec(v['revenue'])!=dec(h['total_order_revenue']):raise ValueError('Void identity/header changed')
+  parts=collections.defaultdict(D);parts['drayage']=dec(h['drayage_revenue']);summed=D(0)
+  for row in charges[id]:
+   code=row['charge_code'];description=row['charge_description'].lower();value=dec(row['charge_amount'])
+   if code in {'019','SPC','HPC','HSPT','SCS'}:field='chassis'
+   elif code in {'042','045','048'} and ('handling' in description or 'mini pack' in description):field='handling'
+   else:raise ValueError('Voided warehouse charge needs classification review')
+   parts[field]+=value;summed+=value
+  if summed!=dec(h['accessorial_revenue']) or summed+parts['drayage']!=dec(h['total_order_revenue']):raise ValueError('Void invoice components do not reconcile')
+  key=(LOCAL[h['warehouse']],h['customer_code'],month(h['bill_date']))
+  for field,value in parts.items():correction[key][field]+=value
+  net+=dec(h['total_order_revenue'])
+ result=copy.deepcopy(snapshot);used=set()
+ for c in result:
+  for item in c['months']:
+   key=(c['warehouse'],c['code'],item['month'])
+   if key not in correction:continue
+   if key in used:raise ValueError('Duplicate void adjustment target')
+   used.add(key)
+   for field,value in correction[key].items():item[field]=D(str(item.get(field,0)))-value
+ if used!=correction.keys():raise ValueError('Missing void adjustment target')
+ audit['warehouse_void_orders_excluded']=len(removed);audit['warehouse_void_revenue_excluded']=net
+ return result,[h for h in headers if h['order_id'] not in removed],[r for r in charge_rows if r['order_id'] not in removed]
+
 CHASSIS_CODES={'019','SPC','HPC','HSPT','SCS'}
 CHASSIS_REV_UNITS={**LOCAL,'DLOCAL':'Dallas','DAVIS':'Dallas','DDRAY':'Dallas','MAIN':'Brokerage','TERRY':'Brokerage','CNTR':'Brokerage'}
 def chassis_subtotal(report,rows,audit,complete=False):
@@ -239,7 +273,7 @@ def chassis_subtotal(report,rows,audit,complete=False):
   report.add(unit,scope,customer,period,values,[code]);amount+=value;lines+=count
  audit['chassis_subtotal']={'coverage':'complete' if complete else 'warehouse-only','billed':amount,'charge_lines':lines}
 
-def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None,chassis_source=None):
+def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None,chassis_source=None,warehouse_void_source=None):
  root=Path(root);context=Path(context)
  manifest=json.loads((context/'manifest.json').read_text())
  if not manifest.get('complete'):raise ValueError('Combined classification context incomplete')
@@ -278,15 +312,20 @@ def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None,chas
  for r in csvrows(root/'upload/dloca.csv'):
   if r['order_type_id']=='3PL' and r['order_status']!='V':dallas[r['order_id']]=r
  headers.extend({'order_id':x['order_id'],'warehouse':'DLOCA','customer_code':x['customer_code'],'bill_date':x['bill_date'],'total_order_revenue':x['total_order_revenue'],'drayage_revenue':x['freight_charge']} for x in dallas.values())
+ charge_rows=csvrows(root/'report_sources/storage and handling full period.csv','cp1252')
+ if warehouse_void_source:
+  warehouse_snapshot,headers,charge_rows=exclude_verified_warehouse_voids(warehouse_snapshot,headers,charge_rows,json.loads(Path(warehouse_void_source).read_text()),audit)
+  audit['sources']['warehouse_void_sha256']=hashlib.sha256(Path(warehouse_void_source).read_bytes()).hexdigest()
  invoice_ids={x['order_id'] for x in headers}
  if any(o['id'] in invoice_ids for o in orders if o['type']!='ECOTTON'):raise ValueError('Warehouse invoice also present in transport ledger')
  transport(report,orders,cotton_ids,audit)
  if local_source:
   local_monthly(report,local_rows,audit);audit['sources']['local_monthly_sha256']=hashlib.sha256(Path(local_source).read_bytes()).hexdigest()
- chassis_ids={x['order_id'] for x in csvrows(root/'report_sources/storage and handling full period.csv','cp1252') if x['charge_code'] in ['019','HPC','HSPT','SCS','SPC'] and dec(x['charge_amount'])!=0}
+ chassis_ids={x['order_id'] for x in charge_rows if x['charge_code'] in ['019','HPC','HSPT','SCS','SPC'] and dec(x['charge_amount'])!=0}
  warehouse(report,cotton_snapshot,warehouse_snapshot,headers,audit,chassis_ids)
  contracts(report,csvrows(root/'report_sources/contract storage histroy.csv','cp1252'),audit)
- chassis_subtotal(report,chassis_rows if chassis_source else csvrows(root/'report_sources/storage and handling full period.csv','cp1252'),audit,bool(chassis_source))
+ chassis_subtotal(report,chassis_rows if chassis_source else charge_rows,audit,bool(chassis_source))
+ if chassis_source:audit['sources']['chassis_source_sha256']=hashlib.sha256(Path(chassis_source).read_bytes()).hexdigest()
  result=report.finish();totals=collections.defaultdict(D)
  for c in result:
   for k,v in c['metrics'].items():
@@ -299,7 +338,7 @@ def build(root,cotton_snapshot,warehouse_snapshot,context,local_source=None,chas
 if __name__=='__main__':
  p=argparse.ArgumentParser()
  for k in ['root','cotton-snapshot','warehouse-snapshot','context-dir','output','audit']:p.add_argument('--'+k,required=True)
- p.add_argument('--local-monthly-json');p.add_argument('--chassis-monthly-csv');a=p.parse_args();result,audit=build(a.root,json.loads(Path(a.cotton_snapshot).read_text()),json.loads(Path(a.warehouse_snapshot).read_text()),a.context_dir,a.local_monthly_json,a.chassis_monthly_csv)
+ p.add_argument('--local-monthly-json');p.add_argument('--chassis-monthly-csv');p.add_argument('--warehouse-void-json');a=p.parse_args();result,audit=build(a.root,json.loads(Path(a.cotton_snapshot).read_text()),json.loads(Path(a.warehouse_snapshot).read_text()),a.context_dir,a.local_monthly_json,a.chassis_monthly_csv,a.warehouse_void_json)
  def number(v):
   if isinstance(v,D):return float(v)
   raise TypeError(type(v))

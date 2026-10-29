@@ -8,8 +8,8 @@ const data=[
 ];
 const compiledClient=ts.transpileModule(fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
 let cachedHelper;
-function render(unit='All',scope='All',selected=null,onSet=()=>{},tree=false,records=data){
- const states=[records,false,'',unit,'','contribution',selected,scope,false],react={...React,useState:()=>[states.shift(),onSet],useMemo:f=>f(),useEffect:()=>{}};
+function render(unit='All',scope='All',selected=null,onSet=()=>{},tree=false,records=data,chassisComplete=false){
+ const states=[records,false,'',unit,'','contribution',selected,scope,chassisComplete],react={...React,useState:()=>[states.shift(),onSet],useMemo:f=>f(),useEffect:()=>{}};
  function helper(){if(cachedHelper)return cachedHelper;const mod={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/business.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,mod,mod.exports);cachedHelper=mod.exports;return cachedHelper;}
  const mod={exports:{}};const source=compiledClient;
  new Function('require','module','exports',source)(n=>n==='react'?react:n==='next/link'?{__esModule:true,default:({children,...props})=>React.createElement('a',props,children)}:n.endsWith('.css')?{}:n==='@/lib/reporting/business'?helper():require(n),mod,mod.exports);
@@ -29,11 +29,11 @@ test('combined row and view button select the customer',()=>{
  nodes.find(n=>n.type==='tr'&&n.props['aria-label']==='Open customer Synthetic combined').props.onClick();nodes.find(n=>n.type==='button'&&n.props['aria-label']==='View customer Synthetic combined').props.onClick();assert.deepEqual(calls,['C','C']);
 });
 test('combined endpoint is separate, staff guarded, private, and never imports financial JSON',()=>{
- const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v5'));
+ const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v6'));
  const client=fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8');assert.ok(client.includes('/api/reporting/business-intelligence'));assert.ok(!client.includes('data.json'));assert.ok(client.includes('non-cotton local trucking compact export'));
 });
 // This opt-in path is used only for private runtime QA, not repository fixtures.
-if(process.env.PRIVATE_BUSINESS_QA){const records=JSON.parse(fs.readFileSync(process.env.PRIVATE_BUSINESS_QA,'utf8'));let checks=0;for(const unit of ['All','Savannah','Houston','Dallas','Brokerage','Allocation review'])for(const scope of ['All','Cotton','Non-Cotton','Unclassified']){const html=render(unit,scope,null,()=>{},false,records);assert.ok(!html.includes('NaN'));checks++;for(const code of new Set(records.filter(x=>(unit==='All'||x.warehouse===unit)&&(scope==='All'||x.scope===scope)).map(x=>x.code))){const detail=render(unit,scope,code,()=>{},false,records);assert.ok(!detail.includes('NaN'));assert.ok(detail.includes('Monthly activity'));checks++;}}process.stdout.write(JSON.stringify({privateRenderChecks:checks})+'\n');}
+if(process.env.PRIVATE_BUSINESS_QA){const records=JSON.parse(fs.readFileSync(process.env.PRIVATE_BUSINESS_QA,'utf8'));let checks=0;for(const unit of ['All','Savannah','Houston','Dallas','Brokerage','Allocation review'])for(const scope of ['All','Cotton','Non-Cotton','Unclassified']){const html=render(unit,scope,null,()=>{},false,records,process.env.CHASSIS_COMPLETE_QA==='true');assert.ok(!html.includes('NaN'));checks++;for(const code of new Set(records.filter(x=>(unit==='All'||x.warehouse===unit)&&(scope==='All'||x.scope===scope)).map(x=>x.code))){const detail=render(unit,scope,code,()=>{},false,records,process.env.CHASSIS_COMPLETE_QA==='true');assert.ok(!detail.includes('NaN'));assert.ok(detail.includes('Monthly activity'));checks++;}}process.stdout.write(JSON.stringify({privateRenderChecks:checks})+'\n');}
 
 test('chassis is non-additive and GP remains separate for each transport category',()=>{
  const module={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync('lib/reporting/business.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(require,module,module.exports);

@@ -4,10 +4,10 @@ import { staffDatabase } from '@/lib/auth/session';
 export const dynamic = 'force-dynamic';
 export const GET = withStaffAccess(async () => {
   const { data, error } = await staffDatabase().from('scm_reporting_snapshots')
-    .select('customers,source_date').eq('id','business-intelligence-20261029-v5').single();
+    .select('customers,source_date').eq('id','business-intelligence-20261029-v6').single();
   if (error || !Array.isArray(data?.customers))
     return NextResponse.json({ ok:false,error:'Combined report is temporarily unavailable.' },
       { status:503,headers:{'Cache-Control':'private, no-store'} });
-  return NextResponse.json({customers:data.customers,sourceDate:data.source_date,chassisCoverage:'warehouse-only'},
+  return NextResponse.json({customers:data.customers,sourceDate:data.source_date,chassisCoverage:'complete'},
     { headers:{'Cache-Control':'private, no-store'} });
 });
