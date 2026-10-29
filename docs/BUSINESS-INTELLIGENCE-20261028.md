@@ -4,9 +4,9 @@ Separate administrator-only routes: `/reporting/business-intelligence` and `/api
 
 ## Business units and services
 
-Savannah, Houston, Dallas, and Brokerage are business units. A recognized SCM warehouse pickup or delivery assigns trucking to that warehouse unit, regardless of revenue code. With no SCM endpoint, warehouse local revenue codes route to their local warehouse; other moves go to Brokerage. Moves between two different SCM warehouses remain in Allocation review, counted once in overall totals and outside the four unit totals until a policy is chosen. Location mappings remain reviewable.
+Savannah, Houston, Dallas, and Brokerage are business units. A recognized SCM warehouse pickup or delivery assigns trucking to that warehouse unit, regardless of revenue code. With no SCM endpoint, warehouse local revenue codes route to their local warehouse; other moves go to Brokerage. Moves between different SCM warehouses are credited once to the receiving SCM warehouse (the delivery endpoint), including revenue and verified carrier pay, per the user-approved inbound allocation rule. Location mappings remain reviewable.
 
-MAIN, TERRY and DAVIS are OTR. CNTR and DDRAY are direct drayage. Local warehouse drays are local drayage. These remain separate in service, customer, business-unit and monthly views, while both drayage segments contribute once to total trucking revenue.
+MAIN, TERRY and DAVIS are OTR. CNTR is direct drayage. DDRAY moves with an SCM Dallas warehouse pickup or delivery are local drayage; other DDRAY moves remain direct. Other local warehouse drays are local drayage. These remain separate in service, customer, business-unit and monthly views, while both drayage segments contribute once to total trucking revenue.
 
 Handling, storage and other fees are warehouse services. Trucking and chassis billing components on 3PL warehouse invoices are local drayage revenue, with cost unverified. They are not counted as additional transport loads. Unclassified charge residuals remain in Other with a visible review amount; invoice totals are preserved.
 
@@ -28,8 +28,12 @@ Current-movement override pay is provisional, not audited settlements. Missing c
 
 ## Persistence and verification
 
-Private snapshot `business-intelligence-20261028-v2` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
+Private snapshot `business-intelligence-20261029-v3` resides in the existing RLS-protected snapshot table. Financial JSON, raw exports, customer metadata and audit receipts remain outside the public repository. The API uses the existing staff guard and private/no-store responses. No McLeod writes occur.
 
-Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, inter-warehouse review, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
+Controls reconcile total report revenue to warehouse invoice controls plus distinct transport invoices plus signed contract bills. Monthly customer sums reconcile to overall metrics. Tests cover endpoint-first assignment, receiving-warehouse allocation, zero/missing costs, customer bridges, non-cotton corrections, source deduplication, warehouse/trucking separation, contract credits, and date boundaries. React tests cover scope/unit filters, merged unit rows, customer navigation and protected API structure.
 
 Version 2 imports the supplied local monthly export through `--local-monthly-json`, with unique group keys, count/pay-coverage validation, retained zero-revenue costs, and receipt hashing. It also recognizes verified SCM facility IDs SUPPPOG4 (Savannah), SUPPBATX (Houston), and SUPPGAG3 (Savannah), applying endpoint-first unit assignment to all transport sources. Company totals change only by the additional export; facility mapping changes unit allocation only. Prior snapshots remain available.
+
+October 29: inbound/receiving warehouse allocation now applies to inter-warehouse trucking in both order-level and compact monthly sources. It replaces the allocation-review hold without changing company-wide financial totals or load counts. `inboundAllocatedLoads` records the reassigned count. Unresolved contract references remain separately reviewable.
+
+The DDRAY split uses verified SCM Dallas endpoint IDs rather than a code-only classification. This service reclassification preserves total trucking revenue, carrier pay, GP and load counts; business-unit credit independently follows the receiving warehouse for SCM-to-SCM moves.

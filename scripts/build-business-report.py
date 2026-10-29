@@ -28,9 +28,14 @@ def inperiod(value):
  return bool(re.fullmatch(r'\d{8}',date)) and '20250101'<=date<='20261020'
 def assign_unit(pickup,delivery,code):
  units={LOCATIONS[x] for x in [pickup,delivery] if x in LOCATIONS}
- if len(units)>1:return 'Allocation review'
+ if len(units)>1:return LOCATIONS[delivery]
  if units:return next(iter(units))
  return LOCAL.get(code,'Brokerage')
+def dray_segment(code,pickup,delivery):
+ # DDRAY also carries SCM Dallas warehouse drays; the code alone is insufficient.
+ if code=='DDRAY' and any(LOCATIONS.get(x)=='Dallas' for x in [pickup,delivery]):return 'localDray'
+ return 'directDray' if code in ['CNTR','DDRAY'] else 'localDray'
+
 class Families:
  def __init__(self,accounts,warehouse_snapshot):
   self.accounts={x['code']:dict(x) for x in accounts};self.parent={}
@@ -101,9 +106,9 @@ def transport(report,orders,cotton_ids,audit):
   if matched and pay is not None:values.update({kind+'Pay':pay,kind+'RevenueWithPay':revenue})
   else:values[kind+'PayMissing']=D(1)
   if kind=='dray':
-   prefix='directDray' if o['code'] in ['CNTR','DDRAY'] else 'localDray'
+   prefix=dray_segment(o['code'],o.get('pickup'),o.get('delivery'))
    values.update({prefix+k[4:]:v for k,v in list(values.items()) if k.startswith('dray')})
-  if unit=='Allocation review':values['allocationReviewLoads']=D(1)
+  if len({LOCATIONS[x] for x in [o.get('pickup'),o.get('delivery')] if x in LOCATIONS})>1:values['inboundAllocatedLoads']=D(1)
   if revenue==0:values[kind+'ZeroRevenueOrders']=D(1)
   report.add(unit,scope,o['customer'],month(o['bill']),values,[o['code']]);audit['transport_orders']+=1
   audit['transport_revenue']+=revenue
@@ -127,7 +132,7 @@ def local_monthly(report,rows,audit):
   if missing<count:base.update(Pay=pay,RevenueWithPay=covered)
   values={prefix+k:v for prefix in ['dray','localDray'] for k,v in base.items()}
   values['uniqueTransportOrders']=count
-  if unit=='Allocation review':values['allocationReviewLoads']=count
+  if len({LOCATIONS[x] for x in [r.get('pickup_location_id'),r.get('delivery_location_id')] if x in LOCATIONS})>1:values['inboundAllocatedLoads']=count
   report.add(unit,'Non-Cotton',r['customer_code'],period,values,[code])
   audit['transport_orders']+=count;audit['transport_revenue']+=revenue;audit['local_monthly_loads']+=count
  audit['local_monthly_groups']=len(seen)

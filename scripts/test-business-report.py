@@ -12,8 +12,9 @@ class Business(unittest.TestCase):
   self.assertEqual(m.assign_unit('SUPPPOG4','REMOTE','CNTR'),'Savannah')
   self.assertEqual(m.assign_unit('SUPPBATX','REMOTE','DDRAY'),'Houston')
   self.assertEqual(m.assign_unit('SUPPGAG3','REMOTE','MAIN'),'Savannah')
-  self.assertEqual(m.assign_unit('SUPPPOG4','SUPPBAT1','HLOCA'),'Allocation review')
-  self.assertEqual(m.assign_unit('SUPPRIGA','SCMDDETX','MAIN'),'Allocation review')
+  self.assertEqual(m.assign_unit('SUPPPOG4','SUPPBAT1','HLOCA'),'Houston')
+  self.assertEqual(m.assign_unit('SUPPRIGA','SCMDDETX','MAIN'),'Dallas')
+  self.assertEqual(m.assign_unit('SCMDDETX','SUPPRIGA','MAIN'),'Savannah')
   self.assertEqual(m.assign_unit('REMOTE','PORT','DDRAY'),'Brokerage')
   self.assertEqual(m.assign_unit('REMOTE','PORT','HLOCA'),'Houston')
  def test_explicit_bridges_merge_but_same_names_do_not(self):
@@ -52,6 +53,19 @@ class Business(unittest.TestCase):
   with self.assertRaises(ValueError):m.local_monthly(self.report(),[row,row],self.audit())
   for change in [{'missing_revenue_loads':1},{'missing_carrier_pay_loads':3},{'revenue_with_verified_pay':1},{'trucking_loads':-1}]:
    with self.assertRaises(ValueError):m.local_monthly(self.report(),[{**row,**change}],self.audit())
+ def test_interwarehouse_move_counts_once_at_receiving_unit(self):
+  report=self.report();m.transport(report,[self.order(pickup='SUPPRIGA',delivery='SCMDDETX')],set(),self.audit())
+  result=report.finish();self.assertEqual(len(result),1);self.assertEqual(result[0]['warehouse'],'Dallas')
+  self.assertEqual(result[0]['metrics']['uniqueTransportOrders'],1);self.assertEqual(result[0]['metrics']['inboundAllocatedLoads'],1)
+  self.assertEqual(result[0]['metrics']['otrRevenue'],100);self.assertEqual(result[0]['metrics']['otrPay'],60)
+ def test_ddray_dallas_warehouse_moves_are_local_cntr_stays_direct(self):
+  self.assertEqual(m.dray_segment('DDRAY','SCMDDETX','PORT'),'localDray')
+  self.assertEqual(m.dray_segment('DDRAY','PORT','SCMDDATX'),'localDray')
+  self.assertEqual(m.dray_segment('DDRAY','REMOTE','PORT'),'directDray')
+  self.assertEqual(m.dray_segment('CNTR','SCMDDETX','PORT'),'directDray')
+  report=self.report();m.transport(report,[self.order(code='DDRAY',pickup='PORT',delivery='SCMDDETX')],set(),self.audit())
+  row=report.finish()[0];self.assertEqual(row['warehouse'],'Dallas');self.assertEqual(row['metrics']['localDrayRevenue'],100)
+  self.assertNotIn('directDrayRevenue',row['metrics']);self.assertEqual(row['metrics']['drayRevenue'],100)
  def test_report_end_date_is_enforced(self):
   self.assertTrue(m.inperiod('2026-10-20'));self.assertFalse(m.inperiod('2026-10-21'));self.assertFalse(m.inperiod('2024-12-31'))
 if __name__=='__main__':unittest.main()

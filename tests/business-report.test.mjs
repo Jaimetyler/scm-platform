@@ -16,7 +16,7 @@ function render(unit='All',scope='All',selected=null,onSet=()=>{},tree=false,rec
  return tree?mod.exports.default():renderToStaticMarkup(React.createElement(mod.exports.default));
 }
 test('combined customer drilldown rolls scopes into each unit once and keeps monthly detail',()=>{
- const selected=render('All','All','C');assert.ok(selected.includes('Monthly activity'));assert.ok(selected.includes('Local drayage'));assert.ok(selected.includes('Direct drayage · CNTR / DDRAY'));assert.ok(selected.includes('$175.00'));assert.ok(selected.includes('$500.00'));assert.ok(selected.includes('3PL'));assert.ok(selected.includes('Contract storage (included in Storage)'));
+ const selected=render('All','All','C');assert.ok(selected.includes('Monthly activity'));assert.ok(selected.includes('Local drayage'));assert.ok(selected.includes('Direct drayage · CNTR / other DDRAY'));assert.ok(selected.includes('$175.00'));assert.ok(selected.includes('$500.00'));assert.ok(selected.includes('3PL'));assert.ok(selected.includes('Contract storage (included in Storage)'));
  assert.equal((selected.match(/>Savannah<\/button>/g)||[]).length,2); // filter + one combined unit comparison row
  const cotton=render('All','Cotton','C');assert.ok(cotton.includes('$100.00'));assert.ok(cotton.includes('$200.00'));assert.ok(!cotton.includes('$500.00'));
  const non=render('All','Non-Cotton','C');assert.ok(non.includes('$300.00'));assert.ok(!non.includes('>EC ·'));
@@ -29,7 +29,7 @@ test('combined row and view button select the customer',()=>{
  nodes.find(n=>n.type==='tr'&&n.props['aria-label']==='Open customer Synthetic combined').props.onClick();nodes.find(n=>n.type==='button'&&n.props['aria-label']==='View customer Synthetic combined').props.onClick();assert.deepEqual(calls,['C','C']);
 });
 test('combined endpoint is separate, staff guarded, private, and never imports financial JSON',()=>{
- const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261028-v2'));
+ const api=fs.readFileSync('app/api/reporting/business-intelligence/route.ts','utf8');assert.ok(api.includes('withStaffAccess'));assert.ok(api.includes('private, no-store'));assert.ok(api.includes('business-intelligence-20261029-v3'));
  const client=fs.readFileSync('app/reporting/business-intelligence/business-intelligence.tsx','utf8');assert.ok(client.includes('/api/reporting/business-intelligence'));assert.ok(!client.includes('data.json'));assert.ok(client.includes('non-cotton local trucking compact export'));
 });
 // This opt-in path is used only for private runtime QA, not repository fixtures.
