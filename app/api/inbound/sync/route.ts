@@ -338,6 +338,7 @@ async function POSTHandler(req: NextRequest) {
     try {
       preview = (await buildPreview([row], {
         strictSearch: row.source === "live_checkin",
+        ...(liveAttempt?.saved.matched_order_id ? { preferredOrderId: String(liveAttempt.saved.matched_order_id) } : {}),
         ...(liveAttempt ? { onKnownMatch: async () => {
           const attempt = liveAttempt!;
           const { data, error } = await attempt.sb.from("inbound_checkin_rows")
@@ -523,6 +524,16 @@ async function POSTHandler(req: NextRequest) {
     const pickupHas = hasActuals(pickup);
     const deliveryHas = hasActuals(delivery);
 
+    // An already-completed delivery is an idempotent success. Once the order
+    // and persisted stop have been verified, no new timeline should be planned
+    // against yesterday's actuals and no McLeod write should be attempted.
+    if (row.source === "live_checkin" && deliveryHas && isSyncEnabled()) {
+      return NextResponse.json({
+        ok: true, skipped: true, reason: "Delivery already has actuals",
+        matchedOrderId: preview.matchedOrderId, movementId: movement.id,
+      });
+    }
+
     if (row.source === "live_checkin") {
       const arrival = new Date(row.checkedInAt ?? "");
       const departure = new Date(row.verifiedAt ?? "");
@@ -554,13 +565,6 @@ async function POSTHandler(req: NextRequest) {
           movementId: movement.id, plannedActions, row,
         });
       }
-      if (deliveryHas) {
-        return NextResponse.json({
-          ok: true, skipped: true, reason: "Delivery already has actuals",
-          matchedOrderId: preview.matchedOrderId, plannedActions,
-        });
-      }
-
       // Persist before the first pickup/backfill OR delivery write. Even a timeout
       // or lost response after this point can never become an outside-carrier offer.
       await persistLivePhase("write_pending", preview.matchedOrderId);

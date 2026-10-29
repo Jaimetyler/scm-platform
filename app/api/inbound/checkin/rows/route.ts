@@ -1,3 +1,4 @@
+import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { NextRequest, NextResponse } from "next/server";
@@ -124,18 +125,43 @@ async function GETHandler(req: NextRequest) {
       if (olderError) throw olderError;
       carryoverRows = (older ?? []) as CheckinRow[];
     }
-    const displayRows = await backfillTruckingCompanies((viewCarryover ? carryoverRows : (data ?? [])) as (CheckinRow & {
+    // Independently verify a receipt that was posted for a completed yard visit
+    // while the historical McLeod lookup remained unresolved. Never infer receipt
+    // from an error message, completed yard status, or a customer/mark alone.
+    const receiptCandidates = [...(data ?? []), ...carryoverRows].filter((row) =>
+      row.draft_status === "failed" && row.yard_status === "completed" && !row.matched_order_id &&
+      row.bale_count != null && row.bale_count > 0 && row.warehouse_location && row.mark);
+    const recoveredIds = new Set<string>();
+    for (let i = 0; i < receiptCandidates.length; i += 100) {
+      const group = receiptCandidates.slice(i, i + 100);
+      const { data: lots, error: lotError } = await sb.from("warehouse_inventory_lots")
+        .select("source_checkin_id,source_type,mark,original_bales,warehouse_location")
+        .in("source_checkin_id", group.map((row) => row.id));
+      if (lotError) throw lotError; // fail closed instead of mislabeling received cotton
+      const byId = new Map((lots ?? []).map((lot) => [String(lot.source_checkin_id), lot]));
+      for (const row of group) {
+        const lot = byId.get(row.id);
+        if (lot && lot.source_type === "checkin" &&
+            String(lot.mark).trim().toUpperCase() === String(row.mark).trim().toUpperCase() &&
+            Number(lot.original_bales) === Number(row.bale_count) &&
+            String(lot.warehouse_location ?? "").trim().toUpperCase() === String(row.warehouse_location ?? "").trim().toUpperCase()) {
+          recoveredIds.add(row.id);
+        }
+      }
+    }
+    const openCarryover = carryoverRows.filter((row) => !recoveredIds.has(row.id));
+    const displayRows = await backfillTruckingCompanies((viewCarryover ? openCarryover : (data ?? [])) as (CheckinRow & {
       matched_order_id: string | null; trucking_company: string | null })[], false);
     return NextResponse.json({
       ok: true,
-      carryoverCount: carryoverRows.length,
-      carryoverMissingLocation: carryoverRows.filter((row) => !row.warehouse_location?.trim()).length,
-      carryoverMissingBales: carryoverRows.filter((row) => !Number(row.bale_count ?? 0)).length,
+      carryoverCount: openCarryover.length,
+      carryoverMissingLocation: openCarryover.filter((row) => !row.warehouse_location?.trim()).length,
+      carryoverMissingBales: openCarryover.filter((row) => !Number(row.bale_count ?? 0)).length,
       rows: displayRows.filter((row) =>
         !(row.draft_status === "draft" && !row.mark && !row.shipper &&
           !row.bol_bc && !row.bale_count && !row.warehouse_location &&
           !row.comment_1 && !row.comment_2)
-      ).map((row) => publicCheckinRow(row as unknown as Record<string, unknown>)),
+      ).map((row) => publicCheckinRow({ ...row, inventory_recovered: recoveredIds.has(row.id) } as Record<string, unknown>)),
     });
   } catch (error) {
     return NextResponse.json(
@@ -207,6 +233,7 @@ async function POSTHandler(req: NextRequest) {
       driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       matched_order_id: matchedOrderId || null,
+      local_receiving_only: !matchedOrderId && (body?.localReceivingOnly === true || isLocalReceivingCustomer(shipper)),
       expected_bale_count: expectedBales,
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),

@@ -20,7 +20,7 @@ import { cottonShortage, type ShortageFields } from "@/lib/inbound/checkin/short
 
 type Status = "waiting" | "called" | "in_door" | "working";
 type Arrival = ShortageFields & OutsideCarrierRow & {
-  id: string; checked_in_at: string; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
+  id: string; checked_in_at: string; physical_departed_at?: string | null; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
   shipper: string | null; yard_status: Status | "completed" | "cancelled" | null;
   updated_at: string; matched_order_id: string | null; carrier_code?: string | null; scm_carrier?: boolean;
@@ -142,12 +142,12 @@ export default function DomesticLinePage() {
         const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, view: "line" });
         const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal });
         const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the domestic line");
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load the active line");
         if (signal.aborted) return;
         if (workingRef.current) return;
         setRows((current) => mergePollingRows(current, result.rows, atRequestStart, new Set())); setError("");
       } catch (reason) {
-        if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the domestic line");
+        if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load the active line");
         throw reason;
       } finally { if (!signal.aborted) setLoading(false); }
     } });
@@ -232,11 +232,11 @@ export default function DomesticLinePage() {
     }
   }
 
-  if (!site) return <main><PlatformPageHeader title="Domestic Line Not Found" /></main>;
+  if (!site) return <main><PlatformPageHeader title="Active Line Not Found" /></main>;
   const active = rows.filter((row): row is Arrival & { yard_status: Status } =>
-    row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working")
+    !row.physical_departed_at && (row.yard_status === "waiting" || row.yard_status === "called" ||
+      row.yard_status === "in_door" || row.yard_status === "working"))
     .sort((a, b) => new Date(a.checked_in_at).getTime() - new Date(b.checked_in_at).getTime() || a.id.localeCompare(b.id));
-  const unresolvedCompleted = rows.filter((row) => row.yard_status === "completed" && row.outside_carrier_override_at && row.mcleod_lookup_status === "unresolved");
   const selectedArrival = rows.find((row) => row.id === requestedArrival);
   const selectedInactive = selectedArrival && !active.some((row) => row.id === selectedArrival.id);
   const waiting = active.filter((row) => row.yard_status === "waiting").length;
@@ -245,7 +245,7 @@ export default function DomesticLinePage() {
     timeZone: site.terminal === "HOU" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit",
   });
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
-    <PlatformPageHeader title={`${site.siteName} Domestic Line`}
+    <PlatformPageHeader title={`${site.siteName} Active Line`}
       subtitle="Cotton, lumber, and other freight in arrival order. Check out when a truck leaves the yard." />
     {(requestedArrival || invalidArrival) && <PlatformPanel>
       <Link href={`/inbound/checkin/${site.terminalSlug}/${site.siteCode}`} style={{ color: "#67e8f9" }}>Back to receiving</Link>
@@ -330,14 +330,6 @@ export default function DomesticLinePage() {
           </td></tr>}</Fragment>)}</tbody>
         </table></div>}
     </PlatformPanel>
-    {unresolvedCompleted.length > 0 && <PlatformPanel>
-      <strong>Completed movements · SCM verification unresolved</strong>
-      <ul>{unresolvedCompleted.map((row) => <li key={row.id} style={{ marginTop: 10 }}>
-        <Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.reference_number || row.mark || "Arrival"} · {row.driver_name || "Staff entry"}</Link>
-        <OutsideCarrierMarker row={row} />
-        {row.outside_carrier_override_reason && <span style={{ display: "block" }}>Reason: {row.outside_carrier_override_reason}</span>}
-      </li>)}</ul>
-    </PlatformPanel>}
   </main>;
 }
 

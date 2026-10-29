@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 import * as driverLookup from '../lib/inbound/checkin/driver-lookup.ts';
+import * as pickupAgreement from '../lib/inbound/checkin/pickup-agreement.ts';
 import * as dependency from '../lib/http/dependency.ts';
 import * as yard from '../lib/inbound/checkin/yard-stop.ts';
 import { CHECKIN_SITES } from '../lib/inbound/checkin/sites.ts';
@@ -17,6 +18,7 @@ function fixture(id = '92157', extra = {}) {
 }
 function route(writes, { locationOk = true, gate: configuredGate = gate } = {}) {
   const modules = {
+    '@/lib/inbound/checkin/pickup-agreement': pickupAgreement,
     'next/server': { NextResponse: Response },
     '@/lib/inbound/checkin/driver-lookup': driverLookup,
     '@/lib/http/dependency': dependency,
@@ -63,7 +65,7 @@ async function withFixture(orders, search, run, override, options = {}) {
   const handler = route(writes, options);
   const send = async (body, multipart = false) => {
     const request = multipart ? (() => {
-      const form = new FormData(); for (const [key, value] of Object.entries(body)) form.set(key, value);
+      const form = new FormData(); for (const [key, value] of Object.entries(body)) form.set(key, key === "pickupAgreement" ? JSON.stringify(value) : value);
       return new Request('https://scm.invalid/', { method: 'POST', body: form });
     })() : new Request('https://scm.invalid/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const response = await handler(request, { params: Promise.resolve({ token }) });
@@ -74,9 +76,26 @@ async function withFixture(orders, search, run, override, options = {}) {
     for (const name of names) if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name];
   }
 }
-const submit = { clientId: token, checkinType: 'domestic', materialType: 'lumber', movementDirection: 'pickup',
+const acceptance = { version: pickupAgreement.PICKUP_AGREEMENT_VERSION, language: 'en', printedName: 'Entered Driver', trailerNumber: 'TEST-TRAILER', productDescription: 'Test lumber', pickupNumber: '92157', referencePo: 'PO-TEST', acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] };
+const submit = { pickupAgreement: acceptance, clientId: token, checkinType: 'domestic', materialType: 'lumber', movementDirection: 'pickup',
   driverName: 'Entered Driver', driverPhone: '555-555-9999', truckingCompany: 'Entered Company', destination: 'Paperwork Receiver',
   orderId: '92157', selectedStopId: 'PU1', referenceNumber: '92157', driverLookupInput: '92157' };
+
+function assertProvisional(result, writes) {
+  assert.equal(result.response.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.ok, true);
+  const row = writes.at(-1);
+  assert.ok(row);
+  assert.equal(row.matched_order_id, null);
+  assert.equal(row.matched_stop_id, null);
+  assert.equal(row.mcleod_lookup_status, 'unresolved');
+  assert.equal(row.mcleod_lookup_failure_code, 'LOOKUP_INCOMPLETE');
+  assert.equal(row.draft_status, 'checked_in');
+  assert.equal(row.verified, false);
+  assert.equal(row.processed_at, null);
+  assert.notEqual(row.local_receiving_only, true);
+  assert.match(row.comment_1, /Provisional driver check-in/);
+}
 
 test('SCM-only JSON and multipart submissions persist actual order/stop, canonical reference, and original input separately', async () => {
   for (const multipart of [false, true]) {
@@ -140,10 +159,10 @@ test('lookup success never authorizes stale completed, wrong-yard, or changed-re
   }
 });
 
-test('partial upstream failure blocks selected and fake no-match submissions with retryable 503', async () => {
+test('upstream failure accepts only an unlinked provisional arrival', async () => {
   for (const orderId of ['92157', '']) await withFixture({ 92157: fixture() }, [], async ({ send, writes }) => {
-    const result = await send({ ...submit, orderId }); assert.equal(result.response.status, 503);
-    assert.equal(result.response.headers.get('Retry-After'), '10'); assert.equal(writes.length, 0);
+    const result = await send({ ...submit, orderId });
+    assertProvisional(result, writes);
   }, async url => url.pathname === '/orders/search' ? new Response('', { status: 503 }) : undefined);
 });
 
@@ -223,7 +242,7 @@ for (const site of CHECKIN_SITES) {
           assert.equal(lookup.body.status, 'no_match', context);
           assert.equal(lookup.body.allowUnmatched, true, context);
           assert.deepEqual(lookup.body.matches, [], context);
-          const result = await send({ ...submit, materialType, movementDirection, orderId: '', selectedStopId: '',
+          const result = await send({ ...submit, pickupAgreement: site.terminal === 'HOU' ? acceptance : undefined, materialType, movementDirection, orderId: '', selectedStopId: '',
             referenceNumber: '4040451', driverLookupInput: '4040451', mark: 'OUTSIDE MARK', bolBaleCount: 10,
           });
           assert.equal(result.response.status, 200, `${context}: ${JSON.stringify(result.body)}`);
@@ -235,6 +254,7 @@ for (const site of CHECKIN_SITES) {
           assert.equal(write.shipper, null); assert.equal(write.reference_number, '4040451');
           assert.equal(write.driver_lookup_input, '4040451'); assert.equal(write.checkin_source, 'driver_qr');
           assert.equal(write.trucking_company, 'Entered Company');
+          assert.equal(Boolean(write.pickup_agreement), site.terminal === 'HOU' && movementDirection === 'pickup');
           const requestCalls = calls.slice(before);
           assert.equal(requestCalls.length, 4, 'Lookup and submit each perform two fresh searches');
           assert.ok(requestCalls.every(url => url.pathname === '/orders/search'), 'Never point-read an unknown input');
@@ -262,18 +282,20 @@ test('numeric reference-only pickup and delivery preserve the matched order and 
   }
 });
 
-test('invalid search evidence and HTTP 400/404/500 remain retryable 503 and never permit outside submission', async () => {
+test('invalid search evidence and HTTP failures remain provisional, never outside-carrier evidence', async () => {
   for (const strategy of ['orders.id', 'orders.blnum']) {
     for (const failure of [400, 404, 500, 'json', 'wrapper-null', 'error-envelope']) {
       await withFixture({}, null, async ({ send, writes }) => {
         for (const action of ['lookupReference', 'submit']) {
           const result = await send({ ...submit, action, orderId: '', selectedStopId: '',
             driverLookupInput: '9999999', referenceNumber: '9999999' });
-          assert.equal(result.response.status, 503, `${strategy} ${failure} ${action}: ${JSON.stringify(result.body)}`);
-          assert.equal(result.response.headers.get('Retry-After'), '10');
-          assert.equal(result.body.ok, false); assert.notEqual(result.body.allowUnmatched, true);
+          assert.equal(result.response.status, 200, JSON.stringify(result.body));
+          if (action === 'lookupReference') {
+            assert.equal(result.body.status, 'provisional');
+            assert.deepEqual(result.body.matches, []);
+          } else assertProvisional(result, writes);
         }
-        assert.equal(writes.length, 0);
+        assert.equal(writes.length, 1);
       }, async url => {
         if (!url.searchParams.has(strategy)) return undefined;
         if (failure === 'json') return new Response('bad JSON');
@@ -285,18 +307,17 @@ test('invalid search evidence and HTTP 400/404/500 remain retryable 503 and neve
   }
 });
 
-test('an exact-ID search hit whose detail disappears fails closed for selected and outside submissions', async () => {
+test('disappearing order detail creates an unlinked provisional arrival for staff review', async () => {
   await withFixture({ 92157: fixture() }, [], async ({ send, writes }) => {
     for (const orderId of ['92157', '']) {
       const result = await send({ ...submit, orderId });
-      assert.equal(result.response.status, 503, JSON.stringify(result.body));
-      assert.equal(result.response.headers.get('Retry-After'), '10');
+      assertProvisional(result, writes);
     }
-    assert.equal(writes.length, 0);
+    assert.equal(writes.length, 2);
   }, async url => url.pathname === '/orders/92157' ? Response.json(null, { status: 404 }) : undefined);
 });
 
-test('a stalled search body reaches the aggregate deadline and never authorizes an outside submission', async () => {
+test('a stalled search reaches the deadline and records provisional evidence only', async () => {
   const originalTimeout = AbortSignal.timeout;
   AbortSignal.timeout = milliseconds => originalTimeout(milliseconds === 20_000 ? 10 : milliseconds);
   const keepAlive = setTimeout(() => {}, 1000);
@@ -306,9 +327,8 @@ test('a stalled search body reaches the aggregate deadline and never authorizes 
       await withFixture({}, null, async ({ send, writes }) => {
         const result = await send({ ...submit, orderId: '', selectedStopId: '',
           driverLookupInput: '9999999', referenceNumber: '9999999' });
-        assert.equal(result.response.status, 503, JSON.stringify(result.body));
-        assert.equal(result.response.headers.get('Retry-After'), '10');
-        assert.equal(aborted, true); assert.equal(writes.length, 0);
+        assertProvisional(result, writes);
+        assert.equal(aborted, true); assert.equal(writes.length, 1);
       }, async (url, init) => {
         if (!url.searchParams.has(strategy)) return undefined;
         return { ok: true, status: 200, json: () => new Promise((resolve, reject) => {
@@ -318,4 +338,32 @@ test('a stalled search body reaches the aggregate deadline and never authorizes 
       });
     }
   } finally { clearTimeout(keepAlive); AbortSignal.timeout = originalTimeout; }
+});
+
+test('pickup submit rejects absent or stale consent without saving a check-in', async () => {
+  await withFixture({ '92157': fixture() }, [], async ({ send, writes }) => {
+    for (const pickupAgreement of [undefined, { ...acceptance, version: 'old' }, { ...acceptance, strokes: [] }]) {
+      const result = await send({ ...submit, pickupAgreement });
+      assert.equal(result.response.status, 400, JSON.stringify(result.body));
+      assert.equal(writes.length, 0);
+    }
+    const result = await send({ ...submit, trailerNumber: 'MAIN-TRAILER', pickupAgreement: { ...acceptance, printedName: 'FORGED', pickupNumber: 'FORGED', referencePo: 'FORGED', productDescription: 'FORGED', trailerNumber: 'IGNORED' } });
+    assert.equal(result.response.status, 200, JSON.stringify(result.body));
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].trailer_number, 'MAIN-TRAILER');
+    assert.equal(writes[0].pickup_agreement.trailerNumber, 'MAIN-TRAILER');
+    assert.equal(writes[0].pickup_agreement.printedName, 'ENTERED DRIVER');
+    assert.equal(writes[0].pickup_agreement.pickupNumber, '92157');
+    assert.equal(writes[0].pickup_agreement.productDescription, 'lumber');
+    assert.notEqual(writes[0].pickup_agreement.referencePo, 'FORGED');
+    assert.deepEqual(writes[0].pickup_agreement.terms, pickupAgreement.PICKUP_TERMS.en);
+    assert.equal(writes[0].pickup_agreement.driverName, 'ENTERED DRIVER');
+  });
+});
+
+test('Savannah gate never saves Houston agreement even if a client sends one', async () => {
+ await withFixture({}, [], async ({send,writes})=>{
+  const result=await send({...submit,orderId:'',selectedStopId:'',referenceNumber:'UNKNOWN-SAV',driverLookupInput:'UNKNOWN-SAV'});
+  assert.equal(result.response.status,200,JSON.stringify(result.body));assert.equal(writes.length,1);assert.equal(writes[0].pickup_agreement,null);assert.equal(writes[0].terminal,'SAV');
+ },undefined,{gate:{...gate,terminal:'SAV',site_code:'1601',site_name:'Savannah 1601'}});
 });

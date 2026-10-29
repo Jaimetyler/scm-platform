@@ -1,3 +1,4 @@
+import { validatePickupAcceptance, PICKUP_TERMS, requiresPickupAgreement } from "@/lib/inbound/checkin/pickup-agreement";
 import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { NextRequest, NextResponse } from "next/server";
@@ -37,11 +38,13 @@ async function requestBody(req: NextRequest) {
     return {
       body: {
         clientId: form.get("clientId"),
+        pickupAgreement: form.get("pickupAgreement"),
         deviceId: form.get("deviceId"),
         checkinType: form.get("checkinType"),
         driverName: form.get("driverName"),
         driverPhone: form.get("driverPhone"),
         truckingCompany: form.get("truckingCompany"),
+        trailerNumber: form.get("trailerNumber"),
         movementDirection: form.get("movementDirection"),
         materialType: form.get("materialType"),
         orderId: form.get("orderId"),
@@ -153,7 +156,18 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       const direction = clean(body?.movementDirection, 20).toLowerCase();
       if (!["pickup", "delivery"].includes(direction))
         return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
-      const result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      let result: Awaited<ReturnType<typeof lookupDriverReference>>;
+      try {
+        result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      } catch (error) {
+        if (error instanceof DependencyError ||
+            error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP")
+          return NextResponse.json({ ok: true, status: "provisional", matches: [],
+            allowUnmatched: true, selectionRequired: false,
+            message: "McLeod lookup is unavailable. You can check in; staff will verify your load." },
+            { headers: { "Cache-Control": "no-store" } });
+        throw error;
+      }
       return NextResponse.json({ ok: true, status: result.matches.length ? "matches" : "no_match",
         matches: result.matches.map(publicDriverMatch), allowUnmatched: result.allowUnmatched,
         selectionRequired: result.selectionRequired }, { headers: { "Cache-Control": "no-store" } });
@@ -321,16 +335,29 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     // Do not trust a browser's previous no-match, selected order, or resolution path.
     // Both strategies are rerun before any insert, including paperwork-only arrivals.
     const selectedStopId = clean(body?.selectedStopId, 100) || undefined;
-    const lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
-      movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
-    if (!orderId && !lookup.allowUnmatched) {
+    // On a transient/incomplete McLeod lookup, accept a GPS-verified,
+    // unlinked provisional arrival. Do not claim that the load is an outside
+    // carrier, and never attach a guessed order or stop.
+    let lookup: Awaited<ReturnType<typeof lookupDriverReference>> | null = null;
+    let provisionalLookup = false;
+    try {
+      lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
+        movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
+    } catch (error) {
+      if (error instanceof DependencyError ||
+          error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP") {
+        provisionalLookup = true;
+        orderId = "";
+      } else throw error;
+    }
+    if (!provisionalLookup && !orderId && lookup && !lookup.allowUnmatched) {
       const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion);
       return NextResponse.json({ ok: false, code: "SELECTION_REQUIRED", error: completed ? "This load is already completed. Please speak with warehouse staff." :
         "Select and confirm your load before checking in. Look it up again.",
         ...(completed ? { completion: publicDriverCompletion(lookup.matches[0].order.completion!) } : {}) }, { status: 409 });
     }
     if (orderId) {
-      const match = selectDriverMatch(lookup, orderId, selectedStopId, body?.explicitSelection === true || body?.explicitSelection === "true");
+      const match = selectDriverMatch(lookup!, orderId, selectedStopId, body?.explicitSelection === true || body?.explicitSelection === "true");
       const order = match.order;
       orderId = match.orderId;
       matchedStopId = order.stopId;
@@ -362,8 +389,33 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     if (!orderId) referenceNumber = driverLookupInput.toUpperCase();
     if (movementDirection !== "pickup") destination = "";
 
+    // Old open tabs carried trailer number inside the agreement; accept that
+    // location for compatibility, but derive all repeated identity/load fields.
+    let trailerNumber = String(body.trailerNumber ?? "").trim();
+    let pickupAgreement = null;
+    if (requiresPickupAgreement(gate.terminal, movementDirection)) {
+      try {
+        const raw = typeof body.pickupAgreement === "string" ? JSON.parse(body.pickupAgreement) : body.pickupAgreement;
+        const accepted = validatePickupAcceptance(raw);
+        if (!trailerNumber && raw && typeof raw.trailerNumber === "string") trailerNumber = raw.trailerNumber.trim();
+        if (!trailerNumber || trailerNumber.length > 80) throw new Error("Enter the trailer number before checking in.");
+        pickupAgreement = { ...accepted, printedName: driverName, trailerNumber,
+          productDescription: materialType, pickupNumber: orderId || driverLookupInput,
+          referencePo: referenceNumber || driverLookupInput, terms: PICKUP_TERMS[accepted.language],
+          acceptedAt: checkedInAt.toISOString(), driverName, driverPhone, truckingCompany,
+          terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name,
+          orderId: orderId || null, referenceNumber, driverLookupInput, destination, materialType };
+      } catch (error) {
+        return NextResponse.json({ ok: false, error: error instanceof SyntaxError ? "Invalid pickup agreement." : error instanceof Error ? error.message : "Invalid pickup agreement." }, { status: 400 });
+      }
+    }
+
+    if (trailerNumber.length > 80) return NextResponse.json({ ok: false, error: "Trailer number must be 80 characters or fewer." }, { status: 400 });
+
     const insertPayload = {
       id: clientId,
+      trailer_number: trailerNumber || null,
+      pickup_agreement: pickupAgreement,
       terminal: gate.terminal,
       site_code: gate.site_code,
       site_name: gate.site_name,
@@ -385,8 +437,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       warehouse_location: null,
       equipment_type: null,
       verified: false,
-      comment_1: null,
+      comment_1: provisionalLookup ? "Provisional driver check-in: McLeod lookup incomplete or unavailable. Staff must reconcile before any McLeod update." : null,
       comment_2: null,
+      ...(provisionalLookup ? { mcleod_lookup_status: "unresolved",
+        mcleod_lookup_failure_code: "LOOKUP_INCOMPLETE",
+        mcleod_lookup_failed_at: checkedInAt.toISOString(),
+        mcleod_processing_phase: "lookup" } : {}),
       draft_status: "checked_in",
       processed_at: null,
       checked_in_at: checkedInAt.toISOString(),

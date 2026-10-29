@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
-export const FIXTURE_ID = 'scm-pr1-acceptance-v2-20261014';
+export const FIXTURE_ID = 'scm-pr4-acceptance-v3-20261026';
 export const TOKEN = 'scm-local-synthetic-only';
 export const HOST = '127.0.0.1';
 export const PORT = 4320;
@@ -42,7 +42,15 @@ function acceptanceOrders() {
   const partial = order('PARTIAL-1014', 'PARTIAL-1014', 'delivery', false);
   partial.blnum = partial.consignee_refno = 'PARTIAL-1014';
   delete partial.stops; // An incomplete detail must never become an outside match.
-  return [fresh, wrong, nonmain, partial];
+  const delivered = order('SCM-DELIVERED-1026', 'DELIVERED1026');
+  delivered.status = 'D'; delivered.__statusDescr = 'Delivered';
+  delivered.stops[0].actual_arrival = '20261020060000-0500';
+  delivered.stops[0].actual_departure = '20261020070000-0500';
+  delivered.stops[1].actual_arrival = '20261020080000-0500';
+  delivered.stops[1].actual_departure = '20261020090000-0500';
+  const united = order('UNITED-1026', '987-654321', 'pickup', false);
+  united.customer_id = 'SYNTHETIC'; united.movements[0].carrier_name = 'Synthetic United Agricultural Carrier';
+  return [fresh, wrong, nonmain, partial, delivered, united];
 }
 export function createHandler({ hosted = false } = {}) {
   let scenarios = defaults();
@@ -102,12 +110,12 @@ export function createHandler({ hosted = false } = {}) {
         if (selectors.length !== 1) fail('One fixture selector required');
         const field = selectors[0], pattern = url.searchParams.get(field);
         if (field === 'orders.id') {
-          if (length !== 2 || !['60136', 'CURRENTFAIL', '81382', '49001932', '2951', '4500281026', 'OUTSIDE-NONE-1014', 'DENSE-CAP-2951', ...allOrders().map(o => o.id)].includes(pattern)) fail('Unknown exact-ID fixture');
+          if (length !== 2 || !['60136', '654321', '987', '654321-987', '987-654321', 'CURRENTFAIL', '81382', '49001932', '2951', '4500281026', 'OUTSIDE-NONE-1014', 'DENSE-CAP-2951', ...allOrders().map(o => o.id)].includes(pattern)) fail('Unknown exact-ID fixture');
           return send(200, allOrders().filter(o => o.id === pattern));
         }
         if (![5, 200].includes(length) || !/^\*[A-Z0-9* /-]+\*$/.test(pattern)) fail('Unsupported fixture reference query');
         const normalized = pattern.replace(/[^A-Z0-9]/g, '');
-        const known = ['60136', 'CURRENTFAIL', 'SCMNORMAL', '81382', '49001932', '8138249001932', 'COMPOUNDDEL', 'COMPOUNDPU', '2951', '4500281026', '29514500281026', 'OUTSIDENONE1014', 'SCMFRESH1014', 'WRONGYARD1014', 'NONMAIN1014', 'PARTIAL1014', 'DENSECAP2951'];
+        const known = ['60136', 'CURRENTFAIL', 'SCMNORMAL', '81382', '49001932', '8138249001932', 'COMPOUNDDEL', 'COMPOUNDPU', '2951', '4500281026', '29514500281026', 'OUTSIDENONE1014', 'SCMFRESH1014', 'WRONGYARD1014', 'NONMAIN1014', 'PARTIAL1014', 'DENSECAP2951', '654321', '987', '654321987', '987654321', 'DELIVERED1026', 'SCMDELIVERED1026', 'UNITED1026'];
         if (!known.includes(normalized)) fail('Unknown reference fixture');
         const mode = normalized === 'DENSECAP2951' ? 'cap' : scenarios[normalized];
         if (mode === 'unavailable') return send(503, { mockOnly: true, fixtureId: FIXTURE_ID, error: 'Synthetic lookup unavailable' });

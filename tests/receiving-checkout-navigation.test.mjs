@@ -184,7 +184,7 @@ test('completed deep link preserves the unresolved outside marker and cannot re-
     outside_carrier_override_at: '2026-10-13T11:00:00Z', outside_carrier_override_reason: 'Carrier verified at gate',
     outside_carrier_override_eligible: false }) }); t.after(h.dispose);
   assert.match(h.text(), /cannot be checked out again/);
-  assert.match(h.text(), /Completed movements · SCM verification unresolved/);
+  assert.doesNotMatch(h.text(), /Completed movements · SCM verification unresolved/);
   assert.match(h.text(), /Carrier verified at gate/);
   assert.equal(h.nodes(n => n.type === 'button' && /Check out|Process as Outside Carrier/.test(textOf(n))).length, 0);
   assert.deepEqual(h.scrolled, [`arrival-${row().id}`]); assert.equal(h.calls.length, 0);

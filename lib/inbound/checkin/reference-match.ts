@@ -17,6 +17,14 @@ export function referenceMatchesInput(value: unknown, input: unknown): boolean {
   const entered = normalizeReference(input);
   if (!reference || !entered) return false;
   if (reference === entered) return true;
+  // Two-component numeric agricultural references are sometimes entered
+  // with their components reversed. Require the entire two-part field to
+  // match; never reverse arbitrary text, fragments, or multi-part references.
+  const numericPair = /^(\d+)-(\d+)$/;
+  const storedPair = reference.match(numericPair);
+  const enteredPair = entered.match(numericPair);
+  if (storedPair && enteredPair && storedPair[1] === enteredPair[2] &&
+      storedPair[2] === enteredPair[1]) return true;
 
   for (let index = reference.indexOf(entered); index !== -1; index = reference.indexOf(entered, index + 1)) {
     const end = index + entered.length;

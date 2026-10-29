@@ -25,3 +25,15 @@ export function currentCottonOrder(order: Record<string, any>, arrival: unknown 
     return { eligible: false, historical: true, reason: "McLeod delivery is outside the current 45-day matching window" };
   return { eligible: true, historical: false, reason: "Current undelivered order" };
 }
+
+// Staff reconciliation may inspect completed deliveries, never post them again.
+// Keep new check-ins and ordinary live-sync discovery restricted to open orders.
+export function reconcilableCottonOrder(order: Record<string, any>, arrival: unknown) {
+  const stops = Array.isArray(order.stops) ? order.stops : [];
+  const delivery = stops.find((stop: Record<string, any>) => stop.stop_type === "SO");
+  const status = String(order.__statusDescr ?? order.status ?? "");
+  if (!delivery || /cancelled|canceled|void/i.test(status) ||
+      !String(delivery.actual_arrival ?? "").trim() || !String(delivery.actual_departure ?? "").trim()) return false;
+  return currentCottonOrder({ ...order, status: "A", __statusDescr: "Available",
+    stops: stops.map((stop: Record<string, any>) => stop === delivery ? { ...stop, actual_departure: null } : stop) }, arrival).eligible;
+}

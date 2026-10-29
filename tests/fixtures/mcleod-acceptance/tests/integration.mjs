@@ -76,6 +76,13 @@ try {
   assert.equal((await buildPreview([row('OUTSIDE-NONE-1014')], { strictSearch: true }))[0].status, 'No Match'); check();
   const exact = await lookupDriverReference('SCM-NORMAL', 'HOU', 'Houston 5300', 'delivery');
   assert.equal(exact.matches[0].orderId, 'SCM-NORMAL'); assert.ok(exact.matches[0].matchedBy.includes('scm_order')); check();
+  for (const input of ['987-654321', '654321-987']) {
+    const found = await lookupDriverReference(input, 'HOU', 'Houston 5300', 'pickup');
+    assert.equal(found.matches.length, 1);
+    assert.equal(found.matches[0].orderId, 'UNITED-1026'); check();
+  }
+  const completed = await lookupDriverReference('SCM-DELIVERED-1026', 'HOU', 'Houston 5300', 'delivery');
+  assert.equal(completed.matches[0].order.completion.kind, 'delivery'); check();
   const report = await (await request('/__mock/report')).json();
   assert.equal(report.violations.length, 0); assert.equal(report.writeCount, 0); check();
   assert.ok(report.requests.every(r => !Object.hasOwn(r.query, 'orderBy')));

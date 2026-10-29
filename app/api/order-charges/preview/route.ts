@@ -1,3 +1,5 @@
+import { dallasReportLocation } from "@/lib/billing/dallas-report-location";
+import { findDallasBillingOrders, validateDallasLocation } from "@/lib/billing/dallas-order-lookup";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -16,11 +18,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const MCLEOD_BASE_URL = process.env.MCLEOD_BASE_URL!;
-const MCLEOD_TOKEN = process.env.MCLEOD_AUTH_TOKEN!;
+const MCLEOD_BASE_URL = process.env.MCLEOD_BILLING_READ_BASE_URL || process.env.MCLEOD_BASE_URL!;
+const MCLEOD_TOKEN = process.env.MCLEOD_BILLING_READ_AUTH_TOKEN || process.env.MCLEOD_AUTH_TOKEN!;
 
 async function mcleodRequest(path: string) {
+  if (!/^\/orders(?:\/search\?|\?|\/[A-Za-z0-9_-]+$)/.test(path)) throw new Error("Billing preview only permits order reads.");
   const res = await fetch(`${MCLEOD_BASE_URL}${path}`, {
+    method: "GET",
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000),
     headers: {
       Authorization: `Bearer ${MCLEOD_TOKEN}`,
       Accept: "application/json",
@@ -91,8 +97,12 @@ function extractRows(res: any): any[] {
   return [];
 }
 
-async function findOrderCandidates(blnum: string, terminal: string) {
+async function findOrderCandidates(blnum: string, terminal: string, location?: string) {
   try {
+    if (normalize(terminal) === "DAL") {
+      const orders = await findDallasBillingOrders(mcleodRequest, blnum, location);
+      return orders.map(o => ({ id: o.id, revenue_code_id: o.revenue_code_id, status: o.status, location_id: location, order_type_id: o.order_type_id }));
+    }
     const terminalKey = normalize(terminal);
     const allowed = ALLOWED_REVENUE_CODES_BY_TERMINAL[terminalKey] || [];
     const allCandidates: any[] = [];
@@ -144,7 +154,15 @@ async function findOrderCandidates(blnum: string, terminal: string) {
 
 async function POSTHandler(req: NextRequest) {
   try {
-    const { csvText, terminal } = await req.json();
+    const { csvText, terminal, location: selectedLocation } = await req.json();
+    let location = selectedLocation;
+    if (normalize(terminal) === "DAL") {
+      const reportLocation = dallasReportLocation(String(csvText || ""));
+      if (reportLocation && selectedLocation && reportLocation !== validateDallasLocation(selectedLocation)) {
+        return NextResponse.json({ ok: false, error: `This report belongs to ${reportLocation}; select that warehouse and preview again.` }, { status: 400 });
+      }
+      location = validateDallasLocation(reportLocation || selectedLocation);
+    }
 
     const parsed = Papa.parse<string[]>(csvText || "", {
       header: false,
@@ -169,9 +187,9 @@ async function POSTHandler(req: NextRequest) {
     const tariffIdIdx = findIndex(normalizedHeaders, ["TARIFF ID"]);
     const descIdx = findIndex(normalizedHeaders, ["DESCRIPTION"]);
     const qtyIdx = findIndex(normalizedHeaders, ["QUANTITY"]);
-    const totalChargesIdx = findIndex(normalizedHeaders, ["TOTAL CHARGES"]);
+    const totalChargesIdx = findIndex(normalizedHeaders, ["TOTAL CHARGES", "TOTALCHARGES"]);
 
-    if (orderNoIdx === -1 || descIdx === -1) {
+    if (orderNoIdx === -1 || descIdx === -1 || qtyIdx === -1 || totalChargesIdx === -1) {
       return NextResponse.json(
         {
           ok: false,
@@ -284,13 +302,14 @@ async function POSTHandler(req: NextRequest) {
       Object.entries(grouped).map(async ([orderNo, charges]) => ({
         blnum: orderNo,
         charges,
-        order_candidates: await findOrderCandidates(orderNo, terminal),
+        order_candidates: await findOrderCandidates(orderNo, terminal, location),
       }))
     );
 
     return NextResponse.json({
       ok: true,
       terminal,
+      location,
       raw_rows: dataRows.length,
       count: preview.length,
       skipped_count: skipped.length,

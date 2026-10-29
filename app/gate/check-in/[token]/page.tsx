@@ -2,6 +2,9 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { translateDriverText, translateDriverError, type DriverLanguage } from "@/lib/inbound/checkin/driver-language";
+import PickupAgreement from "@/components/warehouse/PickupAgreement";
+import { PICKUP_AGREEMENT_VERSION, validatePickupAcceptance, requiresPickupAgreement, type PickupAcceptance } from "@/lib/inbound/checkin/pickup-agreement";
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 
@@ -18,6 +21,7 @@ type FormState = {
   driverName: string;
   driverPhone: string;
   truckingCompany: string;
+  trailerNumber: string;
   movementDirection: string;
   materialType: string;
   orderId: string;
@@ -30,7 +34,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", movementDirection: "", materialType: "",
+  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", trailerNumber: "", movementDirection: "", materialType: "",
   orderId: "", selectedStopId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "", balesOnTruck: "",
 };
 
@@ -78,11 +82,18 @@ function currentPosition() {
   });
 }
 
-export default function DriverCheckinPage() {
+function DriverCheckinForm({ language }: { language: DriverLanguage }) {
+  const t = (text: string) => translateDriverText(text, language);
+  const te = (text: string) => translateDriverError(text, language);
   const { token } = useParams<{ token: string }>();
   const [site, setSite] = useState<Site | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const formRef = useRef<FormState>(EMPTY_FORM);
+  const [agreement, setAgreement] = useState<PickupAcceptance>({ version: PICKUP_AGREEMENT_VERSION, language, acknowledged: false, electronicConsent: false, strokes: [] });
+  const agreementRef = useRef(agreement); agreementRef.current = agreement;
+  const agreementContext = useRef("");
+  const languageRef = useRef(language); languageRef.current = language;
+  useEffect(() => { setAgreement(value => ({ ...value, language, acknowledged: false, electronicConsent: false })); }, [language, form.driverName, form.driverPhone, form.truckingCompany, form.trailerNumber, form.referenceNumber, form.orderId, form.selectedStopId, form.destination, form.materialType, form.movementDirection, form.checkinType]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
@@ -290,6 +301,11 @@ export default function DriverCheckinPage() {
       if (!response.ok || !result.ok) throw new Error(result.error || `Load search failed (HTTP ${response.status})`);
       if (!Array.isArray(result.matches) || result.incomplete) throw new Error("The load search is incomplete. Try again or speak with warehouse staff.");
       const found = result.matches as ReferenceMatch[];
+      if (result.status === "provisional" && result.allowUnmatched === true && found.length === 0) {
+        updateLookupStatus("no_match");
+        setOrderMessage("McLeod lookup is temporarily unavailable. You can check in now; warehouse staff will verify your load.");
+        return;
+      }
       if (result.status === "no_match" && result.allowUnmatched === true && found.length === 0) {
         updateLookupStatus("no_match");
         setOrderMessage("No SCM order found. Continue with the details from your paperwork.");
@@ -332,6 +348,8 @@ export default function DriverCheckinPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const form = formRef.current;
+    const agreement = agreementRef.current;
+    const language = languageRef.current;
     if (!site || submitInFlight.current) return;
     if (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatusRef.current)) {
       setError(lookupStatusRef.current === "closed" ? "This order is already closed in McLeod. Please speak with warehouse staff." :
@@ -345,16 +363,24 @@ export default function DriverCheckinPage() {
     setSubmitting(true);
     setError("");
     try {
+      if (form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection)) {
+        if (agreementContext.current !== JSON.stringify({ language, form })) throw new Error("Read and sign the current pickup agreement before checking in.");
+        validatePickupAcceptance(agreement);
+        if (!form.trailerNumber.trim()) throw new Error("Enter the trailer number before checking in.");
+      }
       const position = await currentPosition();
       const preparedPhoto = form.checkinType === "domestic" && bolPhoto ? await prepareBolPhoto(bolPhoto) : null;
       if (version !== gateVersion.current) return;
       const request = new FormData();
+      request.set("language", language);
+      if (form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection)) request.set("pickupAgreement", JSON.stringify(agreement));
       request.set("clientId", clientId);
       request.set("deviceId", deviceId);
       request.set("checkinType", form.checkinType);
       request.set("driverName", form.driverName);
       request.set("driverPhone", form.driverPhone);
       request.set("truckingCompany", form.truckingCompany);
+      request.set("trailerNumber", form.trailerNumber);
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
       request.set("orderId", orderReady ? form.orderId : "");
@@ -404,26 +430,26 @@ export default function DriverCheckinPage() {
     }
   }
 
-  if (loading) return <main style={shellStyle}><div style={cardStyle}>Loading check-in…</div></main>;
-  if (!site) return <main style={shellStyle}><div style={cardStyle}><h1 style={titleStyle}>Check-In Unavailable</h1><p style={errorStyle}>{error}</p></div></main>;
+  if (loading) return <main style={shellStyle}><div style={cardStyle}>{t("Loading check-in…")}</div></main>;
+  if (!site) return <main style={shellStyle}><div style={cardStyle}><h1 style={titleStyle}>{t("Check-In Unavailable")}</h1><p style={errorStyle}>{te(error)}</p></div></main>;
   if (complete) return (
     <main style={shellStyle}>
       <div style={{ ...cardStyle, textAlign: "center" }}>
         <div style={{ fontSize: 54, marginBottom: 12 }}>✓</div>
-        <h1 style={titleStyle}>{queuePosition !== null ? "You’re in line" : "You’re checked in"}</h1>
+        <h1 style={titleStyle}>{queuePosition !== null ? t("You’re in line") : t("You’re checked in")}</h1>
         {queuePosition !== null ? <>
           <div style={{ color: "#67e8f9", fontSize: 80, lineHeight: 1, fontWeight: 950, margin: "24px 0 8px" }}>#{queuePosition}</div>
-          <p style={bodyStyle}>{queuedDriverName ? `${queuedDriverName}, this is your` : "Your"} current place in the container line at {queueSiteName || site.siteName}.</p>
-          <p style={{ ...bodyStyle, color: "#fbbf24" }}>This phone cannot check in another container driver until warehouse staff completes or removes this entry.</p>
-        </> : <p style={bodyStyle}>Your arrival was sent to {site.siteName}. Warehouse staff can now see your load.</p>}
+          <p style={bodyStyle}>{queuedDriverName ? t(`${queuedDriverName}, this is your`) : t("Your")}{" "}{t("current place in the container line at")}{" "}{queueSiteName || site.siteName}.</p>
+          <p style={{ ...bodyStyle, color: "#fbbf24" }}>{t("This phone cannot check in another container driver until warehouse staff completes or removes this entry.")}</p>
+        </> : <p style={bodyStyle}>{t("Your arrival was sent to")}{" "}{site.siteName}{t(". Warehouse staff can now see your load.")}</p>}
         {shortage && <div role="alert" style={{ border: "2px solid #fbbf24", padding: 18, borderRadius: 10, color: "#fde68a", marginTop: 20 }}>
-          <strong>Your load is {shortage.missing} bale{shortage.missing === 1 ? "" : "s"} short</strong>
-          <p>Expected {shortage.expected} · Reported {shortage.received}</p>
-          <p>Your check-in was saved. Please speak with warehouse staff about the shortage.</p>
+          <strong>{t("Your load is")}{" "}{shortage.missing}{" "}{t("bale")}{shortage.missing === 1 ? "" : "s"}{" "}{t("short")}</strong>
+          <p>{t("Expected")}{" "}{shortage.expected}{" "}{t("· Reported")}{" "}{shortage.received}</p>
+          <p>{t("Your check-in was saved. Please speak with warehouse staff about the shortage.")}</p>
         </div>}
-        {photoSaved ? <p style={{ ...bodyStyle, color: "#86efac" }}>Your paperwork photo was attached.</p> : null}
-        {photoFailed ? <p style={{ ...bodyStyle, color: "#fbbf24" }}>Your check-in was saved, but the photo did not upload. Keep your paper BOL ready for warehouse staff.</p> : null}
-        <p style={{ ...bodyStyle, color: "#67e8f9", fontWeight: 800 }}>Please follow the yard’s instructions and wait for direction.</p>
+        {photoSaved ? <p style={{ ...bodyStyle, color: "#86efac" }}>{t("Your paperwork photo was attached.")}</p> : null}
+        {photoFailed ? <p style={{ ...bodyStyle, color: "#fbbf24" }}>{t("Your check-in was saved, but the photo did not upload. Keep your paper BOL ready for warehouse staff.")}</p> : null}
+        <p style={{ ...bodyStyle, color: "#67e8f9", fontWeight: 800 }}>{t("Please follow the yard’s instructions and wait for direction.")}</p>
       </div>
     </main>
   );
@@ -435,102 +461,123 @@ export default function DriverCheckinPage() {
         setError(`Complete the required ${field.closest("label")?.textContent?.replace(/\s*\*.*$/, "").trim().toLowerCase() || "field"} before checking in.`);
       }} style={cardStyle}>
         <fieldset disabled={submitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <div style={badgeStyle}>SCM DRIVER CHECK-IN</div>
+        <div style={badgeStyle}>{t("SCM DRIVER CHECK-IN")}</div>
         <h1 style={titleStyle}>{site.siteName}</h1>
-        <p style={bodyStyle}>Choose why you are here. For freight, choose pickup or delivery, then enter your pickup / delivery reference or SCM order number.</p>
-        {error ? <div ref={errorRef} role="alert" style={errorBoxStyle}>{error}</div> : null}
+        <p style={bodyStyle}>{t("Choose why you are here. For freight, choose pickup or delivery, then enter your pickup / delivery reference or SCM order number.")}</p>
+        {error ? <div ref={errorRef} role="alert" style={errorBoxStyle}>{te(error)}</div> : null}
 
         <div style={choiceGridStyle}>
-          {site?.containers && <Choice selected={form.checkinType === "container"} title="Container / Drayage" detail="Join the driver line" onClick={() => change("checkinType", "container")} />}
-          <Choice selected={form.checkinType === "domestic"} title="Domestic Freight" detail="Pickup or delivery" onClick={() => change("checkinType", "domestic")} />
+          {site?.containers && <Choice selected={form.checkinType === "container"} title={t("Container / Drayage")} detail={t("Join the driver line")} onClick={() => change("checkinType", "container")} />}
+          <Choice selected={form.checkinType === "domestic"} title={t("Domestic Freight")} detail={t("Pickup or delivery")} onClick={() => change("checkinType", "domestic")} />
         </div>
 
         {form.checkinType ? <div style={gridStyle}>
           {form.checkinType === "domestic" ? <>
-          <label style={labelStyle}>Pickup or delivery? *
-            <select required value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
-              <option value="">Select</option>
-              <option value="delivery">Delivery</option>
-              <option value="pickup">Pickup</option>
+          <label style={labelStyle}>{t("Pickup or delivery? *")}{" "}<select required value={form.movementDirection} onChange={(event) => change("movementDirection", event.target.value)} style={inputStyle}>
+              <option value="">{t("Select")}</option>
+              <option value="delivery">{t("Delivery")}</option>
+              <option value="pickup">{t("Pickup")}</option>
             </select>
           </label>
           <div style={{ gridColumn: "1 / -1" }}>
-            <Field label="Pickup / delivery reference or SCM order number" value={form.referenceNumber}
+            <Field label={t("Pickup / delivery reference or SCM order number")} value={form.referenceNumber}
               onChange={(value) => change("referenceNumber", value)} autoCapitalize="none" required maxLength={120} />
             <button type="button" disabled={lookingUp || !form.movementDirection || form.referenceNumber.trim().length < 3}
-              onClick={() => void findReference()} style={buttonStyle}>Find my load</button>
-            {lookingUp && <p role="status" style={bodyStyle}>Finding your load…</p>}
+              onClick={() => void findReference()} style={buttonStyle}>{t("Find my load")}</button>
+            {lookingUp && <p role="status" style={bodyStyle}>{t("Finding your load…")}</p>}
           </div>
           </> : null}
-          {form.checkinType === "domestic" && orderMessage && <p role={orderReady || lookupStatus === "no_match" ? "status" : "alert"} style={{ ...bodyStyle, gridColumn: "1 / -1", color: orderReady ? "#86efac" : lookupStatus === "no_match" ? "#a8b5c8" : "#fca5a5" }}>{orderMessage}</p>}
-          <Field label="Driver name *" value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
+          {form.checkinType === "domestic" && orderMessage && <p role={orderReady || lookupStatus === "no_match" ? "status" : "alert"} style={{ ...bodyStyle, gridColumn: "1 / -1", color: orderReady ? "#86efac" : lookupStatus === "no_match" ? "#a8b5c8" : "#fca5a5" }}>{te(orderMessage)}</p>}
+          <Field label={t("Driver name *")} value={form.driverName} onChange={(value) => change("driverName", value)} autoComplete="name" />
           {form.checkinType === "domestic" ? <>
-          <Field label="Mobile number *" value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
-          <Field label="Trucking company *" value={form.truckingCompany} onChange={(value) => change("truckingCompany", value)} />
-          <label style={labelStyle}>Material *
-            <select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
-              <option value="">Select</option>
-              {site?.materials.includes("cotton") && <option value="cotton">Cotton</option>}
-              {site?.materials.includes("lumber") && <option value="lumber">Lumber</option>}
-              {site?.materials.includes("other") && <option value="other">Other / FAK</option>}
+          <Field label={t("Mobile number *")} value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
+          <Field label={t("Trucking company *")} value={form.truckingCompany} onChange={(value) => change("truckingCompany", value)} />
+          <Field label={t(form.movementDirection === "pickup" ? "Trailer number *" : "Trailer number (optional)")} value={form.trailerNumber} onChange={value => change("trailerNumber", value)} optional={form.movementDirection !== "pickup"} maxLength={80} />
+          <label style={labelStyle}>{t("Material *")}{" "}<select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
+              <option value="">{t("Select")}</option>
+              {site?.materials.includes("cotton") && <option value="cotton">{t("Cotton")}</option>}
+              {site?.materials.includes("lumber") && <option value="lumber">{t("Lumber")}</option>}
+              {site?.materials.includes("other") && <option value="other">{t("Other / FAK")}</option>}
             </select>
-            {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>Order commodity: {orderCommodity || "not listed"}. Confirm the material matches your paperwork.</small>}
+            {orderReady && <small style={{ color: "#67e8f9", fontWeight: 500 }}>{t("Order commodity:")}{" "}{t(orderCommodity || "not listed")}{t(". Confirm the material matches your paperwork.")}</small>}
           </label>
           {form.movementDirection === "pickup" ? (
-            <Field label="Destination *" value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
+            <Field label={t("Destination *")} value={form.destination} onChange={(value) => change("destination", value.toUpperCase())} />
           ) : null}
           {form.materialType === "cotton" ? <>
-            <Field label="Mark *" value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
-            <Field label="Bale count on BOL *" value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
-            {form.movementDirection === "delivery" && <Field label="Bales on truck (if different from BOL)" value={form.balesOnTruck} onChange={(value) => change("balesOnTruck", value.replace(/\D/g, ""))} inputMode="numeric" />}
+            <Field name="cottonMark" autoComplete="off" label={t("Mark *")} value={form.mark} onChange={(value) => change("mark", value.toUpperCase())} autoCapitalize="characters" />
+            <div><Field name="bolBaleCount" autoComplete="off" label={t("Bale count on BOL *")} value={form.bolBaleCount} onChange={(value) => change("bolBaleCount", value.replace(/\D/g, ""))} inputMode="numeric" />
+            <small style={{ color: "#94a3b8" }}>{t("Enter the bale quantity, not the cotton mark.")}</small></div>
+            {form.movementDirection === "delivery" && <Field name="balesOnTruck" autoComplete="off" label={t("Bales on truck (if different from BOL)")} value={form.balesOnTruck} onChange={(value) => change("balesOnTruck", value.replace(/\D/g, ""))} inputMode="numeric" />}
           </> : null}
           </> : null}
         </div> : null}
 
-        {form.checkinType === "container" ? <div style={noticeStyle}>Check in only yourself. Each phone may hold one active place in the container line.</div> : null}
+        {form.checkinType === "container" ? <div style={noticeStyle}>{t("Check in only yourself. Each phone may hold one active place in the container line.")}</div> : null}
 
-        {form.checkinType === "domestic" ? <label style={labelStyle}>Paperwork photo (optional)
-          <input type="file" accept="image/*" capture="environment"
+        {form.checkinType === "domestic" ? <label style={labelStyle}>{t("Paperwork photo (optional)")}{" "}<input type="file" accept="image/*" capture="environment"
             onChange={(event) => setBolPhoto(event.target.files?.[0] ?? null)}
             style={fileInputStyle} />
           <small style={{ color: "#64748b", fontWeight: 500 }}>
-            {bolPhoto ? bolPhoto.name : "Take a clear photo of the BOL, pickup order, or other paperwork."}
+            {bolPhoto ? bolPhoto.name : t("Take a clear photo of the BOL, pickup order, or other paperwork.")}
           </small>
         </label> : null}
 
+        {form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection) && <PickupAgreement value={agreement} onChange={value => { agreementContext.current = JSON.stringify({ language, form: formRef.current }); agreementRef.current = value; setAgreement(value); }} language={language} />}
+
         {completedMatches.map((match) => match.completion ?
-          <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} /> : null)}
+          <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} language={language} /> : null)}
         {form.checkinType ? <button type="submit" disabled={submitting || (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatus))}
           style={{ ...buttonStyle, opacity: submitting || lookingUp ? .65 : 1 }}>
-          {submitting ? "Verifying location…" : form.checkinType === "container" ? "Verify location & join line" : "Verify location & check in"}
+          {submitting ? t("Verifying location…") : form.checkinType === "container" ? t("Verify location & join line") : t("Verify location & check in")}
         </button> : null}
-        <p style={privacyStyle}>Your location is used to confirm this check-in at the yard and is saved with the arrival record.</p>
+        <p style={privacyStyle}>{t("Your location is used to confirm this check-in at the yard and is saved with the arrival record.")}</p>
         </fieldset>
       </form>
       {referenceMatches.length > 0 && <div style={modalBackdrop} role="presentation">
         <div role="dialog" aria-modal="true" aria-labelledby="carrier-choice-title" style={modalCard}>
-          <h2 id="carrier-choice-title" style={{ ...titleStyle, fontSize: 25, marginTop: 0 }}>Confirm your trucking company and driver</h2>
-          <p style={bodyStyle}>More than one load matches. Select your company and driver details.</p>
+          <h2 id="carrier-choice-title" style={{ ...titleStyle, fontSize: 25, marginTop: 0 }}>{t("Confirm your trucking company and driver")}</h2>
+          <p style={bodyStyle}>{t("More than one load matches. Select your company and driver details.")}</p>
           {referenceMatches.map((match) => <button key={`${match.orderId}:${match.stopId}`} type="button"
             disabled={match.selectable !== true} style={{ ...buttonStyle, textAlign: "left", marginTop: 8, opacity: match.selectable === true ? 1 : .5 }}
             onClick={() => void chooseReferenceMatch(match)}>
-            <span style={{ display: "block" }}>{match.carrierName || "Trucking company not listed"}</span>
-            <span style={{ display: "block", fontSize: 14, fontWeight: 500 }}>{match.driverName || "Driver not listed"}
-              {match.driverPhoneLast4 ? ` · Phone ending ${String(match.driverPhoneLast4).replace(/\D/g, "").slice(-4)}` : ""}</span>
+            <span style={{ display: "block" }}>{match.carrierName || t("Trucking company not listed")}</span>
+            <span style={{ display: "block", fontSize: 14, fontWeight: 500 }}>{match.driverName || t("Driver not listed")}
+              {match.driverPhoneLast4 ? t(` · Phone ending ${String(match.driverPhoneLast4).replace(/\D/g, "").slice(-4)}`) : ""}</span>
           </button>)}
-          {referenceMatches.some((match) => match.selectable !== true) && <p role="alert" style={bodyStyle}>
-            Some loads have the same or missing company and driver details. Please speak with warehouse staff to confirm those loads.
-          </p>}
+          {referenceMatches.some((match) => match.selectable !== true) && <p role="alert" style={bodyStyle}>{" "}{t("Some loads have the same or missing company and driver details. Please speak with warehouse staff to confirm those loads.")}{" "}</p>}
           <button type="button" style={{ ...buttonStyle, marginTop: 12, background: "#334155" }} onClick={() => {
             if (lookupStatusRef.current !== "ambiguous" || referenceMatchesRef.current !== referenceMatches) return;
             ++lookupRequest.current; lookupAbort.current.abort(); lookupAbort.current = new AbortController();
             updateReferenceMatches([]); explicitSelectionRef.current = false; updateLookupStatus("idle");
             setOrderMessage("Check your reference or speak with warehouse staff to confirm your load.");
-          }}>Go back / speak with warehouse staff</button>
+          }}>{t("Go back / speak with warehouse staff")}</button>
         </div>
       </div>}
     </main>
   );
+}
+
+export default function DriverCheckinPage() {
+  const [language, setLanguage] = useState<DriverLanguage>("en");
+  useEffect(() => {
+    try { const saved = localStorage.getItem("scm-driver-language");
+      setLanguage(saved === "es" || !saved && navigator.language.toLowerCase().startsWith("es") ? "es" : "en");
+    } catch { /* Language selection still works without local storage. */ }
+  }, []);
+  return <div lang={language}>
+    <div style={{ maxWidth: 620, margin: "12px auto 0", display: "flex", justifyContent: "flex-end" }}>
+      <label style={{ color: "#cbd5e1" }}>English / Español {" "}
+        <select aria-label="English / Español" value={language} onChange={event => {
+          const next = event.target.value === "es" ? "es" : "en"; setLanguage(next);
+          try { localStorage.setItem("scm-driver-language", next); } catch { /* Optional preference persistence. */ }
+        }} style={{ ...inputStyle, width: "auto", minHeight: 44 }}>
+          <option value="en">English</option><option value="es">Español</option>
+        </select>
+      </label>
+    </div>
+    <DriverCheckinForm language={language} />
+  </div>;
 }
 
 function Choice({ selected, title, detail, onClick }: { selected: boolean; title: string; detail: string; onClick: () => void }) {
@@ -541,11 +588,11 @@ function Choice({ selected, title, detail, onClick }: { selected: boolean; title
 }
 
 function Field(props: {
-  label: string; value: string; onChange: (value: string) => void;
+  name?: string; label: string; value: string; onChange: (value: string) => void;
   inputMode?: "text" | "tel" | "numeric"; autoComplete?: string; autoCapitalize?: string; optional?: boolean; required?: boolean; maxLength?: number;
 }) {
   return <label style={labelStyle}>{props.label}
-    <input required={props.required || (!props.optional && props.label.endsWith("*"))} value={props.value} maxLength={props.maxLength}
+    <input name={props.name} required={props.required || (!props.optional && props.label.endsWith("*"))} value={props.value} maxLength={props.maxLength}
       onChange={(event) => props.onChange(event.target.value)} style={inputStyle}
       inputMode={props.inputMode} autoComplete={props.autoComplete} autoCapitalize={props.autoCapitalize} />
   </label>;

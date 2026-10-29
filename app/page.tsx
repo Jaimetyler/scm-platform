@@ -96,6 +96,12 @@ export default function Home() {
           <div style={lockedTagStyle}>Auth Required</div>
         </Link>
 
+        <Link href="/reporting/business-intelligence" style={cardStyleLocked}>
+          <div style={cardTitle}>SCM Business Intelligence</div>
+          <div style={cardDesc}>Combined customers, warehouse services, and trucking by business unit, with cotton filters</div>
+          <div style={lockedTagStyle}>Administrator access</div>
+        </Link>
+
         <Link href="/warehouse" style={cardStylePrimary}>
           <div style={cardTitle}>Warehouse</div>
           <div style={cardDesc}>
@@ -107,6 +113,11 @@ export default function Home() {
         <Link href="/late-fees" style={cardStyle}>
           <div style={cardTitle}>Late Fees</div>
           <div style={cardDesc}>Review late fee candidates and totals</div>
+        </Link>
+
+        <Link href="/ecotton-import" style={cardStylePrimary}>
+          <div style={cardTitle}>eCotton Order Import</div>
+          <div style={cardDesc}>Review warehouse reports, check duplicates, and create and rate orders</div>
         </Link>
 
         <Link href="/order-charges" style={cardStylePrimary}>

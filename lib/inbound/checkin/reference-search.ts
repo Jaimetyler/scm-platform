@@ -35,8 +35,13 @@ export async function searchReferenceOrders(
   // Do not split meaningful hyphenated references, assume rarity, or claim that a
   // full anchor page proves completeness. The original stored value is returned.
   const normalized = normalizeReference(reference);
-  const anchor = normalized.split("/").filter(Boolean)
-    .reduce((longest, component) => component.length > longest.length ? component : longest, "") || normalized;
+  const pair = normalized.match(/^(\d+)-(\d+)$/);
+  // Numeric two-part references may be reversed in the paperwork. Search
+  // the longer literal component, then validate BOTH parts locally.
+  const anchor = pair
+    ? (pair[1].length >= pair[2].length ? pair[1] : pair[2])
+    : normalized.split("/").filter(Boolean)
+      .reduce((longest, component) => component.length > longest.length ? component : longest, "") || normalized;
   const candidates = new Map<string, Record<string, any>>();
   const seenIds = new Set<string>();
   let scannedRows = 0;

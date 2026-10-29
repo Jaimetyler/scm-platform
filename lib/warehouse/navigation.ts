@@ -51,7 +51,7 @@ export function availableCheckinViews(location: WarehouseLocation) {
   const site = getCheckinSite(location.terminal, location.siteCode);
   if (!site) return [];
   return [
-    { key: "line" as const, label: "Domestic Line", href: `/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line` },
+    { key: "line" as const, label: "Active Line", href: `/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line` },
     ...(site.materials.includes("cotton") ? [{ key: "cotton" as const, label: "Cotton", href: `/inbound/checkin/${site.terminalSlug}/${site.siteCode}` }] : []),
     ...(site.materials.includes("lumber") ? [{ key: "domestic" as const, label: "Lumber & Other", href: `/warehouse/gate/${site.terminalSlug}/${site.siteCode}/domestic` }] : []),
     ...(site.containers ? [{ key: "containers" as const, label: "Containers", href: `/warehouse/gate/${site.terminalSlug}/${site.siteCode}/containers` }] : []),

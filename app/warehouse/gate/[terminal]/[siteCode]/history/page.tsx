@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 
@@ -79,6 +80,9 @@ export default function DomesticHistoryPage() {
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Domestic History`}
       subtitle="Search completed and removed cotton, lumber, and other freight check-ins." />
+    <details style={{ margin: "12px 0", color: "#94a3b8" }}><summary>Diagnostics</summary>
+      <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/diagnostics`} style={{ display: "inline-block", padding: 12, color: "#67e8f9" }}>Open check-in logs and reconciliation</Link>
+    </details>
     <PlatformPanel>
       <form onSubmit={apply} style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, background: "rgba(30,41,59,.36)", border: "1px solid rgba(148,163,184,.12)", flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
         <label style={label}>Search driver, reference, mark, customer, or McLeod ID

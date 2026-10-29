@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useStaff } from "@/components/auth/StaffSession";
+const supportedRole=(role:string)=>["admin","operator","viewer"].includes(role);
 type Member = { id: string; email: string; name: string; role: string; terminal: string | null; status: string; invite_expires_at: string };
 export default function UsersPage() {
   const self = useStaff();
@@ -35,11 +36,11 @@ export default function UsersPage() {
     <div style={{overflowX:"auto"}}><table><thead><tr><th>Person</th><th>Access</th><th>Status</th><th>Actions</th></tr></thead><tbody>{users.map(user=><tr key={user.id}>
       <td>{user.name}<br/><small>{user.email}</small></td><td>{user.status === "active" && user.id !== self?.id ? <>
         <select aria-label={`Role for ${user.email}`} disabled={busy} value={user.role} onChange={e=>setUsers(current=>current.map(item=>item.id===user.id ? {...item,role:e.target.value,terminal:e.target.value==="operator" ? "HOU" : null} : item))}>
-          <option value="admin">Administrator</option><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option>
+          {!supportedRole(user.role)&&<option value={user.role} disabled>Legacy role: {user.role} — choose supported access</option>}<option value="admin">Administrator</option><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option>
         </select>{user.role === "operator" && <select aria-label={`Terminal for ${user.email}`} disabled={busy} value={user.terminal ?? "HOU"}
           onChange={e=>setUsers(current=>current.map(item=>item.id===user.id ? {...item,terminal:e.target.value} : item))}>
           <option value="HOU">Houston</option><option value="SAV">Savannah</option></select>}
-        <button disabled={busy} onClick={()=>{if(confirm(`Save ${user.role} access${user.terminal ? ` for ${user.terminal}` : ""} for ${user.email}?`)) void action({...user,action:"access"},"Permissions updated.");}}>Save access</button>
+        <button disabled={busy||!supportedRole(user.role)} onClick={()=>{if(confirm(`Save ${user.role} access${user.terminal ? ` for ${user.terminal}` : ""} for ${user.email}?`)) void action({...user,action:"access"},"Permissions updated.");}}>Save access</button>
       </> : <>{user.role}{user.terminal ? ` · ${user.terminal}` : " · all terminals"}</>}</td>
       <td>{user.status === "pending" && Date.parse(user.invite_expires_at) < Date.now() ? "Expired invitation" : user.status}</td>
       <td>{["pending", "disabled"].includes(user.status) && user.id !== self?.id && <button disabled={busy} onClick={()=>{

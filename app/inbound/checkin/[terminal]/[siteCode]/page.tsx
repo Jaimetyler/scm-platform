@@ -1,4 +1,5 @@
 "use client";
+import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
 import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import PollingStatus from "@/components/warehouse/PollingStatus";
 import { mergePollingRows } from "@/lib/polling/merge-rows";
@@ -32,6 +33,9 @@ type CheckinRow = ShortageFields & {
   client_id?: string;
   created_at: string;
   checked_in_at?: string | null;
+  local_receiving_only?: boolean;
+  yard_status?: string | null;
+  physical_departed_at?: string | null;
   verified_at?: string | null;
   identity_corrected_at?: string | null;
   updated_at: string;
@@ -53,6 +57,7 @@ type CheckinRow = ShortageFields & {
   draft_status: "draft" | "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed" | "delivery_blocked";
   processed_at: string | null;
   processing_error?: string | null;
+  inventory_recovered?: boolean;
   matched_order_id?: string | null;
   checkin_source?: "staff" | "driver_qr";
   driver_name?: string | null;
@@ -119,7 +124,12 @@ const CHECKIN_CUSTOMERS = Array.from(
   )
 ).sort((a, b) => a.localeCompare(b));
 
+function isInventoryRecovered(row: CheckinRow) {
+  return row.draft_status === "failed" && row.inventory_recovered === true;
+}
+
 function rowTone(row: CheckinRow): React.CSSProperties {
+  if (isInventoryRecovered(row)) return { background: "rgba(59,130,246,0.04)" };
   if (cottonShortage(row)) return { background: "rgba(180,83,9,.09)" };
   if (row.draft_status === "processed") {
     return { background: "rgba(59,130,246,0.03)" };
@@ -172,8 +182,14 @@ function willProcess(row: CheckinRow) {
   return isReadyCheckin(row);
 }
 
+function canRecordShortageFollowup(row: CheckinRow) {
+  return row.local_receiving_only === true && row.yard_status === "completed" &&
+    row.draft_status === "delivery_blocked" && Boolean(row.shortage_acknowledged_at) && !row.customer_notified_at;
+}
+
 function isClosedRow(row: CheckinRow) {
-  return row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
+  return isInventoryRecovered(row) || row.local_receiving_only === true && row.yard_status === "completed" ||
+    row.draft_status === "processed" || row.draft_status === "outside_carrier" ||
     row.draft_status === "processing";
 }
 
@@ -220,6 +236,7 @@ export default function SiteCheckinPage() {
   const [newCheckin, setNewCheckin] = useState<CheckinRow | null>(null);
   const [newMatches, setNewMatches] = useState<CottonMatch[]>([]);
   const [newSearching, setNewSearching] = useState(false);
+  const [manualUnlinkedCheckin, setManualUnlinkedCheckin] = useState(false);
   const [newError, setNewError] = useState("");
   const [newSaving, setNewSaving] = useState(false);
   const lookupKeysRef = useRef<Record<string, string>>({});
@@ -239,7 +256,7 @@ export default function SiteCheckinPage() {
 
   useEffect(() => {
     for (const row of rows) {
-      if (viewCarryover || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
+      if (viewCarryover || row.local_receiving_only || isLocalReceivingCustomer(row.shipper) || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
       const mark = (row.mark ?? "").trim().toUpperCase();
       const key = `${mark}|${(row.shipper ?? "").trim().toUpperCase()}`;
       if (lookupKeysRef.current[row.id] === key) continue;
@@ -312,7 +329,10 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
-    if (!site || !newCheckin || newCheckin.matched_order_id) return;
+    if (!site || !newCheckin || newCheckin.matched_order_id || manualUnlinkedCheckin || isLocalReceivingCustomer(newCheckin.shipper)) {
+      if (manualUnlinkedCheckin || isLocalReceivingCustomer(newCheckin?.shipper)) { setNewMatches([]); setNewSearching(false); setNewError(""); }
+      return;
+    }
     const mark = (newCheckin.mark ?? "").trim().toUpperCase();
     if (mark.length < 3) { setNewMatches([]); setNewSearching(false); return; }
     let cancelled = false;
@@ -344,12 +364,15 @@ export default function SiteCheckinPage() {
       }
     }, 650);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id]);
+  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id, manualUnlinkedCheckin]);
 
   async function saveNewCheckin() {
     if (!canWrite) return;
-    if (!site || !newCheckin || newSaving || newSearching) return;
-    if (newMatches.length > 0 && newMatches.every((match) => match.completion)) {
+    if (!site || !newCheckin || newSaving) return;
+    // An incomplete McLeod search cannot establish that every possible
+    // order is completed. Permit a manual unlinked arrival for staff review.
+    if (!manualUnlinkedCheckin && newMatches.length > 0 && newMatches.every((match) => match.completion) &&
+        !newError) {
       setNewError("These orders are already closed in McLeod. Verify the mark with warehouse staff.");
       return;
     }
@@ -366,16 +389,21 @@ export default function SiteCheckinPage() {
           clientId: newCheckin.id.slice(6), terminal: site.terminal, siteCode: site.siteCode, siteName: site.siteName,
           subLocation: newCheckin.sub_location, receivedDate: newCheckin.received_date,
           mark: newCheckin.mark, shipper: newCheckin.shipper, bolBC: newCheckin.bol_bc,
-          equipmentType: newCheckin.equipment_type, comment1: newCheckin.comment_1,
+          equipmentType: newCheckin.equipment_type,
+          comment1: manualUnlinkedCheckin
+            ? [newCheckin.comment_1, "Staff confirmed customer/order is not currently managed in McLeod; local receiving only, reconcile before any McLeod update."].filter(Boolean).join("\n")
+            : newCheckin.comment_1,
           driverName: newCheckin.driver_name, driverPhone: newCheckin.driver_phone,
           truckingCompany: newCheckin.trucking_company,
-          matchedOrderId: newCheckin.matched_order_id,
+          matchedOrderId: manualUnlinkedCheckin ? null : newCheckin.matched_order_id,
+          localReceivingOnly: manualUnlinkedCheckin,
         }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Check-in failed");
       setRows((current) => orderCheckinRows([...current.filter((row) => row.id !== result.row.id), result.row]));
       setNewCheckin(null);
+      setManualUnlinkedCheckin(false);
       setNewMatches([]);
       void loadRows();
     } catch (error) {
@@ -564,7 +592,7 @@ export default function SiteCheckinPage() {
 
   async function saveRowSnapshot(row: CheckinRow, action?: ShortageAction) {
     if (!canWrite) return;
-    if (!row || row.id.startsWith("local-") || isClosedRow(row)) return;
+    if (!row || row.id.startsWith("local-") || isClosedRow(row) && !(action?.customerNotified && canRecordShortageFollowup(row))) return;
     if (willProcess(row) &&
         (document.activeElement?.getAttribute("data-checkin-identity") === row.id ||
          document.activeElement?.getAttribute("data-checkin-location") === row.id)) return;
@@ -945,7 +973,7 @@ export default function SiteCheckinPage() {
   const readyCount = rows.filter((row) => row.draft_status === "ready").length;
   const processedCount = rows.filter((row) => row.draft_status === "processed").length;
   const outsideCount = rows.filter((row) => row.draft_status === "outside_carrier").length;
-  const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && usesMcleodCheckin(row)).length;
+  const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && !isClosedRow(row) && usesMcleodCheckin(row)).length;
   const gateOnlyCount = rows.filter((row) => row.checkin_source === "driver_qr" && !usesMcleodCheckin(row)).length;
   const failedCount = rows.filter((row) => row.draft_status === "failed" || Boolean(cottonShortage(row) && !row.customer_notified_at)).length;
 
@@ -1210,7 +1238,7 @@ export default function SiteCheckinPage() {
                         ref={(el) => registerCellRef(index, "comment_1", el)}
                         style={cellTextareaStyle}
                         placeholder="Damage, shortage, and customer follow-up notes"
-                        disabled={row.draft_status !== "delivery_blocked" && isReadOnlyRow(row)}
+                        disabled={row.local_receiving_only === true && row.yard_status === "completed" || row.draft_status !== "delivery_blocked" && isReadOnlyRow(row)}
                       />
                     </td>
 
@@ -1242,22 +1270,22 @@ export default function SiteCheckinPage() {
                       <div style={rowActionStatusStyle}>
                         <div style={rowStatusStyle}>
                       <div title={row.draft_status} style={rowDotStyle(row)} />
-                      <small>{row.id.startsWith("local-") ? "" : row.draft_status === "checked_in"
+                      <small>{row.id.startsWith("local-") ? "" : row.local_receiving_only && row.yard_status === "completed" ? "Receiving complete" : isInventoryRecovered(row) ? "Received — reconciliation pending" : row.draft_status === "checked_in"
                         ? usesMcleodCheckin(row) ? "Waiting" : "Gate only"
                         : row.draft_status === "delivery_blocked" ? "Receiving complete" : row.draft_status}</small>
                       {row.processing_error || ui.saveState === "error" ? (
                         <button type="button" title={row.processing_error || ui.message || "Save failed"}
-                          aria-label="Show check-in error"
+                          aria-label={isInventoryRecovered(row) ? "Show original McLeod issue" : "Show check-in error"}
                           onClick={() => setExpandedIds((current) => new Set(current).add(row.id))}
-                          style={errorButtonStyle}>View error</button>
+                          style={errorButtonStyle}>{isInventoryRecovered(row) ? "View McLeod issue" : "View error"}</button>
                       ) : null}
                         </div>
-                        {(row.processing_error || ui.saveState === "error") && <small
+                        {(row.processing_error || ui.saveState === "error") && !isInventoryRecovered(row) && <small
                           title={row.processing_error || ui.message || "Save failed"}
                           style={{ color: "#fca5a5", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "block" }}>
                           {row.processing_error || ui.message || "Save failed"}
                         </small>}
-                        {canWrite && row.processing_error && row.draft_status === "failed" &&
+                        {canWrite && row.processing_error && row.draft_status === "failed" && !isInventoryRecovered(row) &&
                           (row.material_type ?? "cotton") === "cotton" &&
                           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.id) && <div>
                           <a href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/line?arrival=${encodeURIComponent(row.id)}`}
@@ -1322,7 +1350,7 @@ export default function SiteCheckinPage() {
                   </tr>
                   {expandedIds.has(row.id) && <tr style={{ background: "#132337" }}>
                     <td colSpan={10} style={detailsCellStyle}>
-                      <ShortageNotice row={row} complete={isCompleteCheckin(row)} disabled={ui.saveState === "saving" || isClosedRow(row)} onAction={isClosedRow(row) ? undefined : async (action) => {
+                      <ShortageNotice row={row} complete={isCompleteCheckin(row)} disabled={ui.saveState === "saving" || isClosedRow(row) && !canRecordShortageFollowup(row)} onAction={isClosedRow(row) && !canRecordShortageFollowup(row) ? undefined : async (action) => {
                         const timer = saveTimersRef.current[row.id];
                         if (timer) { window.clearTimeout(timer); delete saveTimersRef.current[row.id]; }
                         const latest = rowsRef.current.find((item) => item.id === row.id);
@@ -1452,10 +1480,18 @@ export default function SiteCheckinPage() {
               <input style={modalInputStyle} value={newCheckin.comment_1 ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, comment_1: event.target.value })} placeholder="Optional note" /></label>
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+            <input type="checkbox" checked={manualUnlinkedCheckin} onChange={(event) => {
+              setManualUnlinkedCheckin(event.target.checked);
+              setNewMatches([]);
+              setNewCheckin((current) => current ? { ...current, matched_order_id: null } : current);
+            }} />
+            Customer/order not yet in McLeod — save local check-in without searching
+          </label>
           <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>Unloaded bales and final warehouse location can be confirmed on the grid after arrival.</p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Cancel</button>
-            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || newSearching || (newMatches.length > 0 && newMatches.every((match) => match.completion))}>{newSaving ? "Checking in…" : "Check in truck"}</button>
+            <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || (!manualUnlinkedCheckin && newMatches.length > 0 && newMatches.every((match) => match.completion) && !newError)}>{newSaving ? "Checking in…" : "Check in truck"}</button>
           </div>
         </form>
       </div>}

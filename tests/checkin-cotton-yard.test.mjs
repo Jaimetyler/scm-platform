@@ -36,6 +36,7 @@ test("Domestic Line accepts the atomic cotton completion without a second confli
   const query={select(){return this;},eq(){return this;},in(){return this;},update(value){update=value;updates.push(value);return this;},
     maybeSingle:async()=>({data:update?{...row,...update}:row})};
   const dependencies={
+    "@/lib/inbound/checkin/local-receiving":localReceiving,
     "@/lib/inbound/checkin/lookup-failure":lookupHelpers,
     "next/server":{NextResponse:Response},
     "@supabase/supabase-js":{createClient:()=>({from:()=>query})},
@@ -61,3 +62,4 @@ test("Domestic Line accepts the atomic cotton completion without a second confli
     if(oldKey===undefined)delete process.env.SUPABASE_SERVICE_ROLE_KEY;else process.env.SUPABASE_SERVICE_ROLE_KEY=oldKey;
   }
 });
+import * as localReceiving from '../lib/inbound/checkin/local-receiving.ts';

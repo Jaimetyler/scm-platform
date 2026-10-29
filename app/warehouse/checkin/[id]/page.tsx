@@ -25,7 +25,7 @@ export default async function DriverCheckinDetailsPage({
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
 
   const { data: row, error } = await database().from("inbound_checkin_rows")
-    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, bale_count, expected_bale_count, driver_reported_bales, shortage_acknowledged_at, shortage_acknowledged_by, shortage_expected_bales, shortage_received_bales, shortage_note, customer_notified_at, customer_notified_by, comment_1, comment_2, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path")
+    .select("id, terminal, site_code, site_name, movement_direction, material_type, reference_number, destination, mark, bol_bc, bale_count, expected_bale_count, driver_reported_bales, shortage_acknowledged_at, shortage_acknowledged_by, shortage_expected_bales, shortage_received_bales, shortage_note, customer_notified_at, customer_notified_by, comment_1, comment_2, matched_order_id, checked_in_at, driver_name, driver_phone, trucking_company, gate_location_verified_at, driver_distance_m, bol_photo_path, pickup_agreement, trailer_number")
     .eq("id", id)
     .eq("checkin_source", "driver_qr")
     .maybeSingle();
@@ -46,6 +46,7 @@ export default async function DriverCheckinDetailsPage({
         <ShortageNotice row={row} />
         <div style={detailsGridStyle}>
           <Detail label="Driver" value={row.driver_name || "—"} />
+          <Detail label="Trailer number" value={row.trailer_number || row.pickup_agreement?.trailerNumber || "—"} />
           <Detail label="Trucking company" value={row.trucking_company || "—"} />
           <Detail label="Phone" value={row.driver_phone ? <a href={`tel:${row.driver_phone}`} style={phoneStyle}>{row.driver_phone}</a> : "—"} />
           <Detail label="SCM order number" value={row.matched_order_id || "—"} />
@@ -66,6 +67,19 @@ export default async function DriverCheckinDetailsPage({
             Open paperwork photo
           </a>
         ) : <div style={{ color: "#64748b", marginTop: 22 }}>No paperwork photo was attached.</div>}
+        {row.pickup_agreement ? <section style={{ color: "#e2e8f0", marginTop: 24 }}>
+          <h2>Signed pickup agreement</h2>
+          <p>{row.pickup_agreement.version} · {row.pickup_agreement.language === "es" ? "Español" : "English"} · {row.pickup_agreement.acceptedAt}</p>
+          <p>Driver: {row.pickup_agreement.printedName} · Carrier: {row.pickup_agreement.truckingCompany} · Trailer: {row.pickup_agreement.trailerNumber}</p>
+          <p>Pickup: {row.pickup_agreement.pickupNumber} · Reference / PO: {row.pickup_agreement.referencePo}</p>
+          <p>Product: {row.pickup_agreement.productDescription} · Destination: {row.pickup_agreement.destination}</p>
+          <h3>{row.pickup_agreement.terms.title}</h3><p>{row.pickup_agreement.terms.introduction}</p>
+          <ol>{row.pickup_agreement.terms.clauses.map((text: string, i: number) => <li key={i}>{text}</li>)}</ol>
+          <p>{row.pickup_agreement.terms.acknowledgment}</p><p>{row.pickup_agreement.terms.consent}</p>
+          <svg role="img" aria-label="Saved driver signature" viewBox="0 0 600 180" style={{ width: "100%", maxWidth: 600, background: "white" }}>
+            {row.pickup_agreement.strokes.map((stroke: [number, number][], i: number) => <polyline key={i} points={stroke.map(([x,y]) => `${x*600},${y*180}`).join(" ")} fill="none" stroke="#111827" strokeWidth="2" />)}
+          </svg>
+        </section> : row.movement_direction === "pickup" ? <p>No electronic pickup agreement is recorded. Keep the signed paper form.</p> : null}
       </PlatformPanel>
     </main>
   );

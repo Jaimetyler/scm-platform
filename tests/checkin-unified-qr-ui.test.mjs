@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import * as pickupAgreement from '../lib/inbound/checkin/pickup-agreement.ts';
+import * as driverLanguage from '../lib/inbound/checkin/driver-language.ts';
 
 // Execute the actual page and its event handlers with a tiny hook renderer.
 // Network, location, and React scheduling are controlled boundaries; no live I/O.
@@ -34,8 +36,9 @@ function expand(node) {
   if (typeof node.type === 'function') return expand(node.type(node.props));
   return { ...node, props: { ...node.props, children: expand(node.props?.children) } };
 }
-async function mount(respond = body => body.action === 'lookupReference' ? json(matches(candidate())) : json(details()), submitResponse = () => json({ ok: true })) {
+async function mount(respond = body => body.action === 'lookupReference' ? json(matches(candidate())) : json(details()), submitResponse = () => json({ ok: true }), configuredSite = site) {
   const slots = [], calls = [];
+  let agreementProps;
   let cursor = 0, dirty = true, tree, pendingEffects = [], token = 'gate-one';
   let geo = resolve => resolve({ coords: { latitude: 1, longitude: 2, accuracy: 3 }, timestamp: Date.now() });
   const hooks = {
@@ -55,6 +58,9 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
   };
   const jsx = (type, props, key) => ({ type, props, key });
   const modules = {
+    '@/lib/inbound/checkin/driver-language': driverLanguage,
+    '@/lib/inbound/checkin/pickup-agreement': pickupAgreement,
+    '@/components/warehouse/PickupAgreement': { default: props => { agreementProps = props; return jsx('section',{ 'data-agreement': true }); } },
     react: hooks,
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
     'next/navigation': { useParams: () => ({ token }) },
@@ -62,7 +68,7 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
   };
   const module = { exports: {} };
   const fetch = async (url, options = {}) => {
-    if (!options.method) return json({ ok: true, site });
+    if (!options.method) return json({ ok: true, site: configuredSite });
     const body = options.body instanceof FormData ? options.body : JSON.parse(options.body);
     calls.push({ url, options, body });
     return body instanceof FormData ? submitResponse(body, options, calls) : respond(body, options, calls);
@@ -91,7 +97,11 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
     },
     async change(text, value) { api.input(text).props.onChange({ target: { value } }); await flush(); },
     async click(text) { const button = api.button(text); assert.notEqual(button.props.disabled, true, `disabled button ${text}`); button.props.onClick(); await flush(); },
-    async submit() { const result = all(tree, node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} }); await flush(); await result; await flush(); },
+    async sign() {
+      if (agreementProps) { agreementProps.onChange({ ...agreementProps.value, printedName: api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value || 'Fixture Driver', trailerNumber: 'TEST', productDescription: 'Fixture product', pickupNumber: 'TEST', referencePo: 'TEST', acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] }); await flush(); }
+    },
+    get agreement() { return agreementProps; },
+    async submit(sign = true) { if (sign) { if (agreementProps && api.nodes(n=>n.type==='input'&&n.props.maxLength===80).length) await api.change(agreementProps.language === 'es' ? 'Número de remolque *' : 'Trailer number *','MAIN-TEST'); if (agreementProps && !api.input(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *').props.value) await api.change(agreementProps.language === 'es' ? 'Nombre del conductor *' : 'Driver name *','Fixture Driver'); await api.sign(); } const result = all(tree, node => node.type === 'form')[0].props.onSubmit({ preventDefault() {} }); await flush(); await result; await flush(); },
     get submitButton() { return all(tree, node => node.type === 'button' && node.props.type === 'submit')[0]; },
     get formSubmit() { return all(tree, node => node.type === 'form')[0].props.onSubmit; },
     setGeo(next) { geo = next; },
@@ -118,6 +128,33 @@ test('QR renders one exact-label input, retains pickup/delivery and cotton field
   assert.ok(h.input('Mark *')); assert.ok(h.input('Bale count on BOL *'));
   await h.change('Pickup or delivery? *', 'delivery');
   assert.ok(h.input('Bales on truck (if different from BOL)'));
+});
+
+test('English/Español switching preserves lookup, form evidence and submission identity', async t => {
+  const h=await mount();t.after(h.dispose);
+  await h.change('Mobile number *','555-123-8888');
+  const switchLanguage=async value=>{
+    h.nodes(n=>n.type==='select'&&n.props['aria-label']==='English / Español')[0].props.onChange({target:{value}});
+    await h.flush();
+  };
+  await switchLanguage('es');
+  assert.ok(h.text().includes('REGISTRO DE CONDUCTORES SCM'));
+  assert.equal(h.input('Referencia de recolección / entrega o número de orden SCM').props.value,'0824528');
+  assert.equal(h.input('Número de celular *').props.value,'555-123-8888');
+  await h.click('Buscar mi carga');
+  assert.ok(h.text().includes('Se encontró la orden SCM: recolección'));
+  assert.equal(h.submitButton.props.disabled,false);
+  const orderEvidence=h.calls[1].body.orderId;
+  await switchLanguage('en');
+  assert.equal(h.input(label).props.value,'0824528');
+  assert.equal(h.submitButton.props.disabled,false);
+  await switchLanguage('es');
+  await h.submit();
+  const payload=h.calls.at(-1).body;
+  assert.equal(payload.get('language'),'es');
+  assert.equal(payload.get('orderId'),orderEvidence);
+  assert.equal(payload.get('driverPhone'),'555-123-8888');
+  assert.ok(h.text().includes('Su registro está completo'));
 });
 
 test('unique SCM ID or reference uses one lookup flow, preserves typed input and entered phone, and submits actual order/stop separately', async t => {
@@ -390,4 +427,37 @@ test('editing a deliberate selection resets explicit selection before a subseque
   assert.equal(h.calls[3].body.explicitSelection, false);
   await h.submit();
   assert.equal(h.calls.at(-1).body.get('explicitSelection'), 'false');
+});
+
+test('unsigned pickup is blocked and language or freight changes require renewed acknowledgment', async t => {
+ const h=await mount();t.after(h.dispose);await h.click('Find my load');
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+ await h.sign();assert.equal(h.agreement.value.acknowledged,true);
+ h.nodes(n=>n.type==='select'&&n.props['aria-label']==='English / Español')[0].props.onChange({target:{value:'es'}});await h.flush();
+ assert.equal(h.agreement.value.acknowledged,false);assert.equal(h.agreement.value.strokes.length,1);
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+ await h.sign();await h.change('Destino *','Changed destination');assert.equal(h.agreement.value.electronicConsent,false);
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+});
+
+test('trailer is entered once in main check-in and changing it invalidates agreement consent', async t => {
+ const h=await mount();t.after(h.dispose);await h.click('Find my load');await h.change('Trailer number *','TRAILER-ONE');await h.sign();
+ assert.equal(h.agreement.value.acknowledged,true);await h.change('Trailer number *','TRAILER-TWO');assert.equal(h.agreement.value.acknowledged,false);
+ await h.submit(false);assert.equal(h.calls.filter(c=>c.body instanceof FormData).length,0);
+ await h.submit();const payload=h.calls.at(-1).body;assert.equal(payload.get('trailerNumber'),'MAIN-TEST');
+});
+
+test('Savannah pickup has no Houston popup and submits without its agreement', async t => {
+ const h=await mount(undefined,undefined,{...site,terminal:'SAV',siteCode:'1601',siteName:'Savannah 1601'});t.after(h.dispose);
+ assert.equal(h.nodes(n=>n.props?.['data-agreement']).length,0);
+ await h.click('Find my load');await h.submit();
+ const payload=h.calls.at(-1).body;assert.ok(payload instanceof FormData);assert.equal(payload.has('pickupAgreement'),false);
+});
+
+test('manual unmatched cotton keeps mark 5014 separate from the 90-bale quantities', async t => {
+ const h=await mount(()=>json({ok:true,status:'no_match',matches:[],allowUnmatched:true}));t.after(h.dispose);
+ await h.change('Pickup or delivery? *','delivery');await h.change(label,'5014');await h.click('Find my load');
+ await h.change('Material *','cotton');await h.change('Mark *','5014');await h.change('Bale count on BOL *','90');await h.change('Bales on truck (if different from BOL)','90');
+ assert.equal(h.input('Mark *').props.name,'cottonMark');assert.equal(h.input('Bale count on BOL *').props.name,'bolBaleCount');assert.equal(h.input('Bale count on BOL *').props.autoComplete,'off');
+ await h.submit(false);const body=h.calls.at(-1).body;assert.ok(body instanceof FormData);assert.equal(body.get('mark'),'5014');assert.equal(body.get('bolBaleCount'),'90');assert.equal(body.get('balesOnTruck'),'90');
 });
