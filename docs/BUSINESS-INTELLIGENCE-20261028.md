@@ -63,3 +63,7 @@ Staff management explicitly displays unsupported legacy roles and requires a sup
 ## DFW local drayage revision
 
 Version 7 resolves all 52 DDRAY endpoint locations with GET-only McLeod location records. Both endpoints must be in the DFW metro; DeSoto and Lancaster qualify. Reviewed source cities use the current 11-county metro boundary (https://www.bls.gov/regions/southwest/news-release/areaemployment_dallasfortworth.htm). Unknown locations or new unreviewed cities fail the build. Outside-DFW DDRAY remains direct, CNTR remains direct, and MAIN/TERRY/DAVIS remain OTR. Total company revenue, pay, GP and order counts are preserved; only service and Dallas/Brokerage allocation change. Private endpoint metadata and financial snapshots are never committed.
+
+## Reader methodology guide
+
+`/reporting/business-intelligence/guide` contains the current reader-facing methodology, linked from the report header and footer. It covers dates, service definitions, allocation precedence including DFW DDRAY, GP coverage, chassis, commodity/customer grouping, source controls and review notices. Static explanatory paragraphs move there; the report retains its snapshot cutoff, essential metric labels, and conditional data-quality notices. The guide inherits administrator-only reporting access and supports browser printing. No financial calculation or snapshot changes accompany this presentation update.
