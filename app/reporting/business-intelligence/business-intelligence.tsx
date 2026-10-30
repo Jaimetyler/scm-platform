@@ -92,9 +92,10 @@ export default function BusinessIntelligence(){
 
  const mixOptions=[['total','Total billed revenue'],['otrRevenue','OTR trucking'],['localDrayRevenue','Local drayage'],['directDrayRevenue','Direct drayage'],['warehouseRevenue','Warehouse services'],['warehouseHandling','Handling'],['warehouseStorage','Storage'],['warehouseOther','Other warehouse fees']] as const;
  const mixAmount=(m:BusinessMetrics)=>mixKey==='total'?totalRevenue(m):val(m,mixKey);
- const mixRanked=[...customers].map(customer=>({customer,amount:mixAmount(customer.metrics)})).filter(item=>item.amount>0).sort((a,b)=>b.amount-a.amount);
- const mixDenominator=mixRanked.reduce((n,item)=>n+item.amount,0);
- const mixSegments=[...mixRanked.slice(0,7).map(item=>({name:item.customer.name,amount:item.amount})),...(mixRanked.length>7?[{name:'Other customers',amount:mixRanked.slice(7).reduce((n,item)=>n+item.amount,0)}]:[])];
+ const mixAll=[...customers].map(customer=>({customer,amount:mixAmount(customer.metrics)})).filter(item=>item.amount>0);
+ const mixRanked=mixAll.filter(item=>!query.trim()||`${item.customer.name} ${item.customer.code} ${item.customer.accounts.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase())).sort((a,b)=>b.amount-a.amount);
+ const mixDenominator=mixAll.reduce((n,item)=>n+item.amount,0);
+ const mixSegments=[...mixRanked.slice(0,7).map(item=>({name:item.customer.name,amount:item.amount})),...(mixDenominator>mixRanked.slice(0,7).reduce((n,item)=>n+item.amount,0)?[{name:'Other customers',amount:mixDenominator-mixRanked.slice(0,7).reduce((n,item)=>n+item.amount,0)}]:[])];
  const mixColors=['#38bdf8','#2dd4bf','#a78bfa','#fbbf24','#fb7185','#818cf8','#4ade80','#64748b'];
  let mixCursor=0;
  const mixGradient=mixDenominator>0?'conic-gradient('+mixSegments.map((segment,i)=>{const start=mixCursor;mixCursor+=100*segment.amount/mixDenominator;return mixColors[i%mixColors.length]+' '+start+'% '+mixCursor+'%';}).join(',')+')':'conic-gradient(#334155 0% 100%)';
@@ -124,10 +125,11 @@ export default function BusinessIntelligence(){
   <div className={styles.toolbar}><div className={styles.segment} aria-label="Commodity scope">{['All','Cotton','Non-Cotton',...(data.some(c=>c.scope==='Unclassified')?['Unclassified']:[])].map(value=><button key={value} type="button" aria-pressed={scope===value} className={scope===value?styles.active:''} onClick={()=>setScope(value)}>{value==='All'?'All business':value}</button>)}</div></div>
   <div className={styles.toolbar}>
    <div className={styles.segment} aria-label="Business unit filter">{['All','Savannah','Houston','Dallas','Brokerage'].map(t=><button key={t} type="button" aria-pressed={terminal===t} className={terminal===t?styles.active:''} onClick={()=>setTerminal(t)}>{t==='All'?'All business units':terminalLabel(t)}</button>)}</div>
-   <input aria-label="Search customers" placeholder="Search customer, account or bridge…" value={query} onChange={e=>{setQuery(e.target.value);setSelectedCode(null);}}/>
+   <input aria-label="Search customers across dashboard" placeholder="Search customer, account or bridge…" value={query} onChange={e=>{setQuery(e.target.value);setSelectedCode(null);}}/>
    <select aria-label="Sort customers" value={sort} onChange={e=>setSort(e.target.value)}><option value="revenue">Sort: Billed revenue</option><option value="name">Sort: Customer name</option><option value="otrGP">Sort: OTR order GP</option><option value="localGP">Sort: Local drayage order GP</option><option value="directGP">Sort: Direct drayage order GP</option></select>
   </div>
   {!loading&&!error&&!dateError&&<>
+   {query.trim()&&<p className={styles.hint} role="status">Dashboard filtered to {filtered.length} matching customer{filtered.length===1?'':'s'} for “{query.trim()}”. All summary cards and charts reflect these matches; revenue share percentages retain the full business-unit denominator.</p>}
    {!chassisComplete&&<p role="status" className={styles.hint}>Chassis coverage is partial: loaded Savannah/Houston warehouse charges only. Full trucking-code chassis billing awaits the compact chassis export. The known subtotal is already in billed revenue and is not added again.</p>}
    {!!val(metrics,'chassisUnmappedCodeLines')&&<p role="status" className={styles.hint}>{num(val(metrics,'chassisUnmappedCodeLines'))} chassis charge lines need a revenue-code business-unit mapping. <button type="button" className={styles.back} style={{marginBottom:0}} onClick={()=>setTerminal('Allocation review')}>View chassis allocation review</button></p>}
    {!!val(metrics,'unclassifiedContractRevenue')&&<p className={styles.hint}>Contract storage of {money(val(metrics,'unclassifiedContractRevenue'))} is included in All business and Unclassified. These invoices have no commodity allocation and are excluded from the Cotton and Non-Cotton filters.</p>}
@@ -154,12 +156,12 @@ export default function BusinessIntelligence(){
     </section>}
     {!selected&&<section className={styles.panel}>
       <h2>Customer revenue mix</h2>
-      <p className={styles.hint}>Revenue concentration across all customers in the selected business unit, dates, and commodity scope. Searching the customer table does not change these percentages.</p>
+      <p className={styles.hint}>Revenue concentration for matching customers in the selected business unit, dates, and commodity scope. Search filters this chart and the whole dashboard; percentages continue to use all customers in the selected unit as the denominator.</p>
       <div className={view.mixCategory}><h3>Explore revenue by service</h3><div className={view.mixCategoryButtons} role="group" aria-label="Customer mix revenue category">{mixOptions.map(([key,label])=><button key={key} type="button" aria-pressed={mixKey===key} className={mixKey===key?view.mixCategoryActive:undefined} onClick={()=>setMixKey(key)}>{label}</button>)}</div><p className={styles.hint}>Showing: <strong>{mixOptions.find(([key])=>key===mixKey)?.[1]}</strong></p></div>
       <div style={{display:'flex',flexWrap:'wrap',gap:24,alignItems:'center',marginTop:20}}>
        <div role="img" aria-label="Customer revenue share pie chart" style={{width:220,height:220,borderRadius:'50%',background:mixGradient,flexShrink:0}}/>
        <div style={{flex:'1 1 350px',minWidth:0}}>
-        <h3>{money(mixDenominator)} total</h3>
+        <h3>{money(mixRanked.reduce((n,item)=>n+item.amount,0))} matching revenue <small className={styles.hint}>of {money(mixDenominator)} total</small></h3>
         <div className={styles.tableScroll}><table><thead><tr><th>Customer</th><th>Billed revenue</th><th>Share</th></tr></thead>
          <tbody>{mixRanked.map(({customer,amount})=><tr key={customer.code}><td><button type="button" style={{background:'transparent',border:0,color:'#67e8f9',cursor:'pointer',textAlign:'left'}} onClick={()=>setSelectedCode(customer.code)}>{customer.name}</button></td><td>{money(amount)}</td><td>{mixDenominator>0?(100*amount/mixDenominator).toFixed(1)+'%':'—'}</td></tr>)}</tbody>
         </table></div>
