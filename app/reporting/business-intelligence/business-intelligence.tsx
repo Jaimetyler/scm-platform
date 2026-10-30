@@ -65,6 +65,7 @@ export default function BusinessIntelligence(){
   return ()=>controller.abort();
  },[]);
  useEffect(()=>{if(selectedCode)window.scrollTo({top:0,behavior:'smooth'});},[selectedCode]);
+ const [mixKey,setMixKey]=useState('total');
  const [scope,setScope]=useState('All');
  const [chassisComplete,setChassisComplete]=useState(false);
  const [fromMonth,setFromMonth]=useState(''),[toMonth,setToMonth]=useState('');
@@ -88,6 +89,22 @@ export default function BusinessIntelligence(){
   return left===null?(right===null?0:1):right===null?-1:right-left;
  }),[customers,query,sort]);
  const selected=selectedCode?customers.find(c=>c.code===selectedCode):null;
+
+ const mixOptions=[['total','Total billed revenue'],['otrRevenue','OTR trucking'],['localDrayRevenue','Local drayage'],['directDrayRevenue','Direct drayage'],['warehouseRevenue','Warehouse services'],['warehouseHandling','Handling'],['warehouseStorage','Storage'],['warehouseOther','Other warehouse fees']] as const;
+ const mixAmount=(m:BusinessMetrics)=>mixKey==='total'?totalRevenue(m):val(m,mixKey);
+ const mixRanked=[...customers].map(customer=>({customer,amount:mixAmount(customer.metrics)})).filter(item=>item.amount>0).sort((a,b)=>b.amount-a.amount);
+ const mixDenominator=mixRanked.reduce((n,item)=>n+item.amount,0);
+ const mixSegments=[...mixRanked.slice(0,7).map(item=>({name:item.customer.name,amount:item.amount})),...(mixRanked.length>7?[{name:'Other customers',amount:mixRanked.slice(7).reduce((n,item)=>n+item.amount,0)}]:[])];
+ const mixColors=['#38bdf8','#2dd4bf','#a78bfa','#fbbf24','#fb7185','#818cf8','#4ade80','#64748b'];
+ let mixCursor=0;
+ const mixGradient=mixDenominator>0?'conic-gradient('+mixSegments.map((segment,i)=>{const start=mixCursor;mixCursor+=100*segment.amount/mixDenominator;return mixColors[i%mixColors.length]+' '+start+'% '+mixCursor+'%';}).join(',')+')':'conic-gradient(#334155 0% 100%)';
+ const selectedUnitRows=selected?['Savannah','Houston','Dallas','Brokerage'].map(unit=>{
+  const unitRows=periodRows.filter(row=>row.warehouse===unit&&(scope==='All'||row.scope===scope));
+  const denominator=totalRevenue(sum(unitRows).metrics);
+  const customerAmount=totalRevenue(sum(unitRows.filter(row=>row.code===selected.code)).metrics);
+  return {unit,denominator,customerAmount,share:denominator>0?100*customerAmount/denominator:null};
+ }):[];
+
  const total=sum(filtered.flatMap(c=>c.locations)).metrics;
  const metrics=selected?.metrics||total;
  const missing=val(metrics,'otrPayMissing')+val(metrics,'drayPayMissing');
@@ -120,7 +137,37 @@ export default function BusinessIntelligence(){
    {!!linksMissing&&<p className={styles.hint}>Some customer bridge targets are not present in this snapshot. Those accounts remain separate.</p>}
    {!!val(metrics,'warehouseHeaderIssues')&&<p role="status">{num(val(metrics,'warehouseHeaderIssues'))} warehouse invoices need header reconciliation review.</p>}
    {selectedCode&&!selected?<section className={styles.panel}><button className={styles.back} onClick={()=>setSelectedCode(null)}>All customers</button><p>No activity for this customer in the selected month range, business unit, or commodity scope.</p></section>:<>
-    {selected&&<section className={styles.panel}><button className={styles.back} onClick={()=>setSelectedCode(null)}>All customers</button><h2>{selected.name}</h2><p>{selected.accounts.join(' · ')} · {selected.locations.map(c=>terminalLabel(c.warehouse)).join(' + ')} · {scope==='All'?'All commodity scopes':scope}</p></section>}
+
+    {selected&&<section className={styles.panel} style={{border:'2px solid #38bdf8',padding:24}}>
+      <button type="button" className={styles.back} onClick={()=>setSelectedCode(null)}>← Back to all customers</button>
+      <p className={styles.eyebrow}>Business Intelligence / Customer detail</p>
+      <h1 style={{fontSize:32,margin:'10px 0'}}>{selected.name}</h1>
+      <p>{selected.accounts.join(' · ')} · {scope==='All'?'All commodity scopes':scope} · {startMonth} through {endMonth}</p>
+      <h2>Customer share of business-unit revenue</h2>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:12}}>
+       {selectedUnitRows.map(item=><div key={item.unit} style={{padding:14,border:'1px solid #475569',borderRadius:10}}>
+        <strong>{item.unit}</strong><p style={{fontSize:26,fontWeight:800,margin:'8px 0'}}>{item.share===null?'—':item.share.toFixed(1)+'%'}</p>
+        <small>{money(item.customerAmount)} of {money(item.denominator)}</small>
+       </div>)}
+      </div>
+      <p className={styles.hint}>Each percentage is the customer's billed revenue divided by that unit's total billed revenue for the selected dates and commodity scope. Units without revenue show —.</p>
+    </section>}
+    {!selected&&<section className={styles.panel}>
+      <h2>Customer revenue mix</h2>
+      <p className={styles.hint}>Revenue concentration across all customers in the selected business unit, dates, and commodity scope. Searching the customer table does not change these percentages.</p>
+      <label>Revenue category <select aria-label="Customer mix revenue category" value={mixKey} onChange={e=>setMixKey(e.target.value)}>{mixOptions.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+      <div style={{display:'flex',flexWrap:'wrap',gap:24,alignItems:'center',marginTop:20}}>
+       <div role="img" aria-label="Customer revenue share pie chart" style={{width:220,height:220,borderRadius:'50%',background:mixGradient,flexShrink:0}}/>
+       <div style={{flex:'1 1 350px',minWidth:0}}>
+        <h3>{money(mixDenominator)} total</h3>
+        <div className={styles.tableScroll}><table><thead><tr><th>Customer</th><th>Billed revenue</th><th>Share</th></tr></thead>
+         <tbody>{mixRanked.map(({customer,amount})=><tr key={customer.code}><td><button type="button" style={{background:'transparent',border:0,color:'#67e8f9',cursor:'pointer',textAlign:'left'}} onClick={()=>setSelectedCode(customer.code)}>{customer.name}</button></td><td>{money(amount)}</td><td>{mixDenominator>0?(100*amount/mixDenominator).toFixed(1)+'%':'—'}</td></tr>)}</tbody>
+        </table></div>
+       </div>
+      </div>
+      {mixDenominator===0&&<p className={styles.hint}>No revenue in this category for the selected period.</p>}
+    </section>}
+
     <div className={styles.kpis}>
      <div><span>Total billed revenue</span><strong>{compact(totalRevenue(metrics))}</strong></div>
      <div><span>Warehouse services billed</span><strong>{compact(val(metrics,'warehouseRevenue'))}</strong></div>
