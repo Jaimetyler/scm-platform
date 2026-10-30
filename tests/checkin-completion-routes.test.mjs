@@ -1,0 +1,425 @@
+import assert from "node:assert/strict";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import test from "node:test";
+import ts from "typescript";
+import * as yardHelpers from "../lib/inbound/checkin/yard-stop.ts";
+import * as dependencyHelpers from "../lib/http/dependency.ts";
+import * as orderHelpers from "../lib/inbound/checkin/mcleod-order-id.ts";
+import * as referenceSearchHelpers from "../lib/inbound/checkin/reference-search.ts";
+import * as driverLookupHelpers from "../lib/inbound/checkin/driver-lookup.ts";
+import { currentCottonOrder } from "../lib/inbound/checkin/current-cotton-order.ts";
+import { CHECKIN_SITES } from "../lib/inbound/checkin/sites.ts";
+import { extractSearchOrders } from "../lib/mcleod/inbound/search-response.ts";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
+const require = createRequire(import.meta.url);
+// Execute real route handlers with only HTTP framework and database boundaries
+// replaced. McLeod search/detail responses are fixtures; no live writes occur.
+function load(path, overrides = {}) {
+  const full = resolve(root, path);
+  const source = ts.transpileModule(readFileSync(full, "utf8"), { fileName: full,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const defaults = {
+    "next/server": { NextResponse: Response },
+    "@/lib/auth/guard": { withStaffAccess: handler => handler, staffActor: () => "test staff", staffProfile: () => ({ role: "admin" }) },
+    "@supabase/supabase-js": { createClient: () => { throw new Error("Unexpected database access"); } },
+    "@/lib/inbound/checkin/mcleod-order-id": orderHelpers,
+    "@/lib/inbound/checkin/driver-lookup": driverLookupHelpers,
+    "@/lib/inbound/checkin/reference-search": referenceSearchHelpers,
+    "@/lib/inbound/checkin/yard-stop": yardHelpers,
+    "@/lib/http/dependency": dependencyHelpers,
+    "@/lib/inbound/checkin/current-cotton-order": { currentCottonOrder },
+    "@/lib/inbound/checkin/sites": { CHECKIN_SITES },
+    "@/lib/mcleod/inbound/search-response": { extractSearchOrders },
+    "@/lib/mcleod/inbound/utils": { normalizeKey: (v) => String(v).toUpperCase().replace(/[^A-Z0-9]/g, "") },
+    "@/lib/mcleod/inbound/xref": { CUSTOMER_XREF: [] },
+    "@/lib/inbound/checkin/geofence": { verifyGateLocation: () => ({ ok: true, distanceMeters: 0 }), warehouseDate: () => "2026-10-02" },
+    "@/lib/inbound/checkin/container-device": {},
+    "@/lib/inbound/checkin/shortage": {},
+    "@/lib/inbound/checkin/ready": {},
+    "@/lib/inbound/checkin/process-row": {},
+    "@/lib/inbound/checkin/scm-carrier": {},
+    "@/lib/inbound/checkin/backfill-trucking-company": {},
+  };
+  const modules = { ...defaults, ...overrides };
+  const module = { exports: {} };
+  const localRequire = (name) => {
+    if (Object.hasOwn(modules, name)) return modules[name];
+    if (name.startsWith(".") || name.startsWith("@/")) {
+      const file = name.startsWith("@/") ? resolve(root, name.slice(2)) : resolve(dirname(full), name);
+      return load(existsSync(file) ? file : existsSync(file + ".ts") ? file + ".ts" : file + ".tsx", overrides);
+    }
+    return require(name);
+  };
+  new Function("require", "module", "exports", source)(localRequire, module, module.exports);
+  return module.exports;
+}
+
+function fixture({ cotton = false, closed = true, orderStatus = "Available" } = {}) {
+  return { id: "0824528", revenue_code_id: "MAIN", customer_id: "CUSTOMER", __statusDescr: orderStatus,
+    blnum: cotton ? "TESTMARK 88 BALES" : "2168418 / 1479334", consignee_refno: cotton ? "TESTMARK" : "7799F",
+    commodity_id: cotton ? "COTTON" : "LUMBER", movements: [{ id: "OLD", carrier: { name: "Delivered It Trucking" } }],
+    stops: [{ id: "SCMSTOP", movement_id: "OLD", stop_type: cotton ? "SO" : "PU",
+      actual_departure: closed ? "20260101090000-0500" : "",
+      sched_arrive_early: closed ? "20260101070000-0500" : new Date().toISOString(),
+      location: { name: "SCM Houston 5300", address1: "5300 Warehouse Road" } }] };
+}
+
+async function withMcleod(order, run, searchResponse = () => [order]) {
+  const savedFetch = globalThis.fetch;
+  const keys = ["MCLEOD_BASE_URL", "MCLEOD_AUTH_TOKEN", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) process.env[key] = key.endsWith("URL") ? "https://example.invalid" : "test";
+  globalThis.fetch = async (url, init) => {
+    assert.ok(!init?.method || init.method === "GET", "Search must never mutate McLeod");
+    const path = new URL(url);
+    if (/\/orders\/[^/]+$/.test(path.pathname) && !path.pathname.endsWith("/search") &&
+        decodeURIComponent(path.pathname.split("/").pop()) !== order.id) return Response.json(null, { status: 404 });
+    if (path.pathname.endsWith("/search") && path.searchParams.has("orders.id")) {
+      assert.equal(path.searchParams.get("recordLength"), "2");
+      const id = path.searchParams.get("orders.id");
+      assert.ok(!/[*?]/.test(id));
+      return Response.json(String(order.id).trim().toUpperCase() === id.toUpperCase() ? [order] : null);
+    }
+    return Response.json(path.pathname.endsWith("/search") ? searchResponse(path) : order);
+  };
+  try { await run(); } finally {
+    globalThis.fetch = savedFetch;
+    for (const key of keys) if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+  }
+}
+
+test("staff cotton lookup retains completed deliveries older than 45 days", async () => {
+  await withMcleod(fixture({ cotton: true }), async () => {
+    const { GET } = load("app/api/inbound/checkin/cotton-match/route.ts");
+    const response = await GET({ nextUrl: new URL("https://scm.test/?terminal=HOU&siteCode=5300&mark=TESTMARK") });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].completion.kind, "delivery");
+    assert.equal(body.matches[0].carrierName, "Delivered It Trucking");
+    assert.equal(body.incomplete, false);
+  });
+});
+
+test("staff domestic lookup keeps completed pickup and accepts either BL token", async () => {
+  await withMcleod(fixture(), async () => {
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    for (const ref of ["2168418", "1479334"]) {
+      const response = await GET({ url: `https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=${ref}` });
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.matches.length, 1);
+      assert.equal(body.matches[0].completion.kind, "pickup");
+      assert.equal(body.matches[0].carrierName, "Delivered It Trucking");
+    }
+  });
+});
+
+test("active domestic result remains selectable", async () => {
+  await withMcleod(fixture({ closed: false }), async () => {
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=2168418" });
+    const body = await response.json();
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].completion, null);
+  });
+});
+
+test("1601 BL matches survive a null consignee-reference response", async () => {
+  for (const material of ["LUMBER", "FAK"]) {
+    const order = fixture({ closed: false });
+    order.commodity_id = material;
+    order.stops[0].location = { name: "Supply Chain Management 7-3fcfs", address1: "1601 OLD AUGUSTA RD S" };
+    await withMcleod(order, async () => {
+      const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+      for (const reference of ["2168418", "1479334", "2168418 / 1479334"]) {
+        const query = new URLSearchParams({ terminal: "SAV", siteCode: "1601", movementDirection: "pickup", referenceNumber: reference });
+        const response = await GET({ url: `https://scm.test/?${query}` });
+        const body = await response.json();
+        assert.equal(response.status, 200, JSON.stringify(body));
+        assert.equal(body.matches.length, 1);
+        assert.equal(body.matches[0].orderId, "0824528");
+        assert.equal(body.matches[0].completion, null);
+        assert.equal(body.matches[0].materialType, material === "LUMBER" ? "lumber" : "other");
+      }
+    }, (url) => url.searchParams.has("orders.blnum") ? [order] : null);
+  }
+});
+
+test("a delivery match survives a null BL response", async () => {
+  const order = fixture({ closed: false });
+  order.stops[0].stop_type = "SO";
+  await withMcleod(order, async () => {
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=delivery&referenceNumber=7799F" });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].direction, "delivery");
+  }, (url) => url.searchParams.has("orders.consignee_refno") ? [order] : null);
+});
+
+test("two null results mean no match, but an unexpected object remains an error", async () => {
+  for (const payload of [null, { error: "Upstream search failed" }]) {
+    await withMcleod(fixture(), async () => {
+      const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+      const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=NOTFOUND" });
+      const body = await response.json();
+      assert.equal(response.status, payload === null ? 200 : 503);
+      if (payload === null) assert.deepEqual(body.matches, []);
+      else { assert.equal(body.ok, false); assert.match(body.error, /could not be completed safely/); assert.equal(body.matches, undefined); }
+    }, () => payload);
+  }
+});
+
+test("an HTTP failure with a null body remains a search failure", async () => {
+  await withMcleod(fixture(), async () => {
+    globalThis.fetch = async () => Response.json(null, { status: 503 });
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response = await GET({ url: "https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=2168418" });
+    assert.equal(response.status, 503);
+    assert.match((await response.json()).error, /could not be completed safely/);
+  });
+});
+
+test("cotton lookup also accepts an empty alternate-reference result", async () => {
+  const order = fixture({ cotton: true });
+  await withMcleod(order, async () => {
+    const { GET } = load("app/api/inbound/checkin/cotton-match/route.ts");
+    const response = await GET({ nextUrl: new URL("https://scm.test/?terminal=HOU&siteCode=5300&mark=TESTMARK") });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.matches.length, 1);
+    assert.equal(body.matches[0].completion.kind, "delivery");
+    assert.equal(body.incomplete, false);
+  }, (url) => url.searchParams.has("orders.consignee_refno") ? [order] : null);
+});
+
+test("staff create rejects completed and status-only closed orders before database write", async () => {
+  for (const order of [fixture(), fixture({ closed: false, orderStatus: "Closed" })]) {
+    await withMcleod(order, async () => {
+      const { POST } = load("app/api/warehouse/domestic-queue/route.ts");
+      const response = await POST({ json: async () => ({ terminal: "HOU", siteCode: "5300", movementDirection: "pickup",
+        materialType: "lumber", orderId: "0824528", referenceNumber: "2168418" }) });
+      assert.equal(response.status, 409);
+      assert.ok((await response.json()).completion);
+    });
+  }
+});
+
+test("linking a saved domestic row cannot attach a completed order", async () => {
+  await withMcleod(fixture(), async () => {
+    const query = { select() { return this; }, eq() { return this; }, in() { return this; },
+      async single() { return { data: { updated_at: "revision", reference_number: "2168418", movement_direction: "pickup" } }; } };
+    const { PATCH } = load("app/api/warehouse/domestic-queue/route.ts", {
+      "@supabase/supabase-js": { createClient: () => ({ from: () => query }) },
+    });
+    const response = await PATCH({ json: async () => ({ action: "match_order", id: "12345678-1234-4234-8234-123456789012",
+      terminal: "HOU", siteCode: "5300", expectedUpdatedAt: "revision", orderId: "0824528" }) });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).completion.kind, "pickup");
+  });
+});
+
+test("driver reference and direct-ID lookups show the company; submit rejects completed order", async () => {
+  await withMcleod(fixture(), async () => {
+    const gate = { terminal: "HOU", site_code: "5300", site_name: "Houston 5300", latitude: 1, longitude: 1 };
+    const query = { select() { return this; }, eq() { return this; }, async maybeSingle() { return { data: gate }; } };
+    const { POST } = load("app/api/gate/check-in/[token]/route.ts", {
+      "@supabase/supabase-js": { createClient: () => ({ from: () => query }) },
+    });
+    const context = { params: Promise.resolve({ token: "12345678-1234-4234-8234-123456789012" }) };
+    for (const action of ["lookupReference", "lookupOrder", "submit"]) {
+      const req = new Request("https://scm.test/", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, orderId: "0824528", referenceNumber: "2168418", movementDirection: "pickup",
+          clientId: "12345678-1234-4234-8234-123456789012", checkinType: "domestic", materialType: "lumber",
+          driverName: "Test Driver", driverPhone: "5551234567", truckingCompany: "Test Trucking" }) });
+      const response = await POST(req, context);
+      const body = await response.json();
+      assert.equal(response.status, action === "lookupReference" ? 200 : 409, JSON.stringify(body));
+      const completion = action === "lookupReference" ? body.matches[0].completion : body.completion;
+      assert.equal(completion.carrierName, "Delivered It Trucking");
+      assert.equal(completion.kind, "pickup");
+    }
+  });
+});
+
+test("cotton verification rejects a Closed status without a departure", async () => {
+  await withMcleod(fixture({ cotton: true, closed: false, orderStatus: "Closed" }), async () => {
+    const { verifyCottonOrder } = load("lib/inbound/checkin/verify-cotton-order.ts");
+    await assert.rejects(verifyCottonOrder("0824528", "TESTMARK", 88, true), /closed out/);
+  });
+});
+
+test("completion notice escapes McLeod strings and shows fallback when time or carrier is missing", () => {
+  const React = require("react"), { renderToStaticMarkup } = require("react-dom/server");
+  const Notice = load("components/warehouse/CompletedOrderNotice.tsx").default;
+  const markup = renderToStaticMarkup(React.createElement(Notice, { orderId: "<script>bad</script>", completion: {
+    kind: "closed", message: "Order already closed out in McLeod", completedAt: "", location: "",
+    carrierName: "", carrierCode: "",
+  } }));
+  assert.ok(!markup.includes("<script>"));
+  assert.match(markup, /Trucking company unavailable/);
+  assert.match(markup, /Completion time unavailable/);
+  assert.ok(!markup.includes("<button"));
+});
+
+test("BLNUM92157-shaped multi-stop fixture picks yard plus direction in driver and staff lookup", async () => {
+  const order=fixture({closed:false}); order.id="92157"; order.blnum="92157";
+  order.stops=[
+    {id:"OLDPU",movement_id:"OLD",stop_type:"PU",sched_arrive_early:"20200101090000-0600",actual_departure:"20200101100000-0600",location:{name:"SCM Houston 4331"}},
+    {id:"TARGETPU",movement_id:"CURRENT",stop_type:"PU",sched_arrive_early:new Date().toISOString(),location:{name:"SCM Houston 5300"}},
+    {id:"TARGETSO",movement_id:"CURRENT",stop_type:"SO",sched_arrive_early:new Date().toISOString(),location:{name:"SCM Houston 5300"}},
+  ];
+  order.movements.push({id:"CURRENT",carrier_name:"Current Carrier"});
+  await withMcleod(order,async()=>{
+    const {GET}=load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response=await GET({url:"https://scm.test/?terminal=HOU&siteCode=5300&movementDirection=pickup&referenceNumber=92157&strictDirection=1"});
+    const body=await response.json(); assert.equal(response.status,200,JSON.stringify(body));
+    assert.equal(body.matches.length,1); assert.equal(body.matches[0].stopId,"TARGETPU");
+    assert.equal(body.matches[0].completion,null);assert.equal(body.matches[0].carrierName,"Current Carrier");
+    const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1}})};
+    const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
+    const result=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupReference",referenceNumber:"92157",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+    assert.equal(result.status,200); assert.equal((await result.json()).matches[0].stopId,"TARGETPU");
+  });
+});
+test("driver gate outage remains retryable rather than a false inactive-link 404",async()=>{
+  await withMcleod(fixture(),async()=>{
+  for(const [data,error,status] of [[null,{message:"database timeout"},503],[null,null,404]]) {
+    const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data,error})};
+    const {GET}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
+    const response=await GET(new Request("https://scm.test/"),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+    assert.equal(response.status,status); if(status===503)assert.equal(response.headers.get("Retry-After"),"10");
+  }
+  });
+});
+
+test("driver incomplete revenue metadata cannot be called a no-match",async()=>{
+  const order=fixture({closed:false}); delete order.revenue_code_id;
+  await withMcleod(order,async()=>{
+    const query={select(){return this;},eq(){return this;},maybeSingle:async()=>({data:{terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1}})};
+    const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>query})}});
+    const response=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupReference",referenceNumber:"2168418",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+    assert.equal(response.status,200); const result=await response.json();
+    assert.equal(result.ok,true); assert.equal(result.status,"provisional");
+    assert.equal(result.allowUnmatched,true); assert.deepEqual(result.matches,[]);
+  });
+});
+
+test("staff create, staff link, and driver submit persist only a freshly verified selected stop", async () => {
+  for (const action of ["staff-create", "staff-link", "driver-submit"]) {
+    for (const selectedStopId of ["SCMSTOP", "STALE"]) {
+      const order = fixture({ closed: false });
+      // A second same-direction visit proves the supplied selection is actually used.
+      order.stops.push({ ...order.stops[0], id: "SECOND" });
+      await withMcleod(order, async () => {
+        const writes = [];
+        const existing = { id: "12345678-1234-4234-8234-123456789012", updated_at: "revision",
+          terminal: "HOU", site_code: "5300", movement_direction: "pickup", reference_number: "2168418" };
+        const db = { from(table) {
+          let write = null;
+          return { select() { return this; }, eq() { return this; }, in() { return this; },
+            insert(value) { write = value; writes.push(value); return this; },
+            update(value) { write = value; writes.push(value); return this; },
+            async single() { return { data: { ...existing, ...write } }; },
+            async maybeSingle() { return { data: table === "driver_checkin_sites" ? {
+              id: "gate", terminal: "HOU", site_code: "5300", site_name: "Houston 5300", latitude: 1, longitude: 1,
+            } : existing }; },
+          };
+        } };
+        const overrides = { "@supabase/supabase-js": { createClient: () => db },
+          "@/lib/inbound/checkin/shortage": { cottonShortage: () => null } };
+        const payload = { pickupAgreement: { version: "scm-pickup-2026-10-27-v1", language: "en", printedName: "Driver", trailerNumber: "TEST", productDescription: "Lumber", pickupNumber: "TEST", referencePo: "TEST", acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] }, terminal: "HOU", siteCode: "5300", movementDirection: "pickup", materialType: "lumber",
+          orderId: "0824528", selectedStopId, referenceNumber: "2168418", driverName: "Driver", driverPhone: "555-0100",
+          truckingCompany: "Carrier", destination: "Customer Receiver", clientId: existing.id, checkinType: "domestic" };
+        let response;
+        if (action === "staff-create") response = await load("app/api/warehouse/domestic-queue/route.ts", overrides).POST({ json: async () => payload });
+        else if (action === "staff-link") response = await load("app/api/warehouse/domestic-queue/route.ts", overrides).PATCH({ json: async () => ({ ...payload,
+          id: existing.id, expectedUpdatedAt: "revision", action: "match_order" }) });
+        else response = await load("app/api/gate/check-in/[token]/route.ts", overrides).POST(new Request("https://scm.test/", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        }), { params: Promise.resolve({ token: existing.id }) });
+        const body = await response.json();
+        assert.equal(response.status, selectedStopId === "SCMSTOP" ? 200 : 409, `${action}: ${JSON.stringify(body)}`);
+        if (selectedStopId === "SCMSTOP") assert.equal(writes[0].matched_stop_id, "SCMSTOP");
+        else assert.equal(writes.length, 0);
+      });
+    }
+  }
+});
+
+test("United Agricultural reversed numeric pair resolves with both components intact", async () => {
+  const { referenceMatchesInput } = await import("../lib/inbound/checkin/reference-match.ts");
+  assert.equal(referenceMatchesInput("987-60136", "60136-987"), true);
+  assert.equal(referenceMatchesInput("60136-987", "987-60136"), true);
+  assert.equal(referenceMatchesInput("987-60137", "60136-987"), false);
+  assert.equal(referenceMatchesInput("987-60136-2", "60136-987"), false);
+  assert.equal(referenceMatchesInput("ABC-60136", "60136-ABC"), false);
+});
+
+test('local-only shortage waits for acknowledgment, then permits audited notification without reopening receiving', async () => {
+  await withMcleod(fixture(), async () => {
+    let current = { id: '11111111-1111-4111-8111-111111111111', updated_at: 'revision-1',
+      terminal: 'SAV', site_code: '175', site_name: 'Savannah - 175', sub_location: 'MAIN',
+      received_date: '2026-10-26', mark: 'LOCALSHORT', shipper: 'KING RANCH', bol_bc: 90,
+      bale_count: null, warehouse_location: 'D3', equipment_type: 'V', verified: false,
+      comment_1: null, comment_2: null, checked_in_at: '2026-10-26T12:00:00Z',
+      draft_status: 'checked_in', yard_status: 'working', local_receiving_only: true,
+      material_type: 'cotton', movement_direction: 'delivery', matched_order_id: null };
+    let revision = 1, remoteProcessing = 0;
+    const db = { from() {
+      let payload; const filters = [];
+      return { select() { return this; }, eq(k,v) { filters.push(r => r[k] === v); return this; },
+        in(k,vs) { filters.push(r => vs.includes(r[k])); return this; },
+        update(v) { payload=v; return this; }, async single() { return { data: { ...current } }; },
+        async maybeSingle() {
+          if (!filters.every(f=>f(current))) return { data:null };
+          current={...current,...payload,updated_at:`revision-${++revision}`}; return { data:{...current} };
+        } };
+    } };
+    const { PATCH } = load('app/api/inbound/checkin/rows/[id]/route.ts', {
+      '@/lib/inbound/checkin/ready': load('lib/inbound/checkin/ready.ts'),
+      '@/lib/inbound/checkin/shortage': load('lib/inbound/checkin/shortage.ts'),
+      '@supabase/supabase-js': { createClient:()=>db },
+      '@/lib/inbound/checkin/process-row': { processCheckinRow:async()=>{remoteProcessing++;throw new Error('Local receiving cannot process McLeod');} },
+    });
+    const patch = async body => {
+      const response=await PATCH({ json:async()=>({expectedUpdatedAt:current.updated_at,...body}) },
+        {params:Promise.resolve({id:current.id})}); return {status:response.status,body:await response.json()};
+    };
+    assert.equal((await patch({baleCount:80})).status,200);
+    assert.equal(current.draft_status,'checked_in'); assert.equal(current.yard_status,'working');
+    assert.equal(current.physical_departed_at,undefined); assert.equal(current.verified,false);
+    assert.equal((await patch({acknowledgeShortage:true,shortageNote:'Ten bales missing; customer follow-up required.'})).status,200);
+    assert.equal(current.draft_status,'delivery_blocked'); assert.equal(current.yard_status,'completed');
+    const departed=current.physical_departed_at; assert.ok(departed); assert.ok(current.shortage_acknowledged_at);
+    assert.equal((await patch({customerNotified:true,notificationNote:'Synthetic customer notified',baleCount:79})).status,409);
+    assert.equal(current.bale_count,80);
+    assert.equal((await patch({customerNotified:true,notificationNote:'Synthetic customer notified',matchedOrderId:'FORGED'})).status,409);
+    const notified=await patch({customerNotified:true,notificationNote:'Synthetic customer notified'});
+    assert.equal(notified.status,200,JSON.stringify(notified.body)); assert.ok(current.customer_notified_at);
+    assert.equal(current.physical_departed_at,departed); assert.equal(current.yard_status,'completed');
+    assert.equal((await patch({baleCount:90})).status,409); assert.equal(current.bale_count,80);
+    assert.equal(remoteProcessing,0);
+  });
+});
+
+test('staff-created King Ranch receipts default local-only without a client flag or vendor lookup',async()=>{
+  await withMcleod(fixture(),async()=>{
+  let payload;
+  const query={insert(v){payload=v;return this;},select(){return this;},async single(){return{data:{id:'fixture',...payload}};}};
+  const {POST}=load('app/api/inbound/checkin/rows/route.ts',{
+    '@supabase/supabase-js':{createClient:()=>({from:()=>query})},
+    '@/lib/inbound/checkin/verify-cotton-order':{verifyCottonOrder:async()=>{throw new Error('Local creation must not search McLeod');}},
+  });
+  const result=await POST({json:async()=>({terminal:'HOU',siteCode:'5300',siteName:'Houston 5300',
+    receivedDate:'2026-10-27',mark:'LOCALPOLICY',shipper:'KING RANCH',bolBC:90,localReceivingOnly:false})});
+  assert.equal(result.status,200,JSON.stringify(await result.clone().json()));
+  assert.equal(payload.local_receiving_only,true);assert.equal(payload.matched_order_id,null);
+  });
+});

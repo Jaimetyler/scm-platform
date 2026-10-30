@@ -1,0 +1,496 @@
+import { validatePickupAcceptance, PICKUP_TERMS, requiresPickupAgreement } from "@/lib/inbound/checkin/pickup-agreement";
+import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
+import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
+import { NextRequest, NextResponse } from "next/server";
+import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { createClient } from "@supabase/supabase-js";
+import { verifyGateLocation, warehouseDate } from "@/lib/inbound/checkin/geofence";
+import { containerDeviceHash, validContainerDeviceId } from "@/lib/inbound/checkin/container-device";
+import { lookupDriverReference, publicDriverMatch, publicDriverCompletion, selectDriverMatch } from "@/lib/inbound/checkin/driver-lookup";
+
+import { cottonShortage } from "@/lib/inbound/checkin/shortage";
+
+export const runtime = "nodejs";
+
+function database() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing Supabase environment variables");
+  return createClient(url, key, { global: { fetch: dependencyFetch } });
+}
+
+function clean(value: unknown, max = 120) {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function positiveInteger(value: unknown) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+const BOL_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_BOL_PHOTO_BYTES = 4 * 1024 * 1024;
+
+async function requestBody(req: NextRequest) {
+  if (req.headers.get("content-type")?.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const photoValue = form.get("bolPhoto");
+    return {
+      body: {
+        clientId: form.get("clientId"),
+        pickupAgreement: form.get("pickupAgreement"),
+        deviceId: form.get("deviceId"),
+        checkinType: form.get("checkinType"),
+        driverName: form.get("driverName"),
+        driverPhone: form.get("driverPhone"),
+        truckingCompany: form.get("truckingCompany"),
+        trailerNumber: form.get("trailerNumber"),
+        movementDirection: form.get("movementDirection"),
+        materialType: form.get("materialType"),
+        orderId: form.get("orderId"),
+        selectedStopId: form.get("selectedStopId"),
+        referenceNumber: form.get("referenceNumber"),
+        driverLookupInput: form.get("driverLookupInput"),
+        explicitSelection: form.get("explicitSelection"),
+        destination: form.get("destination"),
+        mark: form.get("mark"),
+        bolBaleCount: form.get("bolBaleCount"),
+        balesOnTruck: form.get("balesOnTruck"),
+        location: {
+          latitude: form.get("latitude"),
+          longitude: form.get("longitude"),
+          accuracyMeters: form.get("accuracyMeters"),
+          capturedAt: form.get("capturedAt"),
+        },
+      },
+      photo: photoValue instanceof File && photoValue.size > 0 ? photoValue : null,
+    };
+  }
+  return { body: await req.json(), photo: null as File | null };
+}
+
+function validatePhoto(photo: File | null) {
+  if (!photo) return null;
+  if (!BOL_PHOTO_TYPES.has(photo.type)) {
+    return "The paperwork photo must be a JPG, PNG, or WebP image.";
+  }
+  if (photo.size > MAX_BOL_PHOTO_BYTES) {
+    return "The paperwork photo is too large. Retake it at a lower resolution.";
+  }
+  return null;
+}
+
+function photoExtension(contentType: string) {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  return "jpg";
+}
+
+async function getGate(token: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(token)) return null;
+  const { data, error } = await database().from("driver_checkin_sites")
+    .select("id, terminal, site_code, site_name, latitude, longitude, radius_m, active")
+    .eq("public_token", token).eq("active", true).maybeSingle();
+  if (error) throw new DependencyError("Driver check-in is temporarily unavailable. Please try again.");
+  if (!data || data.latitude === null || data.longitude === null ||
+      !CHECKIN_SITES.some((site) => site.terminal === data.terminal && site.siteCode === data.site_code)) return null;
+  return data as {
+    id: string; terminal: "SAV" | "HOU"; site_code: string; site_name: string;
+    latitude: number; longitude: number; radius_m: number; active: boolean;
+  };
+}
+
+export async function GET(req: NextRequest, context: { params: Promise<{ token: string }> }) {
+  try {
+    const { token } = await context.params;
+    const gate = await getGate(token);
+    if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
+    let activeQueue = null;
+    const deviceId = new URL(req.url).searchParams.get("deviceId");
+    if (validContainerDeviceId(deviceId)) {
+      const sb = database();
+      const { data, error } = await sb.from("container_gate_queue")
+        .select("id, driver_name, site_name, checked_in_at")
+        .eq("device_token_hash", containerDeviceHash(deviceId))
+        .eq("queue_status", "waiting")
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        const positionResult = await sb.rpc("container_queue_position", { p_id: data.id });
+        if (positionResult.error) throw positionResult.error;
+        activeQueue = {
+          position: Number(positionResult.data),
+          driverName: data.driver_name,
+          siteName: data.site_name,
+          checkedInAt: data.checked_in_at,
+        };
+      }
+    }
+    const configuredSite = CHECKIN_SITES.find((site) => site.terminal === gate.terminal && site.siteCode === gate.site_code)!;
+    return NextResponse.json({
+      ok: true,
+      site: { terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name,
+        materials: configuredSite.materials, containers: configuredSite.containers },
+      activeQueue,
+    });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load this check-in site" }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
+  }
+}
+
+export async function POST(req: NextRequest, context: { params: Promise<{ token: string }> }) {
+  try {
+    const { token } = await context.params;
+    const gate = await getGate(token);
+    if (!gate) return NextResponse.json({ ok: false, error: "This driver check-in link is not active" }, { status: 404 });
+
+    const { body, photo } = await requestBody(req);
+    if (body?.action === "lookupReference") {
+      const verified = verifyGateLocation({
+        gate: { latitude: gate.latitude, longitude: gate.longitude, radiusMeters: gate.radius_m },
+        driver: { latitude: Number(body?.location?.latitude), longitude: Number(body?.location?.longitude),
+          accuracyMeters: Number(body?.location?.accuracyMeters), capturedAt: clean(body?.location?.capturedAt, 40) },
+      });
+      if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
+      const input = String(body?.driverLookupInput ?? body?.referenceNumber ?? "").trim();
+      const direction = clean(body?.movementDirection, 20).toLowerCase();
+      if (!["pickup", "delivery"].includes(direction))
+        return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
+      let result: Awaited<ReturnType<typeof lookupDriverReference>>;
+      try {
+        result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
+      } catch (error) {
+        if (error instanceof DependencyError ||
+            error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP")
+          return NextResponse.json({ ok: true, status: "provisional", matches: [],
+            allowUnmatched: true, selectionRequired: false,
+            message: "McLeod lookup is unavailable. You can check in; staff will verify your load." },
+            { headers: { "Cache-Control": "no-store" } });
+        throw error;
+      }
+      return NextResponse.json({ ok: true, status: result.matches.length ? "matches" : "no_match",
+        matches: result.matches.map(publicDriverMatch), allowUnmatched: result.allowUnmatched,
+        selectionRequired: result.selectionRequired }, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (body?.action === "lookupOrder") {
+      const location = body?.location;
+      const verified = verifyGateLocation({
+        gate: { latitude: gate.latitude, longitude: gate.longitude, radiusMeters: gate.radius_m },
+        driver: { latitude: Number(location?.latitude), longitude: Number(location?.longitude),
+          accuracyMeters: Number(location?.accuracyMeters), capturedAt: clean(location?.capturedAt, 40) },
+      });
+      if (!verified.ok) return NextResponse.json({ ok: false, error: verified.error }, { status: 403 });
+      const requestedDirection = clean(body?.movementDirection, 20).toLowerCase();
+      if (requestedDirection !== "pickup" && requestedDirection !== "delivery")
+        return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
+      const orderId = clean(body?.orderId, 60);
+      const stopId = clean(body?.selectedStopId, 100) || undefined;
+      const input = String(body?.driverLookupInput ?? (body?.referenceNumber || orderId)).trim();
+      const result = await lookupDriverReference(input, gate.terminal, gate.site_name, requestedDirection,
+        { orderId, stopId });
+      const match = selectDriverMatch(result, orderId, stopId, body?.explicitSelection === true || body?.explicitSelection === "true");
+      const order = match.order;
+      if (order.completion) return NextResponse.json({ ok: false,
+        error: order.completion.message, completion: publicDriverCompletion(order.completion) }, { status: 409 });
+      const { data: checkedIn, error: checkError } = await database().from("inbound_checkin_rows")
+        .select("id").eq("terminal", gate.terminal).eq("site_code", gate.site_code)
+        .eq("movement_direction", order.direction).eq("matched_order_id", match.orderId)
+        .or("yard_status.is.null,yard_status.neq.cancelled").limit(1);
+      if (checkError) throw checkError;
+      if (checkedIn?.length) return NextResponse.json({ ok: false,
+        error: "This SCM order is already checked in at this yard." }, { status: 409 });
+      return NextResponse.json({ ok: true, orderId: match.orderId, stopId: order.stopId, direction: order.direction,
+        reference: order.reference, commodity: order.commodity, materialType: order.materialType,
+        mark: order.mark, baleCount: order.baleCount, destination: order.destination,
+        driverName: order.driverName, driverPhoneLast4: publicDriverMatch(match).driverPhoneLast4,
+        carrierName: order.carrierName }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const clientId = clean(body?.clientId, 36);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
+      return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
+    }
+
+    const checkinType = clean(body?.checkinType, 20).toLowerCase();
+    const driverName = clean(body?.driverName).toUpperCase();
+    if (!driverName || !["container", "domestic"].includes(checkinType)) {
+      return NextResponse.json({ ok: false, error: "Choose a check-in type and enter the driver name" }, { status: 400 });
+    }
+    const configuredSite = CHECKIN_SITES.find((site) => site.terminal === gate.terminal && site.siteCode === gate.site_code)!;
+    if (checkinType === "container" && !configuredSite.containers) {
+      return NextResponse.json({ ok: false, error: "Container check-in is unavailable at this site" }, { status: 400 });
+    }
+    const driverPhone = clean(body?.driverPhone, 40);
+    let truckingCompany = clean(body?.truckingCompany, 200);
+    let movementDirection = clean(body?.movementDirection, 20).toLowerCase();
+    const materialType = clean(body?.materialType, 20).toLowerCase();
+    if (checkinType === "domestic" && !configuredSite.materials.includes(materialType as "cotton" | "lumber" | "other")) {
+      return NextResponse.json({ ok: false, error: "This freight type is unavailable at this site" }, { status: 400 });
+    }
+    let referenceNumber = clean(body?.referenceNumber).toUpperCase();
+    let orderId = clean(body?.orderId, 60).toUpperCase();
+    const driverLookupInput = String(body?.driverLookupInput ?? (body?.referenceNumber || orderId)).trim();
+    let destination = clean(body?.destination, 200).toUpperCase();
+    const mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
+    const bolBaleCount = materialType === "cotton"
+      ? positiveInteger(body?.bolBaleCount ?? body?.bolBC)
+      : null;
+    if (checkinType === "domestic" && (!driverPhone || !truckingCompany ||
+        !["cotton", "lumber", "other"].includes(materialType) ||
+        (!referenceNumber && !orderId) ||
+        (materialType === "cotton" && (!mark || !bolBaleCount)))) {
+      return NextResponse.json({ ok: false, error: "Complete every required field before checking in" }, { status: 400 });
+    }
+    if (checkinType === "domestic") {
+      const photoError = validatePhoto(photo);
+      if (photoError) return NextResponse.json({ ok: false, error: photoError }, { status: 400 });
+    }
+    const deviceId = clean(body?.deviceId, 36);
+    if (checkinType === "container" && !validContainerDeviceId(deviceId)) {
+      return NextResponse.json({ ok: false, error: "This phone could not be identified. Refresh the page and try again." }, { status: 400 });
+    }
+
+    const latitude = Number(body?.location?.latitude);
+    const longitude = Number(body?.location?.longitude);
+    const accuracyMeters = Number(body?.location?.accuracyMeters);
+    const capturedAt = clean(body?.location?.capturedAt, 40);
+    const locationResult = verifyGateLocation({
+      gate: { latitude: gate.latitude, longitude: gate.longitude, radiusMeters: gate.radius_m },
+      driver: { latitude, longitude, accuracyMeters, capturedAt },
+    });
+    if (!locationResult.ok) {
+      return NextResponse.json({ ok: false, error: locationResult.error }, { status: 403 });
+    }
+
+    const checkedInAt = new Date();
+    const sb = database();
+    if (checkinType === "container") {
+      const deviceTokenHash = containerDeviceHash(deviceId);
+      const existingResult = await sb.from("container_gate_queue")
+        .select("id, driver_name, site_name, checked_in_at")
+        .eq("device_token_hash", deviceTokenHash)
+        .eq("queue_status", "waiting")
+        .maybeSingle();
+      if (existingResult.error) throw existingResult.error;
+      if (existingResult.data) {
+        const positionResult = await sb.rpc("container_queue_position", { p_id: existingResult.data.id });
+        if (positionResult.error) throw positionResult.error;
+        return NextResponse.json({
+          ok: true, queue: true, existing: true,
+          position: Number(positionResult.data),
+          driverName: existingResult.data.driver_name,
+          siteName: existingResult.data.site_name,
+          checkedInAt: existingResult.data.checked_in_at,
+        });
+      }
+      const queuePayload = {
+        id: clientId,
+        driver_checkin_site_id: gate.id,
+        terminal: gate.terminal,
+        site_code: gate.site_code,
+        site_name: gate.site_name,
+        driver_name: driverName,
+        device_token_hash: deviceTokenHash,
+        checked_in_at: checkedInAt.toISOString(),
+        driver_latitude: latitude,
+        driver_longitude: longitude,
+        driver_accuracy_m: accuracyMeters,
+        driver_distance_m: locationResult.distanceMeters,
+        location_verified_at: checkedInAt.toISOString(),
+        queue_status: "waiting",
+      };
+      let { data, error } = await sb.from("container_gate_queue").insert(queuePayload)
+        .select("id, checked_in_at").single();
+      if (error?.code === "23505") {
+        const existing = await sb.from("container_gate_queue")
+          .select("id, driver_name, site_name, checked_in_at")
+          .eq("device_token_hash", deviceTokenHash)
+          .eq("queue_status", "waiting").maybeSingle();
+        data = existing.data;
+        error = existing.error;
+      }
+      if (error || !data) throw error ?? new Error("Could not join the container line");
+      const positionResult = await sb.rpc("container_queue_position", { p_id: clientId });
+      if (positionResult.error) throw positionResult.error;
+      return NextResponse.json({
+        ok: true,
+        queue: true,
+        position: Number(positionResult.data),
+        driverName: "driver_name" in data ? data.driver_name : driverName,
+        siteName: "site_name" in data ? data.site_name : gate.site_name,
+        checkedInAt: data.checked_in_at,
+      });
+    }
+
+    // Resolve a driver's SCM order number only after the gate GPS check has
+    // passed. Do not return McLeod order details to the public browser.
+    let matchedCustomer: string | null = null;
+    let matchedStopId: string | null = null;
+    let expectedBales: number | null = null;
+    const reportedRaw = String(body?.balesOnTruck ?? "").trim();
+    const reportedBales = reportedRaw === "" ? null : Number(reportedRaw);
+    if (reportedBales !== null && (!Number.isSafeInteger(reportedBales) || reportedBales < 0)) return NextResponse.json({ ok: false, error: "Enter a whole number of bales on the truck" }, { status: 400 });
+    if (movementDirection !== "pickup" && movementDirection !== "delivery")
+      return NextResponse.json({ ok: false, error: "Choose pickup or delivery." }, { status: 400 });
+    // Do not trust a browser's previous no-match, selected order, or resolution path.
+    // Both strategies are rerun before any insert, including paperwork-only arrivals.
+    const selectedStopId = clean(body?.selectedStopId, 100) || undefined;
+    // On a transient/incomplete McLeod lookup, accept a GPS-verified,
+    // unlinked provisional arrival. Do not claim that the load is an outside
+    // carrier, and never attach a guessed order or stop.
+    let lookup: Awaited<ReturnType<typeof lookupDriverReference>> | null = null;
+    let provisionalLookup = false;
+    try {
+      lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
+        movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
+    } catch (error) {
+      if (error instanceof DependencyError ||
+          error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP") {
+        provisionalLookup = true;
+        orderId = "";
+      } else throw error;
+    }
+    if (!provisionalLookup && !orderId && lookup && !lookup.allowUnmatched) {
+      const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion);
+      return NextResponse.json({ ok: false, code: "SELECTION_REQUIRED", error: completed ? "This load is already completed. Please speak with warehouse staff." :
+        "Select and confirm your load before checking in. Look it up again.",
+        ...(completed ? { completion: publicDriverCompletion(lookup.matches[0].order.completion!) } : {}) }, { status: 409 });
+    }
+    if (orderId) {
+      const match = selectDriverMatch(lookup!, orderId, selectedStopId, body?.explicitSelection === true || body?.explicitSelection === "true");
+      const order = match.order;
+      orderId = match.orderId;
+      matchedStopId = order.stopId;
+      if (order.completion) return NextResponse.json({ ok: false,
+        error: order.completion.message, completion: publicDriverCompletion(order.completion) }, { status: 409 });
+      if (order.materialType && materialType !== order.materialType) {
+        return NextResponse.json({ ok: false, error: `McLeod commodity is ${order.commodity}. Check the material selection.` }, { status: 409 });
+      }
+      if (movementDirection && movementDirection !== order.direction) {
+        return NextResponse.json({ ok: false, error: "Order direction changed. Look it up again before checking in." }, { status: 409 });
+      }
+      movementDirection = order.direction;
+      referenceNumber = order.reference;
+      if (order.direction === "pickup") destination ||= order.destination;
+      truckingCompany = order.carrierName || truckingCompany;
+      matchedCustomer = order.customer;
+      expectedBales = materialType === "cotton" ? positiveInteger(order.baleCount) : null;
+      if (materialType === "cotton" && movementDirection === "delivery") {
+        const date = String(order.orderDate ?? "").trim();
+        const iso = date.replace(/^(\d{4})(\d{2})(\d{2}).*/, "$1-$2-$3").slice(0, 10);
+        const age = Math.abs(Date.parse(iso) - Date.parse(warehouseDate(checkedInAt, gate.terminal)));
+        if (!date || !Number.isFinite(age) || age > 45 * 86400000 || /delivered|completed|cancelled|canceled/i.test(order.orderStatus))
+          return NextResponse.json({ ok: false, error: "This cotton order is historical or has no current delivery date. Please speak with warehouse staff." }, { status: 409 });
+      }
+    }
+    if (!["pickup", "delivery"].includes(movementDirection) || (movementDirection === "pickup" && !destination)) {
+      return NextResponse.json({ ok: false, error: "Enter the destination for a pickup or choose pickup or delivery" }, { status: 400 });
+    }
+    if (!orderId) referenceNumber = driverLookupInput.toUpperCase();
+    if (movementDirection !== "pickup") destination = "";
+
+    // Old open tabs carried trailer number inside the agreement; accept that
+    // location for compatibility, but derive all repeated identity/load fields.
+    let trailerNumber = String(body.trailerNumber ?? "").trim();
+    let pickupAgreement = null;
+    if (requiresPickupAgreement(gate.terminal, movementDirection)) {
+      try {
+        const raw = typeof body.pickupAgreement === "string" ? JSON.parse(body.pickupAgreement) : body.pickupAgreement;
+        const accepted = validatePickupAcceptance(raw);
+        if (!trailerNumber && raw && typeof raw.trailerNumber === "string") trailerNumber = raw.trailerNumber.trim();
+        if (!trailerNumber || trailerNumber.length > 80) throw new Error("Enter the trailer number before checking in.");
+        pickupAgreement = { ...accepted, printedName: driverName, trailerNumber,
+          productDescription: materialType, pickupNumber: orderId || driverLookupInput,
+          referencePo: referenceNumber || driverLookupInput, terms: PICKUP_TERMS[accepted.language],
+          acceptedAt: checkedInAt.toISOString(), driverName, driverPhone, truckingCompany,
+          terminal: gate.terminal, siteCode: gate.site_code, siteName: gate.site_name,
+          orderId: orderId || null, referenceNumber, driverLookupInput, destination, materialType };
+      } catch (error) {
+        return NextResponse.json({ ok: false, error: error instanceof SyntaxError ? "Invalid pickup agreement." : error instanceof Error ? error.message : "Invalid pickup agreement." }, { status: 400 });
+      }
+    }
+
+    if (trailerNumber.length > 80) return NextResponse.json({ ok: false, error: "Trailer number must be 80 characters or fewer." }, { status: 400 });
+
+    const insertPayload = {
+      id: clientId,
+      trailer_number: trailerNumber || null,
+      pickup_agreement: pickupAgreement,
+      terminal: gate.terminal,
+      site_code: gate.site_code,
+      site_name: gate.site_name,
+      sub_location: "MAIN",
+      received_date: warehouseDate(checkedInAt, gate.terminal),
+      movement_direction: movementDirection,
+      material_type: materialType,
+      reference_number: referenceNumber,
+      driver_lookup_input: driverLookupInput,
+      destination: destination || null,
+      mark,
+      shipper: matchedCustomer,
+      matched_order_id: orderId || null,
+      matched_stop_id: matchedStopId,
+      expected_bale_count: expectedBales,
+      driver_reported_bales: materialType === "cotton" ? reportedBales : null,
+      bol_bc: bolBaleCount,
+      bale_count: null,
+      warehouse_location: null,
+      equipment_type: null,
+      verified: false,
+      comment_1: provisionalLookup ? "Provisional driver check-in: McLeod lookup incomplete or unavailable. Staff must reconcile before any McLeod update." : null,
+      comment_2: null,
+      ...(provisionalLookup ? { mcleod_lookup_status: "unresolved",
+        mcleod_lookup_failure_code: "LOOKUP_INCOMPLETE",
+        mcleod_lookup_failed_at: checkedInAt.toISOString(),
+        mcleod_processing_phase: "lookup" } : {}),
+      draft_status: "checked_in",
+      processed_at: null,
+      checked_in_at: checkedInAt.toISOString(),
+      checkin_source: "driver_qr",
+      yard_status: "waiting",
+      driver_checkin_site_id: gate.id,
+      driver_name: driverName,
+      driver_phone: driverPhone,
+      trucking_company: truckingCompany || null,
+      driver_latitude: latitude,
+      driver_longitude: longitude,
+      driver_accuracy_m: accuracyMeters,
+      driver_distance_m: locationResult.distanceMeters,
+      gate_location_verified_at: checkedInAt.toISOString(),
+    };
+
+    let { data, error } = await sb.from("inbound_checkin_rows").insert(insertPayload)
+      .select("id, terminal, site_code, site_name, checked_in_at, movement_direction, material_type, bol_bc, bale_count, expected_bale_count, driver_reported_bales").single();
+    if (error?.code === "23505") {
+      const { data: existing } = await sb.from("inbound_checkin_rows")
+        .select("id, terminal, site_code, site_name, checked_in_at, movement_direction, material_type, bol_bc, bale_count, expected_bale_count, driver_reported_bales")
+        .eq("id", clientId).eq("driver_checkin_site_id", gate.id).maybeSingle();
+      if (existing) {
+        data = existing;
+        error = null;
+      }
+    }
+    if (error?.code === "23505") return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
+    if (error) throw error;
+
+    let photoSaved = false;
+    if (photo) {
+      const path = `${gate.terminal}/${gate.site_code}/${clientId}.${photoExtension(photo.type)}`;
+      const { error: uploadError } = await sb.storage.from("driver-bol-documents")
+        .upload(path, photo, { contentType: photo.type, upsert: true });
+      if (!uploadError) {
+        const { error: updateError } = await sb.from("inbound_checkin_rows").update({
+          bol_photo_path: path,
+          bol_photo_original_name: clean(photo.name, 200),
+          bol_photo_content_type: photo.type,
+          bol_photo_uploaded_at: new Date().toISOString(),
+        }).eq("id", clientId).eq("driver_checkin_site_id", gate.id);
+        photoSaved = !updateError;
+      }
+    }
+
+    return NextResponse.json({ ok: true, checkin: data, photoSaved, shortage: data ? cottonShortage(data) : null });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed", ...(error instanceof YardStopError ? { code: error.code } : {}) }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
+  }
+}

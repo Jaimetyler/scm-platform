@@ -1,0 +1,288 @@
+import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
+import { withStaffAccess } from "@/lib/auth/guard";
+import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { publicCheckinRow } from "@/lib/inbound/checkin/public-row";
+import { verifyCottonOrder } from "@/lib/inbound/checkin/verify-cotton-order";
+import { backfillTruckingCompanies } from "@/lib/inbound/checkin/backfill-trucking-company";
+
+export const runtime = "nodejs";
+
+function getSupabase() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(url, key);
+}
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+type EquipmentType = "V" | "F" | null;
+
+function normalizeEquipmentType(value: unknown): EquipmentType {
+  const raw = cleanText(value).toUpperCase();
+
+  if (!raw) return null;
+  if (raw === "V" || raw === "VAN" || raw.includes("VAN")) return "V";
+  if (raw === "F" || raw === "FLAT" || raw === "FLATBED" || raw.includes("FLAT")) {
+    return "F";
+  }
+
+  return null;
+}
+
+function normalizeSubLocation(value: unknown) {
+  const raw = cleanText(value).toUpperCase();
+  return raw || "MAIN";
+}
+
+function normalizeDate(value: unknown): string | null {
+  const raw = cleanText(value);
+  return raw || null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+type CheckinRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  last_saved_at: string;
+  terminal: string;
+  site_code: string;
+  site_name: string;
+  sub_location: string;
+  received_date: string | null;
+  mark: string | null;
+  shipper: string | null;
+  bol_bc: number | null;
+  bale_count: number | null;
+  warehouse_location: string | null;
+  equipment_type: EquipmentType;
+  verified: boolean;
+  comment_1: string | null;
+  comment_2: string | null;
+  draft_status: "checked_in" | "ready" | "processing" | "processed" | "outside_carrier" | "failed" | "draft";
+  processed_at: string | null;
+};
+
+async function GETHandler(req: NextRequest) {
+  try {
+    const sb = getSupabase();
+    const { searchParams } = new URL(req.url);
+
+    const terminal = cleanText(searchParams.get("terminal")).toUpperCase();
+    const siteCode = cleanText(searchParams.get("siteCode"));
+    const date = cleanText(searchParams.get("date"));
+    const materialType = cleanText(searchParams.get("materialType"));
+    const viewCarryover = searchParams.get("view") === "carryover";
+
+    if (!terminal || !siteCode) {
+      return NextResponse.json(
+        { ok: false, error: "terminal and siteCode are required" },
+        { status: 400 }
+      );
+    }
+
+    let query = sb
+      .from("inbound_checkin_rows")
+      .select("*")
+      .eq("terminal", terminal)
+      .eq("site_code", siteCode);
+
+    if (materialType === "cotton") query = query.eq("material_type", "cotton");
+
+    if (date) query = query.eq("received_date", date);
+
+    const { data, error } = await query
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
+    let carryoverRows: CheckinRow[] = [];
+    if (date && materialType === "cotton") {
+      const { data: older, error: olderError } = await sb.from("inbound_checkin_rows")
+        .select("*").eq("terminal", terminal).eq("site_code", siteCode)
+        .eq("material_type", "cotton").lt("received_date", date)
+        .in("draft_status", ["checked_in", "ready", "failed", "delivery_blocked"])
+        .order("received_date", { ascending: false }).limit(1000);
+      if (olderError) throw olderError;
+      carryoverRows = (older ?? []) as CheckinRow[];
+    }
+    // Independently verify a receipt that was posted for a completed yard visit
+    // while the historical McLeod lookup remained unresolved. Never infer receipt
+    // from an error message, completed yard status, or a customer/mark alone.
+    const receiptCandidates = [...(data ?? []), ...carryoverRows].filter((row) =>
+      row.draft_status === "failed" && row.yard_status === "completed" && !row.matched_order_id &&
+      row.bale_count != null && row.bale_count > 0 && row.warehouse_location && row.mark);
+    const recoveredIds = new Set<string>();
+    for (let i = 0; i < receiptCandidates.length; i += 100) {
+      const group = receiptCandidates.slice(i, i + 100);
+      const { data: lots, error: lotError } = await sb.from("warehouse_inventory_lots")
+        .select("source_checkin_id,source_type,mark,original_bales,warehouse_location")
+        .in("source_checkin_id", group.map((row) => row.id));
+      if (lotError) throw lotError; // fail closed instead of mislabeling received cotton
+      const byId = new Map((lots ?? []).map((lot) => [String(lot.source_checkin_id), lot]));
+      for (const row of group) {
+        const lot = byId.get(row.id);
+        if (lot && lot.source_type === "checkin" &&
+            String(lot.mark).trim().toUpperCase() === String(row.mark).trim().toUpperCase() &&
+            Number(lot.original_bales) === Number(row.bale_count) &&
+            String(lot.warehouse_location ?? "").trim().toUpperCase() === String(row.warehouse_location ?? "").trim().toUpperCase()) {
+          recoveredIds.add(row.id);
+        }
+      }
+    }
+    const openCarryover = carryoverRows.filter((row) => !recoveredIds.has(row.id));
+    const displayRows = await backfillTruckingCompanies((viewCarryover ? openCarryover : (data ?? [])) as (CheckinRow & {
+      matched_order_id: string | null; trucking_company: string | null })[], false);
+    return NextResponse.json({
+      ok: true,
+      carryoverCount: openCarryover.length,
+      carryoverMissingLocation: openCarryover.filter((row) => !row.warehouse_location?.trim()).length,
+      carryoverMissingBales: openCarryover.filter((row) => !Number(row.bale_count ?? 0)).length,
+      rows: displayRows.filter((row) =>
+        !(row.draft_status === "draft" && !row.mark && !row.shipper &&
+          !row.bol_bc && !row.bale_count && !row.warehouse_location &&
+          !row.comment_1 && !row.comment_2)
+      ).map((row) => publicCheckinRow({ ...row, inventory_recovered: recoveredIds.has(row.id) } as Record<string, unknown>)),
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Unknown server error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function POSTHandler(req: NextRequest) {
+  try {
+    const sb = getSupabase();
+    const body = await req.json();
+
+    const terminal = cleanText(body?.terminal).toUpperCase();
+    const site_code = cleanText(body?.siteCode);
+    const site_name = cleanText(body?.siteName);
+    const sub_location = normalizeSubLocation(body?.subLocation);
+    const received_date = normalizeDate(body?.receivedDate);
+    const mark = cleanText(body?.mark).toUpperCase();
+    const shipper = cleanText(body?.shipper).toUpperCase();
+    const clientId = cleanText(body?.clientId);
+    const matchedOrderId = cleanText(body?.matchedOrderId);
+    const driverName = cleanText(body?.driverName);
+    const driverPhone = cleanText(body?.driverPhone);
+    const truckingCompany = cleanText(body?.truckingCompany);
+
+    if (clientId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
+      return NextResponse.json({ ok: false, error: "Invalid check-in identifier" }, { status: 400 });
+    }
+
+    if (!terminal || !site_code || !site_name) {
+      return NextResponse.json(
+        { ok: false, error: "terminal, siteCode, and siteName are required" },
+        { status: 400 }
+      );
+    }
+    if (!CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === site_code && site.materials.includes("cotton"))) {
+      return NextResponse.json({ ok: false, error: "Cotton check-in is unavailable at this site" }, { status: 400 });
+    }
+    if (!mark || !shipper) {
+      return NextResponse.json(
+        { ok: false, error: "Enter a mark and customer before checking in" },
+        { status: 400 }
+      );
+    }
+    if (driverName.length > 120 || driverPhone.length > 40 || truckingCompany.length > 200) {
+      return NextResponse.json({ ok: false, error: "Driver or trucking company details are too long" }, { status: 400 });
+    }
+    const expectedBales = matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true) : null;
+
+    const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
+    const defaultEquipment: EquipmentType =
+      requestedEquipment ?? (terminal === "SAV" ? "V" : null);
+
+    const insertPayload = {
+      ...(clientId ? { id: clientId } : {}),
+      terminal,
+      site_code,
+      site_name,
+      sub_location,
+      received_date,
+      mark,
+      shipper,
+      driver_name: driverName || null,
+      driver_phone: driverPhone || null,
+      trucking_company: truckingCompany || null,
+      matched_order_id: matchedOrderId || null,
+      local_receiving_only: !matchedOrderId && (body?.localReceivingOnly === true || isLocalReceivingCustomer(shipper)),
+      expected_bale_count: expectedBales,
+      bol_bc: positiveInteger(body?.bolBC),
+      bale_count: positiveInteger(body?.baleCount),
+      warehouse_location: cleanText(body?.warehouseLocation).toUpperCase() || null,
+      equipment_type: defaultEquipment,
+      verified: false,
+      comment_1: cleanText(body?.comment1) || null,
+      comment_2: cleanText(body?.comment2) || null,
+      draft_status: "checked_in" as const,
+      processed_at: null,
+      checked_in_at: positiveInteger(body?.bolBC) ? new Date().toISOString() : null,
+      yard_status: positiveInteger(body?.bolBC) ? "waiting" : null,
+    };
+
+    const { data, error } = await sb
+      .from("inbound_checkin_rows")
+      .insert(insertPayload)
+      .select("*")
+      .single();
+
+    if (error) {
+      // A timed-out first response may leave a saved row. Retrying the same
+      // browser line returns it instead of making a duplicate check-in.
+      if (error.code === "23505" && clientId) {
+        const { data: existing } = await sb.from("inbound_checkin_rows")
+          .select("*").eq("id", clientId).eq("terminal", terminal)
+          .eq("site_code", site_code).single();
+        if (existing) return NextResponse.json({ ok: true, row: publicCheckinRow(existing) });
+      }
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: error.code === "23505" ? 409 : 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      row: publicCheckinRow(data),
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Unknown server error",
+      },
+      { status: error instanceof Error && error.message.includes("already been delivered") ? 409 : 500 }
+    );
+  }
+}
+
+export const GET = withStaffAccess(GETHandler);
+export const POST = withStaffAccess(POSTHandler);

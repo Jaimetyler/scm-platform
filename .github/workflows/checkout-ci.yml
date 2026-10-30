@@ -1,0 +1,32 @@
+name: SCM checkout regression checks
+on:
+  push:
+    branches:
+      - fix/checkout-idempotence-20261026
+  pull_request:
+    paths:
+      - 'app/api/inbound/**'
+      - 'app/api/warehouse/domestic-queue/**'
+      - 'lib/inbound/**'
+      - 'tests/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/checkout-ci.yml'
+jobs:
+  checkout-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Full regression suite
+        run: node --test tests/*.test.mjs
+      - name: Synthetic McLeod acceptance
+        run: |
+          node tests/fixtures/mcleod-acceptance/tests/integration.mjs
+          node tests/fixtures/mcleod-acceptance/tests/hosted.mjs
+      - name: TypeScript
+        run: npx tsc --noEmit

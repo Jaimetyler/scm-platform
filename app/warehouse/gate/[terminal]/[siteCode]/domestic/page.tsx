@@ -1,0 +1,483 @@
+"use client";
+import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
+import PollingStatus from "@/components/warehouse/PollingStatus";
+import { useCanWrite } from "@/components/auth/StaffSession";
+
+import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
+import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
+import Link from "next/link";
+import { Fragment, useCallback, useEffect, useRef, useLayoutEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
+import PlatformPanel from "@/components/platform/PlatformPanel";
+import "@/components/warehouse/domestic-tables.css";
+import ScmOrderBadge from "@/components/warehouse/ScmOrderBadge";
+import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
+import { getCheckinSite } from "@/lib/inbound/checkin/sites";
+
+type Status = "waiting" | "called" | "in_door" | "working";
+type YardStatus = Status | "completed" | "cancelled" | null;
+type Row = {
+  id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null; trucking_company: string | null;
+  movement_direction: string; material_type: string; reference_number: string;
+  destination: string | null; shipper: string | null; matched_order_id: string | null;
+  comment_1: string | null; mark: string | null; bol_bc: number | null;
+  draft_status: string; has_bol_photo: boolean; yard_status: YardStatus;
+  yard_called_at: string | null; yard_in_door_at: string | null;
+  yard_work_started_at: string | null;
+};
+type Match = { orderId: string; stopId?: string; customerId: string; customerName: string; value: string;
+  materialType: "lumber" | "other" | null; destination: string; direction: "pickup" | "delivery";
+  carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
+  driverName: string; driverPhone: string; completion?: McleodCompletion | null };
+type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
+  referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
+  destination: string; notes: string; orderId: string; selectedStopId?: string };
+function blankDraft(id: string): Draft {
+  return { id, movementDirection: "pickup", materialType: "lumber", referenceNumber: "", customer: "",
+    driverName: "", driverPhone: "", truckingCompany: "", destination: "", notes: "", orderId: "" };
+}
+const LABEL: Record<Status, string> = {
+  waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
+};
+
+export default function DomesticQueuePage() {
+  const params = useParams<{ terminal: string; siteCode: string }>();
+  const site = getCheckinSite(params.terminal, params.siteCode);
+  const canWrite = useCanWrite(site?.terminal);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState(false);
+  const [working, setWorking] = useState("");
+  const [tick, setTick] = useState(0);
+  const [matches, setMatches] = useState<Record<string, Match[]>>({});
+  const [matchWorking, setMatchWorking] = useState("");
+  const [draftMatches, setDraftMatches] = useState<Record<string, Match[]>>({});
+  const [draftSearching, setDraftSearching] = useState<Record<string, boolean>>({});
+  const draftLookupKeys = useRef<Record<string, string>>({});
+  const draftTimers = useRef<Record<string, number>>({});
+  const lookupController = useRef<AbortController | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState("");
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+
+  function toggleDetails(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  useLayoutEffect(() => {
+    setRows([]); setLoading(true); setLoadError(false); setError(""); setNotice("");
+    setEditingId(null); setExpandedIds(new Set()); setMatches({}); setDrafts([]); setDraftMatches({});
+    setDraftSearching({}); setMatchWorking(""); setWorking("");
+    const controller = new AbortController();
+    lookupController.current = controller;
+    return () => {
+      controller.abort();
+      Object.values(draftTimers.current).forEach(window.clearTimeout);
+      draftTimers.current = {}; draftLookupKeys.current = {};
+    };
+  }, [site?.terminal, site?.siteCode]);
+
+  const poll = useVisiblePolling({ intervalMs: 10000,
+    enabled: !!site && !editingId && !working && !matchWorking,
+    requestKey: `${site?.terminal}:${site?.siteCode}`, load: async (signal) => {
+      if (!site) return;
+      try {
+        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode });
+        const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Could not load arrivals");
+        if (signal.aborted) return;
+        setRows(result.rows); setLoadError(false); setTick((value) => value + 1);
+      } catch (reason) {
+        if (!signal.aborted) setLoadError(true);
+        throw reason;
+      } finally { if (!signal.aborted) setLoading(false); }
+    } });
+  const load = (_quiet = false) => poll.refresh();
+
+  const searchReference = useCallback(async (reference: string, direction: string, strictDirection = false) => {
+    if (!site) throw new Error("Unknown warehouse site");
+    const signal = lookupController.current?.signal;
+    const params = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode,
+      referenceNumber: reference.trim().toUpperCase(), movementDirection: direction });
+    if (strictDirection) params.set("strictDirection", "1");
+    const response = await fetch(`/api/warehouse/domestic-queue/match?${params}`, { cache: "no-store", signal });
+    const result = await response.json();
+    if (signal?.aborted) throw new DOMException("Lookup cancelled", "AbortError");
+    if (!response.ok || !result.ok) throw new Error(result.error || "McLeod search failed");
+    return result.matches as Match[];
+  }, [site]);
+
+  useEffect(() => {
+    for (const draft of drafts) {
+      const key = `${draft.movementDirection}|${draft.referenceNumber.trim().toUpperCase()}`;
+      if (draftLookupKeys.current[draft.id] === key) continue;
+      if (draftTimers.current[draft.id]) window.clearTimeout(draftTimers.current[draft.id]);
+      draftLookupKeys.current[draft.id] = key;
+      setDraftMatches((current) => { const next = { ...current }; delete next[draft.id]; return next; });
+      if (draft.referenceNumber.trim().length < 3) {
+        setDraftSearching((current) => ({ ...current, [draft.id]: false }));
+        continue;
+      }
+      setDraftSearching((current) => ({ ...current, [draft.id]: true }));
+      draftTimers.current[draft.id] = window.setTimeout(async () => {
+        delete draftTimers.current[draft.id];
+        let resolvedKey = key;
+        try {
+          const found = await searchReference(draft.referenceNumber, draft.movementDirection);
+          if (draftLookupKeys.current[draft.id] !== key) return;
+          setDraftMatches((current) => ({ ...current, [draft.id]: found }));
+          if (found.length === 1 && !found[0].completion) {
+            const match = found[0];
+            draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
+            resolvedKey = draftLookupKeys.current[draft.id];
+            setDrafts((current) => current.map((item) => item.id === draft.id &&
+              `${item.movementDirection}|${item.referenceNumber.trim().toUpperCase()}` === key ? {
+                ...item, movementDirection: match.direction, referenceNumber: match.value,
+                customer: match.customerName || match.customerId || item.customer, orderId: match.orderId, selectedStopId: match.stopId,
+                materialType: match.materialType || item.materialType,
+                driverName: item.driverName || match.driverName, driverPhone: item.driverPhone || match.driverPhone,
+                truckingCompany: match.carrierName || item.truckingCompany,
+                destination: match.direction === "pickup" ? match.destination || item.destination : item.destination,
+              } : item));
+          }
+        } catch (reason) {
+          if (draftLookupKeys.current[draft.id] === key) setError(reason instanceof Error ? reason.message : "McLeod search failed");
+        } finally {
+          if (draftLookupKeys.current[draft.id] === resolvedKey) {
+            setDraftSearching((current) => ({ ...current, [draft.id]: false }));
+          }
+        }
+      }, 600);
+    }
+  }, [drafts, searchReference]);
+  useEffect(() => () => { Object.values(draftTimers.current).forEach(window.clearTimeout); }, []);
+
+  async function transition(row: Row & { yard_status: Status }, to: "checkout" | "cancelled") {
+    if (!site || editingId !== row.id) return;
+    if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number} from the domestic queue?`)) return;
+    setNotice("");
+    setWorking(row.id);
+    try {
+      const response = await fetch("/api/warehouse/domestic-queue", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, from: row.yard_status, to,
+          action: to === "checkout" ? "checkout" : undefined, terminal: site.terminal, siteCode: site.siteCode }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not update arrival");
+      await load(true);
+      setEditingId(null);
+      setNotice(to === "checkout" ? `Checked out · ${result.mcleod}` : "Arrival removed");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update arrival"); }
+    finally { setWorking(""); }
+  }
+
+  async function findOrder(row: Row) {
+    if (editingId !== row.id) return;
+    const signal = lookupController.current?.signal;
+    setMatchWorking(row.id);
+    setError("");
+    try {
+      const found = await searchReference(row.reference_number, row.movement_direction, true);
+      if (signal?.aborted) return;
+      if (found.length === 1 && !found[0].completion) {
+        await saveCustomer(row, found[0].customerName || found[0].customerId, found[0].orderId, found[0].stopId);
+      } else setMatches((current) => ({ ...current, [row.id]: found }));
+    } catch (reason) { if (!signal?.aborted) setError(reason instanceof Error ? reason.message : "McLeod search failed"); }
+    finally { if (!signal?.aborted) setMatchWorking(""); }
+  }
+
+  useEffect(() => {
+    if (!editingId) return;
+    const row = rows.find((item) => item.id === editingId);
+    if (row && !row.matched_order_id && row.reference_number.trim().length >= 3) void findOrder(row);
+    // Search once when a saved row is opened for editing. Refreshes do not restart it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
+
+  async function saveCustomer(row: Row, customer: string, orderId?: string, selectedStopId?: string) {
+    if (!site || editingId !== row.id || (!orderId && customer.trim().toUpperCase() === (row.shipper ?? ""))) return;
+    setWorking(row.id);
+    setError("");
+    try {
+      const response = await fetch("/api/warehouse/domestic-queue", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, terminal: site.terminal, siteCode: site.siteCode,
+          expectedUpdatedAt: row.updated_at, action: orderId ? "match_order" : "set_customer", customer, orderId, selectedStopId }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not save customer");
+      setMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
+      if (result.row) setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...result.row } : item));
+      await load(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save customer"); }
+    finally { setWorking(""); }
+  }
+
+  async function saveField(row: Row, field: "reference_number" | "comment_1" | "driver_name" | "driver_phone" | "trucking_company", value: string) {
+    const nextValue = field === "reference_number" ? value.trim().toUpperCase() : value.trim();
+    if (!site || editingId !== row.id || nextValue === String(row[field] ?? "")) return;
+    setWorking(row.id);
+    setError("");
+    try {
+      const response = await fetch("/api/warehouse/domestic-queue", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, terminal: site.terminal, siteCode: site.siteCode,
+          expectedUpdatedAt: row.updated_at, action: "edit_field", field, value: nextValue }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not save cell");
+      setMatches((current) => { const next = { ...current }; delete next[row.id]; return next; });
+      if (result.row) setRows((current) => current.map((item) => item.id === row.id ? { ...item, ...result.row } : item));
+      await load(true);
+      if (field === "reference_number" && nextValue.length >= 3) {
+        await findOrder({ ...row, reference_number: nextValue, updated_at: result.row.updated_at });
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save cell"); }
+    finally { setWorking(""); }
+  }
+
+  function editDraft(id: string, change: Partial<Draft>) {
+    setDrafts((current) => current.map((row) => row.id === id ? {
+      ...row, ...change,
+      ...("referenceNumber" in change || "movementDirection" in change ? {
+        orderId: "", selectedStopId: "", customer: row.orderId ? "" : row.customer,
+      } : {}),
+    } : row));
+  }
+
+  function chooseDraftMatch(draft: Draft, match: Match) {
+    if (match.completion) return;
+    draftLookupKeys.current[draft.id] = `${match.direction}|${match.value.trim().toUpperCase()}`;
+    setDrafts((current) => current.map((row) => row.id === draft.id ? {
+      ...row, movementDirection: match.direction, referenceNumber: match.value, orderId: match.orderId, selectedStopId: match.stopId,
+      customer: match.customerName || match.customerId || row.customer,
+      materialType: match.materialType || row.materialType,
+      driverName: row.driverName || match.driverName, driverPhone: row.driverPhone || match.driverPhone,
+      truckingCompany: match.carrierName || row.truckingCompany,
+      destination: match.direction === "pickup" ? match.destination || row.destination : row.destination,
+    } : row));
+  }
+
+  async function saveDraft(draft: Draft) {
+    if (!site || !draft.referenceNumber.trim()) {
+      setError("Enter the reference number before saving this row.");
+      return;
+    }
+    if (draftSearching[draft.id]) return;
+    if (draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion)) {
+      setError("These orders are already closed in McLeod. Verify the reference with warehouse staff.");
+      return;
+    }
+    setWorking(draft.id);
+    setError("");
+    try {
+      const response = await fetch("/api/warehouse/domestic-queue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...draft, terminal: site.terminal, siteCode: site.siteCode }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Could not save check-in");
+      setDrafts((current) => current.filter((row) => row.id !== draft.id));
+      await load(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save check-in"); }
+    finally { setWorking(""); }
+  }
+
+  if (!site || !site.materials.includes("lumber")) return <main><PlatformPageHeader title="Domestic Queue Not Found" /></main>;
+  const active = rows.filter((row): row is Row & { yard_status: Status } => row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working").reverse();
+  const recent = rows.filter((row) => !active.some((item) => item.id === row.id));
+  const counts = Object.keys(LABEL).map((status) => `${active.filter((row) => row.yard_status === status).length} ${LABEL[status as Status].toLowerCase()}`);
+  return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 16px", boxSizing: "border-box" }}>
+    <PlatformPageHeader title={`${site.siteName} Check-In`}
+      subtitle="Lumber and other freight arrivals · check out each truck when it leaves"
+      />
+    {error && <div role="alert" style={{ color: "#fecaca", marginBottom: 14 }}>{error}</div>}
+    {notice && <div role="status" style={{ color: "#86efac", marginBottom: 14 }}>{notice}</div>}
+    <PlatformPanel style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div><strong style={{ color: "#f8fafc", fontSize: 18 }}>Lumber & Other</strong><div style={{ ...muted, fontSize: 13 }}>{counts.join(" · ")}</div></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button disabled={!canWrite} style={primary} onClick={() => { setError(""); setDrafts([blankDraft(`staff-${Date.now()}`)]); }}>+ New check-in</button>
+          <PollingStatus {...poll} /><button disabled={!!editingId || !!working || !!matchWorking} style={button} onClick={() => void load()}>Refresh</button>
+        </div>
+      </div>
+      {loading ? <p style={muted}>Loading arrivals…</p> :
+        <div style={{ overflowX: "auto" }}>
+          <table className="domestic-table" style={{ width: "100%", minWidth: 1180, tableLayout: "fixed", borderCollapse: "collapse", color: "#e2e8f0" }}>
+            <colgroup>{[5, 8, 7, 7, 20, 15, 16, 8, 6, 8].map((width, index) =>
+              <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
+            <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Company / driver", "Destination", "Notes", "Status / action"].map((label) =>
+              <th key={label} style={heading}>{label}</th>)}</tr></thead>
+            <tbody>{active.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Checked in · {active.length} in yard</td></tr>}
+            {active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
+              <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+                {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}</td>
+              <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
+              <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
+              <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>
+              <td style={cell}><input key={row.updated_at} aria-label={`Reference for ${row.driver_name}`} defaultValue={row.reference_number}
+                disabled={!canWrite || editingId !== row.id}
+                onBlur={(event) => void saveField(row, "reference_number", event.target.value)} style={sheetInput} /></td>
+              <td style={cell}><input key={row.updated_at} aria-label={`Customer for ${row.driver_name}`}
+                defaultValue={row.shipper ?? ""} placeholder="Enter customer"
+                disabled={!canWrite || editingId !== row.id}
+                onBlur={(event) => void saveCustomer(row, event.target.value)} style={sheetInput} /></td>
+              <td style={cell}>{editingId === row.id
+                ? <div style={driverFields}>
+                    <input key={row.updated_at + "-carrier"} aria-label="Trucking company" defaultValue={row.trucking_company ?? ""} placeholder="Trucking company"
+                      onBlur={(event) => void saveField(row, "trucking_company", event.target.value)} style={sheetInput} />
+                    <input key={row.updated_at + "-name"} aria-label="Driver name" defaultValue={row.driver_name ?? ""} placeholder="Driver name"
+                      onBlur={(event) => void saveField(row, "driver_name", event.target.value)} style={sheetInput} />
+                    <input key={row.updated_at + "-phone"} aria-label="Driver phone" type="tel" defaultValue={row.driver_phone ?? ""} placeholder="Phone number"
+                      onBlur={(event) => void saveField(row, "driver_phone", event.target.value)} style={sheetInput} />
+                  </div>
+                : <><div style={singleLine} title={row.trucking_company || "Company not entered"}><strong>{row.trucking_company || "Company not entered"}</strong></div>
+                    <div style={singleLine} title={row.driver_name || "Driver not entered"}>{row.driver_name || "Driver not entered"}</div>
+                    <span className="row-secondary">{row.driver_phone || "No phone number"}</span></>}</td>
+              <td style={cell}><div style={singleLine} title={row.destination || ""}>{row.destination || "—"}</div></td>
+              <td style={cell}><input key={row.updated_at} aria-label={`Notes for ${row.driver_name}`}
+                defaultValue={row.comment_1 ?? ""} placeholder="Notes"
+                disabled={!canWrite || editingId !== row.id}
+                onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
+              <td style={cell}><strong style={statusPill}>{LABEL[row.yard_status]}</strong>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
+                  <button style={button} onClick={() => toggleDetails(row.id)} aria-expanded={expandedIds.has(row.id)}>
+                    {expandedIds.has(row.id) ? "Less" : "Details"}</button>
+                  {editingId !== row.id ?
+                    <button disabled={!canWrite || Boolean(working || matchWorking)} style={button} onClick={() => {
+                      setEditingId(row.id); setExpandedIds((current) => new Set(current).add(row.id));
+                    }}>Edit</button> : <>
+                    <button disabled={working === row.id || matchWorking === row.id} style={button} onClick={() => setEditingId(null)}>Close edit</button>
+                    <button disabled={!canWrite || working === row.id} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
+                    <button disabled={!canWrite || working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
+                  </>}
+                </div></td>
+            </tr>{expandedIds.has(row.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
+              <div style={detailContent}>
+                <span>Arrived {time(row.checked_in_at, site.terminal)} · {elapsed(row.checked_in_at, tick)}</span>
+                <Link href={`/warehouse/checkin/${row.id}`} style={detailLink}>{row.has_bol_photo ? "Paperwork and driver details" : "Driver details"}</Link>
+                {row.matched_order_id && <span>SCM order #{row.matched_order_id}</span>}
+                {editingId === row.id && <button style={inlineButton} disabled={matchWorking === row.id || working === row.id}
+                  onClick={() => void findOrder(row)}>{matchWorking === row.id ? "Searching…" : "Find order"}</button>}
+                {matches[row.id]?.length === 0 && <span>No matching order</span>}
+                {matches[row.id]?.map((match) => match.completion ?
+                  <CompletedOrderNotice key={`${match.orderId}-${match.direction}`} orderId={match.orderId} completion={match.completion} /> : <button key={`${match.orderId}-${match.direction}`} style={{ ...inlineButton, textAlign: "left" }}
+                  disabled={!canWrite || editingId !== row.id || working === row.id} onClick={() => void saveCustomer(row, match.customerName, match.orderId, match.stopId)}>
+                  <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
+                  <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                    {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
+                </button>)}
+              </div>
+            </td></tr>}</Fragment>)}
+            {active.length === 0 && <tr className="domestic-details"><td colSpan={10} style={{ padding: "32px 16px", textAlign: "center", color: "#94a3b8" }}>
+              No lumber or other freight is currently checked in. Use New check-in to add a truck.
+            </td></tr>}
+            </tbody>
+          </table>
+        </div>}
+    </PlatformPanel>
+    {drafts.map((draft) => <div key={draft.id} style={modalBackdrop} onMouseDown={(event) => {
+      if (event.target === event.currentTarget && working !== draft.id) setDrafts([]);
+    }}>
+      <form role="dialog" aria-modal="true" aria-labelledby="new-domestic-title" style={modalCard}
+        onKeyDown={(event) => { if (event.key === "Escape" && working !== draft.id) { event.preventDefault(); setDrafts([]); } }}
+        onSubmit={(event) => { event.preventDefault(); void saveDraft(draft); }}>
+        <div style={modalTop}>
+          <div><h2 id="new-domestic-title" style={{ margin: 0, fontSize: 22 }}>New check-in</h2>
+            <p style={{ color: "#94a3b8", margin: "5px 0 0", fontSize: 13 }}>Enter the driver's reference to look up the SCM order.</p></div>
+          <button type="button" aria-label="Close check-in" style={button} disabled={working === draft.id} onClick={() => setDrafts([])}>Close</button>
+        </div>
+        {error && <p role="alert" style={{ color: "#fecaca", margin: "0 0 14px" }}>{error}</p>}
+        <div style={modalGrid}>
+          <label style={modalLabel}>Move<select style={modalInput} value={draft.movementDirection}
+            onChange={(event) => editDraft(draft.id, { movementDirection: event.target.value as Draft["movementDirection"] })}>
+            <option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></label>
+          <label style={modalLabel}>Material<select style={modalInput} value={draft.materialType}
+            onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
+            <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></label>
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Reference number *
+            <input autoFocus required style={modalInput} value={draft.referenceNumber}
+              onChange={(event) => editDraft(draft.id, { referenceNumber: event.target.value })} placeholder="BOL or delivery reference" /></label>
+          <div style={{ gridColumn: "1 / -1", minHeight: 20, color: "#93c5fd", fontSize: 13 }} aria-live="polite">
+            {draftSearching[draft.id] ? "Searching McLeod…" : draft.orderId ? `SCM order #${draft.orderId} found` :
+              draftMatches[draft.id]?.length === 0 ? "No SCM order found. Enter the details below." :
+              (draftMatches[draft.id]?.length ?? 0) > 1 ? "Choose the matching order:" : null}
+            {!draft.orderId && draftMatches[draft.id]?.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {draftMatches[draft.id].map((match) => match.completion ?
+                <CompletedOrderNotice key={`${match.orderId}-${match.direction}`} orderId={match.orderId} completion={match.completion} /> : <button key={`${match.orderId}-${match.direction}`} type="button" style={{ ...button, textAlign: "left", flex: "1 1 100%" }}
+                onClick={() => chooseDraftMatch(draft, match)}>
+                <strong>#{match.orderId} · {match.customerName || match.customerId} · {match.direction}</strong>
+                <span className="row-secondary">{match.carrierName || (match.carrierCode ? `Carrier code: ${match.carrierCode}` : "Carrier not assigned")}
+                  {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
+              </button>)}
+            </div>}
+          </div>
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Customer
+            <input style={modalInput} value={draft.customer} onChange={(event) => editDraft(draft.id, { customer: event.target.value })} placeholder="Customer" /></label>
+          <label style={modalLabel}>Driver name
+            <input style={modalInput} value={draft.driverName} onChange={(event) => editDraft(draft.id, { driverName: event.target.value })} placeholder="Driver name" /></label>
+          <label style={modalLabel}>Driver phone
+            <input type="tel" style={modalInput} value={draft.driverPhone} onChange={(event) => editDraft(draft.id, { driverPhone: event.target.value })} placeholder="Phone number" /></label>
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Trucking company
+            <input style={modalInput} value={draft.truckingCompany} onChange={(event) => editDraft(draft.id, { truckingCompany: event.target.value })} placeholder="Carrier name" /></label>
+          {draft.movementDirection === "pickup" && <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Destination
+            <input style={modalInput} value={draft.destination} onChange={(event) => editDraft(draft.id, { destination: event.target.value })} placeholder="Destination" /></label>}
+          <label style={{ ...modalLabel, gridColumn: "1 / -1" }}>Notes
+            <input style={modalInput} value={draft.notes} onChange={(event) => editDraft(draft.id, { notes: event.target.value })} placeholder="Optional notes" /></label>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <button type="button" style={button} disabled={working === draft.id} onClick={() => setDrafts([])}>Cancel</button>
+          <button type="submit" style={primary} disabled={!canWrite || working === draft.id || draftSearching[draft.id] || Boolean(draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion))}>{working === draft.id ? "Checking in…" : "Check in truck"}</button>
+        </div>
+      </form>
+    </div>)}
+    {!loadError && !loading && recent.length > 0 && <p style={{ ...muted, marginTop: 14 }}>
+      {recent.length} completed or removed check-ins · <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={{ color: "#67e8f9" }}>View history and export</Link>
+    </p>}
+  </main>;
+}
+
+function time(value: string, terminal: string) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: terminal === "HOU" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+}
+function formatOrderDate(value: string) {
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
+  return match ? `${match[2]}/${match[3]}/${match[1]}` : value || "Date unavailable";
+}
+function elapsed(value: string, tick: number) {
+  void tick;
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  return minutes < 1 ? "just arrived" : `${minutes} min since arrival`;
+}
+const button: React.CSSProperties = { padding: "8px 11px", borderRadius: 7, border: "1px solid #475569", background: "#0f172a", color: "#e2e8f0", cursor: "pointer", textDecoration: "none", fontSize: 12, fontWeight: 700 };
+const primary: React.CSSProperties = { ...button, background: "#4338ca", borderColor: "#6366f1", color: "#fff" };
+const danger: React.CSSProperties = { ...button, color: "#fecaca", borderColor: "#7f1d1d" };
+const muted: React.CSSProperties = { color: "#94a3b8", fontSize: 11, marginTop: 4 };
+const heading: React.CSSProperties = { padding: "10px 6px", textAlign: "left", borderBottom: "1px solid rgba(148,163,184,.16)", whiteSpace: "nowrap", color: "#a8b8cc", fontSize: 12, background: "rgba(15,23,42,.96)" };
+const cell: React.CSSProperties = { padding: "10px 6px", borderBottom: "1px solid rgba(148,163,184,.08)", verticalAlign: "middle" };
+const sheetInput: React.CSSProperties = { width: "100%", minWidth: 0, height: 34, boxSizing: "border-box", padding: "4px 6px", border: "1px solid rgba(148,163,184,.18)", borderRadius: 6, background: "rgba(15,23,42,.82)", color: "#e2e8f0", fontSize: 13 };
+const utilityLink: React.CSSProperties = { color: "#94a3b8", fontSize: 13, textDecoration: "none", fontWeight: 700 };
+const inlineButton: React.CSSProperties = { ...button, padding: "3px 7px", fontSize: 11 };
+const singleLine: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+const driverFields: React.CSSProperties = { display: "grid", gap: 5 };
+const sectionCell: React.CSSProperties = { padding: "11px 8px", color: "#a8b8cc", background: "#17243a", borderTop: "1px solid #334155", borderBottom: "1px solid #334155", fontWeight: 700, fontSize: 12, letterSpacing: ".02em" };
+const statusPill: React.CSSProperties = { display: "inline-block", padding: "4px 8px", borderRadius: 999, background: "rgba(34,211,238,.12)", color: "#67e8f9", fontSize: 12 };
+const detailCell: React.CSSProperties = { padding: "12px 16px", borderBottom: "1px solid #334155", color: "#cbd5e1", fontSize: 12 };
+const detailContent: React.CSSProperties = { display: "flex", gap: "8px 18px", alignItems: "center", flexWrap: "wrap" };
+const detailLink: React.CSSProperties = { color: "#67e8f9", textDecoration: "underline" };
+
+const modalBackdrop: React.CSSProperties = { position: "fixed", inset: 0, zIndex: 100, background: "rgba(2,6,23,.78)", display: "grid", placeItems: "center", padding: 16 };
+const modalCard: React.CSSProperties = { width: "min(100%, 620px)", maxHeight: "min(90vh, 900px)", overflowY: "auto", background: "#111c30", border: "1px solid #475569", borderRadius: 14, boxShadow: "0 24px 70px rgba(0,0,0,.55)", padding: 24, color: "#f8fafc" };
+const modalTop: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 22 };
+const modalGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 };
+const modalLabel: React.CSSProperties = { display: "grid", gap: 6, minWidth: 0, color: "#cbd5e1", fontSize: 13, fontWeight: 700 };
+const modalInput: React.CSSProperties = { ...sheetInput, height: 40, padding: "8px 10px", background: "#0b1425" };
