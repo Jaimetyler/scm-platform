@@ -155,7 +155,7 @@ export default function BusinessIntelligence(){
     {!selected&&<section className={styles.panel}>
       <h2>Customer revenue mix</h2>
       <p className={styles.hint}>Revenue concentration across all customers in the selected business unit, dates, and commodity scope. Searching the customer table does not change these percentages.</p>
-      <label>Revenue category <select aria-label="Customer mix revenue category" value={mixKey} onChange={e=>setMixKey(e.target.value)}>{mixOptions.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+      <div className={view.mixCategory}><h3>Explore revenue by service</h3><div className={view.mixCategoryButtons} role="group" aria-label="Customer mix revenue category">{mixOptions.map(([key,label])=><button key={key} type="button" aria-pressed={mixKey===key} className={mixKey===key?view.mixCategoryActive:undefined} onClick={()=>setMixKey(key)}>{label}</button>)}</div><p className={styles.hint}>Showing: <strong>{mixOptions.find(([key])=>key===mixKey)?.[1]}</strong></p></div>
       <div style={{display:'flex',flexWrap:'wrap',gap:24,alignItems:'center',marginTop:20}}>
        <div role="img" aria-label="Customer revenue share pie chart" style={{width:220,height:220,borderRadius:'50%',background:mixGradient,flexShrink:0}}/>
        <div style={{flex:'1 1 350px',minWidth:0}}>
