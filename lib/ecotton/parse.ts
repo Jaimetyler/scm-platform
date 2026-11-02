@@ -35,7 +35,7 @@ function heading(rows: string[][], terminal: string) {
       ? /SUPPLY CHAIN MANAGEMENT HOU/.test(name)
       : terminal === "DAL"
         ? /DALLAS/.test(name)
-        : /SAVANNAH/.test(name);
+        : /(?:SAVANNAH|^SAV[- ])/.test(name);
   if (!matches)
     throw new Error("The report heading does not match the selected terminal.");
 }
@@ -162,7 +162,14 @@ export function parseInvoices(
     const code = tariff.get(tariffId);
     if (!code)
       throw new Error(`Unmapped charge on ${reference}: ${description}`);
-    const quantity = String(row[qi] || "")
+    const shiftedSavannah =
+      profile.terminal === "SAV" && qi > 0 && ai > 0 &&
+      !String(row[qi] || "").trim() &&
+      String(row[qi - 1] || "").trim() !== "" &&
+      !String(row[ai] || "").trim();
+    const quantityColumn = shiftedSavannah ? qi - 1 : qi;
+    const amountColumn = shiftedSavannah ? ai - 1 : ai;
+    const quantity = String(row[quantityColumn] || "")
       .replace(/,/g, "")
       .trim();
     if (
@@ -175,7 +182,7 @@ export function parseInvoices(
       code,
       description,
       units: +quantity,
-      cents: money(row[ai]),
+      cents: money(row[amountColumn]),
     });
   }
   for (const invoice of invoices.values()) {
