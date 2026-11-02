@@ -536,3 +536,15 @@ test("a carrier-pay response timeout stays fenced before autorate", async () => 
   assert.equal(h.writes.filter((p) => p.includes("setPay")).length, 1);
   assert.equal(h.writes.filter((p) => p.includes("autorate")).length, 0);
 });
+
+test('Dallas warehouse profiles preserve location and Central Time dates', () => {
+ for (const location of ['SCMDDETX','SCMDDATX']) {
+  const p=PROFILES.find(x=>x.id===`DAL-${location}`);
+  assert.ok(p);
+  assert.equal(p.timezone,'America/Chicago');
+  assert.equal(p.revenue,'DLOCA');
+  const payload=buildPayload(invoice(),p);
+  assert.ok(payload.stops.every(s=>s.location_id===location));
+  assert.ok(payload.stops.every(s=>s.sched_arrive_early.endsWith('-0500')));
+ }
+});
