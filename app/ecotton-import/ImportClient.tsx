@@ -72,7 +72,11 @@ export default function ImportClient() {
   }
   async function refresh(runId?: string) {
     const data = await call(undefined, runId);
-    if (runId) { setSaved(data); setDeliveryPreview([]); }
+    if (runId) {
+      setSaved(data);
+      if (data.run?.profile?.id) setProfile(data.run.profile.id);
+      setDeliveryPreview([]);
+    }
     else {
       setProfiles(data.profiles);
       setRuns(data.runs);
@@ -423,7 +427,7 @@ export default function ImportClient() {
                     <tr key={item.id}>
                       <td style={{ padding: 10 }}>
                         {!item.conflict &&
-                          (["ready", "created"].includes(o.status) || (o.status === "verified" && o.profile.id === "HOU-HOUWHSE")) && (
+                          (["ready", "created"].includes(o.status) || (o.status === "verified" && o.profile.id === profileId)) && (
                             <input
                               type="checkbox"
                               aria-label={`Select ${i.reference}`}
