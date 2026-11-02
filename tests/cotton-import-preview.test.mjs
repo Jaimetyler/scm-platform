@@ -34,3 +34,8 @@ test("invalid reference, date, count and unknown location block",()=>{
   {pickups:[{locationCode:"PICKTX",scheduledDate:"2026-02-30"}]}
  ]) assert.throws(()=>buildCottonOrderPreview({...input,...changes},locations));
 });
+
+test("Bunge customer is assigned even when source report omits it",()=>{
+ const {customerId,...withoutCustomer}=input;
+ assert.equal(buildCottonOrderPreview(withoutCustomer,locations).customerId,"BUNGOMNE");
+});
