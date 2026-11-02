@@ -546,7 +546,7 @@ test("Savannah billing exports parse shifted charge columns and preserve storage
     "Billing Summary,,,,,,,,,",
     ",,Marks,Invoice date,Shipper ID,Name,,Orders,,Charges",
     ",,SAV-MARK,10/26/2026,M381180,Louis Dreyfus Company Cotton,215945,,233.80,",
-    ",,,,,,,,233.80,"
+    ",,,,,,,,,233.80"
   ].join("\n");
   const detailCSV = [
     "SAV-Supply Chain Management (SCM),,,,,,,,",
