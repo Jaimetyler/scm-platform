@@ -20,7 +20,8 @@ async function preview(req: NextRequest) {
   if (error || !data)
     return NextResponse.json({ ok: false, error: "Location master is unavailable; preview blocked." }, { status: 503 });
   const locations = data as CottonLocation[];
-  const results = (request.orders as CottonImportInput[]).map((input, index) => {
+  const results: { row: number; status: "blocked" | "review_required"; reason: string; order?: ReturnType<typeof buildCottonOrderPreview> }[] =
+    (request.orders as CottonImportInput[]).map((input, index) => {
     try {
       const order = buildCottonOrderPreview(input, locations);
       return { row: index + 1, status: "review_required" as const,
