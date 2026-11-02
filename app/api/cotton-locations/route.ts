@@ -30,14 +30,10 @@ async function handler(req: NextRequest) {
  if(readError||!before) return NextResponse.json({ok:false,error:"Location not found"},{status:404});
  if(typeof body.expectedUpdatedAt!=="string"||body.expectedUpdatedAt!==before.updated_at)
   return NextResponse.json({ok:false,error:"Location was modified. Refresh before saving."},{status:409});
- const {data:after,error:updateError}=await db.from("cotton_location_master").update(changes)
-  .eq("id",body.id).eq("updated_at",body.expectedUpdatedAt).select("*").maybeSingle();
- if(updateError||!after) return NextResponse.json({ok:false,error:"Location update failed or conflicted"},{status:409});
- const {error:auditError}=await db.from("cotton_location_change_events").insert({
-  location_id:body.id,action:"manual_location_update",actor:staffActor(req),
-  before_value:before,after_value:after,source_reference:"SCM location editor"
+ const {data:after,error:updateError}=await db.rpc("update_cotton_location_audited",{
+  p_id:body.id,p_expected_updated_at:body.expectedUpdatedAt,p_changes:changes,p_actor:staffActor(req)
  });
- if(auditError) return NextResponse.json({ok:false,error:"Update saved but audit failed; stop and contact administrator"},{status:500});
+ if(updateError||!after) return NextResponse.json({ok:false,error:updateError?.message||"Location update failed"},{status:409});
  return NextResponse.json({ok:true,location:after});
 }
 export const GET=withStaffAccess(handler);
