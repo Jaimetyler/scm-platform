@@ -49,3 +49,18 @@ export function resolveCottonLocation(
   }
   return location;
 }
+
+/** Resolve a Bunge dispatch warehouse name only when it uniquely matches the approved master. */
+export function resolveCottonWarehouseName(
+  warehouseName: string,
+  locations: readonly CottonLocation[],
+): CottonLocation {
+  const name = normalize(warehouseName);
+  if (!name) throw new CottonLocationResolutionError("Missing warehouse name.");
+  const candidates = locations.filter(location => normalize(location.name) === name);
+  if (candidates.length !== 1)
+    throw new CottonLocationResolutionError(
+      candidates.length ? `Ambiguous warehouse name: ${name}` : `Unmapped warehouse name: ${name}`,
+    );
+  return resolveCottonLocation(candidates[0].mcleod_code, locations);
+}
