@@ -536,3 +536,41 @@ test("a carrier-pay response timeout stays fenced before autorate", async () => 
   assert.equal(h.writes.filter((p) => p.includes("setPay")).length, 1);
   assert.equal(h.writes.filter((p) => p.includes("autorate")).length, 0);
 });
+
+
+test("Savannah billing exports parse shifted charge columns and preserve storage credits", () => {
+  const sav = PROFILES.find((p) => p.id === "SAV-SAVWHSE");
+  assert.ok(sav);
+  const summaryCSV = [
+    "SAV-Supply Chain Management (SCM),,,,,,,,,",
+    "Billing Summary,,,,,,,,,",
+    ",,Marks,Invoice date,Shipper ID,Name,,Orders,,Charges",
+    ",,SAV-MARK,10/26/2026,M381180,Louis Dreyfus Company Cotton,215945,,233.80,",
+    ",,,,,,,,233.80,"
+  ].join("\n");
+  const detailCSV = [
+    "SAV-Supply Chain Management (SCM),,,,,,,,",
+    "Billing Report Detail to Export,,,,,,,,",
+    ",Shipper ID,Shipping Order #,Tariff ID,Description,,Quantity,,Total Charges",
+    ",M381180,215945,10,Block storage,14696,,1763.52,",
+    ",M381180,215945,44,Storage Contract Adjustment Bl,14696,,-1763.52,",
+    ",M381180,215945,8,Receiving block,88,,114.40,",
+    ",M381180,215945,9,Loading block,88,,114.40,",
+    ",M381180,215945,36,BOLT SEAL,1,,5.00,",
+    ",,215945,,,,,,233.80",
+    ",,,,,,,,233.80"
+  ].join("\n");
+  const tariffMap = [
+    { tariff_id: 10, mcleod_code: "CTS", active: true },
+    { tariff_id: 44, mcleod_code: "CTS", active: true },
+    { tariff_id: 8, mcleod_code: "001", active: true },
+    { tariff_id: 9, mcleod_code: "SC02", active: true },
+    { tariff_id: 36, mcleod_code: "SBLT", active: true },
+  ];
+  const invoices = parseInvoices(summaryCSV, detailCSV, sav, [], tariffMap);
+  assert.equal(invoices.length, 1);
+  assert.equal(invoices[0].cents, 23380);
+  assert.equal(invoices[0].charges.length, 5);
+  assert.equal(invoices[0].charges[1].cents, -176352);
+  assert.equal(invoices[0].charges[0].units, 14696);
+});
