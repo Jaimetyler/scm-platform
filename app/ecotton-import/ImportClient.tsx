@@ -109,7 +109,7 @@ export default function ImportClient() {
         !item.conflict && ["ready", "created"].includes(item.order.status),
     );
   const chosen = ready.filter((item) => selected.has(item.order_id));
-  const deliverable = items.filter((item) => !item.conflict && item.order.status === "verified" && item.order.profile.id === "HOU-HOUWHSE");
+  const deliverable = items.filter((item) => !item.conflict && item.order.status === "verified" && item.order.profile.id === profileId);
   const chosenDelivery = deliverable.filter((item) => selected.has(item.order_id));
   async function previewDelivery() {
     setDeliveryPreview([]);
@@ -124,7 +124,7 @@ export default function ImportClient() {
   }
   async function deliver() {
     if (!writes || !deliveryPreview.length) return;
-    if (!window.confirm(`Deliver ${deliveryPreview.length} reviewed Houston orders and mark ready to bill? Scheduled earliest/latest dates will become actual arrival/departure. Movement status will be Delivered and brokerage status FINISHED.`)) return;
+    if (!window.confirm(`Deliver ${deliveryPreview.length} reviewed orders and mark ready to bill? Scheduled earliest/latest dates will become actual arrival/departure. Movement status will be Delivered and brokerage status FINISHED.`)) return;
     await act(async () => {
       try {
         for (const preview of deliveryPreview) {
@@ -334,7 +334,7 @@ export default function ImportClient() {
           </button>
           <button style={button} disabled={busy || !writes || !deliverable.length}
             onClick={() => { setSelected(new Set(deliverable.map((item) => item.order_id))); setDeliveryPreview([]); }}>
-            Select verified Houston orders ({deliverable.length})
+            Select verified orders ({deliverable.length})
           </button>
           <button
             style={button}
