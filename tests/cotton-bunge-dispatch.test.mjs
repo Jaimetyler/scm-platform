@@ -26,5 +26,5 @@ test("missing warehouse and third pickup are blocked",()=>{
  ["X","2523476",null,null,90,null,null,null,null,"GIN B",null,null,null,null,"07/24/26"],
  ["X","2523476",null,null,90,null,null,null,null,"GIN C",null,null,null,null,"07/24/26"]];
  const p=parseBungeDispatch(rows);
- assert.equal(p.orders[0].bales,180);assert.equal(p.blocked.length,1);
+ assert.equal(p.orders.length,0);assert.equal(p.blocked.length,1);
 });
