@@ -26,10 +26,7 @@ export default function CottonImportPage() {
    <h2>{result.destination}</h2>
    <p>{result.counts?.orders} grouped orders · {result.counts?.pickupLines} pickup lines · {result.counts?.blocked} blocked · {result.counts?.sourceErrors} source errors</p>
    <p><strong>Review only.</strong> No creation, duplicate lookup, or delivery is enabled.</p>
-   <details><summary>Pickup warehouse candidates ({result.warehouseCandidates?.length||0})</summary>
-    <p>USDA warehouse numbers are reference identifiers, not verified McLeod location codes.</p>
-    <ul>{result.warehouseCandidates?.map((c,i)=><li key={i}>{c.name} — USDA: {c.usdaWarehouseCodes.join(", ")||"not supplied"} — {c.pickupLines} pickup lines</li>)}</ul>
-   </details>
+
    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
     <thead><tr>{["Sales order","BLNUM","Pickup locations","Status","Reason"].map(h=><th key={h} style={{padding:8,textAlign:"left",borderBottom:"1px solid gray"}}>{h}</th>)}</tr></thead>
     <tbody>{result.reviews?.map((r,i)=><tr key={i}><td>{r.salesOrder}</td><td>{r.preview?.blnum||"—"}</td><td>{r.preview?.pickupStops.map(s=>s.locationCode).join(", ")||"—"}</td><td>{r.status}</td><td>{r.reason}</td></tr>)}</tbody>
