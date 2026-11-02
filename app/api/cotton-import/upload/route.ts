@@ -27,7 +27,7 @@ async function upload(req: NextRequest) {
     filename:file.name,destination:dispatch.destination,destinationKind:dispatch.destinationKind,
     counts:{orders:dispatch.orders.length,pickupLines:dispatch.orders.reduce((n,o)=>n+o.pickups.length,0),
       blocked:reviews.filter(r=>r.status==="blocked").length,sourceErrors:dispatch.blocked.length},
-    sourceErrors:dispatch.blocked,warehouseCandidates,reviews});
+    sourceErrors:dispatch.blocked,reviews});
 }
 export const POST=withStaffAccess(async(req:NextRequest)=>{
   try{return await upload(req);}
