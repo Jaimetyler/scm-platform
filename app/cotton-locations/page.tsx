@@ -1,8 +1,10 @@
 "use client";
 import {useEffect,useState} from "react";
 type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;address2:string|null;city:string|null;state:string|null;zip_code:string|null;timezone:string|null;active:boolean;updated_at:string};
+type PolicyData={ok:boolean;error?:string;versions?:{id:string;status:string;source_type:string;source_reference:string|null;rules:{rule_kind:string;fee_type:string;amount:number;grace_days:number|null;grace_unit:string|null}[]}[];schedules?:{weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;appointment_required:boolean|null;verified:boolean|null;source_reference:string|null}[]};
 export default function CottonLocationsPage(){
  const [rows,setRows]=useState<Location[]>([]),[selected,setSelected]=useState<Location|null>(null);
+ const [policy,setPolicy]=useState<PolicyData|null>(null),[policyBusy,setPolicyBusy]=useState(false);
  const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  async function load(){
   setError("");
@@ -11,6 +13,7 @@ export default function CottonLocationsPage(){
  }
  useEffect(()=>{void load()},[]);
  const filtered=rows.filter(r=>[r.mcleod_code,r.prev_code,r.name,r.city,r.state].some(x=>String(x||"").toLowerCase().includes(query.toLowerCase())));
+ async function openLocation(r:Location){setSelected({...r});setPolicy(null);setPolicyBusy(true);try{const res=await fetch("/api/cotton-locations/policies?location_id="+encodeURIComponent(r.id),{cache:"no-store"});const json=await res.json();setPolicy(res.ok?json:{ok:false,error:json.error||"Policy lookup failed"});}catch{setPolicy({ok:false,error:"Unable to retrieve policies"});}finally{setPolicyBusy(false);}}
  async function save(){
   if(!selected)return;setBusy(true);setError("");setNotice("");
   try{
@@ -31,13 +34,14 @@ export default function CottonLocationsPage(){
  <p>{filtered.length} locations</p>
  <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
  <thead><tr>{["Code","Name","City / State","Active","Action"].map(x=><th key={x} style={{textAlign:"left",padding:10,borderBottom:"1px solid #999"}}>{x}</th>)}</tr></thead>
- <tbody>{filtered.map(r=><tr key={r.id}><td>{r.mcleod_code}</td><td>{r.name}</td><td>{r.address}, {r.city}, {r.state} {r.zip_code}</td><td>{r.active?"Yes":"No"}</td><td><button onClick={()=>setSelected({...r})}>Edit</button></td></tr>)}</tbody>
+ <tbody>{filtered.map(r=><tr key={r.id}><td>{r.mcleod_code}</td><td>{r.name}</td><td>{r.address}, {r.city}, {r.state} {r.zip_code}</td><td>{r.active?"Yes":"No"}</td><td><button onClick={()=>void openLocation(r)}>Edit</button></td></tr>)}</tbody>
  </table></div>
  {selected&&<section style={{marginTop:24,border:"1px solid #aaa",borderRadius:12,padding:20,display:"grid",gap:12}}>
  <h2>Edit {selected.mcleod_code}</h2>
  {field("name","Name")}{field("prev_code","Previous code")}{field("address","Street address")}{field("address2","McLeod address line 2 / notes")}
  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{field("city","City")}{field("state","State")}</div>{field("zip_code","ZIP code")}
  {field("timezone","IANA timezone")}
+ <div style={{borderTop:"1px solid #aaa",paddingTop:12}}><h3>Pickup schedules & fee policies</h3><p>Current policy values are displayed for review. Editing and tariff approvals are not enabled yet.</p>{policyBusy&&<p>Loading policies...</p>}{policy&&!policy.ok&&<p role="alert">{policy.error}</p>}{policy?.ok&&<><h4>Pickup schedules</h4>{policy.schedules?.length?policy.schedules.map((v,i)=><p key={i}>{v.weekday===null?"All days":`Weekday ${v.weekday}`}: {v.open_time||"Unknown"}–{v.close_time||"Unknown"} · Appointment: {v.appointment_required===true?"Required":v.appointment_required===false?"Not required":"Unknown"} · {v.verified?"Verified":"Unverified"} · {v.source_reference||"No source"}</p>):<p>No confirmed pickup hours recorded.</p>}<h4>Fee policies</h4>{policy.versions?.map(v=><div key={v.id} style={{padding:10,marginBottom:8,border:"1px solid #bbb",borderRadius:8}}><strong>{v.status.toUpperCase()}</strong> · {v.source_type} · {v.source_reference||"No source"}{v.rules.map((rule,i)=><p key={i}>{rule.rule_kind}: {rule.fee_type} · ${rule.amount} · Grace: {rule.grace_days??"Unknown"} {rule.grace_unit||""}</p>)}</div>)}</>}</div>
  <label><input type="checkbox" checked={selected.active} onChange={e=>setSelected(v=>v?{...v,active:e.target.checked}:v)}/> Active</label>
  <div><button disabled={busy} onClick={()=>void save()}>{busy?"Saving...":"Save changes"}</button><button disabled={busy} onClick={()=>setSelected(null)} style={{marginLeft:10}}>Cancel</button></div>
  </section>}
