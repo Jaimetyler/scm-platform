@@ -3,12 +3,12 @@ import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
-const editable = ["name","address","city","state","timezone","prev_code","active"] as const;
+const editable = ["name","address","address2","city","state","zip_code","timezone","prev_code","active"] as const;
 async function handler(req: NextRequest) {
  const db=staffDatabase();
  if(req.method==="GET") {
   const {data,error}=await db.from("cotton_location_master")
-   .select("id,mcleod_code,prev_code,name,address,city,state,timezone,active,updated_at")
+   .select("id,mcleod_code,prev_code,name,address,address2,city,state,zip_code,timezone,active,updated_at")
    .order("mcleod_code").limit(3000);
   if(error) return NextResponse.json({ok:false,error:"Location records unavailable"},{status:503});
   return NextResponse.json({ok:true,locations:data||[]});
