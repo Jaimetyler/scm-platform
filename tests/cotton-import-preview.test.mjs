@@ -29,7 +29,7 @@ test("missing times require review, never inferred",()=>{
 });
 test("invalid reference, date, count and unknown location block",()=>{
  for(const changes of [
-  {baleCount:0},{mark:"BAD*MARK"},{pickups:[]},
+  {baleCount:0},{mark:"BAD*MARK"},{customerId:"OTHER"},{pickups:[]},
   {pickups:[{locationCode:"UNKNOWN",scheduledDate:"2026-11-02"}]},
   {pickups:[{locationCode:"PICKTX",scheduledDate:"2026-02-30"}]}
  ]) assert.throws(()=>buildCottonOrderPreview({...input,...changes},locations));
