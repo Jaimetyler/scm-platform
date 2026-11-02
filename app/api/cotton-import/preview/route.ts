@@ -33,6 +33,17 @@ async function preview(req: NextRequest) {
         reason: e instanceof Error ? e.message : "Invalid cotton import row." };
     }
   });
+  const seen = new Map<string, number>();
+  for (const result of results) {
+    if (!("order" in result) || !result.order) continue;
+    const key = [result.order.customerId.toUpperCase(), result.order.revenueCode,
+      result.order.blnum.toUpperCase()].join("|");
+    const first = seen.get(key);
+    if (first !== undefined) {
+      result.status = "blocked";
+      result.reason = `Duplicate import reference also appears on row ${first}.`;
+    } else seen.set(key, result.row);
+  }
   return NextResponse.json({ ok: true, previewOnly: true, writesEnabled: false,
     totals: { submitted: results.length, blocked: results.filter(r => r.status === "blocked").length },
     results });
