@@ -1,4 +1,4 @@
-export type DispatchLine = { row: number; mark: string; salesOrder: string; bales: number; warehouse: string; rtl: string };
+export type DispatchLine = { row: number; mark: string; salesOrder: string; bales: number; warehouse: string; rtl: string; usdaWarehouseCode: string | null };
 export type DispatchOrder = { mark: string; salesOrder: string; bales: number; pickups: DispatchLine[] };
 const str = (v: unknown) => String(v ?? "").trim();
 export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
@@ -31,7 +31,7 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
       invalidOrders.add(key);
       continue;
     }
-    order.pickups.push({ row: index + 1, mark, salesOrder, bales, warehouse, rtl });
+    order.pickups.push({ row: index + 1, mark, salesOrder, bales, warehouse, rtl, usdaWarehouseCode: /^\\d{6}$/.test(str(r[8])) ? str(r[8]) : null });
     order.bales += bales;
     grouped.set(key, order);
   }
