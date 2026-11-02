@@ -35,7 +35,9 @@ function date(value: string): string {
 }
 export function buildCottonOrderPreview(input: CottonImportInput, locations: readonly CottonLocation[]): CottonOrderPreview {
   if (!["MAIN", "DAVIS"].includes(input.revenueCode)) throw new Error("Unsupported cotton revenue code");
-  const customerId = required(input.customerId, "customer");
+  const customerId = required(input.customerId, "customer").toUpperCase();
+  if (customerId !== "BUNGOMNE")
+    throw new Error("Bunge import requires McLeod customer BUNGOMNE.");
   const mark = required(input.mark, "mark").replace(/\s+/g, " ").toUpperCase();
   if (!/^[A-Z0-9][A-Z0-9 .\/-]*$/.test(mark)) throw new Error("Invalid mark");
   if (!Number.isSafeInteger(input.baleCount) || input.baleCount <= 0) throw new Error("Invalid bale count");
