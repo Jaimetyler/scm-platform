@@ -6,6 +6,9 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
   if (header < 0) throw new Error("Bunge Mark/SO header missing");
   const destination = str(rows.find(r => str(r[0]).toUpperCase() === "DESTINATION:")?.[1]);
   if (!destination) throw new Error("Dispatch destination missing");
+  const destinationKind = /\\bDALLAS\\s*#?\\s*2\\b/i.test(destination) ? "DALLAS_2"
+    : /\\(SAV\\)|SAVANNAH/i.test(destination) ? "SAVANNAH" : "UNKNOWN";
+  if (destinationKind === "UNKNOWN") throw new Error("Unrecognized Bunge dispatch destination");
   const grouped = new Map<string, DispatchOrder>();
   const blocked: { row: number; reason: string }[] = [];
   for (let index = header + 1; index < rows.length; index++) {
@@ -30,5 +33,5 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
     grouped.set(key, order);
   }
   if (!grouped.size) throw new Error("No dispatch lines found");
-  return { destination, orders: [...grouped.values()], blocked };
+  return { destination, destinationKind, orders: [...grouped.values()], blocked };
 }
