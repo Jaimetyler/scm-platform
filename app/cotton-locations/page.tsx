@@ -3,7 +3,7 @@ import {useEffect,useState} from "react";
 import styles from "./page.module.css";
 type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;address2:string|null;city:string|null;state:string|null;zip_code:string|null;timezone:string|null;active:boolean;updated_at:string};
 type Rule={rule_kind:string;fee_type:string;amount:number;grace_days:number|null;grace_unit:string|null};
-type PolicyData={ok:boolean;error?:string;versions?:{id:string;status:string;source_type:string;source_reference:string|null;rules:Rule[]}[];schedules?:{weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;appointment_required:boolean|null;verified:boolean|null;source_reference:string|null}[]};
+type PolicyData={ok:boolean;error?:string;clues?:{id:string;source_type:string;source_reference:string;proposed_values:Record<string,unknown>;status:string}[];versions?:{id:string;status:string;source_type:string;source_reference:string|null;rules:Rule[]}[];schedules?:{weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;appointment_required:boolean|null;verified:boolean|null;source_reference:string|null}[]};
 const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 export default function CottonLocationsPage(){
  const [rows,setRows]=useState<Location[]>([]);
@@ -62,6 +62,8 @@ export default function CottonLocationsPage(){
      {tab!=="details"&&policy&&!policy.ok&&<p role="alert" className={styles.error}>{policy.error}</p>}
      {tab==="hours"&&policy?.ok&&<div className={styles.policyList}>
       <p className={styles.helper}>Only source-confirmed hours should be treated as verified. Historical dispatcher defaults are not reliable.</p>
+      {policy.clues?.filter(c=>c.proposed_values?.pickup_hours_clue).map(c=><article className={styles.policyCard} key={c.id}><strong>Unverified McLeod hours clue</strong><p>{String(c.proposed_values.pickup_hours_clue)}</p><small>Source: {c.source_reference}. Confirm before using for dispatch.</small></article>)}
+      {policy.clues?.filter(c=>c.source_type==="tariff"&&c.proposed_values?.pickup_hours).map(c=><article className={styles.policyCard} key={c.id}><strong>Written tariff — pending review</strong><p>{JSON.stringify(c.proposed_values.pickup_hours)}</p><small>{c.source_reference}</small></article>)}
       {policy.schedules?.length?policy.schedules.map((v,i)=><article className={styles.policyCard} key={i}><strong>{v.weekday==null?"All days":days[v.weekday]}</strong><p>{v.open_time||"Hours unknown"} – {v.close_time||"Hours unknown"}</p><p>Check-in cutoff: {v.checkin_cutoff||"Not recorded"} · Appointment: {v.appointment_required===true?"Required":v.appointment_required===false?"Not required":"Unknown"}</p><small>{v.verified?"Verified":"Unverified"} · {v.source_reference||"No source"}</small></article>):<p>No pickup hours recorded.</p>}
       <a href="/cotton-locations/policies">Add or update schedule evidence</a>
      </div>}
