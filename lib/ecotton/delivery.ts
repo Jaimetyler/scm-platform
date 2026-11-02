@@ -19,7 +19,7 @@ function timestamp(value: unknown): number {
   return n;
 }
 export function buildDeliveryPlan(order: any, row: Ledger): DeliveryPlan {
-  if (row.profile.id !== "HOU-HOUWHSE") throw new Error("Delivery is currently enabled for Houston eCotton only.");
+  if (!["HOU-HOUWHSE", "SAV-SAVWHSE"].includes(row.profile.id)) throw new Error("Delivery is not enabled for this warehouse profile.");
   const errors = verifyRatedOrder(order, row.invoice, row.profile);
   if (!row.order_id || String(order.id) !== row.order_id) errors.push("Saved order ID differs");
   if (!['A', 'D'].includes(normalize(order.status)) || order.xferred2billing === true)
