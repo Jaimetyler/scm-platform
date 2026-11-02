@@ -68,3 +68,13 @@ test('delivery migration preserves ledger and audit and fences concurrent SQL cl
  await db.query(`select * from transition_ecotton_import($1,2,'delivery_uncertain','delivered','0828170','verified','test')`,[id]);
  assert.equal((await db.query('select * from ecotton_import_events')).rows.length,3);await db.close();
 });
+
+test('Savannah warehouse can preview delivery without weakening profile restrictions', () => {
+ const f=fixture();f.row.profile=PROFILES.find(p=>p.id==='SAV-SAVWHSE');
+ f.o={...buildPayload(f.row.invoice,f.row.profile),id:f.row.order_id,total_charge:12.34,curr_movement_id:'649341',ready_to_bill:false};
+ f.o.stops.forEach((s,i)=>Object.assign(s,{id:'stop'+i,movement_id:'649341',order_id:f.row.order_id}));
+ Object.assign(f.o.movements[0],{id:'649341',status:'A',origin_stop_id:'stop0',dest_stop_id:'stop1'});
+ assert.equal(buildDeliveryPlan(f.o,f.row).orderId,f.row.order_id);
+ f.row.profile=PROFILES.find(p=>p.id==='DAL-SCMDDETX');
+ assert.throws(()=>buildDeliveryPlan(f.o,f.row),/not enabled/);
+});
