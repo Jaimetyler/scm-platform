@@ -75,6 +75,11 @@ test('Savannah warehouse can preview delivery without weakening profile restrict
  f.o.stops.forEach((s,i)=>Object.assign(s,{id:'stop'+i,movement_id:'649341',order_id:f.row.order_id}));
  Object.assign(f.o.movements[0],{id:'649341',status:'A',origin_stop_id:'stop0',dest_stop_id:'stop1'});
  assert.equal(buildDeliveryPlan(f.o,f.row).orderId,f.row.order_id);
- f.row.profile=PROFILES.find(p=>p.id==='DAL-SCMDDETX');
- assert.throws(()=>buildDeliveryPlan(f.o,f.row),/not enabled/);
+ for (const id of ['DAL-SCMDDETX', 'DAL-SCMDDATX']) {
+   const d=fixture();d.row.profile=PROFILES.find(p=>p.id===id);
+   d.o={...buildPayload(d.row.invoice,d.row.profile),id:d.row.order_id,total_charge:12.34,curr_movement_id:'649341',ready_to_bill:false};
+   d.o.stops.forEach((stop,i)=>Object.assign(stop,{id:'stop'+i,movement_id:'649341',order_id:d.row.order_id}));
+   Object.assign(d.o.movements[0],{id:'649341',status:'A',origin_stop_id:'stop0',dest_stop_id:'stop1'});
+   assert.equal(buildDeliveryPlan(d.o,d.row).orderId,d.row.order_id);
+ }
 });
