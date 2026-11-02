@@ -33,8 +33,8 @@ export default function CottonLocationsPage(){
  {error&&<p role="alert" style={{color:"crimson"}}>{error}</p>}{notice&&<p role="status">{notice}</p>}
  <p>{filtered.length} locations</p>
  <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
- <thead><tr>{["Code","Name","City / State","Active","Action"].map(x=><th key={x} style={{textAlign:"left",padding:10,borderBottom:"1px solid #999"}}>{x}</th>)}</tr></thead>
- <tbody>{filtered.map(r=><tr key={r.id}><td>{r.mcleod_code}</td><td>{r.name}</td><td>{r.address}, {r.city}, {r.state} {r.zip_code}</td><td>{r.active?"Yes":"No"}</td><td><button onClick={()=>void openLocation(r)}>Edit</button></td></tr>)}</tbody>
+ <thead><tr>{["McLeod Code","Previous Code","Name","Address","Active","Action"].map(x=><th key={x} style={{textAlign:"left",padding:10,borderBottom:"1px solid #999"}}>{x}</th>)}</tr></thead>
+ <tbody>{filtered.map(r=><tr key={r.id}><td>{r.mcleod_code}</td><td>{r.prev_code||"—"}</td><td>{r.name}</td><td>{r.address}, {r.city}, {r.state} {r.zip_code}</td><td>{r.active?"Yes":"No"}</td><td><button onClick={()=>void openLocation(r)}>Edit</button></td></tr>)}</tbody>
  </table></div>
  {selected&&<section style={{marginTop:24,border:"1px solid #aaa",borderRadius:12,padding:20,display:"grid",gap:12}}>
  <h2>Edit {selected.mcleod_code}</h2>
