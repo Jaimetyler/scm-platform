@@ -64,7 +64,7 @@ export const PROFILES: Profile[] = [
     equipment: "C",
     mode: "T",
     payee: "SCMIRIGA",
-    timezone: "America/New_York",
+    timezone: "America/Chicago",
     confirmed: true,
   })),
   // Both local Savannah locations are present in existing ECOTTON orders.
