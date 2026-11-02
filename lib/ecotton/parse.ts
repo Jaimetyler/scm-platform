@@ -162,8 +162,15 @@ export function parseInvoices(
     const code = tariff.get(tariffId);
     if (!code)
       throw new Error(`Unmapped charge on ${reference}: ${description}`);
-    const quantityColumn = profile.terminal === "SAV" ? qi - 1 : qi;
-    const amountColumn = profile.terminal === "SAV" ? ai - 1 : ai;
+    const shiftedSavannah =
+      profile.terminal === "SAV" &&
+      qi > 0 &&
+      ai > 0 &&
+      !String(row[qi] || "").trim() &&
+      String(row[qi - 1] || "").trim() !== "" &&
+      !String(row[ai] || "").trim();
+    const quantityColumn = shiftedSavannah ? qi - 1 : qi;
+    const amountColumn = shiftedSavannah ? ai - 1 : ai;
     const quantity = String(row[quantityColumn] || "")
       .replace(/,/g, "")
       .trim();
