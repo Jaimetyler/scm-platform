@@ -18,7 +18,7 @@ const store={claim:async(recordId,from,to,note)=>recordId===row.id?transition(ro
 const base=process.env.MCLEOD_BASE_URL.replace(/\/$/,"");
 async function request(path,method,body){
  if(method!=="GET" && !["/orders/updateRow","/movement/update","/carrierDispatch/setPay/650801?method=F&units=1&rate=200&carrierPay=200"].includes(path))throw Error("Unsupported pilot operation");
- const response=await fetch(base+path,{method,headers:{Authorization:`Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,Accept:"application/json","Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+ const response=await fetch(base+path,{method,headers:{Authorization:`Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,Accept:path.startsWith("/carrierDispatch/")?"text/plain, application/json":"application/json","Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
  if(!response.ok)throw Error("Pilot HTTP "+response.status);
  const text=await response.text();return path.startsWith("/carrierDispatch/")?{raw:text}:JSON.parse(text);
 }
