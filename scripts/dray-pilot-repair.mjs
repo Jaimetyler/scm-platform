@@ -3,8 +3,8 @@ import {createClient} from "@supabase/supabase-js";
 import {repairCreatedInvoice} from "../lib/dray/engine.ts";
 import {verifyRatedOrder} from "../lib/dray/mcleod.ts";
 const id=process.argv[2];
-const movements={"0829214":"650801","0829216":"650804"};
-if(!movements[id])throw Error("This reviewed repair is restricted to the two saved test orders");
+const movements={"0829214":"650801","0829216":"650804","0829225":""};
+if(!Object.hasOwn(movements,id))throw Error("This reviewed repair is restricted to the saved test orders");
 if(process.env.DRAY_IMPORT_WRITES_ENABLED!=="true" || process.env.MCLEOD_SYNC_ENABLED!=="true")throw Error("Dray writes are disabled");
 const db=createClient(process.env.SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
 const {data:saved,error}=await db.from("dray_import_orders").select("*").eq("order_id",id).single();
@@ -23,7 +23,14 @@ async function request(path,method,body){
  if(method!=="GET" && !["/orders/updateRow","/movement/update",`/carrierDispatch/setPay/${movements[id]}?method=F&units=1&rate=200&carrierPay=200`].includes(path))throw Error("Unsupported pilot operation");
  const response=await fetch(base+path,{method,headers:{Authorization:`Bearer ${process.env.MCLEOD_AUTH_TOKEN}`,Accept:path.startsWith("/carrierDispatch/")?"text/plain, application/json":"application/json","Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
  if(!response.ok)throw Error("Pilot HTTP "+response.status);
- const text=await response.text();return path.startsWith("/carrierDispatch/")?{raw:text}:JSON.parse(text);
+ const text=await response.text();
+ if(path.startsWith("/carrierDispatch/"))return {raw:text};
+ const parsed=JSON.parse(text);
+ if(method==="GET" && !movements[id]){
+   if(String(parsed.id)!==id || parsed.movements?.length!==1 || !parsed.movements[0].id || String(parsed.curr_movement_id)!==String(parsed.movements[0].id))throw Error("Olam movement linkage could not be verified");
+   movements[id]=String(parsed.movements[0].id);
+ }
+ return parsed;
 }
 if(row.status==="rating_uncertain"){
  if(!process.argv.includes("--complete-reviewed-pay") || !row.note.includes("Pilot HTTP 406"))throw Error("Uncertain writes cannot be retried");

@@ -150,3 +150,5 @@ test("repair trims only an exact duplicate approved charge before completing car
 });
 test("billing normalization adds Olam's missing zero invoice line exactly once",()=>{const i=parseDrays(csv([source({Shipper:"Olam Cotton"})]),first()).invoices[0];const o=order(i);o.otherCharges=o.otherCharges.filter(c=>c.amount!==0);const plan=billingNormalizationPayload(o,i,PROFILE,o.id);assert.equal(plan.otherCharges.filter(c=>c.amount===0&&!c.__deleted).length,1);assert.equal(billingNormalizationPayload({...o,...plan},i,PROFILE,o.id),null)});
 test("matching native billing is verified without replaying rate or charge writes",async()=>{const h=harness();await processInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.writes.filter(w=>w.path==="/orders/updateRow").length,0)});
+
+test("Olam native zero line retains the complete Garden City to Savannah Port wording",()=>{const i=parseDrays(csv([source({Shipper:"Olam Cotton"})]),first()).invoices[0];assert.equal(i.charges[0].description,"GARDEN CITY TO SAVANNAH PORT");assert.equal(i.charges[0].cents,0);assert.equal(billingNormalizationPayload(order(i),i,PROFILE,"ORDER1"),null)});

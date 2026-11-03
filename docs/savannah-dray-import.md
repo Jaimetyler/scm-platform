@@ -8,7 +8,7 @@ FirstStar terminal 700, non-voided moves only: match the four-letter prefix and 
 
 Mappings: mark → BOL, full container → consignee reference, file → planning comment, customer Shipper’s Order# → Ordered By; booking → booking_no_sucm. Warehouse pickup is SAVWHSE; destination is SAVPORT/SAVOT. Type FLAT, revenue LOCAL, commodity COTTON, equipment C, mode T, payee SCMIRIGA. Chassis/seal/steamship and FirstStar load remain in the saved review. Shipping order + container is the durable source key; McLeod duplicate checks use mark and full container.
 
-Customer base/chassis amounts are in `lib/dray/model.ts`, in integer cents. Olam retains its separate $0 GARDEN CITY TO SAVANNAH invoice line and 2 × $45 chassis. Other customers have 1 × $135 chassis. Base billing and separate charge lines are sent directly, without McLeod autorating; exact base, total, lines (including $0), route and carrier pay must pass read-back verification.
+Customer base/chassis amounts are in `lib/dray/model.ts`, in integer cents. Olam retains its separate $0 GARDEN CITY TO SAVANNAH PORT invoice line and 2 × $45 chassis. Other customers have 1 × $135 chassis. Base billing and separate charge lines are sent directly, without McLeod autorating; exact base, total, lines (including $0), route and carrier pay must pass read-back verification.
 
 The import ledger uses separate dray tables and compare-and-swap transitions. Repeat uploads reopen saved runs. Source changes conflict after a write-capable state. An initially blocked missing-source row may be corrected by uploading complete files before any vendor write. Timed-out/partial creates, pay/rate updates or deliveries stay fenced for read-only reconciliation; no automatic retries.
 
