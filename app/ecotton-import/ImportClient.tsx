@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import styles from "./review.module.css";
 import type { Profile } from "@/lib/ecotton/model";
 const card: React.CSSProperties = {
   padding: 22,
@@ -39,6 +40,15 @@ function displayDeliveryDate(value: string) {
   return m ? `${m[2]}/${m[3]}/${m[1]} ${m[4]}:${m[5]}:${m[6]} (${m[7]}:${m[8]})` : value;
 }
 export default function ImportClient() {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [openedId, setOpenedId] = useState<string | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const opener = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (openedId && dialog.current && !dialog.current.open) dialog.current.showModal();
+    if (!openedId && dialog.current?.open) dialog.current.close();
+  }, [openedId]);
   const [profiles, setProfiles] = useState<Profile[]>([]),
     [profileId, setProfile] = useState("HOU-HOUWHSE");
   const [summary, setSummary] = useState(""),
@@ -52,7 +62,7 @@ export default function ImportClient() {
     [confirmed, setConfirmed] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [deliveryPreview, setDeliveryPreview] = useState<any[]>([]);
-  useEffect(() => { setDeliveryPreview([]); }, [saved?.run.id]);
+  useEffect(() => { setDeliveryPreview([]); setOpenedId(null); setQuery(""); setFilter("all"); }, [saved?.run.id]);
   async function call(body?: any, runId?: string) {
     const res = await fetch(
       "/api/ecotton-import" +
@@ -115,6 +125,16 @@ export default function ImportClient() {
   const chosen = ready.filter((item) => selected.has(item.order_id));
   const deliverable = items.filter((item) => !item.conflict && item.order.status === "verified" && item.order.profile.id === profileId);
   const chosenDelivery = deliverable.filter((item) => selected.has(item.order_id));
+  const category = (item: any) => item.conflict ? "attention" :
+    ["ready", "created"].includes(item.order.status) ? "ready" :
+    ["verified", "delivered"].includes(item.order.status) ? "imported" : "attention";
+  const visible = items.filter((item: any) => {
+    const i = item.order.invoice;
+    return (filter === "all" || category(item) === filter) &&
+      [i.reference, i.mark, i.customerName, i.customerId, item.order.order_id, item.order.status]
+        .some(value => String(value || "").toLowerCase().includes(query.trim().toLowerCase()));
+  });
+  const opened = items.find((item: any) => item.order_id === openedId);
   async function previewDelivery() {
     setDeliveryPreview([]);
     await act(async () => {
@@ -175,7 +195,7 @@ export default function ImportClient() {
     });
   }
   return (
-    <main
+    <main className={styles.page}
       style={{
         maxWidth: 1300,
         margin: "0 auto",
@@ -391,8 +411,18 @@ export default function ImportClient() {
             <button style={button} disabled={busy || !writes} onClick={deliver}>Deliver reviewed orders ({deliveryPreview.length})</button>
             <button style={button} disabled={busy} onClick={() => setDeliveryPreview([])}>Cancel delivery preview</button>
           </section>}
-          <div style={{ overflowX: "auto", marginTop: 20 }}>
-            <table
+          <div className={styles.toolbar}>
+            <input aria-label="Search import orders" placeholder="Search customer, reference, mark or McLeod ID" value={query} onChange={e => setQuery(e.target.value)} />
+            <select aria-label="Filter import status" value={filter} onChange={e => setFilter(e.target.value)}>
+              <option value="all">All orders ({items.length})</option>
+              <option value="ready">Ready to process ({items.filter(x => category(x) === "ready").length})</option>
+              <option value="attention">Needs attention ({items.filter(x => category(x) === "attention").length})</option>
+              <option value="imported">Already imported ({items.filter(x => category(x) === "imported").length})</option>
+            </select>
+            <span>{visible.length} shown · {selected.size} selected across all filters</span>
+          </div>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}
               style={{
                 width: "100%",
                 borderCollapse: "collapse",
@@ -420,7 +450,8 @@ export default function ImportClient() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => {
+                {!visible.length && <tr><td colSpan={6}>No orders match this search and status.</td></tr>}
+                {visible.map((item) => {
                   const o = item.order,
                     i = o.invoice;
                   return (
@@ -464,69 +495,7 @@ export default function ImportClient() {
                         <br />
                         {o.order_id || "Not created"}
                       </td>
-                      <td style={{ maxWidth: 380, overflowWrap: "anywhere" }}>
-                        {item.conflict
-                          ? "This warehouse/reference already has a different saved invoice. No changes allowed."
-                          : ["delivering", "delivery_uncertain", "delivered"].includes(o.status) ? deliveryNote(o) : o.note}
-                        {["delivering", "delivery_uncertain"].includes(o.status) && <button style={button} disabled={busy} onClick={() => act(async () => {
-                          const data = await call({ action: "reconcile-delivery", runId: saved.run.id, rowId: item.order_id }); setSaved(data);
-                        })}>Reconcile delivery (read only)</button>}
-                        <details>
-                          <summary>Charge detail</summary>
-                          <ul>
-                            {i.charges.map((c, index) => (
-                              <li key={index}>
-                                {c.code} — {c.description}: {c.units} · $
-                                {(c.cents / 100).toFixed(2)}
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                        {!item.conflict && o.status === "preview_blocked" && (
-                          <button
-                            style={button}
-                            disabled={busy}
-                            onClick={() =>
-                              act(async () => {
-                                const data = await call({
-                                  action: "recheck",
-                                  runId: saved.run.id,
-                                  rowId: item.order_id,
-                                });
-                                setSaved(data);
-                              })
-                            }
-                          >
-                            Recheck duplicate search
-                          </button>
-                        )}
-                        {!item.conflict &&
-                          [
-                            "creating",
-                            "creation_uncertain",
-                            "created",
-                            "rating",
-                            "rating_uncertain",
-                            "blocked",
-                          ].includes(o.status) && (
-                            <button
-                              style={button}
-                              disabled={busy}
-                              onClick={() =>
-                                act(async () => {
-                                  const data = await call({
-                                    action: "reconcile",
-                                    runId: saved.run.id,
-                                    rowId: item.order_id,
-                                  });
-                                  setSaved(data);
-                                })
-                              }
-                            >
-                              Reconcile (read only)
-                            </button>
-                          )}
-                      </td>
+                      <td><button style={button} onClick={(event) => { opener.current = event.currentTarget; setOpenedId(item.order_id); }}>View details</button></td>
                     </tr>
                   );
                 })}
@@ -535,6 +504,91 @@ export default function ImportClient() {
           </div>
         </section>
       )}
+      <dialog ref={dialog} className={styles.dialog} aria-labelledby="import-detail-title"
+        onCancel={event => { if (busy) event.preventDefault(); }}
+        onClose={() => { setOpenedId(null); opener.current?.focus(); }}>
+        {opened && <>
+          <header className={styles.modalHeader}>
+            <div><span className={styles.eyebrow}>IMPORT ORDER</span><h2 id="import-detail-title">{opened.order.invoice.customerName}</h2><p>{opened.order.invoice.reference} · {opened.order.invoice.mark}</p></div>
+            <button aria-label="Close order details" disabled={busy} onClick={() => dialog.current?.close()}>×</button>
+          </header>
+          <div className={styles.modalBody}>
+            {error && <p role="alert" className={styles.error}>{error}</p>}
+            <dl className={styles.summary}>
+              <div><dt>Customer code</dt><dd>{opened.order.invoice.customerId}</dd></div>
+              <div><dt>Warehouse</dt><dd>{opened.order.profile.location}</dd></div>
+              <div><dt>Invoice date</dt><dd>{opened.order.invoice.invoiceDate}</dd></div>
+              <div><dt>Expected billing</dt><dd>${(opened.order.invoice.cents / 100).toFixed(2)}</dd></div>
+              <div><dt>Status</dt><dd>{opened.conflict ? "Source conflict" : opened.order.status}</dd></div>
+              <div><dt>McLeod ID</dt><dd>{opened.order.order_id || "Not created"}</dd></div>
+            </dl>
+
+                        {opened.conflict
+                          ? "This warehouse/reference already has a different saved invoice. No changes allowed."
+                          : ["delivering", "delivery_uncertain", "delivered"].includes(opened.order.status) ? deliveryNote(opened.order) : opened.order.note}
+                        {["delivering", "delivery_uncertain"].includes(opened.order.status) && <button style={button} disabled={busy} onClick={() => act(async () => {
+                          const data = await call({ action: "reconcile-delivery", runId: saved.run.id, rowId: opened.order_id }); setSaved(data);
+                        })}>Reconcile delivery (read only)</button>}
+                        <section>
+                          <h3>Charge detail</h3>
+                          <ul>
+                            {opened.order.invoice.charges.map((c, index) => (
+                              <li key={index}>
+                                {c.code} — {c.description}: {c.units} · $
+                                {(c.cents / 100).toFixed(2)}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                        {!opened.conflict && opened.order.status === "preview_blocked" && (
+                          <button
+                            style={button}
+                            disabled={busy}
+                            onClick={() =>
+                              act(async () => {
+                                const data = await call({
+                                  action: "recheck",
+                                  runId: saved.run.id,
+                                  rowId: opened.order_id,
+                                });
+                                setSaved(data);
+                              })
+                            }
+                          >
+                            Recheck duplicate search
+                          </button>
+                        )}
+                        {!opened.conflict &&
+                          [
+                            "creating",
+                            "creation_uncertain",
+                            "created",
+                            "rating",
+                            "rating_uncertain",
+                            "blocked",
+                          ].includes(opened.order.status) && (
+                            <button
+                              style={button}
+                              disabled={busy}
+                              onClick={() =>
+                                act(async () => {
+                                  const data = await call({
+                                    action: "reconcile",
+                                    runId: saved.run.id,
+                                    rowId: opened.order_id,
+                                  });
+                                  setSaved(data);
+                                })
+                              }
+                            >
+                              Reconcile (read only)
+                            </button>
+                          )}
+
+          </div>
+          <footer className={styles.modalFooter}><button disabled={busy} onClick={() => dialog.current?.close()}>Close</button></footer>
+        </>}
+      </dialog>
       <section style={card}>
         <h2>Recent imports</h2>
         {runs.length ? (
