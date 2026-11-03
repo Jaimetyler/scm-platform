@@ -224,6 +224,8 @@ export default function ImportClient() {
       )}
       <section style={card}>
         <h2>Warehouse reports</h2>
+        <div className={styles.uploadGrid}>
+        <div>
         <label htmlFor="import-profile">Terminal / warehouse</label>
         <select
           id="import-profile"
@@ -244,15 +246,9 @@ export default function ImportClient() {
             </option>
           ))}
         </select>
-        {profiles.find((p) => p.id === profileId) && (
-          <p>
-            Pickup and delivery:{" "}
-            {profiles.find((p) => p.id === profileId)?.location ||
-              "Needs setup"}{" "}
-            · Type: ECOTTON · Invoice total saved in each order’s planning
-            comment.
-          </p>
-        )}
+        </div>
+
+        <div>
         <label htmlFor="import-summary">Original billing summary</label>
         <input
           id="import-summary"
@@ -278,6 +274,8 @@ export default function ImportClient() {
             }
           }}
         />
+        </div>
+        <div>
         <label htmlFor="import-detail">Original billing charge detail</label>
         <input
           id="import-detail"
@@ -303,6 +301,17 @@ export default function ImportClient() {
             }
           }}
         />
+        </div>
+        </div>
+        {profiles.find((p) => p.id === profileId) && (
+          <p>
+            Pickup and delivery:{" "}
+            {profiles.find((p) => p.id === profileId)?.location ||
+              "Needs setup"}{" "}
+            · Type: ECOTTON · Invoice total saved in each order’s planning
+            comment.
+          </p>
+        )}
         <button
           style={button}
           disabled={
@@ -491,7 +500,7 @@ export default function ImportClient() {
                         {i.charges.length} charges
                       </td>
                       <td>
-                        {item.conflict ? "SOURCE CONFLICT" : o.status}
+                        {item.conflict ? "Source conflict" : o.status.replaceAll("_", " ")}
                         <br />
                         {o.order_id || "Not created"}
                       </td>
