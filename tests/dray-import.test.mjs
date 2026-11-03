@@ -15,7 +15,7 @@ function load(file) {
 }
 const {parseDrays,containerKey,portLocation}=load("lib/dray/parse.ts");
 const {PROFILE,SAVANNAH_RATES}=load("lib/dray/model.ts");
-const {buildPayload,verifyRatedOrder,findDuplicates}=load("lib/dray/mcleod.ts");
+const {buildPayload,verifyRatedOrder,findDuplicates,expectedCharges,billingNormalizationPayload}=load("lib/dray/mcleod.ts");
 const {processInvoice,reconcileInvoice,repairCreatedInvoice}=load("lib/dray/engine.ts");
 const {buildDeliveryPlan,deliverInvoice,reconcileDelivery}=load("lib/dray/delivery.ts");
 const columns=["Invoice Date","Shipper ID","Shipper","Shippers Order#","Marks","File Number","Pickup Point","SS LINE","Equipment Tracking","Shipping Order","Booking Number","CHASSIS","Seal Number"];
@@ -24,7 +24,7 @@ function csv(rows=[source()], names=columns){return [names,...rows.map(r=>names.
 const first=(extra=[])=>[["Load Listing"],["Load#","Term","Container#","Bill Ref#","Total","Voided"],["FIRST1",700,"ABCU123456","FILE FILE1",200,""],...extra];
 const invoice=()=>parseDrays(csv(),first()).invoices[0];
 function order(i=invoice()) {
-  const o={...buildPayload(i,PROFILE),id:"ORDER1",curr_movement_id:"MOVE1",ready_to_bill:false};
+  const o={...buildPayload(i,PROFILE),otherCharges:expectedCharges(i,PROFILE).map((c,n)=>({...c,id:"CHARGE"+n,order_id:"ORDER1"})),id:"ORDER1",curr_movement_id:"MOVE1",ready_to_bill:false};
   o.stops=o.stops.map((s,n)=>({...s,id:"STOP"+n,order_id:o.id,movement_id:"MOVE1"}));
   o.movements=o.movements.map(m=>({...m,id:"MOVE1",status:"A",origin_stop_id:"STOP0",dest_stop_id:"STOP1"}));
   return o;
@@ -36,7 +36,7 @@ function harness(i=invoice()) {
   const vendor={read:async path=>path.startsWith("/orders/search?")?[]:structuredClone(current),write:async(path,body)=>{
     writes.push({path,body});
     if(path==="/orders/create"){current=order(i);return{id:"ORDER1"}}
-    if(path==="/orders/updateRow") Object.assign(current,body);
+    if(path==="/orders/updateRow"){Object.assign(current,body);if(body.otherCharges)current.otherCharges=body.otherCharges.filter(c=>!c.__deleted).map((c,n)=>({...c,id:c.id||"ADDED"+n,order_id:current.id}));}
     if(path==="/stop/update") Object.assign(current.stops.find(s=>s.id===body.id),body);
     if(path==="/movement/update") Object.assign(current.movements[0],body);
     return {};
@@ -132,10 +132,20 @@ test("all customers use customer SO and separate booking; repair keeps billing i
  const charges=structuredClone(h.order.otherCharges),total=h.order.total_charge;await repairCreatedInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.order.ordered_by,"SO-CUSTOMER-1");assert.equal(h.order.booking_no_sucm,"BOOK1");assert.equal(h.order.movements[0].override_pay_amt,200);assert.deepEqual(h.order.otherCharges,charges);assert.equal(h.order.total_charge,total);assert.equal(h.writes.filter(w=>w.path==="/orders/create").length,1);
 });
 test("repair refuses unexpected FSC/charge lines without any vendor write",async()=>{
- const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.otherCharges.push({...h.order.otherCharges[0],charge_id:"FSC",amount:20});const n=h.writes.length;await assert.rejects(repairCreatedInvoice(h.row,h.store,h.vendor),/Charge lines/);assert.equal(h.writes.length,n);
+ const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.otherCharges.push({...h.order.otherCharges[0],charge_id:"FSC",amount:20});const n=h.writes.length;await assert.rejects(repairCreatedInvoice(h.row,h.store,h.vendor),/Unexpected billing charge/);assert.equal(h.writes.length,n);
 });
 test("repair only fills missing supplemental pay rate when other fields already match",async()=>{
  const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.movements[0].override_pay_rate=null;
  const n=h.writes.length,write=h.vendor.write;h.vendor.write=async(path,body)=>{const r=await write(path,body);if(path.startsWith('/carrierDispatch/'))h.order.movements[0].override_pay_rate=200;return r};
  await repairCreatedInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.writes.length,n+1);assert.ok(h.writes[n].path.startsWith('/carrierDispatch/setPay/'));
 });
+
+test("create omits nested billing lines so McLeod defaults cannot duplicate the supplied chassis",()=>{assert.equal(Object.hasOwn(buildPayload(invoice(),PROFILE),"otherCharges"),false)});
+test("automatic customer charge duplicates are removed before carrier setup and never create a second load",async()=>{
+ const h=harness(),write=h.vendor.write;h.vendor.write=async(path,body)=>{const r=await write(path,body);if(path==="/orders/create"){h.order.otherCharges.push({...h.order.otherCharges[0],id:"AUTO_DUPLICATE"});h.order.total_charge=620;for(const k of ["override_payee_id","override_type","override_units","override_paye_rate","override_pay_rate","override_pay_amt"])delete h.order.movements[0][k]}return r};
+ await processInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.order.otherCharges.length,1);assert.equal(h.order.total_charge,485);assert.equal(h.order.movements[0].override_pay_amt,200);assert.equal(h.writes.filter(w=>w.path==="/orders/create").length,1);
+});
+test("repair trims only an exact duplicate approved charge before completing carrier",async()=>{
+ const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.otherCharges.push({...h.order.otherCharges[0],id:"DUPLICATE"});h.order.total_charge=620;delete h.order.movements[0].override_payee_id;await repairCreatedInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.order.otherCharges.length,1);assert.equal(h.order.total_charge,485);assert.equal(h.order.movements[0].override_payee_id,"SCMIRIGA");
+});
+test("billing normalization adds Olam's missing zero invoice line exactly once",()=>{const i=parseDrays(csv([source({Shipper:"Olam Cotton"})]),first()).invoices[0];const o=order(i);o.otherCharges=o.otherCharges.filter(c=>c.amount!==0);const plan=billingNormalizationPayload(o,i,PROFILE,o.id);assert.equal(plan.otherCharges.filter(c=>c.amount===0&&!c.__deleted).length,1);assert.equal(billingNormalizationPayload({...o,...plan},i,PROFILE,o.id),null)});

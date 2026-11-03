@@ -22,10 +22,38 @@ function projection(order: any, d: DrayInvoice, p: Profile) {
 }
 export function buildPayload(i: Invoice, p: Profile) {
   const d = approved(i), payload = ecotton.buildPayload(i,p);
-  return {...payload,planning_comment:d.fileNumber,ordered_by:d.customerOrder,
+  // McLeod applies customer billing defaults during create. Supplying the same
+  // nested charge here duplicates that default. Reconcile actual lines after create.
+  const {otherCharges: _charges, ...base} = payload;
+  return {...base,planning_comment:d.fileNumber,ordered_by:d.customerOrder,
     booking_no_sucm:d.booking,rate:d.baseCents/100,total_charge:d.cents/100,
     stops:payload.stops.map(s=>({...s,location_id:s.stop_type === "PU" ? p.location : d.destination})),
     movements:payload.movements.map(m=>({...m,override_paye_rate:d.carrierCents!/100,override_pay_rate:d.carrierCents!/100,override_pay_amt:d.carrierCents!/100}))};
+}
+export function expectedCharges(i: Invoice,p: Profile) {return ecotton.buildPayload(i,p).otherCharges;}
+
+/** Only trim exact surplus copies of approved lines; unrelated charges block. */
+export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,expectedId: string,allowReferences=false) {
+  const d=approved(i);
+  const ignored=["Charge lines differ from source invoice","McLeod order total differs from source invoice","Movement payee or zero-payment settings differ from approved profile","Carrier payment settings differ from FirstStar",...(allowReferences?["Ordered By differs from source","Booking number differs from source"]:[])];
+  const errors=verifyRatedOrder(order,i,p).filter(e=>!ignored.includes(e));
+  if(errors.length || String(order.id)!==expectedId || normalize(order.status)!=="A" || !Array.isArray(order.stops) || order.stops.some(s=>normalize(s.status)!=="A" || s.actual_arrival || s.actual_departure)) throw new Error("Billing setup blocked: "+(errors.join("; ")||"Order progressed or changed"));
+  const actual=order.otherCharges??order.other_charges;
+  if(!Array.isArray(actual))throw new Error("Billing lines unavailable");
+  const signature=(c:any)=>JSON.stringify([normalize(c.charge_id),String(c.descr??c.description??"").trim(),Number(c.units),Math.round(Number(c.amount)*100)]);
+  const expected=expectedCharges(i,p),remaining=new Map<string,any[]>();
+  for(const c of expected){const k=signature(c);remaining.set(k,[...(remaining.get(k)||[]),c]);}
+  const approvedKeys=new Set(remaining.keys()),lines:any[]=[];let changed=false;
+  for(const c of actual){
+    const k=signature(c),needed=remaining.get(k);
+    if(needed?.length){needed.pop();lines.push(c);continue;}
+    if(!approvedKeys.has(k))throw new Error("Unexpected billing charge; manual review required: "+String(c.charge_id)+" "+String(c.descr??c.description));
+    if(!c.id || String(c.order_id)!==expectedId)throw new Error("Duplicate charge identity unavailable");
+    lines.push({...c,__deleted:true,__status:"D"});changed=true;
+  }
+  for(const missing of remaining.values())for(const c of missing){lines.push(c);changed=true;}
+  if(!changed && Math.round(Number(order.total_charge)*100)===i.cents)return null;
+  return {__type:"orders",company_id:"TMS",id:expectedId,rate_type:"F",rate_units:1,rate:d.baseCents/100,total_charge:i.cents/100,otherCharges:lines};
 }
 export function identityMatches(order: any, i: Invoice, p: Profile) {
   const d = approved(i);

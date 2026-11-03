@@ -4,6 +4,7 @@ import {
   identityMatches,
   verifyRatedOrder,
   movementUpdatePayload,
+  billingNormalizationPayload,
 } from "./mcleod.ts";
 import type { Invoice, Profile } from "../ecotton/model.ts";
 export type Ledger = {
@@ -130,6 +131,14 @@ export async function processInvoice(
       );
       throw e;
     }
+    let normalization:any;
+    try {normalization=billingNormalizationPayload(before,row.invoice,row.profile,row.order_id);}
+    catch(e){await store.finish(row,"blocked",row.order_id,(e as Error).message);return;}
+    if(normalization){
+      try {await vendor.write("/orders/updateRow",normalization);before=await vendor.read("/orders/"+encodeURIComponent(row.order_id));}
+      catch(e){await store.finish(row,"rating_uncertain",row.order_id,"Billing setup response uncertain; do not retry");throw e;}
+      if(verifyRatedOrder(before,row.invoice,row.profile).some(e=>["Charge lines differ from source invoice","McLeod order total differs from source invoice"].includes(e))){await store.finish(row,"blocked",row.order_id,"Billing lines did not match after setup; inspect before any retry");return;}
+    }
     let errors = verifyRatedOrder(before, row.invoice, row.profile);
     if (
       errors.includes(
@@ -237,14 +246,22 @@ export async function repairCreatedInvoice(row: Ledger, store: Store, vendor: Ve
   const before = await vendor.read("/orders/" + encodeURIComponent(row.order_id));
   const invoice = row.invoice as any;
   const allowed = ["Movement payee or zero-payment settings differ from approved profile", "Carrier payment settings differ from FirstStar", "Ordered By differs from source", "Booking number differs from source"];
-  const errors = verifyRatedOrder(before,row.invoice,row.profile).filter(e=>!allowed.includes(e));
+  const billing=billingNormalizationPayload(before,row.invoice,row.profile,row.order_id,true);
+  const projected=billing?{...before,total_charge:row.invoice.cents/100,otherCharges:billing.otherCharges.filter(c=>!c.__deleted)}:before;
+  const errors = verifyRatedOrder(projected,row.invoice,row.profile).filter(e=>!allowed.includes(e));
   if (errors.length) throw new Error("Repair blocked: " + errors.join("; "));
   if (before.ordered_by && ![invoice.booking,invoice.customerOrder].includes(String(before.ordered_by).trim())) throw new Error("Ordered By was changed manually; review required.");
   if (before.booking_no_sucm && String(before.booking_no_sucm).trim() !== invoice.booking) throw new Error("Booking was changed manually; review required.");
-  const payment = movementUpdatePayload(before,row.invoice,row.profile,row.order_id,true);
+  const payment = movementUpdatePayload(projected,row.invoice,row.profile,row.order_id,true);
   const held = await store.claim(row.id,"blocked","rating","Reviewed repair of saved creation receipt; no new order");
   if (!held) throw new Error("Another request claimed this repair.");
   try {
+    if(billing){
+      await vendor.write("/orders/updateRow",billing);
+      const checked=await vendor.read("/orders/"+encodeURIComponent(row.order_id));
+      const chargeErrors=verifyRatedOrder(checked,row.invoice,row.profile).filter(e=>["Charge lines differ from source invoice","McLeod order total differs from source invoice"].includes(e));
+      if(chargeErrors.length){await store.finish(held,"blocked",row.order_id,"Billing correction did not verify; carrier setup stopped");return;}
+    }
     if(String(before.ordered_by??"").trim()!==invoice.customerOrder || String(before.booking_no_sucm??"").trim()!==invoice.booking)
       await vendor.write("/orders/updateRow", {__type:"orders",company_id:"TMS",id:row.order_id,ordered_by:invoice.customerOrder,booking_no_sucm:invoice.booking});
     if(["override_payee_id","override_type","override_units","override_paye_rate","override_pay_amt"].some(k=>String(before.movements[0][k]??"")!==String(payment[k])))
