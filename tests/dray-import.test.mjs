@@ -18,8 +18,8 @@ const {PROFILE,SAVANNAH_RATES}=load("lib/dray/model.ts");
 const {buildPayload,verifyRatedOrder,findDuplicates}=load("lib/dray/mcleod.ts");
 const {processInvoice,reconcileInvoice}=load("lib/dray/engine.ts");
 const {buildDeliveryPlan,deliverInvoice,reconcileDelivery}=load("lib/dray/delivery.ts");
-const columns=["Invoice Date","Shipper ID","Shipper","Marks","File Number","Pickup Point","SS LINE","Equipment Tracking","Shipping Order","Booking Number","CHASSIS","Seal Number"];
-const source=(change={})=>({"Invoice Date":"10/26/2026","Shipper ID":"SYN","Shipper":"Louis Dreyfus Company Cotton","Marks":"MARK1","File Number":"FILE1","Pickup Point":"GPA","SS LINE":"MSC","Equipment Tracking":"ABCU1234567","Shipping Order":"SHIP1","Booking Number":"BOOK1",CHASSIS:"SCMI1","Seal Number":"SEAL1",...change});
+const columns=["Invoice Date","Shipper ID","Shipper","Shippers Order#","Marks","File Number","Pickup Point","SS LINE","Equipment Tracking","Shipping Order","Booking Number","CHASSIS","Seal Number"];
+const source=(change={})=>({"Invoice Date":"10/26/2026","Shipper ID":"SYN","Shipper":"Louis Dreyfus Company Cotton","Shippers Order#":"SO-CUSTOMER-1","Marks":"MARK1","File Number":"FILE1","Pickup Point":"GPA","SS LINE":"MSC","Equipment Tracking":"ABCU1234567","Shipping Order":"SHIP1","Booking Number":"BOOK1",CHASSIS:"SCMI1","Seal Number":"SEAL1",...change});
 function csv(rows=[source()], names=columns){return [names,...rows.map(r=>names.map(n=>r[n]??""))].map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n")}
 const first=(extra=[])=>[["Load Listing"],["Load#","Term","Container#","Bill Ref#","Total","Voided"],["FIRST1",700,"ABCU123456","FILE FILE1",200,""],...extra];
 const invoice=()=>parseDrays(csv(),first()).invoices[0];
@@ -118,4 +118,10 @@ test("dray ledger isolates orders, reuploads, corrected missing-rate previews an
     await assert.rejects(db.query("select * from transition_dray_import($1,1,'rating','delivered',null,'invalid','test')",[row.id]),/Invalid import state transition/);
     const protectedTables=await db.query("select relrowsecurity from pg_class where relname in ('dray_import_orders','dray_import_runs','dray_import_items','dray_import_events')");assert.equal(protectedTables.rows.length,4);assert.ok(protectedTables.rows.every(x=>x.relrowsecurity));
   }finally{await db.close()}
+});
+
+test("Olam uses customer SO for Ordered By and booking_no_sucm for booking",()=>{
+ const i=parseDrays(csv([source({Shipper:"Olam Cotton"})]),first()).invoices[0];const o=order(i);
+ assert.equal(i.customerOrder,"SO-CUSTOMER-1");assert.equal(o.ordered_by,"SO-CUSTOMER-1");assert.equal(o.booking_no_sucm,"BOOK1");assert.deepEqual(verifyRatedOrder(o,i,PROFILE),[]);
+ o.booking_no_sucm="WRONG";assert.match(verifyRatedOrder(o,i,PROFILE).join(),/booking_no_sucm/);
 });

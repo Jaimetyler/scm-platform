@@ -1,6 +1,7 @@
 import type { Invoice, Profile } from "../ecotton/model.ts";
 export { money, normalize, invoiceDate } from "../ecotton/model.ts";
 export type DrayInvoice = Invoice & {
+  customerOrder?: string;
   sourceKey: string; shippingOrder: string; container: string; chassis: string;
   seal: string; fileNumber: string; booking: string; steamship: string;
   destination: string; baseCents: number; carrierCents: number | null;

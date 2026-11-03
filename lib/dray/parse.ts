@@ -66,12 +66,15 @@ export function parseDrays(csv: string, firstStarRows: unknown[][]) {
     const baseCents = rate && destination ? destination === "SAVOT" ? rate.ocean : rate.port : 0;
     const charges = rate ? [{code:"040",description:"SAV Chassis Charges",units:rate.code === "OLAMRITX" ? 2 : 1,cents:rate.chassis}] : [];
     if (rate?.code === "OLAMRITX") charges.unshift({code:"040",description:"GARDEN CITY TO SAVANNAH",units:1,cents:0});
+    const customerOrder = rate?.code === "OLAMRITX" ? row.get("SHIPPERSORDER") : undefined;
+    if (rate?.code === "OLAMRITX" && !customerOrder) errors.push("Olam Shipper's Order# is required for Ordered By");
+    if (customerOrder && customerOrder.length > 40) errors.push("Olam Shipper's Order# exceeds Ordered By length");
     const sourceKey = `${shippingOrder}:${container}`;
     if (sourceKeys.has(sourceKey)) throw new Error("Duplicate shipping order / container in dray report");
     sourceKeys.add(sourceKey);
     invoices.push({reference,mark:container,invoiceDate:date,shipperId:row.get("SHIPPERID"),customerName:row.get("SHIPPER"),customerId:rate?.code||"",
       cents:baseCents+charges.reduce((n,c)=>n+c.cents,0),charges,sourceKey,shippingOrder,container,chassis:row.get("CHASSIS"),seal:row.get("SEALNUMBER"),fileNumber,
-      booking:row.get("BOOKINGNUMBER"),steamship:row.get("SSLINE"),destination:destination||"",baseCents,carrierCents,firstStarLoad,inputErrors:errors});
+      booking:row.get("BOOKINGNUMBER"),steamship:row.get("SSLINE"),destination:destination||"",baseCents,carrierCents,firstStarLoad,inputErrors:errors,...(customerOrder !== undefined ? {customerOrder} : {})});
   }
   if (!invoices.length) throw new Error("No eligible port drays were found.");
   if (invoices.length > 500) throw new Error("Maximum 500 drays per import.");
