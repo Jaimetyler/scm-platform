@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useState} from "react";
+import PolicyEditor from "./PolicyEditor";
 import styles from "./page.module.css";
 type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;address2:string|null;city:string|null;state:string|null;zip_code:string|null;timezone:string|null;active:boolean;updated_at:string};
 type Rule={rule_kind:string;fee_type:string;amount:number;grace_days:number|null;grace_unit:string|null};
@@ -29,6 +30,13 @@ export default function CottonLocationsPage(){
   try{const res=await fetch("/api/cotton-locations/policies?location_id="+encodeURIComponent(r.id),{cache:"no-store"});const json=await res.json();setPolicy(res.ok?json:{ok:false,error:json.error||"Policy lookup failed"});}
   catch{setPolicy({ok:false,error:"Unable to retrieve policies"});}finally{setPolicyBusy(false);}
  }
+ async function refreshPolicy(){
+  if(!selected)return;
+  const res=await fetch("/api/cotton-locations/policies?location_id="+encodeURIComponent(selected.id),{cache:"no-store"});
+  const json=await res.json();
+  if(!res.ok||!json.ok)throw Error("Saved, but policy refresh failed. Reopen this location to reload.");
+  setPolicy(json);
+ }
  async function save(){
   if(!selected)return;setBusy(true);setError("");setNotice("");
   try{
@@ -48,7 +56,7 @@ export default function CottonLocationsPage(){
   {selected&&<div className={styles.overlay} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setSelected(null)}}>
    <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cotton-location-title">
     <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · Previous: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
-    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div className={styles.modalBody}>
      {error&&<p role="alert" className={styles.error}>{error}</p>}
      {tab==="details"&&<div className={styles.form}>
@@ -65,12 +73,12 @@ export default function CottonLocationsPage(){
       {policy.clues?.filter(c=>c.proposed_values?.pickup_hours_clue).map(c=><article className={styles.policyCard} key={c.id}><strong>Unverified McLeod hours clue</strong><p>{String(c.proposed_values.pickup_hours_clue)}</p><small>Source: {c.source_reference}. Confirm before using for dispatch.</small></article>)}
       {policy.clues?.filter(c=>c.source_type==="tariff"&&c.proposed_values?.pickup_hours).map(c=><article className={styles.policyCard} key={c.id}><strong>Written tariff — pending review</strong><p>{JSON.stringify(c.proposed_values.pickup_hours)}</p><small>{c.source_reference}</small></article>)}
       {policy.schedules?.length?policy.schedules.map((v,i)=><article className={styles.policyCard} key={i}><strong>{v.weekday==null?"All days":days[v.weekday]}</strong><p>{v.open_time||"Hours unknown"} – {v.close_time||"Hours unknown"}</p><p>Check-in cutoff: {v.checkin_cutoff||"Not recorded"} · Appointment: {v.appointment_required===true?"Required":v.appointment_required===false?"Not required":"Unknown"}</p><small>{v.verified?"Verified":"Unverified"} · {v.source_reference||"No source"}</small></article>):<p>No pickup hours recorded.</p>}
-      <a href="/cotton-locations/policies">Add or update schedule evidence</a>
+      <PolicyEditor key={selected.id+"hours"} location={selected} kind="hours" onBusy={setBusy} onSaved={refreshPolicy}/>
      </div>}
      {tab==="fees"&&policy?.ok&&<div className={styles.policyList}>
       <p className={styles.helper}>Historical policies are drafts until reviewed. No changes here affect the active late-fee engine.</p>
       {policy.versions?.map(v=><article className={styles.policyCard} key={v.id}><strong>{v.status.toUpperCase()} · {v.source_type}</strong><small>{v.source_reference||"No source"}</small>{v.rules.map((rule,i)=><p key={i}>{rule.rule_kind.replace("_"," ")}: {rule.fee_type} · ${rule.amount} · Grace: {rule.grace_days??"Unknown"} {rule.grace_unit||""}</p>)}</article>)}
-      <a href="/cotton-locations/policies">Create fee-policy draft</a>
+      <PolicyEditor key={selected.id+"fees"} location={selected} kind="fees" onBusy={setBusy} onSaved={refreshPolicy}/>
      </div>}
     </div>
     <footer className={styles.modalFooter}><button disabled={busy} onClick={()=>setSelected(null)}>Close</button>{tab==="details"&&<button className={styles.primary} disabled={busy} onClick={()=>void save()}>{busy?"Saving…":"Save changes"}</button>}</footer>
