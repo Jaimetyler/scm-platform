@@ -245,9 +245,12 @@ export async function repairCreatedInvoice(row: Ledger, store: Store, vendor: Ve
   const held = await store.claim(row.id,"blocked","rating","Reviewed repair of saved creation receipt; no new order");
   if (!held) throw new Error("Another request claimed this repair.");
   try {
-    await vendor.write("/orders/updateRow", {__type:"orders",company_id:"TMS",id:row.order_id,ordered_by:invoice.customerOrder,booking_no_sucm:invoice.booking});
-    await vendor.write("/movement/update",payment);
-    await vendor.write("/carrierDispatch/setPay/"+encodeURIComponent(payment.id)+`?method=F&units=1&rate=${payment.override_pay_rate}&carrierPay=${payment.override_pay_amt}`);
+    if(String(before.ordered_by??"").trim()!==invoice.customerOrder || String(before.booking_no_sucm??"").trim()!==invoice.booking)
+      await vendor.write("/orders/updateRow", {__type:"orders",company_id:"TMS",id:row.order_id,ordered_by:invoice.customerOrder,booking_no_sucm:invoice.booking});
+    if(["override_payee_id","override_type","override_units","override_paye_rate","override_pay_amt"].some(k=>String(before.movements[0][k]??"")!==String(payment[k])))
+      await vendor.write("/movement/update",payment);
+    if(verifyRatedOrder(before,row.invoice,row.profile).includes("Carrier payment settings differ from FirstStar"))
+      await vendor.write("/carrierDispatch/setPay/"+encodeURIComponent(payment.id)+`?method=F&units=1&rate=${payment.override_pay_rate}&carrierPay=${payment.override_pay_amt}`);
     const after = await vendor.read("/orders/"+encodeURIComponent(row.order_id));
     const remaining = verifyRatedOrder(after,row.invoice,row.profile);
     if(String(after.id)!==row.order_id || after.status!=="A" || after.stops.some(s=>s.status!=="A" || s.actual_arrival || s.actual_departure)) remaining.push("Order status changed during repair");

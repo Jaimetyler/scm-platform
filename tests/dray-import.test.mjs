@@ -134,3 +134,8 @@ test("all customers use customer SO and separate booking; repair keeps billing i
 test("repair refuses unexpected FSC/charge lines without any vendor write",async()=>{
  const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.otherCharges.push({...h.order.otherCharges[0],charge_id:"FSC",amount:20});const n=h.writes.length;await assert.rejects(repairCreatedInvoice(h.row,h.store,h.vendor),/Charge lines/);assert.equal(h.writes.length,n);
 });
+test("repair only fills missing supplemental pay rate when other fields already match",async()=>{
+ const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.movements[0].override_pay_rate=null;
+ const n=h.writes.length,write=h.vendor.write;h.vendor.write=async(path,body)=>{const r=await write(path,body);if(path.startsWith('/carrierDispatch/'))h.order.movements[0].override_pay_rate=200;return r};
+ await repairCreatedInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.writes.length,n+1);assert.ok(h.writes[n].path.startsWith('/carrierDispatch/setPay/'));
+});
