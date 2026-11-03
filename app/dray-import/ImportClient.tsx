@@ -528,7 +528,7 @@ export default function ImportClient() {
               <div><dt>Warehouse</dt><dd>{opened.order.profile.location}</dd></div>
               <div><dt>Port destination</dt><dd>{opened.order.invoice.destination || "Needs review"}</dd></div>
               <div><dt>Shipping order / file</dt><dd>{opened.order.invoice.shippingOrder} / {opened.order.invoice.fileNumber}</dd></div>
-              <div><dt>Ordered By</dt><dd>{opened.order.invoice.customerId === "OLAMRITX" ? opened.order.invoice.customerOrder || "Missing customer SO" : opened.order.invoice.booking}</dd></div>
+              <div><dt>Ordered By</dt><dd>{opened.order.invoice.customerOrder || "Missing customer SO"}</dd></div>
               <div><dt>Booking</dt><dd>{opened.order.invoice.booking || "—"}</dd></div>
               <div><dt>Steamship line</dt><dd>{opened.order.invoice.steamship}</dd></div>
               <div><dt>Chassis / seal</dt><dd>{opened.order.invoice.chassis || "—"} / {opened.order.invoice.seal || "—"}</dd></div>
@@ -577,6 +577,10 @@ export default function ImportClient() {
                             Recheck duplicate search
                           </button>
                         )}
+                        {!opened.conflict && opened.order.status === "blocked" && opened.order.order_id && <button style={button} disabled={busy || !writes} onClick={() => {
+                          if (!window.confirm(`Complete carrier and reference setup for existing McLeod order ${opened.order.order_id}? Billing will be preserved; no new order or delivery.`)) return;
+                          void act(async () => {const data = await call({action:"repair-created",runId:saved.run.id,rowId:opened.order_id,confirmed:true});setSaved(data);});
+                        }}>Complete existing order setup</button>}
                         {!opened.conflict &&
                           [
                             "creating",

@@ -32,6 +32,8 @@ export async function processInvoice(
   store: Store,
   vendor: Vendor,
 ) {
+  // Validate the immutable source before claiming or attempting a vendor write.
+  buildPayload(row.invoice, row.profile);
   let held: Ledger | null = null;
   if (
     ["creating", "creation_uncertain", "rating", "rating_uncertain"].includes(
@@ -226,6 +228,33 @@ export async function processInvoice(
       );
       throw e;
     }
+  }
+}
+
+/** Complete a known creation receipt only; the route/SQL also require its created audit event. */
+export async function repairCreatedInvoice(row: Ledger, store: Store, vendor: Vendor) {
+  if (row.status !== "blocked" || !row.order_id) throw new Error("Only a blocked, saved creation receipt can be repaired.");
+  const before = await vendor.read("/orders/" + encodeURIComponent(row.order_id));
+  const invoice = row.invoice as any;
+  const allowed = ["Movement payee or zero-payment settings differ from approved profile", "Carrier payment settings differ from FirstStar", "Ordered By differs from source", "Booking number differs from source"];
+  const errors = verifyRatedOrder(before,row.invoice,row.profile).filter(e=>!allowed.includes(e));
+  if (errors.length) throw new Error("Repair blocked: " + errors.join("; "));
+  if (before.ordered_by && ![invoice.booking,invoice.customerOrder].includes(String(before.ordered_by).trim())) throw new Error("Ordered By was changed manually; review required.");
+  if (before.booking_no_sucm && String(before.booking_no_sucm).trim() !== invoice.booking) throw new Error("Booking was changed manually; review required.");
+  const payment = movementUpdatePayload(before,row.invoice,row.profile,row.order_id,true);
+  const held = await store.claim(row.id,"blocked","rating","Reviewed repair of saved creation receipt; no new order");
+  if (!held) throw new Error("Another request claimed this repair.");
+  try {
+    await vendor.write("/orders/updateRow", {__type:"orders",company_id:"TMS",id:row.order_id,ordered_by:invoice.customerOrder,booking_no_sucm:invoice.booking});
+    await vendor.write("/movement/update",payment);
+    await vendor.write("/carrierDispatch/setPay/"+encodeURIComponent(payment.id)+`?method=F&units=1&rate=${payment.override_pay_rate}&carrierPay=${payment.override_pay_amt}`);
+    const after = await vendor.read("/orders/"+encodeURIComponent(row.order_id));
+    const remaining = verifyRatedOrder(after,row.invoice,row.profile);
+    if(String(after.id)!==row.order_id || after.status!=="A" || after.stops.some(s=>s.status!=="A" || s.actual_arrival || s.actual_departure)) remaining.push("Order status changed during repair");
+    await store.finish(held,remaining.length?"blocked":"verified",row.order_id,remaining.length?remaining.join("; "):"Existing order references and carrier pay repaired and verified; billing preserved; no delivery");
+  } catch(e) {
+    await store.finish(held,"rating_uncertain",row.order_id,"Repair response uncertain; reconcile without retry: "+(e as Error).message);
+    throw e;
   }
 }
 export async function reconcileInvoice(

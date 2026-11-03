@@ -43,6 +43,7 @@ function route() {
           : n === "@/lib/dray/engine"
             ? {
                 processInvoice: async () => writes++,
+                repairCreatedInvoice: async () => writes++,
                 reconcileInvoice: async () => {},
               }
             : n === "@/lib/dray/delivery" ? {
@@ -135,4 +136,14 @@ test("delivery requires saved membership, both write flags, reviewed plan hash a
     if(oldI===undefined)delete process.env.DRAY_IMPORT_WRITES_ENABLED;else process.env.DRAY_IMPORT_WRITES_ENABLED=oldI;
     if(oldM===undefined)delete process.env.MCLEOD_SYNC_ENABLED;else process.env.MCLEOD_SYNC_ENABLED=oldM;
   }
+});
+
+test("existing-order repair requires explicit confirmation and both write flags",async()=>{
+ const oldI=process.env.DRAY_IMPORT_WRITES_ENABLED,oldM=process.env.MCLEOD_SYNC_ENABLED;
+ try {
+ for(const [imp,sync,confirmed] of [["false","true",true],["true","false",true],["true","true",false]]) {
+ process.env.DRAY_IMPORT_WRITES_ENABLED=imp;process.env.MCLEOD_SYNC_ENABLED=sync;const r=route();
+ const res=await r.handler({json:async()=>({...body,action:"repair-created",confirmed})});assert.equal(res.status,400);assert.equal(r.writes(),0);
+ }
+ }finally{if(oldI===undefined)delete process.env.DRAY_IMPORT_WRITES_ENABLED;else process.env.DRAY_IMPORT_WRITES_ENABLED=oldI;if(oldM===undefined)delete process.env.MCLEOD_SYNC_ENABLED;else process.env.MCLEOD_SYNC_ENABLED=oldM}
 });

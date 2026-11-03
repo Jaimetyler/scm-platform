@@ -16,7 +16,7 @@ function load(file) {
 const {parseDrays,containerKey,portLocation}=load("lib/dray/parse.ts");
 const {PROFILE,SAVANNAH_RATES}=load("lib/dray/model.ts");
 const {buildPayload,verifyRatedOrder,findDuplicates}=load("lib/dray/mcleod.ts");
-const {processInvoice,reconcileInvoice}=load("lib/dray/engine.ts");
+const {processInvoice,reconcileInvoice,repairCreatedInvoice}=load("lib/dray/engine.ts");
 const {buildDeliveryPlan,deliverInvoice,reconcileDelivery}=load("lib/dray/delivery.ts");
 const columns=["Invoice Date","Shipper ID","Shipper","Shippers Order#","Marks","File Number","Pickup Point","SS LINE","Equipment Tracking","Shipping Order","Booking Number","CHASSIS","Seal Number"];
 const source=(change={})=>({"Invoice Date":"10/26/2026","Shipper ID":"SYN","Shipper":"Louis Dreyfus Company Cotton","Shippers Order#":"SO-CUSTOMER-1","Marks":"MARK1","File Number":"FILE1","Pickup Point":"GPA","SS LINE":"MSC","Equipment Tracking":"ABCU1234567","Shipping Order":"SHIP1","Booking Number":"BOOK1",CHASSIS:"SCMI1","Seal Number":"SEAL1",...change});
@@ -71,7 +71,7 @@ test("duplicate source rows rejected; unrelated FirstStar rows don't alter resul
 });
 test("direct rated payload preserves mark/container/file/booking, terminal, zero charge and carrier pay",()=>{
   const i=invoice(),o=order(i);assert.deepEqual(verifyRatedOrder(o,i,PROFILE),[]);
-  assert.equal(o.blnum,"MARK1");assert.equal(o.consignee_refno,"ABCU1234567");assert.equal(o.planning_comment,"FILE1");assert.equal(o.ordered_by,"BOOK1");assert.equal(o.stops[1].location_id,"SAVPORT");assert.equal(o.rate,350);assert.equal(o.movements[0].override_pay_amt,200);
+  assert.equal(o.blnum,"MARK1");assert.equal(o.consignee_refno,"ABCU1234567");assert.equal(o.planning_comment,"FILE1");assert.equal(o.ordered_by,"SO-CUSTOMER-1");assert.equal(o.booking_no_sucm,"BOOK1");assert.equal(o.stops[1].location_id,"SAVPORT");assert.equal(o.rate,350);assert.equal(o.movements[0].override_pay_amt,200);
   for(const field of ["override_pay_amt","override_pay_rate","override_paye_rate"]){const bad=structuredClone(o);bad.movements[0][field]=220;assert.ok(verifyRatedOrder(bad,i,PROFILE).length)}
   const wrong=structuredClone(o);wrong.stops[1].location_id="SAVOT";assert.ok(verifyRatedOrder(wrong,i,PROFILE).length);
 });
@@ -109,6 +109,7 @@ test("dray ledger isolates orders, reuploads, corrected missing-rate previews an
   const db=new PGlite();try{
     await db.exec("create role anon;create role authenticated;create role service_role;");
     const file=readdirSync("supabase/migrations").find(n=>n.endsWith("_dray_import_ledger.sql"));await db.exec(readFileSync("supabase/migrations/"+file,"utf8"));
+    const repair=readdirSync("supabase/migrations").find(n=>n.endsWith("_dray_created_order_repair.sql"));await db.exec(readFileSync("supabase/migrations/"+repair,"utf8"));
     const i=invoice(),profile=JSON.stringify(PROFILE),digest="a".repeat(64);
     const prep=async(d,inv,status="ready",hash="x")=>(await db.query("select prepare_dray_import($1,$2,$3,$4) id",[d,profile,JSON.stringify([{invoice:inv,status,note:"preview",source_hash:hash,order_id:null}]),"test"])).rows[0].id;
     const blocked={...i,inputErrors:["Missing match"],carrierCents:null};const run=await prep(digest,blocked,"preview_blocked","bad");assert.equal(await prep(digest,blocked),run);
@@ -123,5 +124,13 @@ test("dray ledger isolates orders, reuploads, corrected missing-rate previews an
 test("Olam uses customer SO for Ordered By and booking_no_sucm for booking",()=>{
  const i=parseDrays(csv([source({Shipper:"Olam Cotton"})]),first()).invoices[0];const o=order(i);
  assert.equal(i.customerOrder,"SO-CUSTOMER-1");assert.equal(o.ordered_by,"SO-CUSTOMER-1");assert.equal(o.booking_no_sucm,"BOOK1");assert.deepEqual(verifyRatedOrder(o,i,PROFILE),[]);
- o.booking_no_sucm="WRONG";assert.match(verifyRatedOrder(o,i,PROFILE).join(),/booking_no_sucm/);
+ o.booking_no_sucm="WRONG";assert.match(verifyRatedOrder(o,i,PROFILE).join(),/Booking number/);
+});
+
+test("all customers use customer SO and separate booking; repair keeps billing intact",async()=>{
+ const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.ordered_by="BOOK1";delete h.order.booking_no_sucm;for(const k of ["override_payee_id","override_type","override_units","override_paye_rate","override_pay_rate","override_pay_amt"])delete h.order.movements[0][k];
+ const charges=structuredClone(h.order.otherCharges),total=h.order.total_charge;await repairCreatedInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.order.ordered_by,"SO-CUSTOMER-1");assert.equal(h.order.booking_no_sucm,"BOOK1");assert.equal(h.order.movements[0].override_pay_amt,200);assert.deepEqual(h.order.otherCharges,charges);assert.equal(h.order.total_charge,total);assert.equal(h.writes.filter(w=>w.path==="/orders/create").length,1);
+});
+test("repair refuses unexpected FSC/charge lines without any vendor write",async()=>{
+ const h=harness();await processInvoice(h.row,h.store,h.vendor);h.row.status="blocked";h.order.otherCharges.push({...h.order.otherCharges[0],charge_id:"FSC",amount:20});const n=h.writes.length;await assert.rejects(repairCreatedInvoice(h.row,h.store,h.vendor),/Charge lines/);assert.equal(h.writes.length,n);
 });

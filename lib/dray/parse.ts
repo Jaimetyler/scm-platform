@@ -24,7 +24,7 @@ export function parseDrays(csv: string, firstStarRows: unknown[][]) {
   if (!Array.isArray(firstStarRows) || firstStarRows.length > 30001) throw new Error("FirstStar listing exceeds 30,000 rows.");
   const parsed = Papa.parse<string[]>(csv, {skipEmptyLines:"greedy"});
   if (parsed.errors.length) throw new Error("Dray CSV could not be parsed.");
-  const drays = table(parsed.data, ["INVOICEDATE","SHIPPERID","SHIPPER","MARKS","FILENUMBER","PICKUPPOINT","SSLINE","EQUIPMENTTRACKING","SHIPPINGORDER","BOOKINGNUMBER","CHASSIS","SEALNUMBER"]);
+  const drays = table(parsed.data, ["INVOICEDATE","SHIPPERID","SHIPPER","SHIPPERSORDER","MARKS","FILENUMBER","PICKUPPOINT","SSLINE","EQUIPMENTTRACKING","SHIPPINGORDER","BOOKINGNUMBER","CHASSIS","SEALNUMBER"]);
   const history = table(firstStarRows, ["LOAD","TERM","CONTAINER","BILLREF","TOTAL","VOIDED"]);
   const lookup = new Map<string, typeof history>();
   for (const row of history) {
@@ -66,9 +66,9 @@ export function parseDrays(csv: string, firstStarRows: unknown[][]) {
     const baseCents = rate && destination ? destination === "SAVOT" ? rate.ocean : rate.port : 0;
     const charges = rate ? [{code:"040",description:"SAV Chassis Charges",units:rate.code === "OLAMRITX" ? 2 : 1,cents:rate.chassis}] : [];
     if (rate?.code === "OLAMRITX") charges.unshift({code:"040",description:"GARDEN CITY TO SAVANNAH",units:1,cents:0});
-    const customerOrder = rate?.code === "OLAMRITX" ? row.get("SHIPPERSORDER") : undefined;
-    if (rate?.code === "OLAMRITX" && !customerOrder) errors.push("Olam Shipper's Order# is required for Ordered By");
-    if (customerOrder && customerOrder.length > 40) errors.push("Olam Shipper's Order# exceeds Ordered By length");
+    const customerOrder = row.get("SHIPPERSORDER");
+    if (!customerOrder) errors.push("Shipper's Order# is required for Ordered By");
+    if (customerOrder && customerOrder.length > 40) errors.push("Shipper's Order# exceeds Ordered By length");
     const sourceKey = `${shippingOrder}:${container}`;
     if (sourceKeys.has(sourceKey)) throw new Error("Duplicate shipping order / container in dray report");
     sourceKeys.add(sourceKey);

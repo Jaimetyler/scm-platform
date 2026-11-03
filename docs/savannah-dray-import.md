@@ -6,7 +6,7 @@ Upload the original new-format dray CSV and one-sheet FirstStar XLSX. Reports ar
 
 FirstStar terminal 700, non-voided moves only: match the four-letter prefix and six-digit serial; preserve the full dray container. A matching file reference corroborates/disambiguates a container match; conflicting references block. Match column Total directly to carrier pay. Export enough dates to include late-entered moves. No arbitrary nearest-date selection.
 
-Mappings: mark → BOL, full container → consignee reference, file → planning comment, booking → Ordered By. Warehouse pickup is SAVWHSE; destination is SAVPORT/SAVOT. Type FLAT, revenue LOCAL, commodity COTTON, equipment C, mode T, payee SCMIRIGA. Chassis/seal/steamship and FirstStar load remain in the saved review. Shipping order + container is the durable source key; McLeod duplicate checks use mark and full container.
+Mappings: mark → BOL, full container → consignee reference, file → planning comment, customer Shipper’s Order# → Ordered By; booking → booking_no_sucm. Warehouse pickup is SAVWHSE; destination is SAVPORT/SAVOT. Type FLAT, revenue LOCAL, commodity COTTON, equipment C, mode T, payee SCMIRIGA. Chassis/seal/steamship and FirstStar load remain in the saved review. Shipping order + container is the durable source key; McLeod duplicate checks use mark and full container.
 
 Customer base/chassis amounts are in `lib/dray/model.ts`, in integer cents. Olam retains its separate $0 GARDEN CITY TO SAVANNAH invoice line and 2 × $45 chassis. Other customers have 1 × $135 chassis. Base billing and separate charge lines are sent directly, without McLeod autorating; exact base, total, lines (including $0), route and carrier pay must pass read-back verification.
 
@@ -21,3 +21,5 @@ Apply the additive `*_dray_import_ledger.sql` migration to the intended staging 
 Run `node --test tests/dray-import*.test.mjs tests/ecotton-import*.test.mjs tests/ecotton-delivery.test.mjs` and TypeScript checks. Browser mock checks validate table search, filtering, selection, modal keyboard interaction and mobile layout; they do not establish live McLeod compatibility.
 
 The supplied October 24–30 report and expanded terminal-700 export reconcile to 9 eligible loads, 10 skipped, $4,295 revenue, $1,820 carrier pay, $2,475 gross margin. Before production, test a genuinely new order in staging and verify direct rate persistence, carrier dispatch payment and retention of Olam's $0 line against actual McLeod responses. Neither the migration nor any live order write is performed by the local tests.
+
+Pilot correction: saved order 0829214 has a durable creation receipt. A blocked order can claim a fenced setup repair only when its audit includes that receipt. Repair updates the SO/booking fields and carrier/pay, requires exact existing billing, and never creates or delivers an order. Unexpected FSC or duplicate charge lines block the repair instead of being silently removed.

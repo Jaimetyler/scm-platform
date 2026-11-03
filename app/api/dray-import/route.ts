@@ -9,7 +9,7 @@ import {
   identityMatches,
   verifyRatedOrder,
 } from "@/lib/dray/mcleod";
-import { processInvoice, reconcileInvoice } from "@/lib/dray/engine";
+import { processInvoice, reconcileInvoice, repairCreatedInvoice } from "@/lib/dray/engine";
 import { hash, databaseStore, readRun, vendor } from "@/lib/dray/server";
 import { buildDeliveryPlan, deliverInvoice, reconcileDelivery } from "@/lib/dray/delivery";
 export const dynamic = "force-dynamic";
@@ -156,6 +156,10 @@ async function POSTHandler(req: NextRequest) {
     if (row.status === "delivering" && Date.now() - new Date(row.updated_at).getTime() < 300000)
       throw new Error("Delivery may still be running. Wait five minutes before reconciling.");
     await reconcileDelivery(row, store, vendor(true));
+  } else if (body.action === "repair-created") {
+    if (body.confirmed !== true) throw new Error("Review and confirm the existing-order repair first.");
+    if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true") throw new Error("Dray writes are disabled.");
+    await repairCreatedInvoice(row,store,vendor());
   } else if (body.action === "execute") {
     if (body.confirmed !== true)
       throw new Error(
