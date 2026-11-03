@@ -201,11 +201,15 @@ export async function processInvoice(
       return;
     }
 
+    const requiresRating = errors.includes("McLeod order total differs from source invoice");
     try {
-      await vendor.write(
-        "/orders/updateRow",
-        {__type:"orders",company_id:"TMS",id:row.order_id,rate_type:"F",rate_units:1,rate:(row.invoice as any).baseCents/100,total_charge:row.invoice.cents/100},
-      );
+      // Create already carries the direct base rate; charge reconciliation has
+      // verified it. Do not reapply matching billing and trigger customer defaults again.
+      if(requiresRating)
+        await vendor.write(
+          "/orders/updateRow",
+          {__type:"orders",company_id:"TMS",id:row.order_id,rate_type:"F",rate_units:1,rate:(row.invoice as any).baseCents/100,total_charge:row.invoice.cents/100},
+        );
       const after = await vendor.read(
         "/orders/" + encodeURIComponent(row.order_id),
       );
