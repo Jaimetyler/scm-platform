@@ -13,7 +13,8 @@ export async function middleware(req: NextRequest) {
     const { staff } = await session.identity();
     if (staff.status === "pending") return session.finish(NextResponse.redirect(new URL("/auth/password", req.url)));
     const warehouse = path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/");
-    if (staff.role !== "admin" && (path === "/" || !warehouse || path === "/warehouse/gate"))
+    const outreach = path === "/cotton-locations/outreach";
+    if (staff.role !== "admin" && !outreach && (path === "/" || !warehouse || path === "/warehouse/gate"))
       return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
     if (staff.role === "operator") {
       const routeTerminal = path.match(/^\/(?:warehouse\/(?:outbound|inventory|gate)|inbound\/checkin)\/(hou|sav)\//i)?.[1]?.toUpperCase();

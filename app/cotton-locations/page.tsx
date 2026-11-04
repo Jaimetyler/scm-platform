@@ -48,7 +48,7 @@ export default function CottonLocationsPage(){
  }
  const field=(key:keyof Location,title:string)=><label className={styles.field}><span>{title}</span><input value={String(selected?.[key]??"")} onChange={e=>setSelected(v=>v?{...v,[key]:e.target.value}:v)}/></label>;
  return <main className={styles.page}>
-  <div className={styles.heading}><div><h1>Cotton Location Management</h1><p>McLeod locations, pickup schedules and tariff policies</p></div><span className={styles.count}>{rows.length} locations</span></div>
+  <div className={styles.heading}><div><h1>Cotton Location Management</h1><p>McLeod locations, pickup schedules and tariff policies</p></div><div><a href="/cotton-locations/outreach">Tariff outreach</a><p className={styles.count}>{rows.length} locations</p></div></div>
   <div className={styles.toolbar}><input aria-label="Search locations" placeholder="Search code, previous code, name or city" value={query} onChange={e=>setQuery(e.target.value)}/><button onClick={()=>void load()}>Refresh</button></div>
   {error&&!selected&&<p role="alert" className={styles.error}>{error}</p>}{notice&&<p role="status">{notice}</p>}
   <div className={styles.tableWrap}><table className={styles.table}><thead><tr>{["McLeod code","Previous code","Location","Address","Status",""].map(x=><th key={x}>{x}</th>)}</tr></thead>

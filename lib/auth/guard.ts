@@ -24,6 +24,9 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   const path = new URL(req.url).pathname.replace(/\/$/, "");
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
+  // Outreach is a separate staff workflow; policy approval remains administrator-only.
+  if (/^\/api\/cotton-locations\/outreach(?:\/documents)?$/.test(path) &&
+      (req.method === "GET" || staff.role === "operator" && ["POST", "PATCH"].includes(req.method))) return;
   if (["GET", "HEAD"].includes(req.method) && warehouseReadPath(path)) {
     if (staff.role === "operator") {
       const requested = new URL(req.url).searchParams.get("terminal");
