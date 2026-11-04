@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {createRequire} from 'node:module';import ts from 'typescript';
 const require=createRequire(import.meta.url);const cache=new Map();
 function load(path){if(cache.has(path))return cache.get(path);const mod={exports:{}};const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',code)(n=>n==='./duplicate-window'?load('lib/bunge/duplicate-window.ts'):n==='@/lib/mcleod/inbound/search-response'?load('lib/mcleod/inbound/search-response.ts'):require(n),mod,mod.exports);cache.set(path,mod.exports);return mod.exports;}
-const {parseDispatch,buildPreview}=load('lib/bunge/preview.ts');const {availableBlnumMatches}=load('lib/bunge/duplicates.ts');
+const {parseDispatch,buildPreview}=load('lib/bunge/preview.ts');const {nonVoidBlnumMatches}=load('lib/bunge/duplicates.ts');
 const loc=(id,code,prev)=>({id,mcleod_code:code,prev_code:prev,name:code,address:'Street',city:'Town',state:'GA',timezone:'America/New_York'});
 const locations=[loc('l1','FUNSMOG3','266405'),loc('l2','BCTGMOGA','304495'),loc('dest','SAVAGAG2',null)];
 const line=(x={})=>({sheet:'Sheet1',row:1,mark:'D1085',so:'2511158',bales:30,weight:null,warehouse:'FUNSTON GIN CO',warehouseCode:'266405',address:[],rtl:'2026-04-30',...x});
@@ -28,14 +28,17 @@ test('uses source weekday and effective range; does not apply Thursday hours to 
  const [p]=buildPreview([line({rtl:'2026-05-01'})],locations,[schedule(),schedule({weekday:5,close_time:'11:30',effective_from:'2026-01-01',effective_to:'2026-06-01'})], 'MAIN');assert.equal(p.pickups[0].hours.close_time,'11:30');
  const [unknown]=buildPreview([line({rtl:'2026-07-03'})],locations,[schedule({weekday:5,effective_to:'2026-06-01'})], 'MAIN');assert.equal(unknown.pickups[0].hours,null);
 });
-test('duplicate lookup hydrates and verifies exact customer, status and BLNUM',async()=>{
- const calls=[];const matches=await availableBlnumMatches(async p=>{calls.push(p);return p.startsWith('/orders/search?')?[{id:'0820001'},{id:'0820002'}]:{id:p.split('/').pop(),company_id:'TMS',customer_id:'BUNGOMNE',status:p.endsWith('1')?'A':'D',stops:[{stop_type:'PU',sched_arrive_early:'20260430080000-0400'}],blnum:'D1085 90 BALES',revenue_code_id:'MAIN'}},'D1085 90 BALES',['2026-04-30']);assert.deepEqual(matches.map(m=>m.id),['0820001']);assert.ok(calls.every(p=>p.startsWith('/orders/')));
+test('duplicate lookup includes available, delivered and in-progress orders but excludes void',async()=>{
+ const calls=[];const states={'0820001':'A','0820002':'D','0820003':'P','0820004':'V'};
+ const matches=await nonVoidBlnumMatches(async path=>{calls.push(path);const id=path.split('/').pop();return path.startsWith('/orders/search?')?Object.keys(states).map(id=>({id})):{id,company_id:'TMS',customer_id:'BUNGOMNE',status:states[id],stops:states[id]==='V'?undefined:[{stop_type:'PU',sched_arrive_early:'20260430080000-0400'}],blnum:'D1085 90 BALES',revenue_code_id:'MAIN'}},'D1085 90 BALES',['2026-04-30']);
+ assert.deepEqual(matches.map(m=>m.id),['0820001','0820002','0820003']);assert.deepEqual(matches.map(m=>m.status),['A','D','P']);
+ assert.ok(calls.every(p=>p.startsWith('/orders/')));assert.equal(new URL('https://example.test'+calls[0]).searchParams.has('orders.status'),false);
 });
 test('unknown or repeating duplicate search responses never become no-match',async()=>{
- await assert.rejects(availableBlnumMatches(async()=>({rows:[],truncated:true}),'D1085 90 BALES',['2026-04-30']),/incomplete/);
- assert.deepEqual(await availableBlnumMatches(async()=>null,'D1085 90 BALES',['2026-04-30']),[]);
- await assert.rejects(availableBlnumMatches(async p=>p.startsWith('/orders/search?')?Array(5).fill({id:'0820001'}):{id:'0820001',company_id:'TMS',customer_id:'BUNGOMNE',status:'A',stops:[{stop_type:'PU',sched_arrive_early:'20260430080000-0400'}],blnum:'D1085 90 BALES'},'D1085 90 BALES',['2026-04-30']),/did not advance/);
- await assert.rejects(availableBlnumMatches(async()=>[],'invalid',['2026-04-30']),/Invalid BLNUM/);
+ await assert.rejects(nonVoidBlnumMatches(async()=>({rows:[],truncated:true}),'D1085 90 BALES',['2026-04-30']),/incomplete/);
+ assert.deepEqual(await nonVoidBlnumMatches(async()=>null,'D1085 90 BALES',['2026-04-30']),[]);
+ await assert.rejects(nonVoidBlnumMatches(async p=>p.startsWith('/orders/search?')?Array(5).fill({id:'0820001'}):{id:'0820001',company_id:'TMS',customer_id:'BUNGOMNE',status:'A',stops:[{stop_type:'PU',sched_arrive_early:'20260430080000-0400'}],blnum:'D1085 90 BALES'},'D1085 90 BALES',['2026-04-30']),/did not advance/);
+ await assert.rejects(nonVoidBlnumMatches(async()=>[],'invalid',['2026-04-30']),/Invalid BLNUM/);
 });
 
  test('SCM delivery selection retains Bunge default and rejects arbitrary destinations',()=>{
@@ -53,10 +56,10 @@ test('pickup month windows use calendar months, clamp month ends and cover both 
 });
 test('exact BLNUM matches are bounded by pickup schedule, inclusive of both endpoints',async()=>{
  const dates=['20260330000000-0400','20260530235959-0400','20260531000000-0400','20260101000000-0500'];
- const result=await availableBlnumMatches(async path=>path.startsWith('/orders/search?')?dates.map((_,i)=>({id:'082000'+i})):{id:path.split('/').pop(),company_id:'TMS',customer_id:'BUNGOMNE',status:'A',blnum:'D1085 90 BALES',ordered_date:'20260430',stops:[{stop_type:'PU',sched_arrive_early:dates[Number(path.slice(-1))]},{stop_type:'SO',sched_arrive_early:'20260430000000-0400'}]},'D1085 90 BALES',['2026-04-30']);
+ const result=await nonVoidBlnumMatches(async path=>path.startsWith('/orders/search?')?dates.map((_,i)=>({id:'082000'+i})):{id:path.split('/').pop(),company_id:'TMS',customer_id:'BUNGOMNE',status:'A',blnum:'D1085 90 BALES',ordered_date:'20260430',stops:[{stop_type:'PU',sched_arrive_early:dates[Number(path.slice(-1))]},{stop_type:'SO',sched_arrive_early:'20260430000000-0400'}]},'D1085 90 BALES',['2026-04-30']);
  assert.deepEqual(result.map(r=>r.id),['0820000','0820001']);
 });
 test('missing existing pickup schedules remain incomplete, not a no-match',async()=>{
- await assert.rejects(availableBlnumMatches(async path=>path.startsWith('/orders/search?')?[{id:'0820000'}]:{id:'0820000',company_id:'TMS',customer_id:'BUNGOMNE',status:'A',blnum:'D1085 90 BALES',stops:[{stop_type:'PU'}]},'D1085 90 BALES',['2026-04-30']),/scheduled pickup date/);
- let calls=0;await assert.rejects(availableBlnumMatches(async()=>{calls++;return []},'D1085 90 BALES',[null]),/valid scheduled pickup/);assert.equal(calls,0);
+ await assert.rejects(nonVoidBlnumMatches(async path=>path.startsWith('/orders/search?')?[{id:'0820000'}]:{id:'0820000',company_id:'TMS',customer_id:'BUNGOMNE',status:'A',blnum:'D1085 90 BALES',stops:[{stop_type:'PU'}]},'D1085 90 BALES',['2026-04-30']),/scheduled pickup date/);
+ let calls=0;await assert.rejects(nonVoidBlnumMatches(async()=>{calls++;return []},'D1085 90 BALES',[null]),/valid scheduled pickup/);assert.equal(calls,0);
 });
