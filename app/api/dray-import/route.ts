@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
+import { bolBales } from "@/lib/dray-bols/source";
 import { PROFILE } from "@/lib/dray/model";
 import * as XLSX from "xlsx";
 import { parseDrays } from "@/lib/dray/parse";
@@ -121,6 +122,8 @@ async function POSTHandler(req: NextRequest) {
       p_actor: actor,
     });
     if (error) throw new Error("Could not save import preview.");
+    const {error:bolError}=await db.rpc("save_dray_bol_bales",{p_run:id,p_details:bolBales(body.drayCSV),p_actor:actor});
+    if(bolError)throw new Error("Import saved, but BOL bale counts could not be saved. Reopen the same reports.");
     return NextResponse.json({
       ok: true,
       ...(await readRun(db, id)),

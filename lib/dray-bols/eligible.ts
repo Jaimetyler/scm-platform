@@ -1,0 +1,1 @@
+export function bolEligible(item:any){return !!item&&!item.conflict&&item.source_hash===item.order?.source_hash&&['verified','delivering','delivery_uncertain','delivered'].includes(item.order.status)&&/^\d{6,7}$/.test(String(item.order.order_id||''))&&Number.isInteger(item.bol_bales)&&item.bol_bales>0&&item.bol_bales<=1000;}

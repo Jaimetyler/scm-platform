@@ -34,7 +34,7 @@ function route() {
     hash: () => "reviewed",
   };
   const local = (n) =>
-    n === "@/lib/auth/guard"
+    n === "@/lib/dray-bols/source" ? {bolBales:()=>[]} : n === "@/lib/auth/guard"
       ? { withStaffAccess: (fn) => fn, staffActor: () => "admin" }
       : n === "@/lib/auth/session"
         ? { staffDatabase: () => ({}) }

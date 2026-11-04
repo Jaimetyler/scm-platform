@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import styles from "../ecotton-import/review.module.css";
+import BolImaging from "./BolImaging";
+import {bolEligible} from "@/lib/dray-bols/eligible";
 import type { Profile } from "@/lib/ecotton/model";
 const card: React.CSSProperties = {
   padding: 22,
@@ -125,6 +127,13 @@ export default function ImportClient() {
   const chosen = ready.filter((item) => selected.has(item.order_id));
   const deliverable = items.filter((item) => !item.conflict && item.order.status === "verified" && item.order.profile.id === profileId);
   const chosenDelivery = deliverable.filter((item) => selected.has(item.order_id));
+  const bolOrders=items.filter(bolEligible),chosenBols=bolOrders.filter(item=>selected.has(item.order_id));
+  async function downloadBols(ids:string[],format:"pdf"|"zip"){await act(async()=>{
+    const res=await fetch("/api/dray-import/bols",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runId:saved.run.id,rowIds:ids,format})});
+    if(!res.ok){const j=await res.json();throw Error(j.error||"BOL generation failed");}
+    const blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1]||"Savannah_BOLs.zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  });}
+
   const category = (item: any) => item.conflict ? "attention" :
     ["ready", "created"].includes(item.order.status) ? "ready" :
     ["verified", "delivered"].includes(item.order.status) ? "imported" : "attention";
@@ -369,6 +378,8 @@ export default function ImportClient() {
             onClick={() => { setSelected(new Set(deliverable.map((item) => item.order_id))); setDeliveryPreview([]); }}>
             Select verified orders ({deliverable.length})
           </button>
+          <button style={button} disabled={busy||!bolOrders.length} onClick={()=>{setSelected(new Set(bolOrders.map(item=>item.order_id)));setDeliveryPreview([]);}}>Select BOL orders ({bolOrders.length})</button>
+          <button style={button} disabled={busy||!chosenBols.length||chosenBols.length>100} onClick={()=>void downloadBols(chosenBols.map(item=>item.order_id),"zip")}>Generate BOLs ({chosenBols.length})</button>
           <button
             style={button}
             disabled={busy}
@@ -467,12 +478,12 @@ export default function ImportClient() {
                     <tr key={item.id}>
                       <td style={{ padding: 10 }}>
                         {!item.conflict &&
-                          (["ready", "created"].includes(o.status) || (o.status === "verified" && o.profile.id === profileId)) && (
+                          (["ready", "created"].includes(o.status) || (o.status === "verified" && o.profile.id === profileId) || bolEligible(item)) && (
                             <input
                               type="checkbox"
                               aria-label={`Select ${i.reference}`}
                               checked={selected.has(item.order_id)}
-                              disabled={busy || !writes}
+                              disabled={busy || (!writes && !bolEligible(item))}
                               onChange={(e) => {
                                 setDeliveryPreview([]);
                                 setSelected((previous) => {
@@ -530,6 +541,7 @@ export default function ImportClient() {
               <div><dt>Shipping order / file</dt><dd>{opened.order.invoice.shippingOrder} / {opened.order.invoice.fileNumber}</dd></div>
               <div><dt>Ordered By</dt><dd>{opened.order.invoice.customerOrder || "Missing customer SO"}</dd></div>
               <div><dt>Booking</dt><dd>{opened.order.invoice.booking || "—"}</dd></div>
+              <div><dt>Bales</dt><dd>{opened.bol_bales||"Not saved — reopen original reports"}</dd></div>
               <div><dt>Steamship line</dt><dd>{opened.order.invoice.steamship}</dd></div>
               <div><dt>Chassis / seal</dt><dd>{opened.order.invoice.chassis || "—"} / {opened.order.invoice.seal || "—"}</dd></div>
               <div><dt>FirstStar load</dt><dd>{opened.order.invoice.firstStarLoad || "No match"}</dd></div>
@@ -548,6 +560,7 @@ export default function ImportClient() {
                         {["delivering", "delivery_uncertain"].includes(opened.order.status) && <button style={button} disabled={busy} onClick={() => act(async () => {
                           const data = await call({ action: "reconcile-delivery", runId: saved.run.id, rowId: opened.order_id }); setSaved(data);
                         })}>Reconcile delivery (read only)</button>}
+                        {bolEligible(opened)&&<section style={{marginTop:16}}><button style={button} disabled={busy} onClick={()=>void downloadBols([opened.order_id],"pdf")}>Download BOL</button><BolImaging key={opened.order_id} runId={saved.run.id} rowId={opened.order_id} orderId={opened.order.order_id} busy={busy} onBusy={setBusy}/></section>}
                         <section>
                           <h3>Charge detail</h3>
                           <ul>
