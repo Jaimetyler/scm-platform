@@ -5,7 +5,7 @@ const input={accepted_equipment:'van_and_flatbed',fee_basis:'per_bale',fee_amoun
 test('equipment collection distinguishes unknown, zero fee, basis, payer and administrator confirmation',()=>{
  assert.equal(validateEquipment(input,false).fee_payer,'shipper');assert.throws(()=>validateEquipment({...input,verified:true},false),/administrator/);
  assert.throws(()=>validateEquipment({...input,fee_amount:null},true),/amount/);assert.throws(()=>validateEquipment({...input,fee_basis:'unknown'},true),/basis/);
- assert.throws(()=>validateEquipment({...input,verified:true,fee_payer:'unknown'},true),/payer/);assert.throws(()=>validateEquipment({...input,effective_date:'2026-02-31'},true),/date/);
+ assert.equal(validateEquipment({...input,verified:true,fee_payer:'carrier'},true).fee_payer,'shipper');assert.throws(()=>validateEquipment({...input,effective_date:'2026-02-31'},true),/date/);
  assert.equal(validateEquipment({...input,fee_basis:'none',fee_amount:null},true).fee_amount,0);
 });
 test('flatbed previews flag van-only/unknown restrictions and keep shipper fees informational',()=>{
@@ -19,9 +19,12 @@ test('equipment saves enforce CAS, admin confirmation, audit and server-only acc
  try{await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create table cotton_location_master(id uuid primary key,mcleod_code text,name text);create table cotton_location_change_events(id bigint generated always as identity,location_id uuid,action text,actor text,before_value jsonb,after_value jsonb,source_reference text);insert into cotton_location_master values('${id}','GLASGATX','Glasscock');`);
  await db.exec(readFileSync('supabase/migrations/20261104023041_cotton_location_equipment.sql','utf8'));
  const initial=(await db.query('select * from cotton_location_equipment')).rows[0];assert.equal(Number(initial.fee_amount),3.42);assert.equal(initial.verified,false);assert.equal(initial.fee_payer,'unknown');
+ await db.exec(readFileSync('supabase/migrations/20261104030236_cotton_flatbed_shipper_payer.sql','utf8'));
+ assert.equal((await db.query('select fee_payer from cotton_location_equipment')).rows[0].fee_payer,'shipper');
+ await assert.rejects(db.query("update cotton_location_equipment set fee_payer='carrier'"),/cotton_equipment_shipper_payer/);
  const save=(version,changes,admin)=>db.query('select save_cotton_equipment($1,$2,$3::jsonb,$4,$5)',[id,version,JSON.stringify(changes),'signed in collector',admin]);
- await assert.rejects(save(0,{...input,verified:true},false),/Administrator/);await save(0,input,false);await assert.rejects(save(0,input,false),/Refresh/);
- await save(1,{...input,verified:true},true);assert.equal((await db.query('select verified from cotton_location_equipment')).rows[0].verified,true);
+ await assert.rejects(save(1,{...input,verified:true},false),/Administrator/);await save(1,input,false);await assert.rejects(save(0,input,false),/Refresh/);
+ await save(2,{...input,verified:true},true);assert.equal((await db.query('select verified from cotton_location_equipment')).rows[0].verified,true);
  assert.equal((await db.query("select count(*)::int as n from cotton_location_change_events where action='equipment_review'")).rows[0].n,2);
  assert.equal((await db.query("select has_table_privilege('authenticated','cotton_location_equipment','select') as allowed")).rows[0].allowed,false);
  assert.equal((await db.query("select has_function_privilege('authenticated','save_cotton_equipment(uuid,integer,jsonb,text,boolean)','execute') as allowed")).rows[0].allowed,false);

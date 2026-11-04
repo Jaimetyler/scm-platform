@@ -2,7 +2,7 @@ export const equipmentChoices=["unknown","van_only","van_and_flatbed"] as const;
 export const feeBases=["unknown","none","per_load","per_bale","other"] as const;
 export type EquipmentPolicy={location_id:string;accepted_equipment:string;fee_basis:string;fee_amount:number|null;fee_payer:string;conditions:string;source_reference:string;effective_date:string|null;verified:boolean;version:number};
 export function validateEquipment(input:Record<string,unknown>,admin:boolean){
- if(!equipmentChoices.includes(input.accepted_equipment as any)||!feeBases.includes(input.fee_basis as any)||!["unknown","shipper","carrier"].includes(String(input.fee_payer)))throw Error("Choose valid equipment, fee basis and payer values.");
+ if(!equipmentChoices.includes(input.accepted_equipment as any)||!feeBases.includes(input.fee_basis as any))throw Error("Choose valid equipment and fee basis values.");
  const amount=input.fee_amount;if(amount!==null&&(typeof amount!=="number"||!Number.isFinite(amount)||amount<0||amount>100000))throw Error("Enter a valid flatbed fee.");
  if(["per_load","per_bale"].includes(String(input.fee_basis))&&amount===null)throw Error("Enter the flatbed fee amount.");
  if(input.fee_basis==="unknown"&&amount!==null)throw Error("Choose the fee basis before entering an amount.");
@@ -10,8 +10,8 @@ export function validateEquipment(input:Record<string,unknown>,admin:boolean){
  if(typeof input.conditions!=="string"||input.conditions.length>2000||typeof input.source_reference!=="string"||!input.source_reference.trim()||input.source_reference.length>1000)throw Error("Source is required; conditions must be under 2,000 characters.");
  const date=input.effective_date;if(date!==null&&(typeof date!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date))throw Error("Enter a valid effective date.");
  if(typeof input.verified!=="boolean"||input.verified&&!admin)throw Error("Only an administrator can confirm equipment policies.");
- if(input.verified&&(input.accepted_equipment==="unknown"||input.accepted_equipment==="van_and_flatbed"&&(input.fee_basis==="unknown"||Number(amount)>0&&input.fee_payer==="unknown")))throw Error("Confirm accepted equipment, flatbed fee and payer before marking verified.");
- return {accepted_equipment:input.accepted_equipment,fee_basis:input.fee_basis,fee_amount:input.fee_basis==="none"?0:amount,fee_payer:input.fee_payer,conditions:input.conditions.trim(),source_reference:input.source_reference.trim(),effective_date:date,verified:input.verified};
+ if(input.verified&&(input.accepted_equipment==="unknown"||input.accepted_equipment==="van_and_flatbed"&&(input.fee_basis==="unknown")))throw Error("Confirm accepted equipment and flatbed fee before marking verified.");
+ return {accepted_equipment:input.accepted_equipment,fee_basis:input.fee_basis,fee_amount:input.fee_basis==="none"?0:amount,fee_payer:"shipper",conditions:input.conditions.trim(),source_reference:input.source_reference.trim(),effective_date:date,verified:input.verified};
 }
 export function equipmentNotes(policy:EquipmentPolicy|undefined,requested:string,state:string|null):string[]{
  const priority=["TX","OK","KS","NM"].includes(state||"");const notes:string[]=[];
