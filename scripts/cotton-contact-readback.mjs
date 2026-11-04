@@ -12,7 +12,10 @@ if(configured){
 const base=process.env.MCLEOD_BILLING_READ_BASE_URL||process.env.MCLEOD_BASE_URL;
 const token=process.env.MCLEOD_BILLING_READ_AUTH_TOKEN||process.env.MCLEOD_AUTH_TOKEN;
 if(base&&token){
- const r=await fetch(base.replace(/\/$/,'')+'/locations/ALBEEDNC',{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},signal:AbortSignal.timeout(20000)});
- console.log('CONTACT_LOCATION_HTTP '+r.status);
- if(r.ok){const d=await r.json();console.log('CONTACT_LOCATION_SHAPE '+JSON.stringify({keys:Object.keys(d),contactFields:Object.fromEntries(Object.entries(d).filter(([k])=>/contact|phone/i.test(k)))}))}
+ for(const path of ['/locations/ALBEEDNC/contacts','/contacts/search?contact.parent_row_id=ALBEEDNC&recordLength=1','/contacts?parent_row_id=ALBEEDNC&recordLength=1']){
+ const r=await fetch(base.replace(/\/$/,'')+path,{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},signal:AbortSignal.timeout(20000)});
+ console.log('CONTACT_PROBE '+JSON.stringify({path,status:r.status}));
+ if(r.ok){const d=await r.json();const sample=Array.isArray(d)?d[0]:d;console.log('CONTACT_PROBE_SHAPE '+JSON.stringify({path,keys:sample&&typeof sample==='object'?Object.keys(sample):[],sample:sample&&sample.parent_row_id==='ALBEEDNC'?sample:undefined}))}
+ else if(r.status===400){console.log('CONTACT_PROBE_ERROR '+(await r.text()).slice(0,1200))}
+ }
 }
