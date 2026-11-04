@@ -42,3 +42,16 @@ test('migration enforces receipt, review, CAS, audit and private access',async()
  for(const role of ['anon','authenticated'])assert.equal((await db.query(`select has_table_privilege('${role}','cotton_tariff_outreach','SELECT') as allowed`)).rows[0].allowed,false);
  }finally{await db.close()}
 });
+
+test('existing source inventory separates exact coverage from unresolved scans and conflicting codes',()=>{
+ const mod={exports:{}};new Function('exports','module',ts.transpileModule(readFileSync('lib/cotton-locations/existing-tariffs.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(mod.exports,mod);
+ const {existingTariffs,tariffsForLocation}=mod.exports;
+ assert.equal(existingTariffs.length,15);
+ assert.equal(tariffsForLocation('LOCKLOTX')[0].effectiveDate,'2026-09-01');
+ assert.equal(tariffsForLocation('GLASGATX')[0].filename,'Glasscock County Co-op Tariff 2026.docx');
+ assert.equal(tariffsForLocation('FARMLUT2').length,0);
+ assert.equal(tariffsForLocation('FARMLUT5').length,0);
+ assert.equal(tariffsForLocation('PANHQUTX').length,0);
+ assert.equal(tariffsForLocation('TAYLTATX').length,1);
+ assert.equal(existingTariffs.filter(t=>!t.codes.length).length,6);
+});

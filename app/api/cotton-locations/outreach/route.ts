@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess, staffActor, staffProfile } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { outreachUpdate } from "@/lib/cotton-locations/outreach";
+import {existingTariffs,tariffsForLocation} from "@/lib/cotton-locations/existing-tariffs";
 export const dynamic="force-dynamic";
 export const GET=withStaffAccess(async()=>{
  const db=staffDatabase();
@@ -14,7 +15,7 @@ export const GET=withStaffAccess(async()=>{
  ]);
  if(results.some(r=>r.error))return NextResponse.json({ok:false,error:"Outreach records unavailable. Try again."},{status:503});
  const [queue,locations,documents,schedules,events]=results.map(r=>r.data||[]);
- return NextResponse.json({ok:true,rows:queue.map(q=>({...q,location:locations.find(l=>l.id===q.location_id),documents:documents.filter(d=>d.location_id===q.location_id),hours:schedules.some(s=>s.location_id===q.location_id)?schedules.some(s=>s.location_id===q.location_id&&s.verified)?"Confirmed hours":"Unverified hours":"No saved hours",events:events.filter(e=>e.location_id===q.location_id).slice(0,15)}))},{headers:{"Cache-Control":"private, no-store"}});
+ return NextResponse.json({ok:true,sourceInventory:existingTariffs,rows:queue.map(q=>({...q,existingTariffs:tariffsForLocation(locations.find(l=>l.id===q.location_id)?.mcleod_code||""),location:locations.find(l=>l.id===q.location_id),documents:documents.filter(d=>d.location_id===q.location_id),hours:schedules.some(s=>s.location_id===q.location_id)?schedules.some(s=>s.location_id===q.location_id&&s.verified)?"Confirmed hours":"Unverified hours":"No saved hours",events:events.filter(e=>e.location_id===q.location_id).slice(0,15)}))},{headers:{"Cache-Control":"private, no-store"}});
 });
 export const PATCH=withStaffAccess(async(req:NextRequest)=>{
  let input;try{input=await req.json()}catch{return NextResponse.json({ok:false,error:"Invalid request"},{status:400})}

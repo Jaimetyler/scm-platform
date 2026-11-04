@@ -11,3 +11,9 @@ Request current written tariffs first, including effective dates, pickup hours, 
 Uploads are stored in a private `cotton-tariffs` bucket. Server-authenticated downloads use 60-second signed URLs. File signatures are checked; no public storage policies are granted. Successful uploads automatically mark the facility received, including uploads to previously reviewed facilities. Save record edits before uploading.
 
 Received and reviewed are distinct statuses. Review requires an administrator, at least one uploaded document, and a tariff effective date. Outreach review is documentary review only; it does not change active fee calculations or confirm schedules. Admins use the existing location modal to save source-backed hours and fee drafts. All outreach changes and document receipts are audited; stale versions cannot overwrite later changes. No messages, calls or emails are sent by the queue.
+
+## Previously supplied sources
+
+The source inventory in `lib/cotton-locations/existing-tariffs.ts` records fifteen previously supplied tariff files. Nine are linked to twenty locations using explicit warehouse codes and/or matching addresses; six remain visible in the inventory pending mapping, scan review or resolution of conflicting warehouse codes. File presence does not establish that a tariff is current or approved.
+
+The queue displays existing-source coverage separately from new uploads and outreach status. Untouched outreach rows with matched sources show “On file · needs review”; users can filter to existing tariffs. The modal instructs staff to confirm the existing version and collect gaps rather than blindly request a first copy. These older source links open the original files and retain their existing access controls. An admin must attach a copy through the private uploader for staff who cannot access those links and before the current received/reviewed workflow can complete. No fee rules or schedules are activated from the inventory.
