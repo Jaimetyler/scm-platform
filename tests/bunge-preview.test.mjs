@@ -37,3 +37,9 @@ test('unknown or repeating duplicate search responses never become no-match',asy
  await assert.rejects(availableBlnumMatches(async p=>p.startsWith('/orders/search?')?Array(5).fill({id:'0820001'}):{id:'0820001',company_id:'TMS',customer_id:'BUNGOMNE',status:'A',blnum:'D1085 90 BALES'},'D1085 90 BALES'),/did not advance/);
  await assert.rejects(availableBlnumMatches(async()=>[],'invalid'),/Invalid BLNUM/);
 });
+
+ test('SCM delivery selection retains Bunge default and rejects arbitrary destinations',()=>{
+ const {deliveryCode}=load('lib/bunge/destinations.ts');
+ assert.equal(deliveryCode(null),'SAVAGAG2');assert.equal(deliveryCode('SCMDDETX'),'SCMDDETX');assert.throws(()=>deliveryCode('RANDOM'),/SCM delivery/);
+ const [p]=buildPreview([line()],locations,[schedule()],'MAIN','SCMDDETX');assert.equal(p.destination,'SCMDDETX');assert.equal(p.customerId,'BUNGOMNE');assert.equal(p.revenue,'MAIN');
+ });

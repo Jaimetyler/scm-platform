@@ -60,7 +60,6 @@ export function buildPreview(lines:PickupLine[],locations:Location[],schedules:S
  return {location,warehouseCode:line.warehouseCode,warehouse:line.warehouse,bales:part.reduce((n,l)=>n+l.bales,0),rtl:line.rtl,sourceRows:part.map(l=>l.sheet+":"+l.row),address:part.find(l=>l.address.length)?.address||[],hours,issues:stopIssues};
  });
  if(pickups.length>2)issues.push("More than two pickup stops: manual review required.");
- if(!locations.some(l=>l.mcleod_code===destination))issues.push("Delivery location is not in the location database; confirm in McLeod.");
  return {key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId:"BUNGOMNE",revenue,destination,pickups,issues};
  });
 }
