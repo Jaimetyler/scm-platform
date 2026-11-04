@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useState} from "react";
+import EquipmentEditor from "./EquipmentEditor";
 import PolicyEditor from "./PolicyEditor";
 import styles from "./page.module.css";
 type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;address2:string|null;city:string|null;state:string|null;zip_code:string|null;timezone:string|null;active:boolean;updated_at:string};
@@ -11,7 +12,7 @@ export default function CottonLocationsPage(){
  const [selected,setSelected]=useState<Location|null>(null);
  const [policy,setPolicy]=useState<PolicyData|null>(null);
  const [policyBusy,setPolicyBusy]=useState(false);
- const [tab,setTab]=useState<"details"|"hours"|"fees">("details");
+ const [tab,setTab]=useState<"details"|"hours"|"fees"|"equipment">("details");
  const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  async function load(){
   try{const res=await fetch("/api/cotton-locations",{cache:"no-store"});const json=await res.json();if(!res.ok||!json.ok)throw Error(json.error||"Unable to load locations");setRows(json.locations);}
@@ -56,7 +57,7 @@ export default function CottonLocationsPage(){
   {selected&&<div className={styles.overlay} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setSelected(null)}}>
    <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cotton-location-title">
     <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · Previous: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
-    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["equipment","Van / flatbed"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div className={styles.modalBody}>
      {error&&<p role="alert" className={styles.error}>{error}</p>}
      {tab==="details"&&<div className={styles.form}>
@@ -68,6 +69,7 @@ export default function CottonLocationsPage(){
      </div>}
      {tab!=="details"&&policyBusy&&<p>Loading location policies…</p>}
      {tab!=="details"&&policy&&!policy.ok&&<p role="alert" className={styles.error}>{policy.error}</p>}
+     {tab==="equipment"&&<div className={styles.policyList}><EquipmentEditor key={selected.id} locationId={selected.id} admin={true} onBusy={setBusy}/></div>}
      {tab==="hours"&&policy?.ok&&<div className={styles.policyList}>
       <p className={styles.helper}>Only source-confirmed hours should be treated as verified. Historical dispatcher defaults are not reliable.</p>
       {policy.clues?.filter(c=>c.proposed_values?.pickup_hours_clue).map(c=><article className={styles.policyCard} key={c.id}><strong>Unverified McLeod hours clue</strong><p>{String(c.proposed_values.pickup_hours_clue)}</p><small>Source: {c.source_reference}. Confirm before using for dispatch.</small></article>)}

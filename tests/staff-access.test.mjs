@@ -127,7 +127,7 @@ test("eCotton import previews and execution require an active admin and same-ori
 });
 
 test("outreach allows operators, keeps viewers read-only and does not grant policy editing",async()=>{
- for(const path of ["/api/cotton-locations/outreach","/api/cotton-locations/outreach/documents"]){
+ for(const path of ["/api/cotton-locations/outreach","/api/cotton-locations/outreach/documents","/api/cotton-locations/outreach/equipment"]){
   assert.equal((await call(path,"GET",undefined,viewer)).status,200);
   assert.equal((await call(path,"POST",{},viewer)).status,403);
   assert.equal((await call(path,"PATCH",{},hou)).status,200);

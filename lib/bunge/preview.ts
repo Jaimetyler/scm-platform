@@ -1,8 +1,9 @@
 import * as XLSX from "xlsx";
+import {equipmentNotes,type EquipmentPolicy} from "@/lib/cotton-locations/equipment";
 export type PickupLine={sheet:string;row:number;mark:string;so:string;bales:number;weight:number|null;warehouse:string;warehouseCode:string;address:string[];rtl:string|null};
 export type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;city:string|null;state:string|null;timezone:string|null};
 export type Schedule={location_id:string;weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;verified:boolean|null;appointment_required:boolean|null;effective_from:string|null;effective_to:string|null;created_at:string;source_reference:string|null};
-export type Proposal={key:string;so:string;mark:string;blnum:string;bales:number;customerId:string;revenue:string;destination:string;pickups:{location:Location|null;warehouseCode:string;warehouse:string;bales:number;rtl:string|null;sourceRows:string[];address:string[];hours:Schedule|null;issues:string[]}[];issues:string[]};
+export type Proposal={equipment:string;key:string;so:string;mark:string;blnum:string;bales:number;customerId:string;revenue:string;destination:string;pickups:{location:Location|null;warehouseCode:string;warehouse:string;bales:number;rtl:string|null;sourceRows:string[];address:string[];hours:Schedule|null;issues:string[]}[];issues:string[]};
 const norm=(v:unknown)=>String(v??"").trim().replace(/\s+/g," ");
 const header=(v:unknown)=>norm(v).toUpperCase().replace(/[^A-Z0-9]/g,"");
 function date(v:unknown):string|null{
@@ -41,7 +42,7 @@ export function parseDispatch(bytes:Uint8Array){
  for(const l of lines)if(!l.warehouseCode){const set=codes.get(header(l.warehouse));if(set?.size===1)l.warehouseCode=[...set][0]}
  return {lines,destinations:[...destinations],excluded};
 }
-export function buildPreview(lines:PickupLine[],locations:Location[],schedules:Schedule[],revenue:"MAIN"|"DAVIS",destination="SAVAGAG2"):Proposal[]{
+export function buildPreview(lines:PickupLine[],locations:Location[],schedules:Schedule[],revenue:"MAIN"|"DAVIS",destination="SAVAGAG2",equipment="unknown",equipmentPolicies:EquipmentPolicy[]=[]):Proposal[]{
  const groups=new Map<string,PickupLine[]>();for(const l of lines){const k=l.so+":"+l.mark;groups.set(k,[...(groups.get(k)||[]),l])}
  return [...groups].map(([key,source])=>{
  const first=source[0],bales=source.reduce((n,l)=>n+l.bales,0);if(!Number.isSafeInteger(bales))throw Error("Grouped bale total exceeds supported range.");const issues:string[]=[];
@@ -57,9 +58,10 @@ export function buildPreview(lines:PickupLine[],locations:Location[],schedules:S
  const hours=eligible[0]||null;
  if(!hours)stopIssues.push("No pickup hours for this date; confirm weekday/seasonal availability.");else if(!hours.verified)stopIssues.push("Suggested hours are unverified historical information.");
  if(hours&&!hours.open_time&&!hours.close_time)stopIssues.push("Pickup time window is unknown.");
+ stopIssues.push(...equipmentNotes(equipmentPolicies.find(p=>p.location_id===location?.id),equipment,location?.state||null));
  return {location,warehouseCode:line.warehouseCode,warehouse:line.warehouse,bales:part.reduce((n,l)=>n+l.bales,0),rtl:line.rtl,sourceRows:part.map(l=>l.sheet+":"+l.row),address:part.find(l=>l.address.length)?.address||[],hours,issues:stopIssues};
  });
  if(pickups.length>2)issues.push("More than two pickup stops: manual review required.");
- return {key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId:"BUNGOMNE",revenue,destination,pickups,issues};
+ return {equipment,key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId:"BUNGOMNE",revenue,destination,pickups,issues};
  });
 }

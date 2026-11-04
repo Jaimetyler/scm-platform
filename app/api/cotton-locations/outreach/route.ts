@@ -11,11 +11,12 @@ export const GET=withStaffAccess(async()=>{
  db.from("cotton_location_master").select("id,mcleod_code,prev_code,name,city,state,address").limit(3000),
  db.from("cotton_tariff_documents").select("id,location_id,filename,uploaded_at,uploaded_by").order("uploaded_at",{ascending:false}).limit(5000),
  db.from("cotton_location_schedules").select("location_id,verified").limit(10000),
- db.from("cotton_tariff_outreach_events").select("id,location_id,action,actor,created_at,after_value").order("created_at",{ascending:false}).limit(1000)
+ db.from("cotton_tariff_outreach_events").select("id,location_id,action,actor,created_at,after_value").order("created_at",{ascending:false}).limit(1000),
+ db.from("cotton_location_equipment").select("*").limit(3000)
  ]);
  if(results.some(r=>r.error))return NextResponse.json({ok:false,error:"Outreach records unavailable. Try again."},{status:503});
- const [queue,locations,documents,schedules,events]=results.map(r=>r.data||[]);
- return NextResponse.json({ok:true,sourceInventory:existingTariffs,rows:queue.map(q=>({...q,existingTariffs:tariffsForLocation(locations.find(l=>l.id===q.location_id)?.mcleod_code||""),location:locations.find(l=>l.id===q.location_id),documents:documents.filter(d=>d.location_id===q.location_id),hours:schedules.some(s=>s.location_id===q.location_id)?schedules.some(s=>s.location_id===q.location_id&&s.verified)?"Confirmed hours":"Unverified hours":"No saved hours",events:events.filter(e=>e.location_id===q.location_id).slice(0,15)}))},{headers:{"Cache-Control":"private, no-store"}});
+ const [queue,locations,documents,schedules,events,equipment]=results.map(r=>r.data||[]);
+ return NextResponse.json({ok:true,sourceInventory:existingTariffs,rows:queue.map(q=>({...q,equipment:equipment.find(e=>e.location_id===q.location_id)||null,existingTariffs:tariffsForLocation(locations.find(l=>l.id===q.location_id)?.mcleod_code||""),location:locations.find(l=>l.id===q.location_id),documents:documents.filter(d=>d.location_id===q.location_id),hours:schedules.some(s=>s.location_id===q.location_id)?schedules.some(s=>s.location_id===q.location_id&&s.verified)?"Confirmed hours":"Unverified hours":"No saved hours",events:events.filter(e=>e.location_id===q.location_id).slice(0,15)}))},{headers:{"Cache-Control":"private, no-store"}});
 });
 export const PATCH=withStaffAccess(async(req:NextRequest)=>{
  let input;try{input=await req.json()}catch{return NextResponse.json({ok:false,error:"Invalid request"},{status:400})}

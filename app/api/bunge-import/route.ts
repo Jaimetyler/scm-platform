@@ -25,13 +25,14 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  if(Number(req.headers.get("content-length")||0)>3*1024*1024+65536)throw Error("Maximum workbook size is 3 MB.");
  const form=await req.formData(),file=form.get("file");if(!(file instanceof File)||!file.size||file.size>3*1024*1024||! /\.(xlsx|xls|csv)$/i.test(file.name))throw Error("Upload a Bunge dispatch XLSX, XLS or CSV up to 3 MB.");
  const destination=deliveryCode(form.get("destination"));
+ const equipment=String(form.get("equipment")||"unknown");if(!["unknown","van","flatbed"].includes(equipment))throw Error("Choose van, flatbed or equipment not selected.");
  const parsed=parseDispatch(new Uint8Array(await file.arrayBuffer()));const requested=form.get("revenue")||"auto";
  if(!["auto","MAIN","DAVIS"].includes(String(requested)))throw Error("Choose MAIN or DAVIS.");
  const revenue=requested==="auto"?(parsed.destinations.some(d=>/DALLAS|DESOTO/i.test(d))?"DAVIS":"MAIN"):requested as "MAIN"|"DAVIS";
- const db=staffDatabase();const [locations,schedules,delivery]=await Promise.all([
+ const db=staffDatabase();const [locations,schedules,delivery,equipmentPolicies]=await Promise.all([
  db.from("cotton_location_master").select("id,mcleod_code,prev_code,name,address,city,state,timezone").limit(3000),
- db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),readDeliveryLocation(destination)]);
- if(locations.error||schedules.error)throw Error("Location schedules unavailable. Please retry.");
- return NextResponse.json({ok:true,filename:file.name,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,proposals:buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination),previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
+ db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),readDeliveryLocation(destination),db.from("cotton_location_equipment").select("*").limit(3000)]);
+ if(locations.error||schedules.error||equipmentPolicies.error)throw Error("Location schedules unavailable. Please retry.");
+ return NextResponse.json({ok:true,filename:file.name,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,equipment,proposals:buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[]),previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:"Preview failed"},{status:400})}
 });
