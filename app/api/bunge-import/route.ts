@@ -2,6 +2,7 @@ import {NextRequest,NextResponse} from "next/server";
 import {withStaffAccess} from "@/lib/auth/guard";
 import {staffDatabase} from "@/lib/auth/session";
 import {parseDispatch,buildPreview} from "@/lib/bunge/preview";
+import {pickupMonthRanges} from "@/lib/bunge/duplicate-window";
 import {availableBlnumMatches} from "@/lib/bunge/duplicates";
 import {vendor} from "@/lib/dray/server";
 import {SCM_DELIVERY_LOCATIONS,deliveryCode} from "@/lib/bunge/destinations";
@@ -19,7 +20,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  try{
  if(req.headers.get("content-type")?.includes("application/json")){
  const body=await req.json();if(body.action!=="duplicates")return NextResponse.json({ok:false,error:"Preview only; order creation is unavailable."},{status:400});
- const matches=await availableBlnumMatches(vendor(true).read,body.blnum);return NextResponse.json({ok:true,matches,scope:"Available BUNGOMNE orders with exact BLNUM only; not approval to create."});
+ const matches=await availableBlnumMatches(vendor(true).read,body.blnum,body.pickupDates);return NextResponse.json({ok:true,matches,ranges:pickupMonthRanges(body.pickupDates),scope:"Available BUNGOMNE orders with exact BLNUM and scheduled pickup within one calendar month before/after each proposed pickup date; not approval to create."});
  }
  if(Number(req.headers.get("content-length")||0)>3*1024*1024+65536)throw Error("Maximum workbook size is 3 MB.");
  const form=await req.formData(),file=form.get("file");if(!(file instanceof File)||!file.size||file.size>3*1024*1024||! /\.(xlsx|xls|csv)$/i.test(file.name))throw Error("Upload a Bunge dispatch XLSX, XLS or CSV up to 3 MB.");
