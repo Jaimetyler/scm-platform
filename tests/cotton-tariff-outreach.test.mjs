@@ -11,7 +11,7 @@ const input={locationId:id,version:0,status:'requested',owner:'Hope',contact_nam
 test('rejects unauthorized review, invalid dates and unsafe upload formats',()=>{
  assert.throws(()=>outreachUpdate({...input,status:'reviewed'},false),/administrator/);
  assert.throws(()=>outreachUpdate({...input,last_contact:'2026-02-31'},true),/valid date/);
- assert.equal(outreachUpdate(input,false).owner,'Hope');
+ assert.equal(outreachUpdate(input,false).owner,'');
  assert.equal(tariffType(Buffer.from('<html>not a tariff</html>')),null);
  assert.equal(tariffType(Buffer.from('%PDF-1.7')).type,'application/pdf');
 });

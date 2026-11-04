@@ -2,7 +2,7 @@
 
 Production path: `/cotton-locations/outreach`. Links are available from Platform Home, Location Management, and Warehouse Operations.
 
-The first batch contains ten southeastern facilities missing saved hours, with existing name-based fee warnings prioritized. This is a provisional outreach list, not a load-volume ranking. All location master records are in the queue. Owner defaults to Hope; the text owner field does not create an account or grant permissions.
+The first batch contains ten southeastern facilities missing saved hours, with existing name-based fee warnings prioritized. This is a provisional outreach list, not a load-volume ranking. All location master records are in the queue. There is no assigned owner field. Saves and uploads are attributed to the authenticated staff member through the existing audit history. The legacy database owner column is blank and unused.
 
 Active administrators and operators can maintain outreach records and upload documents. Viewers can read. The workflow does not grant access to location editing or fee-policy approval. Existing staff invitation flow is used for a new hire; operator access requires a terminal. No invitations are sent automatically.
 

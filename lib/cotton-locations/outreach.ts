@@ -4,8 +4,8 @@ export function outreachUpdate(input: Record<string, unknown>, admin: boolean) {
  if (!uuid(input.locationId) || !Number.isInteger(input.version) || Number(input.version)<0) throw Error("Refresh this facility before saving.");
  if (!outreachStatuses.includes(input.status as typeof outreachStatuses[number])) throw Error("Choose a valid status.");
  if (input.status === "reviewed" && !admin) throw Error("An administrator must review the tariff.");
- const fields = ["owner","contact_name","contact_email","contact_phone","notes"] as const;
- const changes: Record<string, unknown> = {status: input.status};
+ const fields = ["contact_name","contact_email","contact_phone","notes"] as const;
+ const changes: Record<string, unknown> = {status: input.status, owner: ""};
  for (const key of fields) {
   if (typeof input[key] !== "string" || String(input[key]).length > (key === "notes" ? 5000 : 250)) throw Error("Contact fields or notes are too long.");
   changes[key] = String(input[key]).trim();
