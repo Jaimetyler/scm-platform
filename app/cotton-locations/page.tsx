@@ -57,7 +57,7 @@ export default function CottonLocationsPage(){
   {selected&&<div className={styles.overlay} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setSelected(null)}}>
    <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cotton-location-title">
     <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · Previous: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
-    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["equipment","Van / flatbed"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["equipment","Equipment"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div className={styles.modalBody}>
      {error&&<p role="alert" className={styles.error}>{error}</p>}
      {tab==="details"&&<div className={styles.form}>
