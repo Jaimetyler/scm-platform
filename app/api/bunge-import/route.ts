@@ -4,10 +4,17 @@ import {staffDatabase} from "@/lib/auth/session";
 import {parseDispatch,buildPreview} from "@/lib/bunge/preview";
 import {availableBlnumMatches} from "@/lib/bunge/duplicates";
 import {vendor} from "@/lib/dray/server";
-import {deliveryCode} from "@/lib/bunge/destinations";
+import {SCM_DELIVERY_LOCATIONS,deliveryCode} from "@/lib/bunge/destinations";
 import {readDeliveryLocation} from "@/lib/bunge/delivery-server";
 export const dynamic="force-dynamic";
 export const maxDuration=120;
+export const GET=withStaffAccess(async()=>{
+ const results=await Promise.allSettled(SCM_DELIVERY_LOCATIONS.map(l=>readDeliveryLocation(l.code)));
+ const locations=results.flatMap(r=>r.status==="fulfilled"?[r.value]:[]);
+ const unavailable=SCM_DELIVERY_LOCATIONS.filter((_,i)=>results[i].status==="rejected").map(l=>l.code);
+ if(!locations.length)return NextResponse.json({ok:false,error:"SCM delivery locations could not be verified. Retry the location list."},{status:503});
+ return NextResponse.json({ok:true,locations,unavailable},{headers:{"Cache-Control":"private, no-store"}});
+});
 export const POST=withStaffAccess(async(req:NextRequest)=>{
  try{
  if(req.headers.get("content-type")?.includes("application/json")){

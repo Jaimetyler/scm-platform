@@ -16,3 +16,9 @@ Historical sample validation (never live imports):
 - Unmapped source code 857500 (Dallas Warehouse Company, Grand Prairie) affects four Dallas orders; 570440 (Gaston Cooperative) affects one Savannah order.
 
 Next: user review of these previews, confirm delivery/defaults and reference mappings, resolve the two missing warehouse codes, then implement audited selected-order creation with replay protection and complete duplicate checks. No historical sample should be created in McLeod.
+
+## Delivery selector source
+
+The selector uses SCM destination codes observed in MAIN/DAVIS order history, rather than eCotton handling profiles. MAIN evidence is the previously supplied May 21, 2026 order extract `Pasted text(116).txt`: SAVAGAG2 (Garden City), SUPPSAG2 (Savannah), SUPPBAT1 (Baytown), SUPPPAT1 (Pasadena). DAVIS evidence is `CottonLocationHistoryTx.csv`: SCMDDETX, SCMDDATX, SUPPLAT1, SUPPHUTX, SUPPDATX and SCM7ARTX. Other historical third-party destinations are excluded. This is historical routing evidence, not proof that every record was completed.
+
+The dropdown fetches each candidate’s current McLeod name/address/status, shows street/city/state and code, and omits unavailable/inactive records. The selected destination is reverified on every preview. SAVAGAG2 remains the Bunge default. SAVWHSE, SUPPRIG2 and HOUWHSE are not used as domestic delivery choices.

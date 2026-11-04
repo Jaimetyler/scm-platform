@@ -40,6 +40,6 @@ test('unknown or repeating duplicate search responses never become no-match',asy
 
  test('SCM delivery selection retains Bunge default and rejects arbitrary destinations',()=>{
  const {deliveryCode}=load('lib/bunge/destinations.ts');
- assert.equal(deliveryCode(null),'SAVAGAG2');assert.equal(deliveryCode('SCMDDETX'),'SCMDDETX');assert.throws(()=>deliveryCode('RANDOM'),/SCM delivery/);
+ assert.equal(deliveryCode(null),'SAVAGAG2');assert.equal(deliveryCode('SCMDDETX'),'SCMDDETX');assert.equal(deliveryCode('SUPPSAG2'),'SUPPSAG2');assert.equal(deliveryCode('SUPPBAT1'),'SUPPBAT1');for(const code of ['SAVWHSE','SUPPRIG2','HOUWHSE'])assert.throws(()=>deliveryCode(code),/SCM delivery/);assert.throws(()=>deliveryCode('RANDOM'),/SCM delivery/);
  const [p]=buildPreview([line()],locations,[schedule()],'MAIN','SCMDDETX');assert.equal(p.destination,'SCMDDETX');assert.equal(p.customerId,'BUNGOMNE');assert.equal(p.revenue,'MAIN');
  });

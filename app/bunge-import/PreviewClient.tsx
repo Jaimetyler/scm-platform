@@ -1,15 +1,23 @@
 "use client";
-import {useRef,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import type {Proposal} from "@/lib/bunge/preview";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import {DEFAULT_BUNGE_DELIVERY,SCM_DELIVERY_LOCATIONS,type DeliveryLocation} from "@/lib/bunge/destinations";
 type Result={delivery?:DeliveryLocation;excluded?:{sheet:string;row:number;reason:string}[];filename:string;sourceRows:number;sourceDestinations:string[];revenue:string;proposals:Proposal[]};
 type Check={busy?:boolean;error?:string;matches?:{id:string;blnum:string;revenue:string}[]};
 export default function PreviewClient(){
+ const [deliveryLocations,setDeliveryLocations]=useState<DeliveryLocation[]>([]),[locationsBusy,setLocationsBusy]=useState(true),[locationsError,setLocationsError]=useState("");
  const [destination,setDestination]=useState<string>(DEFAULT_BUNGE_DELIVERY);
  const [result,setResult]=useState<Result|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(""),[revenue,setRevenue]=useState("auto"),[query,setQuery]=useState(""),[selected,setSelected]=useState<Proposal|null>(null),[checks,setChecks]=useState<Record<string,Check>>({});
  const generation=useRef(0);
  const file=useRef<HTMLInputElement>(null),dialog=useRef<HTMLDialogElement>(null),opener=useRef<HTMLButtonElement|null>(null);
+ async function loadDeliveryLocations(){
+ setLocationsBusy(true);setLocationsError("");
+ try{const r=await fetch("/api/bunge-import",{cache:"no-store"});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||"Delivery locations unavailable");setDeliveryLocations(j.locations);}
+ catch(e){setDeliveryLocations([]);setLocationsError(e instanceof Error?e.message:"Delivery locations unavailable")}
+ finally{setLocationsBusy(false)}
+ }
+ useEffect(()=>{void loadDeliveryLocations()},[]);
  async function preview(){const source=file.current?.files?.[0];if(!source||busy)return;generation.current++;setBusy(true);setError("");setResult(null);setChecks({});try{
  const data=new FormData();data.set("file",source);data.set("revenue",revenue);data.set("destination",destination);const r=await fetch("/api/bunge-import",{method:"POST",body:data});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||"Preview failed");setResult(j);
  }catch(e){setError(e instanceof Error?e.message:"Preview failed")}finally{setBusy(false)}}
@@ -21,7 +29,7 @@ export default function PreviewClient(){
  return <main className={styles.page}>
  <header className={styles.header}><div><p className={styles.eyebrow}>DOMESTIC COTTON</p><h1>Bunge order preview</h1><p>Review dispatch rows, warehouse mappings and proposed pickup windows</p></div><a href="/">Platform home</a></header>
  <p className={styles.guide}>Preview only. This page cannot create, rate or deliver McLeod orders. Historical samples can be tested safely. Results are held in this tab and clear on refresh.</p>
- <section className={styles.guide}><h2>Upload dispatch workbook</h2><p>Original Bunge XLSX, XLS or CSV · maximum 3 MB · up to 250 pickup rows. PDF layouts will be added after spreadsheet validation.</p><div className={styles.toolbar}><input aria-label="Bunge dispatch workbook" type="file" accept=".xlsx,.xls,.csv" ref={file} disabled={busy}/><select aria-label="Revenue code" value={revenue} onChange={e=>setRevenue(e.target.value)} disabled={busy}><option value="auto">Detect MAIN / DAVIS from destination</option><option value="MAIN">MAIN — Savannah</option><option value="DAVIS">DAVIS — Dallas</option></select><label>SCM delivery location<select aria-label="SCM delivery location" value={destination} disabled={busy} onChange={e=>{setDestination(e.target.value);generation.current++;setResult(null);setChecks({})}}>{SCM_DELIVERY_LOCATIONS.map(l=><option value={l.code} key={l.code}>{l.label} — {l.code}</option>)}</select></label><button disabled={busy} onClick={()=>void preview()}>{busy?"Building preview…":"Preview dispatch"}</button></div><p>Customer: <b>BUNGOMNE</b> · Proposed delivery: <b>{destination}</b></p></section>
+ <section className={styles.guide}><h2>Upload dispatch workbook</h2><p>Original Bunge XLSX, XLS or CSV · maximum 3 MB · up to 250 pickup rows. PDF layouts will be added after spreadsheet validation.</p><div className={styles.toolbar}><input aria-label="Bunge dispatch workbook" type="file" accept=".xlsx,.xls,.csv" ref={file} disabled={busy}/><select aria-label="Revenue code" value={revenue} onChange={e=>setRevenue(e.target.value)} disabled={busy}><option value="auto">Detect MAIN / DAVIS from destination</option><option value="MAIN">MAIN — Savannah</option><option value="DAVIS">DAVIS — Dallas</option></select><label>SCM delivery location<select aria-label="SCM delivery location" value={destination} disabled={busy||locationsBusy} onChange={e=>{setDestination(e.target.value);generation.current++;setResult(null);setChecks({})}}>{!deliveryLocations.some(l=>l.code===destination)&&<option value={destination} disabled>{locationsBusy?"Loading SCM delivery addresses…":destination+" — unavailable; select another location"}</option>}{deliveryLocations.map(l=><option value={l.code} key={l.code}>{SCM_DELIVERY_LOCATIONS.find(v=>v.code===l.code)?.label||l.name} — {l.address}, {l.city}, {l.state} ({l.code})</option>)}</select></label><button disabled={busy||locationsBusy||!deliveryLocations.some(l=>l.code===destination)} onClick={()=>void preview()}>{busy?"Building preview…":"Preview dispatch"}</button></div>{locationsError&&<p role="alert" className={styles.error}>{locationsError}</p>}<button disabled={locationsBusy||busy} onClick={()=>void loadDeliveryLocations()}>Refresh delivery addresses</button><p>Customer: <b>BUNGOMNE</b> · Proposed delivery: <b>{destination}</b></p></section>
  {error&&<p role="alert" className={styles.error}>{error}</p>}
  {result&&<><div className={styles.stats}><span><b>{result.sourceRows}</b> Pickup rows</span><span><b>{result.proposals.length}</b> Proposed orders</span><span><b>{result.proposals.filter(p=>p.pickups.length===2).length}</b> Two-pickup orders</span><span><b>{result.proposals.filter(p=>p.pickups.some(s=>!s.location)).length}</b> Need location mapping</span></div>
  <p>{result.filename} · Revenue: {result.revenue}</p>{!!result.excluded?.length&&<details className={styles.guide}><summary>{result.excluded.length} pickup row(s) excluded from other or unknown carrier sections</summary>{result.excluded.map((r,i)=><p key={i}>{r.sheet}:{r.row} · {r.reason}</p>)}</details>}<p>Report destination: {result.sourceDestinations.join("; ")||"Not found"}. Selected delivery: {result.delivery?.code||result.proposals[0]?.destination}; confirm any difference before a future import.</p>
