@@ -63,3 +63,13 @@ test('missing existing pickup schedules remain incomplete, not a no-match',async
  await assert.rejects(nonVoidBlnumMatches(async path=>path.startsWith('/orders/search?')?[{id:'0820000'}]:{id:'0820000',company_id:'TMS',customer_id:'BUNGOMNE',status:'A',blnum:'D1085 90 BALES',stops:[{stop_type:'PU'}]},'D1085 90 BALES',['2026-04-30']),/scheduled pickup date/);
  let calls=0;await assert.rejects(nonVoidBlnumMatches(async()=>{calls++;return []},'D1085 90 BALES',[null]),/valid scheduled pickup/);assert.equal(calls,0);
 });
+
+test('Dallas B/C and Savannah BALES suffixes are equivalent without changing mark or count',async()=>{
+ const queries=[],reads=[];
+ const result=await nonVoidBlnumMatches(async path=>{
+ if(path.startsWith('/orders/search?')){const ref=new URL('https://example.test'+path).searchParams.get('orders.blnum');queries.push(ref);return ref.endsWith('B/C')?[{id:'0820001'},{id:'0820002'},{id:'0820003'}]:[{id:'0820001'}]}
+ reads.push(path);const id=path.split('/').pop();return {id,company_id:'TMS',customer_id:'BUNGOMNE',status:'D',blnum:id==='0820001'?'D1085 90 B/C':id==='0820002'?'D1085 89 B/C':'OTHER 90 B/C',stops:[{stop_type:'PU',sched_arrive_early:'20260430080000-0400'}]};
+ },'D1085 90 BALES',['2026-04-30']);
+ assert.deepEqual(queries,['D1085 90 BALES','D1085 90 B/C']);assert.deepEqual(result.map(r=>r.id),['0820001']);assert.equal(reads.filter(p=>p.endsWith('0820001')).length,1);
+ const {canonicalBlnum}=load('lib/bunge/duplicates.ts');assert.equal(canonicalBlnum('d1085  90 b / c'),'D1085 90 BALES');assert.equal(canonicalBlnum('D1085 90 BOXES'),null);
+});

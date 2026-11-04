@@ -20,7 +20,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  try{
  if(req.headers.get("content-type")?.includes("application/json")){
  const body=await req.json();if(body.action!=="duplicates")return NextResponse.json({ok:false,error:"Preview only; order creation is unavailable."},{status:400});
- const matches=await nonVoidBlnumMatches(vendor(true).read,body.blnum,body.pickupDates);return NextResponse.json({ok:true,matches,ranges:pickupMonthRanges(body.pickupDates),scope:"Non-void BUNGOMNE orders with exact BLNUM and scheduled pickup within one calendar month before/after each proposed pickup date; not approval to create."});
+ const matches=await nonVoidBlnumMatches(vendor(true).read,body.blnum,body.pickupDates);return NextResponse.json({ok:true,matches,ranges:pickupMonthRanges(body.pickupDates),scope:"Non-void BUNGOMNE orders with matching mark and bale count (BALES/B/C equivalent) and scheduled pickup within one calendar month before/after each proposed pickup date; not approval to create."});
  }
  if(Number(req.headers.get("content-length")||0)>3*1024*1024+65536)throw Error("Maximum workbook size is 3 MB.");
  const form=await req.formData(),file=form.get("file");if(!(file instanceof File)||!file.size||file.size>3*1024*1024||! /\.(xlsx|xls|csv)$/i.test(file.name))throw Error("Upload a Bunge dispatch XLSX, XLS or CSV up to 3 MB.");
