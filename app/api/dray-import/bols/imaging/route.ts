@@ -1,11 +1,10 @@
 import {NextRequest,NextResponse} from 'next/server';
-import {createHash} from 'node:crypto';
 import {withStaffAccess,staffActor} from '@/lib/auth/guard';
 import {staffDatabase} from '@/lib/auth/session';
 import {readRun,vendor} from '@/lib/dray/server';
 import {bolPlan} from '@/lib/dray-bols/plan';
 import {bolEligible} from '@/lib/dray-bols/eligible';
-import {createBol} from '@/lib/dray-bols/pdf';
+import {persistBol} from '@/lib/dray-bols/storage';
 import {imagingClient,receiptVisible} from '@/lib/dray-bols/imaging';
 export const dynamic='force-dynamic';export const maxDuration=120;
 export const POST=withStaffAccess(async(req:NextRequest)=>{
@@ -25,9 +24,9 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  }
  if(body.action!=='send'||body.confirmed!==true||!types.some(t=>t.id===body.documentTypeId))throw Error('Select and confirm a McLeod document type.');
  if(process.env.DRAY_IMPORT_WRITES_ENABLED!=='true'||process.env.MCLEOD_SYNC_ENABLED!=='true')throw Error('McLeod uploads are disabled.');
- const bytes=await createBol(plan),digest=createHash('sha256').update(bytes).digest('hex');
+ const stored=await persistBol(db,item,plan,staffActor(req)),bytes=stored.bytes,digest=stored.document.pdf_hash;
  const existing=await client.images(plan.orderId);if(existing.some(v=>v.documentTypeId===body.documentTypeId))throw Error('This order already has a document of that type. Review McLeod before adding another.');
- const {data:claim,error}=await db.from('dray_bol_images').insert({order_id:item.order_id,mcleod_order:plan.orderId,pdf_hash:digest,document_type:body.documentTypeId,status:'sending',actor:staffActor(req)}).select('id').single();
+ const {data:claim,error}=await db.from('dray_bol_images').insert({order_id:item.order_id,mcleod_order:plan.orderId,pdf_hash:digest,document_id:stored.document.id,document_type:body.documentTypeId,status:'sending',actor:staffActor(req)}).select('id').single();
  if(error){if(error.code==='23505')throw Error('This BOL already has an upload attempt. Check its receipt; do not resend.');throw Error('Could not reserve BOL upload.');}
  let receipt:string|null=null,status='uncertain';
  try{receipt=await client.upload(plan.orderId,body.documentTypeId,bytes);status='staged';try{if(receiptVisible(await client.images(plan.orderId),receipt,body.documentTypeId))status='verified';}catch{/* Successful receipt remains staged when read-back is unavailable. */}}

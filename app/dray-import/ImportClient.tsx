@@ -129,7 +129,9 @@ export default function ImportClient() {
   const chosenDelivery = deliverable.filter((item) => selected.has(item.order_id));
   const bolOrders=items.filter(bolEligible),chosenBols=bolOrders.filter(item=>selected.has(item.order_id));
   async function downloadBols(ids:string[],format:"pdf"|"zip"){await act(async()=>{
-    const res=await fetch("/api/dray-import/bols",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runId:saved.run.id,rowIds:ids,format})});
+    let res:Response;
+    if(format==="pdf")res=await fetch("/api/dray-import/bols?run="+encodeURIComponent(saved.run.id)+"&row="+encodeURIComponent(ids[0]),{cache:"no-store"});
+    if(!res||res.status===404)res=await fetch("/api/dray-import/bols",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runId:saved.run.id,rowIds:ids,format})});
     if(!res.ok){const j=await res.json();throw Error(j.error||"BOL generation failed");}
     const blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1]||"Savannah_BOLs.zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
   });}

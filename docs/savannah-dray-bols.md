@@ -18,3 +18,11 @@ Official contracts inspected:
 - https://tms-dsly.loadtracking.com/ws/docs/services?service=ImagingService&operation=getImageList&role=-1
 
 Validation: BOL source/identity/PDF/migration tests; imaging membership, confirmation, type, flags, timeout and duplicate-claim tests; existing dray and staff access regressions; mocked browser flow for delivered-row selection, ZIP/individual downloads, document type selection and staged status; rendered PDF compared with the supplied sample. Live provider type availability and first upload still need an authenticated operational check.
+
+## Private PDF archive
+
+Generation now saves each PDF in the private `savannah-dray-bols` Supabase bucket before returning a download or sending to McLeod. The `dray_bol_documents` table records the immutable source identity, bale count, plan hash, PDF SHA-256, filename, size and signed-in actor. Duplicate generation reuses the existing PDF. Files are never overwritten. Upload races are resolved by verifying the stored bytes, and a storage/hash/record failure blocks imaging submission.
+
+The imaging receipt links to the archived document. McLeod receives the bytes downloaded and hash-verified from private storage. A saved-copy GET endpoint checks run membership and source identity and streams the PDF through existing administrator authorization; neither a public URL nor a client storage policy is created. Individual downloads use the saved copy first, so a McLeod outage does not prevent retrieving an already generated BOL. ZIP downloads also reuse archived copies. No SharePoint or Microsoft connection is needed for this archive.
+
+Additional verification: storage save/read-back/reuse and corruption tests, private bucket/RLS/grant checks, saved-copy download without a McLeod connection, failure-before-send checks, and browser download/upload flow. Production bucket is private, limited to PDF files up to 3 MB, and has no client storage access policies.
