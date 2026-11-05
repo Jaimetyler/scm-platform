@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import { terminalDeliveryCode } from "@/lib/bunge/destinations";
-import { withStaffAccess } from "@/lib/auth/guard";
+import { staffActor, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { readDeliveryLocation } from "@/lib/bunge/delivery-server";
 import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
@@ -11,6 +11,7 @@ import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
 import { draftPickupNotes } from "@/lib/cotton-import/pickup-notes";
+import { unitedAgPilotPayload, verifyUnitedAgPilot } from "@/lib/cotton-import/pilot-create";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
@@ -20,6 +21,9 @@ export const maxDuration = 120;
 
 async function preflight(req: NextRequest) {
   const form = await req.formData();
+  const create = form.get("action") === "create-pilot";
+  const pilotEnabled = process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
+  if (create && !pilotEnabled) throw Error("The United Ag pilot is disabled.");
   const destination = terminalDeliveryCode("houston", form.get("destination"));
   if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
   const file = form.get("file");
@@ -112,13 +116,61 @@ async function preflight(req: NextRequest) {
     return NextResponse.json({ ...response, delivery, auditId: saved.data.id, auditStatus: saved.data.status,
       reason: "This order already has a pilot audit state. Review the existing record before proceeding." });
 
+  const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
+    pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
+  const payload = unitedAgPilotPayload(draft);
+  const canCreate = Boolean(pilotEnabled && payload && existing.data &&
+    saved.data.destination_code === proposal.deliveryLocation);
+  const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id })).digest("hex") : null;
+  if (create) {
+    if (!canCreate || !payload || form.get("reviewToken") !== reviewToken)
+      throw Error("Run a fresh preflight for the approved United Ag order and review the draft before creating.");
+    const base = process.env.MCLEOD_BASE_URL;
+    const token = process.env.MCLEOD_AUTH_TOKEN;
+    if (!base || !token) throw Error("McLeod create connection is unavailable.");
+    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req) },
+      updated_at: new Date().toISOString() }).eq("id", saved.data.id).eq("status", "previewed")
+      .eq("source_hash", saved.data.source_hash).is("mcleod_order_id", null).select("id").maybeSingle();
+    if (claim.error || !claim.data) throw Error("Pilot claim failed. Check the audit record before retrying.");
+
+    let orderId: string | null = null;
+    let status = "creation_uncertain";
+    let error: string | null = null;
+    try {
+      const result = await fetch(base.replace(/\/$/, "") + "/orders/create", {
+        method: "PUT", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(20000),
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!result.ok) throw Error(`McLeod create returned HTTP ${result.status}.`);
+      const created = await result.json();
+      const id = String(created?.id ?? "").trim();
+      if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) throw Error("McLeod returned no valid order ID.");
+      orderId = id;
+      status = "created";
+      const actual = await vendor(true).read("/orders/" + encodeURIComponent(id));
+      const mismatches = verifyUnitedAgPilot(actual, id, payload);
+      if (mismatches.length) throw Error("Read-back differs: " + mismatches.join(", "));
+      status = "verified";
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "McLeod request failed.";
+    }
+    const finish = await ledger.update({ status, mcleod_order_id: orderId, error_message: error,
+      updated_at: new Date().toISOString() }).eq("id", saved.data.id).eq("status", "creating").select("id").maybeSingle();
+    const persisted = !finish.error && Boolean(finish.data);
+    return NextResponse.json({ ...response, delivery, draft, mcleodOrderId: orderId,
+      ok: status === "verified" && persisted, auditStatus: persisted ? status : "creating",
+      reason: !persisted ? "Audit update failed. Do not retry. Check McLeod and the audit record."
+        : error ? `${error} Do not retry. Check McLeod and the audit record.`
+        : `McLeod order ${orderId} created and verified on read-back.` });
+  }
+
   return NextResponse.json({
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
-    draft: { ...draftHoustonOrder(source, proposal, windows, equipment.code),
-      pickupNotes: draftPickupNotes(proposal.pickupStops, policies) },
+    draft, canCreate, reviewToken,
     reason: saved.data.destination_code === proposal.deliveryLocation
-      ? "Audit record verified and no matching BLNUM found. Confirm the delivery address, McLeod create fields and read-back before the pilot."
+      ? canCreate ? "Ready for the one-order McLeod pilot." : "Audit record verified and no matching BLNUM found. Creation is disabled for this order."
       : `No matching BLNUM found. The existing audit record uses ${saved.data.destination_code}. The new delivery selection is shown in the draft and needs audit reconciliation before the pilot.`,
   });
 }

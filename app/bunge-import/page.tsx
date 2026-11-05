@@ -29,7 +29,7 @@ export default async function Page({ searchParams }: {
       {inboundTerminals.map(location => <Link key={location.id} href={`/bunge-import?terminal=${location.id}`}
         aria-current={terminal.id === location.id ? "page" : undefined}>{location.label}</Link>)}
     </nav>
-    <p className={layout.notice}>Preview only · McLeod creation, rating and delivery are disabled.</p>
+    <p className={layout.notice}>Review dispatches · Rates are handled in McLeod.</p>
     {terminal.id === "houston" ? <HoustonPreviewClient /> : <PreviewClient key={terminal.id} terminal={terminal.id} />}
   </main>;
 }

@@ -24,6 +24,7 @@ type Result = {
   reviews: Review[]; sourceErrors: { row: number; reason: string }[];
 };
 type Preflight = {
+  canCreate?: boolean; reviewToken?: string;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
   draft?: {
     deliveryDate?: string;
@@ -42,7 +43,7 @@ const feeUnits: Record<string, string> = {
 export default function HoustonPreviewClient() {
   const [submission, setSubmission] = useState<DispatchInput | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const [busy, setBusy] = useState<"preview" | "preflight" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "preflight" | "create" | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
   const [checked, setChecked] = useState<{ salesOrder: string; data: Preflight } | null>(null);
@@ -76,9 +77,9 @@ export default function HoustonPreviewClient() {
     }
   }
 
-  async function preflight() {
+  async function preflight(reviewToken?: string) {
     if (!submission || !selected || busy) return;
-    setBusy("preflight");
+    setBusy(reviewToken ? "create" : "preflight");
     setChecked(null);
     try {
       const form = new FormData();
@@ -86,6 +87,10 @@ export default function HoustonPreviewClient() {
       form.set("equipment", submission.equipment);
       form.set("destination", submission.destination);
       form.set("salesOrder", selected);
+      if (reviewToken) {
+        form.set("action", "create-pilot");
+        form.set("reviewToken", reviewToken);
+      }
       const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
       setChecked({ salesOrder: selected, data: await response.json() });
     } catch (cause) {
@@ -112,13 +117,14 @@ export default function HoustonPreviewClient() {
         {result.sourceErrors.map(issue => <p key={issue.row}>Row {issue.row} · {issue.reason}</p>)}
       </details>}
       <div className={layout.actions}>
-        <button type="button" disabled={!selected || !!busy} onClick={preflight}>
+        <button type="button" disabled={!selected || !!busy} onClick={() => void preflight()}>
           {busy === "preflight" ? "Checking McLeod…" : "Run McLeod preflight"}
         </button>
         <span>{selected ? `SO ${selected} selected` : "Select one order below to check it in McLeod."}</span>
       </div>
       <div aria-live="polite">
         {busy === "preflight" && <p>Checking SO {selected}…</p>}
+        {busy === "create" && <p>Creating SO {selected} and verifying it in McLeod…</p>}
         {checked && <section className={`${styles.guide} ${layout.preflight}`}>
           <h3>Preflight · SO {checked.salesOrder}</h3>
           <p>{checked.data.error || checked.data.reason || "No preflight result returned."}</p>
@@ -142,6 +148,9 @@ export default function HoustonPreviewClient() {
             <h4>Draft dispatch notes</h4>
             {checked.data.draft.pickupNotes.map(note => <pre className={layout.response} key={note.stopSequence}>{note.comment}</pre>)}
           </section>}
+          {checked.data.canCreate && checked.data.reviewToken && <button type="button" disabled={!!busy} onClick={() => {
+            if (window.confirm("Create SO 2601730 in live McLeod? This will create one order.")) void preflight(checked.data.reviewToken);
+          }}>Create one live pilot order</button>}
           <details><summary>Show server response</summary><pre className={layout.response}>{JSON.stringify(checked.data, null, 2)}</pre></details>
         </section>}
       </div>

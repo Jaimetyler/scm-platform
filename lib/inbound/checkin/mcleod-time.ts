@@ -22,7 +22,7 @@ type StopActuals = { id?: string; actual_arrival?: string | null; actual_departu
 type StopPlan = { stopId: string; skipped: boolean; arrivalDate: string; departureDate: string;
   generatedArrival: boolean; generatedDeparture: boolean };
 
-function warehouseWallTime(day: string, hour: number, minute: number, terminal: "SAV" | "HOU") {
+export function warehouseWallTime(day: string, hour: number, minute: number, terminal: "SAV" | "HOU") {
   const date = new Date(`${day}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== day)
     throw new Error("Invalid received date - cannot backfill pickup actuals");
