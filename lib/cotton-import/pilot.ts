@@ -1,4 +1,4 @@
-import { defaultDeliveryDate, scmReceivingHours } from "../bunge/destinations.ts";
+import { defaultDeliveryDate, SCM_DELIVERY_LOCATIONS, scmReceivingHours } from "../bunge/destinations.ts";
 import type { CottonOrderPreview } from "./preview.ts";
 import type { McLeodCottonEquipmentCode } from "./equipment.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
@@ -11,9 +11,11 @@ export function draftHoustonOrder(
   windows: readonly PickupWindow[],
   equipmentCode: McLeodCottonEquipmentCode,
 ) {
-  if (preview.customerId !== "BUNGOMNE" || preview.revenueCode !== "MAIN" ||
-      !["SUPPBAT1", "SUPPPAT1"].includes(preview.deliveryLocation) || windows.length !== preview.pickupStops.length)
-    throw new Error("Houston order draft requires the Houston Bunge profile.");
+  const destination = SCM_DELIVERY_LOCATIONS.find(location => location.code === preview.deliveryLocation);
+  if (preview.customerId !== "BUNGOMNE" || !destination ||
+      preview.revenueCode !== (destination.terminal === "dallas" ? "DAVIS" : "MAIN") ||
+      windows.length !== preview.pickupStops.length)
+    throw new Error("The order draft requires the matching Bunge terminal profile.");
 
   const pickups = preview.pickupStops.map((pickup, index) => {
     const { early, late } = windows[index];
@@ -42,7 +44,7 @@ export function draftHoustonOrder(
 
   const weight = order.pickups.every(line => line.weight != null)
     ? order.pickups.reduce((total, line) => total + Math.round(line.weight! * 10), 0) / 10 : null;
-  if (weight !== null && (!Number.isFinite(weight) || weight <= 0 || weight > 999999.9))
+  if (weight !== null && (order.pickups.some(line => !Number.isFinite(line.weight) || line.weight! <= 0) || !Number.isFinite(weight) || weight <= 0 || weight > 999999.9))
     throw Error("Order weight exceeds the McLeod weight field.");
   const deliveryDate = defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");

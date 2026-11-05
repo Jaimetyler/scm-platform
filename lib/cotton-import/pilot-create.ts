@@ -3,11 +3,11 @@ import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
-export function houstonPilotPayload(draft: Draft) {
+export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston") {
   const stops = draft.order.stops;
   if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight ||
-      stops.at(-1)?.location_id !== "SUPPBAT1" ||
-      stops.some(stop => stop.timezone !== "America/Chicago")) return null;
+      (region === "houston" && stops.at(-1)?.location_id !== "SUPPBAT1") ||
+      stops.some(stop => !stop.timezone)) return null;
   return {
     ...draft.order,
     collection_method: "T",

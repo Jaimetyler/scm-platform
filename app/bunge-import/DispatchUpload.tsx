@@ -14,7 +14,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [equipment, setEquipment] = useState<EquipmentOption>("auto");
-  const [destination, setDestination] = useState(() => terminalDeliveryCode(terminal, null));
+  const [destination, setDestination] = useState(() => terminal === "dallas" ? "" : terminalDeliveryCode(terminal, null));
   const [locations, setLocations] = useState<DeliveryLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -63,7 +63,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
         setDestination(event.target.value);
         onChange();
       }}>
-        {!selected && <option value={destination} disabled>{loading ? "Loading delivery locations…" : `${destination} unavailable — choose a location`}</option>}
+        {!selected && <option value={destination} disabled>{loading ? "Loading delivery locations…" : destination ? `${destination} unavailable — choose a location` : "Choose a Dallas delivery location"}</option>}
         {locations.map(location => <option key={location.code} value={location.code}>
           {SCM_DELIVERY_LOCATIONS.find(entry => entry.code === location.code)?.label ?? location.name} · {location.address}, {location.city} ({location.code})
         </option>)}

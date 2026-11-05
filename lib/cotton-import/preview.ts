@@ -11,14 +11,14 @@ export type CottonImportInput = {
   mark: string;
   baleCount: number;
   pickups: CottonPickup[];
-  deliveryLocation?: "SAVAGAG2" | "SUPPBAT1" | "SUPPPAT1";
+  deliveryLocation?: string;
 };
 export type CottonOrderPreview = {
   customerId: string;
   revenueCode: "MAIN" | "DAVIS";
   blnum: string;
   commodity: "COTTON";
-  deliveryLocation: "SAVAGAG2" | "SUPPBAT1" | "SUPPPAT1";
+  deliveryLocation: string;
   pickupStops: { locationId: string; locationCode: string; timezone: string; scheduledDate: string; scheduledTime: string | null }[];
   requiresScheduleReview: boolean;
 };

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
-import { terminalDeliveryCode } from "@/lib/bunge/destinations";
+import { inboundTerminal, terminalDeliveryCode } from "@/lib/bunge/destinations";
 import { staffActor, staffProfile, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { readDeliveryLocation } from "@/lib/bunge/delivery-server";
 import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
 import { vendor } from "@/lib/dray/server";
+import { parseDispatch } from "@/lib/bunge/preview";
+import { regionalOrder } from "@/lib/cotton-import/regional-dispatch";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
@@ -28,32 +30,52 @@ async function preflight(req: NextRequest) {
   const pilotEnabled = process.env.BUNGE_IMPORT_WRITES_ENABLED === "true" ||
     process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
   if ((create || reconcile) && !pilotEnabled) throw Error("The Houston pilot is disabled.");
-  const destination = terminalDeliveryCode("houston", form.get("destination"));
-  if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
+  const terminal = inboundTerminal(form.get("terminal") ?? "houston");
+  if (!terminal) throw Error("Unknown inbound location.");
+  const houston = terminal.id === "houston";
+  if (terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
+  const destination = terminalDeliveryCode(terminal.id, form.get("destination"));
   const file = form.get("file");
   const requested = requestedEquipment(form.get("equipment"));
   const salesOrder = String(form.get("salesOrder") ?? "").trim();
-  if (!(file instanceof File) || !/\.xlsx?$/i.test(file.name) || file.size === 0 ||
-      file.size > 2_000_000 || !/^\d{5,}$/.test(salesOrder))
-    throw new Error("Select one sales order and upload its original Excel dispatch (under 2 MB).");
-
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet) throw new Error("Workbook has no first worksheet.");
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
-  const dispatch = parseBungeDispatch(rows);
-  if (dispatch.destinationKind !== "HOUSTON") throw new Error("Upload a Houston Bunge dispatch.");
-  const matches = dispatch.orders.filter(order => order.salesOrder === salesOrder);
-  if (matches.length !== 1) throw new Error("Selected sales order must appear exactly once in the dispatch.");
-  const source = matches[0];
+  const format = houston ? /\.xlsx?$/i : /\.(xlsx|xls|csv)$/i;
+  if (!(file instanceof File) || !format.test(file.name) || file.size === 0 ||
+      file.size > (houston ? 2_000_000 : 3 * 1024 * 1024) || !/^\d{5,}$/.test(salesOrder))
+    throw new Error("Select one sales order and upload its original dispatch workbook.");
 
   const db = staffDatabase();
   const locations = await db.from("cotton_location_master")
     .select("id,mcleod_code,prev_code,name,timezone,active").limit(5000);
   if (locations.error || !locations.data) throw new Error("Location master unavailable.");
-  const review = previewBungeDispatchOrders(matches, dispatch.destinationKind, locations.data, destination)[0];
-  const proposal = review.preview;
-  if (!proposal) throw new Error("Selected order blocked: " + review.reason);
+  const bytes = await file.arrayBuffer();
+  let workbookDestination: { name: string; address: string[] } | undefined;
+  const { source, proposal } = (() => {
+    if (!houston) {
+      const parsed = parseDispatch(new Uint8Array(bytes));
+      const regionPattern = terminal.id === "savannah" ? /SAVANNAH|\(SAV\)/i : /DALLAS|DESOTO/i;
+      if (!parsed.destinations.length || parsed.destinations.some(value => !regionPattern.test(value)))
+        throw Error("The workbook destination does not match the selected inbound region.");
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+      if (parsed.lines.some(line => line.so === salesOrder && line.rtl && line.rtl < today))
+        throw Error("Historical pickup dates are for preview only.");
+      return regionalOrder(parsed.lines, salesOrder, destination, terminal.revenue, locations.data);
+    }
+    if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw Error("Choose a Houston delivery location.");
+    const workbook = XLSX.read(bytes, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!sheet) throw Error("Workbook has no first worksheet.");
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
+    const dispatch = parseBungeDispatch(rows);
+    if (dispatch.destinationKind !== "HOUSTON") throw Error("Upload a Houston Bunge dispatch.");
+    const matches = dispatch.orders.filter(order => order.salesOrder === salesOrder);
+    if (matches.length !== 1) throw Error("Selected sales order must appear exactly once in the dispatch.");
+    const review = previewBungeDispatchOrders(matches, dispatch.destinationKind, locations.data, destination)[0];
+    if (!review.preview) throw Error("Selected order blocked: " + review.reason);
+    workbookDestination = { name: dispatch.destination,
+      address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1, rows.length)
+        .slice(0, 2).map(row => String(row[1] ?? "")) };
+    return { source: matches[0], proposal: review.preview };
+  })();
 
   const pickupIds = proposal.pickupStops.map(stop => stop.locationId);
   const [schedules, equipmentRows] = await Promise.all([db.from("cotton_location_schedules")
@@ -84,6 +106,7 @@ async function preflight(req: NextRequest) {
   const originalPickups = source.pickups.map(line => ({
     row: line.row, mark: line.mark, salesOrder: line.salesOrder, bales: line.bales,
     warehouse: line.warehouse, usdaWarehouseCode: line.usdaWarehouseCode, originalRtl: line.rtl,
+    ...(!houston ? { weight: line.weight ?? null } : {}),
   }));
   const hashSource = (destinationCode: string, legacy = false) => createHash("sha256").update(JSON.stringify({
     salesOrder, blnum: proposal.blnum, destination: destinationCode,
@@ -163,7 +186,7 @@ async function preflight(req: NextRequest) {
 
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
-  let payload = houstonPilotPayload(draft);
+  let payload = houstonPilotPayload(draft, terminal.id);
   if (payload) {
     try {
       const example = await vendor(true).read("/orders/0829475");
@@ -174,7 +197,7 @@ async function preflight(req: NextRequest) {
     }
   }
   const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
-    : !payload ? "Live Houston creation requires a complete weight and verified pickup schedule for Baytown."
+    : !payload ? "Live creation requires complete weight and a verified pickup schedule. Houston creation requires Baytown."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;
   const canCreate = createBlock === null;
@@ -229,7 +252,7 @@ async function preflight(req: NextRequest) {
 
   return NextResponse.json({
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
-    dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
+    dispatchDestination: workbookDestination,
     draft, canCreate, reviewToken,
     reason: createBlock ?? (correctedRetry
       ? "The corrected one-order retry is ready. Its schedule matches McLeod order 0829475."

@@ -1,5 +1,6 @@
 "use client";
 import {useRef,useState} from "react";
+import BatchCreate from "./BatchCreate";
 import type {Proposal} from "@/lib/bunge/preview";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import { defaultDeliveryDate, type DeliveryLocation, type InboundTerminal } from "@/lib/bunge/destinations";
@@ -9,11 +10,12 @@ import {pickupMonthRanges} from "@/lib/bunge/duplicate-window";
 type Check={busy?:boolean;error?:string;matches?:{id:string;blnum:string;revenue:string;status?:string;statusLabel?:string;pickupDates?:string[]}[]};
 export default function PreviewClient({terminal}:{terminal:InboundTerminal}){
  const [result,setResult]=useState<Result|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(""),[query,setQuery]=useState(""),[selected,setSelected]=useState<Proposal|null>(null),[checks,setChecks]=useState<Record<string,Check>>({});
+ const [submission,setSubmission]=useState<DispatchInput|null>(null);
  const generation=useRef(0);
  const dialog=useRef<HTMLDialogElement>(null),opener=useRef<HTMLButtonElement|null>(null);
- function clear(){generation.current++;setError("");setResult(null);setChecks({});setQuery("");}
+ function clear(){generation.current++;setError("");setResult(null);setSubmission(null);setChecks({});setQuery("");}
  async function preview(input:DispatchInput){if(busy)return;clear();setBusy(true);try{
- const data=new FormData();data.set("file",input.file);data.set("terminal",terminal);data.set("destination",input.destination);data.set("equipment",input.equipment);const r=await fetch("/api/bunge-import",{method:"POST",body:data});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||"Preview failed");setResult(j);
+ const data=new FormData();data.set("file",input.file);data.set("terminal",terminal);data.set("destination",input.destination);data.set("equipment",input.equipment);const r=await fetch("/api/bunge-import",{method:"POST",body:data});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||"Preview failed");setResult(j);setSubmission(input);
  }catch(e){setError(e instanceof Error?e.message:"Preview failed")}finally{setBusy(false)}}
  async function duplicates(p:Proposal){const revision=generation.current;setChecks(v=>({...v,[p.key]:{busy:true}}));try{const r=await fetch("/api/bunge-import",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"duplicates",blnum:p.blnum,pickupDates:p.pickups.map(s=>s.rtl)})});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.error||"Lookup failed");if(revision===generation.current)setChecks(v=>({...v,[p.key]:{matches:j.matches}}))}catch(e){if(revision===generation.current)setChecks(v=>({...v,[p.key]:{error:e instanceof Error?e.message:"Lookup failed"}}))}}
  const issueCount=(p:Proposal)=>p.issues.length+p.pickups.reduce((n,s)=>n+s.issues.length,0);
@@ -24,7 +26,8 @@ export default function PreviewClient({terminal}:{terminal:InboundTerminal}){
  <DispatchUpload terminal={terminal} busy={busy} onPreview={preview} onChange={clear} />
  {error&&<p role="alert" className={styles.error}>{error}</p>}
  {result&&<><div className={styles.stats}><span><b>{result.sourceRows}</b> Pickup rows</span><span><b>{result.proposals.length}</b> Proposed orders</span><span><b>{result.proposals.filter(p=>p.pickups.length===2).length}</b> Two-pickup orders</span><span><b>{result.proposals.filter(p=>p.pickups.some(s=>!s.location)).length}</b> Need location mapping</span></div>
- <p>{result.filename} · Revenue: {result.revenue}</p>{!!result.excluded?.length&&<details className={styles.guide}><summary>{result.excluded.length} pickup row(s) excluded from other or unknown carrier sections</summary>{result.excluded.map((r,i)=><p key={i}>{r.sheet}:{r.row} · {r.reason}</p>)}</details>}<p>Report destination: {result.sourceDestinations.join("; ")||"Not found"}. Selected delivery: {result.delivery?.code||result.proposals[0]?.destination}; confirm any difference before a future import.</p>
+ <p>{result.filename} · Revenue: {result.revenue}</p>{!!result.excluded?.length&&<details className={styles.guide}><summary>{result.excluded.length} pickup row(s) excluded from other or unknown carrier sections</summary>{result.excluded.map((r,i)=><p key={i}>{r.sheet}:{r.row} · {r.reason}</p>)}</details>}<p>Report destination: {result.sourceDestinations.join("; ")||"Not found"}. Selected delivery: {result.delivery?.code||result.proposals[0]?.destination}; confirm any difference before creating orders.</p>
+ {submission&&<BatchCreate terminal={terminal} submission={submission} orders={result.proposals.map(proposal=>proposal.so)} onBusy={setBusy} />}
  <div className={styles.toolbar}><input aria-label="Search proposed orders" placeholder="Search SO, mark or warehouse" value={query} onChange={e=>setQuery(e.target.value)}/></div>
  <div className={styles.tableWrap}><table><thead><tr><th>SO / Mark</th><th>BLNUM</th><th>Bales</th><th>Pickups</th><th>Equipment</th><th>Review</th><th>Existing orders</th><th/></tr></thead><tbody>{filtered.map(p=><tr key={p.key}><td><strong>{p.so}</strong><small>{p.mark}</small></td><td>{p.blnum}</td><td>{p.bales}</td><td>{p.pickups.map((s,i)=><small key={i}>{s.location?.mcleod_code||s.warehouseCode||"Unmapped"} · {s.bales} bales · {s.rtl||"No RTL date"}</small>)}</td><td>{equipmentLabels[p.equipment as keyof typeof equipmentLabels] ?? "Needs review"}</td><td>{issueCount(p)?`${issueCount(p)} review note(s)`:"Review source details"}</td><td>{checkLabel(p)}</td><td><button onClick={e=>{opener.current=e.currentTarget;setSelected(p);dialog.current?.showModal()}}>View preview</button></td></tr>)}</tbody></table></div></>}
  <dialog className={styles.dialog} aria-labelledby="bunge-preview-title" ref={dialog} onCancel={e=>{e.preventDefault();close()}}>{selected&&<><header className={styles.dialogHeader}><div><small>SO {selected.so} · {selected.customerId} · {selected.revenue} · {equipmentLabels[selected.equipment as keyof typeof equipmentLabels] ?? "Equipment needs review"}</small><h2 id="bunge-preview-title">{selected.blnum}</h2></div><button aria-label="Close order preview" onClick={close}>×</button></header><div className={styles.body}>

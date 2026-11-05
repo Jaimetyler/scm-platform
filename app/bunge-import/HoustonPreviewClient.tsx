@@ -4,6 +4,7 @@ import { useState } from "react";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
 import type { reviewPickupEquipment } from "@/lib/cotton-import/equipment";
+import BatchCreate from "./BatchCreate";
 import DispatchUpload, { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
 type Window = {
@@ -22,28 +23,10 @@ type Result = {
   filename: string; destination: string; counts: { orders: number; pickupLines: number; blocked: number; sourceErrors: number };
   reviews: Review[]; sourceErrors: { row: number; reason: string }[];
 };
-type Preflight = {
-  canCreate?: boolean; reviewToken?: string; mcleodOrderId?: string | null;
-  ok?: boolean; reason?: string; error?: string; auditStatus?: string;
-};
 const feeUnits: Record<string, string> = {
   PER_BALE_ONE_TIME: "per bale, one time",
   PER_BALE_PER_DAY: "per bale per day",
 };
-
-async function requestPreflight(input: DispatchInput, salesOrder: string, reviewToken?: string): Promise<Preflight> {
-  const form = new FormData();
-  form.set("file", input.file);
-  form.set("equipment", input.equipment);
-  form.set("destination", input.destination);
-  form.set("salesOrder", salesOrder);
-  if (reviewToken) {
-    form.set("action", "create-pilot");
-    form.set("reviewToken", reviewToken);
-  }
-  const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
-  return response.json();
-}
 
 export default function HoustonPreviewClient() {
   const [submission, setSubmission] = useState<DispatchInput | null>(null);
@@ -51,12 +34,8 @@ export default function HoustonPreviewClient() {
   const [busy, setBusy] = useState<"preview" | "batch" | null>(null);
   const [error, setError] = useState("");
 
-  const [batchResults, setBatchResults] = useState<{ so: string; outcome: string }[]>([]);
-  const [batchCurrent, setBatchCurrent] = useState("");
 
   function clear() {
-    setBatchResults([]);
-    setBatchCurrent("");
     setResult(null);
     setError("");
     setSubmission(null);
@@ -83,37 +62,6 @@ export default function HoustonPreviewClient() {
     }
   }
 
-  async function createBatch() {
-    if (!submission || !result || busy) return;
-    if (!window.confirm("Create eligible orders from this workbook in live McLeod? Each order will be checked for duplicates first.")) return;
-    setBusy("batch");
-    setBatchResults([]);
-    const report = (so: string, outcome: string) => setBatchResults(rows => [...rows, { so, outcome }]);
-    const orders = [...new Set(result.reviews.map(row => row.salesOrder))];
-    try {
-      for (const so of orders) {
-        setBatchCurrent(so);
-        const review = await requestPreflight(submission, so);
-        if (!review.canCreate || !review.reviewToken) {
-          report(so, `Skipped · ${review.error || review.reason || "Preflight did not allow creation."}`);
-          continue;
-        }
-        const created = await requestPreflight(submission, so, review.reviewToken);
-        if (created.ok && created.auditStatus === "verified" && created.mcleodOrderId) {
-          report(so, `Created and verified · McLeod ${created.mcleodOrderId}`);
-          continue;
-        }
-        report(so, `Batch stopped · ${created.mcleodOrderId ? `McLeod ${created.mcleodOrderId} · ` : ""}${created.error || created.reason || "Create could not be verified."}`);
-        break;
-      }
-    } catch (cause) {
-      report("Batch", `Stopped · ${cause instanceof Error ? cause.message : "Request failed."} Check the audit before running again.`);
-    } finally {
-      setBatchCurrent("");
-      setBusy(null);
-    }
-  }
-
   return <section aria-label="Houston dispatch preview">
     <DispatchUpload terminal="houston" busy={!!busy} onPreview={preview} onChange={clear} />
     {error && <p role="alert" className={styles.error}>{error}</p>}
@@ -130,19 +78,8 @@ export default function HoustonPreviewClient() {
         <summary>Review source issues</summary>
         {result.sourceErrors.map(issue => <p key={issue.row}>Row {issue.row} · {issue.reason}</p>)}
       </details>}
-      <div className={layout.actions}>
-        <button type="button" disabled={!!busy || !submission} onClick={() => void createBatch()}>
-          Create all eligible orders
-        </button>
-        <span>Checks each order for duplicates before creating it.</span>
-      </div>
-      <div aria-live="polite">
-        {busy === "batch" && <p>Batch checking or creating SO {batchCurrent}…</p>}
-        {!!batchResults.length && <section className={styles.guide} aria-label="Batch results">
-          <h3>Batch results</h3>
-          <ul>{batchResults.map(row => <li key={row.so}><strong>{row.so}</strong> · {row.outcome}</li>)}</ul>
-        </section>}
-      </div>
+      {submission && <BatchCreate terminal="houston" submission={submission}
+        orders={result.reviews.map(row => row.salesOrder)} onBusy={value => setBusy(value ? "batch" : null)} />}
       <div className={styles.tableWrap}><table>
         <thead><tr><th scope="col">Order</th><th scope="col">Pickup and RTL</th>
           <th scope="col">Equipment</th><th scope="col">Late-fee policy</th><th scope="col">Review</th></tr></thead>
