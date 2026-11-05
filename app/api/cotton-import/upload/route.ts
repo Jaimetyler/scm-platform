@@ -6,6 +6,8 @@ import { staffDatabase } from "@/lib/auth/session";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { requestedEquipment, reviewPickupEquipment, type PickupEquipmentPolicy } from "@/lib/cotton-import/equipment";
+import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
+import { effectivePickupPolicies } from "@/lib/cotton-import/pickup-notes";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
 
 export const dynamic = "force-dynamic";
@@ -51,35 +53,14 @@ async function upload(req: NextRequest) {
     scheduleRows = response.data as CottonSchedule[];
     equipmentRows = equipmentResponse.data;
   }
-  const policyByLocation = new Map<string, {status:string; effective_from:string|null; effective_to:string|null; rules:unknown[]}[]>();
-  if (uniqueIds.length) {
-    const policies = await staffDatabase().from("cotton_location_policy_versions")
-      .select("id,location_id,status,effective_from,effective_to")
-      .in("location_id",uniqueIds).limit(5000);
-    if (policies.error || !policies.data)
-      return NextResponse.json({ok:false,error:"Location policies unavailable; preview blocked."},{status:503});
-    const versionIds = policies.data.map(p=>p.id);
-    const rules = versionIds.length
-      ? await staffDatabase().from("cotton_location_policy_rules")
-          .select("policy_version_id,rule_kind,fee_type,amount,grace_days,grace_unit,avoidable_fee,conditions,notes")
-          .in("policy_version_id",versionIds).limit(5000)
-      : {data:[],error:null};
-    if (rules.error || !rules.data)
-      return NextResponse.json({ok:false,error:"Location policy rules unavailable; preview blocked."},{status:503});
-    for (const p of policies.data) {
-      const list = policyByLocation.get(p.location_id) ?? [];
-      list.push({status:p.status,effective_from:p.effective_from,effective_to:p.effective_to,
-        rules:rules.data.filter(r=>r.policy_version_id===p.id)});
-      policyByLocation.set(p.location_id,list);
-    }
-  }
+  const policyByLocation = await readPickupPolicies(staffDatabase(), uniqueIds);
   const scheduledReviews = reviews.map(review => {
     if (!review.preview) return review;
     const windows = review.preview.pickupStops.map(stop => ({
       locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
       ...scheduleForPickup(scheduleRows, stop.locationId, stop.scheduledDate, stop.locationCode)
     }));
-    const pickupPolicies = review.preview.pickupStops.map(stop => ({locationCode:stop.locationCode, originalRtlDate:stop.scheduledDate, versions:(policyByLocation.get(stop.locationId) ?? []).filter(p => (!p.effective_from || p.effective_from <= stop.scheduledDate) && (!p.effective_to || p.effective_to >= stop.scheduledDate))}));
+    const pickupPolicies = review.preview.pickupStops.map(stop => ({locationCode:stop.locationCode, originalRtlDate:stop.scheduledDate, versions:effectivePickupPolicies(policyByLocation.get(stop.locationId) ?? [], stop.scheduledDate)}));
     return {...review, pickupWindows: windows, pickupPolicies,
       equipment: reviewPickupEquipment(review.preview.pickupStops, equipmentRows, equipment),
       reason: windows.some(w => w.status !== "ready")

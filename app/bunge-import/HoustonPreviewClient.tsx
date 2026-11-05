@@ -24,7 +24,10 @@ type Result = {
 };
 type Preflight = {
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
-  draft?: { pickupReferences: { stopSequence: number; locationCode: string; qualifier: string; referenceNumber: string }[] };
+  draft?: {
+    pickupReferences: { stopSequence: number; locationCode: string; qualifier: string; referenceNumber: string }[];
+    pickupNotes?: { stopSequence: number; locationCode: string; comment: string }[];
+  };
   duplicates?: { id: string; blnum: string }[];
   delivery?: { code: string; address: string; address2: string; city: string; state: string; zip: string };
   dispatchDestination?: { address: string[] };
@@ -132,6 +135,10 @@ export default function HoustonPreviewClient() {
             <ul>{checked.data.draft.pickupReferences.map(reference => <li key={reference.stopSequence}>
               Pickup {reference.stopSequence} · {reference.locationCode} · {reference.qualifier} · {reference.referenceNumber}
             </li>)}</ul>
+          </section>}
+          {!!checked.data.draft?.pickupNotes?.length && <section aria-label="Draft pickup policy notes">
+            <h4>Draft dispatch notes</h4>
+            {checked.data.draft.pickupNotes.map(note => <pre className={layout.response} key={note.stopSequence}>{note.comment}</pre>)}
           </section>}
           <details><summary>Show server response</summary><pre className={layout.response}>{JSON.stringify(checked.data, null, 2)}</pre></details>
         </section>}

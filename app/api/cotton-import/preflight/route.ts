@@ -9,6 +9,8 @@ import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
 import { vendor } from "@/lib/dray/server";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
+import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
+import { draftPickupNotes } from "@/lib/cotton-import/pickup-notes";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
@@ -86,9 +88,10 @@ async function preflight(req: NextRequest) {
   if (existing.data && !sameSource(existing.data))
     throw new Error("Existing audit record conflicts with this dispatch.");
 
-  const [duplicates, delivery] = await Promise.all([
+  const [duplicates, delivery, policies] = await Promise.all([
     nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate)),
     readDeliveryLocation(proposal.deliveryLocation),
+    readPickupPolicies(db, pickupIds),
   ]);
   if (duplicates.length)
     return NextResponse.json({ ...response, delivery, duplicates, reason: "Existing McLeod order found. Creation is blocked." });
@@ -112,7 +115,8 @@ async function preflight(req: NextRequest) {
   return NextResponse.json({
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
-    draft: draftHoustonOrder(source, proposal, windows, equipment.code),
+    draft: { ...draftHoustonOrder(source, proposal, windows, equipment.code),
+      pickupNotes: draftPickupNotes(proposal.pickupStops, policies) },
     reason: saved.data.destination_code === proposal.deliveryLocation
       ? "Audit record verified and no matching BLNUM found. Confirm the delivery address, McLeod create fields and read-back before the pilot."
       : `No matching BLNUM found. The existing audit record uses ${saved.data.destination_code}. The new delivery selection is shown in the draft and needs audit reconciliation before the pilot.`,
