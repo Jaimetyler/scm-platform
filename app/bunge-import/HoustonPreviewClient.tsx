@@ -3,6 +3,9 @@
 import { useState, type FormEvent } from "react";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
+import { requestedEquipment, type EquipmentOption, type reviewPickupEquipment } from "@/lib/cotton-import/equipment";
+
+const equipmentLabels = { auto: "Use pickup location rules", van: "Van", flatbed: "Flatbed", VT: "VT — van or flatbed" };
 
 type Window = {
   locationCode: string; originalRtlDate: string; early: string | null;
@@ -10,6 +13,7 @@ type Window = {
 };
 type Review = {
   salesOrder: string; status: string; reason: string; pickupWindows?: Window[];
+  equipment?: ReturnType<typeof reviewPickupEquipment>;
   pickupPolicies?: { locationCode: string; versions: {
     status: string; rules: { rule_kind: string; fee_type: string; amount: number; grace_days: number }[];
   }[] }[];
@@ -31,6 +35,7 @@ const feeUnits: Record<string, string> = {
 };
 
 export default function HoustonPreviewClient() {
+  const [equipment, setEquipment] = useState<EquipmentOption>("auto");
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState<"preview" | "preflight" | null>(null);
@@ -49,6 +54,7 @@ export default function HoustonPreviewClient() {
     try {
       const form = new FormData();
       form.set("file", file);
+      form.set("equipment", equipment);
       const response = await fetch("/api/cotton-import/upload", { method: "POST", body: form });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "Preview failed.");
@@ -67,6 +73,7 @@ export default function HoustonPreviewClient() {
     try {
       const form = new FormData();
       form.set("file", file);
+      form.set("equipment", equipment);
       form.set("salesOrder", selected);
       const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
       setChecked({ salesOrder: selected, data: await response.json() });
@@ -89,6 +96,15 @@ export default function HoustonPreviewClient() {
           setChecked(null);
           setError("");
         }} />
+        <label>Pickup equipment <select value={equipment} disabled={!!busy} onChange={event => {
+          setEquipment(requestedEquipment(event.target.value));
+          setResult(null);
+          setSelected("");
+          setChecked(null);
+          setError("");
+        }}>
+          {Object.entries(equipmentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select></label>
         <button type="submit" disabled={!file || !!busy}>{busy === "preview" ? "Building preview…" : "Preview dispatch"}</button>
       </div>
     </form>
@@ -132,19 +148,24 @@ export default function HoustonPreviewClient() {
       </div>
       <div className={styles.tableWrap}><table>
         <thead><tr><th scope="col">Select</th><th scope="col">Order</th><th scope="col">Pickup and RTL</th>
-          <th scope="col">Late-fee policy</th><th scope="col">Review</th></tr></thead>
+          <th scope="col">Equipment</th><th scope="col">Late-fee policy</th><th scope="col">Review</th></tr></thead>
         <tbody>{result.reviews.map((review, index) => {
           const blocked = review.status === "blocked";
-          const ready = !!review.pickupWindows?.length && review.pickupWindows.every(window => window.status === "ready");
+          const ready = !review.equipment?.reason && !!review.pickupWindows?.length && review.pickupWindows.every(window => window.status === "ready");
           return <tr key={`${review.salesOrder}-${index}`} className={selected === review.salesOrder ? layout.selected : undefined}>
             <td><input type="radio" name="houston-order" aria-label={`Select SO ${review.salesOrder}`}
-              disabled={!!busy || blocked} checked={selected === review.salesOrder}
+              disabled={!!busy || blocked || !!review.equipment?.reason} checked={selected === review.salesOrder}
               onChange={() => { setSelected(review.salesOrder); setChecked(null); }} /></td>
             <td><strong>{review.salesOrder}</strong><small>{review.preview?.blnum ?? "—"}</small></td>
             <td>{review.pickupWindows?.map((window, stop) => <div className={layout.stop} key={stop}>
               <strong>{window.locationCode}</strong> · {window.originalRtlDate}
               <small>{window.early ?? "?"}–{window.late ?? "?"}{window.status !== "ready" && ` · ${window.reason}`}</small>
             </div>) || "—"}</td>
+            <td>{review.equipment?.choice && <strong>{equipmentLabels[review.equipment.choice]}</strong>}
+              {review.equipment?.stops.map((stop, index) => <small key={index}>
+                {stop.locationCode} · {stop.accepted === "van_only" ? "Van only" : stop.accepted === "van_and_flatbed" ? "Van or flatbed" : "Unknown"}
+              </small>)}
+            </td>
             <td>{review.pickupPolicies?.map((policy, stop) => {
               const rules = policy.versions.flatMap(version => version.rules
                 .filter(rule => rule.rule_kind === "late_pickup").map(rule => ({ ...rule, status: version.status })));
@@ -155,7 +176,7 @@ export default function HoustonPreviewClient() {
               </div>;
             }) || "—"}</td>
             <td><span className={ready ? layout.ready : layout.review}>{blocked ? "Blocked" : ready ? "Hours ready" : "Needs review"}</span>
-              {!ready && <small>{review.reason}</small>}</td>
+              {!ready && <small>{review.equipment?.reason || review.reason}</small>}</td>
           </tr>;
         })}</tbody>
       </table></div>

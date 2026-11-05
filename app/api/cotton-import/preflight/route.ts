@@ -9,6 +9,7 @@ import { vendor } from "@/lib/dray/server";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
+import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export const maxDuration = 120;
 async function preflight(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file");
+  const requested = requestedEquipment(form.get("equipment"));
   const salesOrder = String(form.get("salesOrder") ?? "").trim();
   if (!(file instanceof File) || !/\.xlsx?$/i.test(file.name) || file.size === 0 ||
       file.size > 2_000_000 || !/^\d{5,}$/.test(salesOrder))
@@ -40,15 +42,22 @@ async function preflight(req: NextRequest) {
   const proposal = review.preview;
   if (!proposal) throw new Error("Selected order blocked: " + review.reason);
 
-  const schedules = await db.from("cotton_location_schedules")
+  const pickupIds = proposal.pickupStops.map(stop => stop.locationId);
+  const [schedules, equipmentRows] = await Promise.all([db.from("cotton_location_schedules")
     .select("location_id,weekday,open_time,close_time,checkin_cutoff,appointment_required,verified,effective_from,effective_to")
-    .in("location_id", proposal.pickupStops.map(stop => stop.locationId)).limit(5000);
+    .in("location_id", pickupIds).limit(5000),
+    db.from("cotton_location_equipment").select("location_id,accepted_equipment,effective_date,verified")
+      .in("location_id", pickupIds).limit(5000),
+  ]);
+  if (equipmentRows.error || !equipmentRows.data) throw new Error("Location equipment rules unavailable.");
+  const equipment = reviewPickupEquipment(proposal.pickupStops, equipmentRows.data, requested);
   if (schedules.error || !schedules.data) throw new Error("Pickup schedule unavailable.");
   const windows = proposal.pickupStops.map(stop => ({
     locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
     ...scheduleForPickup(schedules.data as CottonSchedule[], stop.locationId, stop.scheduledDate, stop.locationCode),
   }));
-  const response = { ok: true, canCreate: false, salesOrder, blnum: proposal.blnum, windows };
+  const response = { ok: true, canCreate: false, salesOrder, blnum: proposal.blnum, windows, equipment };
+  if (equipment.reason) return NextResponse.json({ ...response, reason: equipment.reason });
   if (windows.some(window => window.status !== "ready"))
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
 
@@ -101,7 +110,7 @@ async function preflight(req: NextRequest) {
   return NextResponse.json({
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
-    draft: draftHoustonOrder(source, proposal, windows),
+    draft: draftHoustonOrder(source, proposal, windows, equipment.code),
     reason: "Audit record verified and no matching BLNUM found. Confirm the delivery address, McLeod create fields and read-back before the pilot.",
   });
 }
