@@ -14,6 +14,7 @@ export function houstonPilotPayload(draft: Draft) {
     return null;
   return {
     ...draft.order,
+    collection_method: "T",
     rate_type: "F",
     stops: draft.order.stops.map(({ timezone, ...stop }) => {
       if (timezone !== "America/Chicago") throw Error("Pilot stop timezone changed.");
@@ -33,7 +34,7 @@ function instant(value: unknown) {
 export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, expected: Payload) {
   const fields = ["company_id", "status", "customer_id", "revenue_code_id", "commodity_id",
     "order_type_id", "order_mode", "ordered_by", "equipment_type_id", "blnum", "consignee_refno",
-    "rate_type"] as const;
+    "collection_method", "rate_type"] as const;
   const mismatches: string[] = fields.filter(field => String(actual[field] ?? "").trim() !== expected[field]);
   if (String(actual.id ?? "").trim() !== id) mismatches.push("id");
   const stops = Array.isArray(actual.stops) ? actual.stops : [];
@@ -47,4 +48,14 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
       mismatches.push(`stop ${stop.order_sequence}`);
   }
   return mismatches;
+}
+
+export function isMissingCollectionMethodRejection(salesOrder: string, audit: {
+  status: string; mcleod_order_id: string | null; error_message: string | null;
+  reviewed_payload: { payload?: { collection_method?: unknown }; previousAttempt?: unknown } | null;
+}) {
+  return salesOrder === "2601780" && audit.status === "creation_uncertain" && audit.mcleod_order_id === null &&
+    audit.error_message === "McLeod create returned HTTP 406. The field [collection_method] in table [orders] must be entered to post this record." &&
+    Boolean(audit.reviewed_payload?.payload && audit.reviewed_payload.payload.collection_method === undefined &&
+      !audit.reviewed_payload.previousAttempt);
 }

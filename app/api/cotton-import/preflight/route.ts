@@ -11,7 +11,7 @@ import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
 import { draftPickupNotes } from "@/lib/cotton-import/pickup-notes";
-import { houstonPilotPayload, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
+import { houstonPilotPayload, isMissingCollectionMethodRejection, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
@@ -71,7 +71,7 @@ async function preflight(req: NextRequest) {
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
 
   const ledger = db.from("cotton_bunge_import_orders");
-  const auditFields = "id,source_hash,status,mcleod_order_id,destination_code";
+  const auditFields = "id,source_hash,status,mcleod_order_id,destination_code,error_message,reviewed_payload,updated_at";
   const findAudit = () => ledger.select(auditFields).eq("customer_id", proposal.customerId)
     .eq("revenue_code", proposal.revenueCode).eq("blnum", proposal.blnum).maybeSingle();
   const existing = await findAudit();
@@ -112,7 +112,8 @@ async function preflight(req: NextRequest) {
   const saved = await findAudit();
   if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
-  if (saved.data.status !== "previewed" || saved.data.mcleod_order_id) {
+  const correctedRetry = isMissingCollectionMethodRejection(salesOrder, saved.data);
+  if (!correctedRetry && (saved.data.status !== "previewed" || saved.data.mcleod_order_id)) {
     let comparison: Record<string, unknown> | undefined;
     if (salesOrder === "2601730" && saved.data.status === "creation_uncertain") {
       // Read the order from Jaime's example to compare only the relevant defaults.
@@ -141,15 +142,17 @@ async function preflight(req: NextRequest) {
   const payload = houstonPilotPayload(draft);
   const canCreate = Boolean(pilotEnabled && payload && existing.data &&
     saved.data.destination_code === proposal.deliveryLocation);
-  const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id })).digest("hex") : null;
+  const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id, auditVersion: saved.data.updated_at })).digest("hex") : null;
   if (create) {
     if (!canCreate || !payload || form.get("reviewToken") !== reviewToken)
       throw Error("Run a fresh preflight for the approved Houston pilot order and review the draft before creating.");
     const base = process.env.MCLEOD_BASE_URL;
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw Error("McLeod create connection is unavailable.");
-    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req) },
-      updated_at: new Date().toISOString() }).eq("id", saved.data.id).eq("status", "previewed")
+    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req), ...(correctedRetry ? {
+      previousAttempt: { request: saved.data.reviewed_payload, error: saved.data.error_message, at: saved.data.updated_at },
+    } : {}) },
+      updated_at: new Date().toISOString() }).eq("id", saved.data.id).eq("status", saved.data.status).eq("updated_at", saved.data.updated_at)
       .eq("source_hash", saved.data.source_hash).is("mcleod_order_id", null).select("id").maybeSingle();
     if (claim.error || !claim.data) throw Error("Pilot claim failed. Check the audit record before retrying.");
 
@@ -194,7 +197,7 @@ async function preflight(req: NextRequest) {
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
     draft, canCreate, reviewToken,
     reason: saved.data.destination_code === proposal.deliveryLocation
-      ? canCreate ? "Ready for the one-order McLeod pilot." : "Audit record verified and no matching BLNUM found. Creation is disabled for this order."
+      ? canCreate ? (correctedRetry ? "McLeod rejected the previous request for a missing billing method. The corrected one-order retry is ready." : "Ready for the one-order McLeod pilot.") : "Audit record verified and no matching BLNUM found. Creation is disabled for this order."
       : `No matching BLNUM found. The existing audit record uses ${saved.data.destination_code}. The new delivery selection is shown in the draft and needs audit reconciliation before the pilot.`,
   });
 }

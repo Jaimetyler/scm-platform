@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
-import { houstonPilotPayload, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
+import { houstonPilotPayload, isMissingCollectionMethodRejection, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
 
 test("Houston pilot is scoped to the reviewed order and verifies the saved McLeod stops", () => {
   const source = { salesOrder: "2601780", mark: "NM293", bales: 90, pickups: [{ bales: 90 }] };
@@ -14,7 +14,7 @@ test("Houston pilot is scoped to the reviewed order and verifies the saved McLeo
   const payload = houstonPilotPayload(draft);
   assert.equal(payload.stops[0].sched_arrive_early, "20261112080000-0600");
   assert.equal(payload.stops[1].sched_arrive_late, "20261113200000-0600");
-  assert.equal(payload.collection_method, undefined);
+  assert.equal(payload.collection_method, "T");
   assert.equal(payload.rate_type, "F");
   assert.equal(payload.rate_units, undefined);
   assert.equal(payload.rate, undefined);
@@ -22,4 +22,18 @@ test("Houston pilot is scoped to the reviewed order and verifies the saved McLeo
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
   actual.stops[1].sched_arrive_late = "20261113150000-0600";
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), ["stop 2"]);
+});
+
+test("only the recorded missing-field rejection can be corrected once", () => {
+  const rejected = {
+    status: "creation_uncertain", mcleod_order_id: null,
+    error_message: "McLeod create returned HTTP 406. The field [collection_method] in table [orders] must be entered to post this record.",
+    reviewed_payload: { payload: {} },
+  };
+  assert.equal(isMissingCollectionMethodRejection("2601780", rejected), true);
+  assert.equal(isMissingCollectionMethodRejection("2601730", rejected), false);
+  assert.equal(isMissingCollectionMethodRejection("2601780", { ...rejected, error_message: "timeout" }), false);
+  assert.equal(isMissingCollectionMethodRejection("2601780", {
+    ...rejected, reviewed_payload: { payload: { collection_method: "T" }, previousAttempt: rejected },
+  }), false);
 });
