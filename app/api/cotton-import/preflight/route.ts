@@ -112,9 +112,29 @@ async function preflight(req: NextRequest) {
   const saved = await findAudit();
   if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
-  if (saved.data.status !== "previewed" || saved.data.mcleod_order_id)
-    return NextResponse.json({ ...response, delivery, auditId: saved.data.id, auditStatus: saved.data.status,
-      reason: "This order already has a pilot audit state. Review the existing record before proceeding." });
+  if (saved.data.status !== "previewed" || saved.data.mcleod_order_id) {
+    let comparison: Record<string, unknown> | undefined;
+    if (salesOrder === "2601730" && saved.data.status === "creation_uncertain") {
+      // Read the order from Jaime's example to compare only the relevant defaults.
+      try {
+        const example = await vendor(true).read("/orders/0828093");
+        if (example?.id !== "0828093" || example.customer_id !== "BUNGOMNE" ||
+            example.revenue_code_id !== "MAIN" || example.commodity_id !== "COTTON")
+          throw Error("Reference order identity could not be verified.");
+        comparison = Object.fromEntries([
+          "id", "order_type_id", "order_mode", "equipment_type_id", "collection_method", "rate_type", "rate_units",
+        ].map(field => [field, example[field] ?? null]));
+        comparison.movementCount = Array.isArray(example.movements) ? example.movements.length : null;
+      } catch {
+        comparison = { error: "The historical Baytown example could not be read or verified." };
+      }
+    }
+    return NextResponse.json({ ...response, delivery, duplicates, comparison,
+      auditId: saved.data.id, auditStatus: saved.data.status,
+      reason: saved.data.status === "creation_uncertain"
+        ? "No matching BLNUM found in the configured pickup-date range. The earlier create attempt is still locked; review the audit and McLeod before any retry."
+        : "This order already has a pilot audit state. Review the existing record before proceeding." });
+  }
 
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
@@ -142,7 +162,11 @@ async function preflight(req: NextRequest) {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!result.ok) throw Error(`McLeod create returned HTTP ${result.status}.`);
+      if (!result.ok) {
+        const body = await result.text();
+        const detail = body.trim().replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 300);
+        throw Error(`McLeod create returned HTTP ${result.status}.${detail ? " " + detail : ""}`);
+      }
       const created = await result.json();
       const id = String(created?.id ?? "").trim();
       if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) throw Error("McLeod returned no valid order ID.");
