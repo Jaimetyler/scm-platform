@@ -1,4 +1,5 @@
 import {NextRequest,NextResponse} from "next/server";
+import {createHash} from "node:crypto";
 import * as XLSX from "xlsx";
 import {withStaffAccess} from "@/lib/auth/guard";
 import {staffDatabase} from "@/lib/auth/session";
@@ -43,7 +44,31 @@ async function handler(req:NextRequest) {
   return response.json();
  };
  const duplicates=await checkCottonDuplicates(read,{customerId:review.preview.customerId,revenueCode:review.preview.revenueCode,blnum:review.preview.blnum,salesOrder});
+ const originalPickups=matches[0].pickups.map(line=>({
+  row:line.row,mark:line.mark,salesOrder:line.salesOrder,bales:line.bales,
+  warehouse:line.warehouse,usdaWarehouseCode:line.usdaWarehouseCode,originalRtl:line.rtl
+ }));
+ const sourceHash=createHash("sha256").update(JSON.stringify({
+  salesOrder,blnum:review.preview.blnum,destination:review.preview.deliveryLocation,originalPickups
+ })).digest("hex");
+ const {data:existing,error:existingError}=await db.from("cotton_bunge_import_orders")
+  .select("id,source_hash,status,mcleod_order_id").eq("customer_id","BUNGOMNE")
+  .eq("revenue_code","MAIN").eq("blnum",review.preview.blnum).maybeSingle();
+ if(existingError)throw new Error("Import audit ledger is unavailable.");
+ if(existing && existing.source_hash!==sourceHash)
+  throw new Error("Existing audit record conflicts with this dispatch. Creation blocked.");
+ if(!existing && duplicates.length===0) {
+  const inserted=await db.from("cotton_bunge_import_orders").insert({
+   source_hash:sourceHash,sales_order:salesOrder,blnum:review.preview.blnum,
+   customer_id:review.preview.customerId,revenue_code:review.preview.revenueCode,
+   destination_code:review.preview.deliveryLocation,source_filename:file.name,
+   original_pickups:originalPickups,status:"previewed"
+  });
+  if(inserted.error)throw new Error("Could not save original RTL audit record. Creation blocked.");
+ }
  return NextResponse.json({ok:true,canCreate:false,salesOrder,blnum:review.preview.blnum,
+  auditStatus:existing?.status??(duplicates.length?"duplicate_not_saved":"previewed"),
+  auditId:existing?.id??null,
   deliveryLocation:review.preview.deliveryLocation,windows,duplicates:duplicates.map((o:any)=>({id:o.id,blnum:o.blnum})),
   reason:duplicates.length?"Existing McLeod order found; creation blocked.":"No duplicate found. Creation remains disabled until durable audit and write verification are implemented."});
 }
