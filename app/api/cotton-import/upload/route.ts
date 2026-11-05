@@ -22,7 +22,7 @@ async function upload(req: NextRequest) {
     .select("id,mcleod_code,prev_code,name,timezone,active").limit(5000);
   if (error || !locations) return NextResponse.json({ok:false,error:"Cotton location master unavailable."},{status:503});
   const reviews = previewBungeDispatchOrders(dispatch.orders,
-    dispatch.destinationKind as "SAVANNAH"|"DALLAS_2",locations);
+    dispatch.destinationKind as "SAVANNAH"|"DALLAS_2"|"HOUSTON",locations);
   return NextResponse.json({ok:true,previewOnly:true,writesEnabled:false,
     filename:file.name,destination:dispatch.destination,destinationKind:dispatch.destinationKind,
     counts:{orders:dispatch.orders.length,pickupLines:dispatch.orders.reduce((n,o)=>n+o.pickups.length,0),
