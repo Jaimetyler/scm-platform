@@ -93,3 +93,14 @@ test('Savannah and Dallas previews apply location equipment defaults and compati
   assert.match(blocked.issues.join(),/Van only/);
  }
 });
+
+test('SCM delivery locations default to local FCFS hours with Baytown extended receiving', () => {
+ const {SCM_DELIVERY_LOCATIONS,scmReceivingHours}=load('lib/bunge/destinations.ts');
+ for(const location of SCM_DELIVERY_LOCATIONS){
+  assert.deepEqual(scmReceivingHours(location.code), {
+   open:'07:00',close:location.code==='SUPPBAT1'?'20:00':'15:00',method:'FCFS',
+   timezone:location.terminal==='savannah'?'America/New_York':'America/Chicago',
+  });
+ }
+ assert.throws(()=>scmReceivingHours('UNKNOWN'),/SCM delivery/);
+});

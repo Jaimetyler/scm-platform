@@ -3,6 +3,7 @@
 import { useState } from "react";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
+import type { DeliveryLocation } from "@/lib/bunge/destinations";
 import type { reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import DispatchUpload, { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
@@ -29,7 +30,7 @@ type Preflight = {
     pickupNotes?: { stopSequence: number; locationCode: string; comment: string }[];
   };
   duplicates?: { id: string; blnum: string }[];
-  delivery?: { code: string; address: string; address2: string; city: string; state: string; zip: string };
+  delivery?: DeliveryLocation;
   dispatchDestination?: { address: string[] };
 };
 const feeUnits: Record<string, string> = {
@@ -126,7 +127,7 @@ export default function HoustonPreviewClient() {
             <div><dt>Proposed McLeod delivery · {checked.data.delivery.code}</dt><dd>{[
               checked.data.delivery.address, checked.data.delivery.address2, checked.data.delivery.city,
               checked.data.delivery.state, checked.data.delivery.zip,
-            ].filter(Boolean).join(", ")}</dd></div>
+            ].filter(Boolean).join(", ")}</dd><dd>{checked.data.delivery.receivingHours.open}–{checked.data.delivery.receivingHours.close} local · {checked.data.delivery.receivingHours.method}</dd></div>
             {checked.data.dispatchDestination && <div><dt>Workbook delivery address</dt>
               <dd>{checked.data.dispatchDestination.address.join(", ")}</dd></div>}
           </dl>}

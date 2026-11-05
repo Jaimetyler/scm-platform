@@ -18,7 +18,15 @@ export function deliveryCode(value:unknown):string{
  const code=value==null||value===""?DEFAULT_BUNGE_DELIVERY:String(value);
  if(!SCM_DELIVERY_LOCATIONS.some(l=>l.code===code))throw Error("Choose an SCM delivery location.");return code;
 }
-export type DeliveryLocation={code:string;name:string;address:string;address2:string;city:string;state:string;zip:string};
+export function scmReceivingHours(code: string) {
+ const location = SCM_DELIVERY_LOCATIONS.find(entry => entry.code === code);
+ if (!location) throw Error("Choose an SCM delivery location.");
+ return { open: "07:00", close: code === "SUPPBAT1" ? "20:00" : "15:00",
+  method: "FCFS" as const, timezone: location.terminal === "savannah" ? "America/New_York" : "America/Chicago" };
+}
+
+export type DeliveryLocation={code:string;name:string;address:string;address2:string;city:string;state:string;zip:string;
+ receivingHours: ReturnType<typeof scmReceivingHours>};
 
 export const inboundTerminals = [
  { id: "savannah", label: "Savannah", revenue: "MAIN" },

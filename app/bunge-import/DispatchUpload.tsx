@@ -20,7 +20,8 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const houston = terminal === "houston";
-  const selected = locations.some(location => location.code === destination);
+  const selectedLocation = locations.find(location => location.code === destination);
+  const selected = !!selectedLocation;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,6 +70,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
       </select></label>
       <button type="submit" disabled={busy || loading || !selected || !file}>{busy ? "Working…" : "Preview dispatch"}</button>
     </div>
+    {selectedLocation && <p>Receiving hours · {selectedLocation.receivingHours.open}–{selectedLocation.receivingHours.close} local · {selectedLocation.receivingHours.method}</p>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {error && <button type="button" disabled={loading || busy} onClick={() => setReload(value => value + 1)}>Retry delivery lookup</button>}
     <details className={layout.equipmentOverride}>
