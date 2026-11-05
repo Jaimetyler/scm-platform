@@ -1,4 +1,3 @@
-import { warehouseWallTime } from "../inbound/checkin/mcleod-time.ts";
 import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
@@ -16,19 +15,17 @@ export function houstonPilotPayload(draft: Draft) {
     ...draft.order,
     collection_method: "T",
     rate_type: "F",
-    stops: draft.order.stops.map(({ timezone, ...stop }) => {
-      if (timezone !== "America/Chicago") throw Error("Pilot stop timezone changed.");
-      const stamp = (value: string) => warehouseWallTime(value.slice(0, 10), Number(value.slice(11, 13)), Number(value.slice(14, 16)), "HOU");
-      return { ...stop, sched_arrive_early: stamp(stop.sched_arrive_early), sched_arrive_late: stamp(stop.sched_arrive_late) };
-    }),
+    stops: draft.order.stops.map(({ timezone: _timezone, ...stop }) => stop),
   };
 }
 
 type Payload = NonNullable<ReturnType<typeof houstonPilotPayload>>;
-function instant(value: unknown) {
-  const raw = String(value ?? "");
-  const iso = raw.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})$/, "$1-$2-$3T$4:$5:$6$7");
-  return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? Date.parse(iso) : NaN;
+function localClock(value: unknown) {
+  const raw = String(value ?? "").trim();
+  const compact = raw.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:Z|[+-]\d{4})?$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}`;
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/);
+  return iso ? `${iso[1]}T${iso[2]}` : null;
 }
 
 export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, expected: Payload) {
@@ -43,8 +40,8 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
     const matches = stops.filter(row => Number(row?.order_sequence) === stop.order_sequence);
     const [saved] = matches;
     if (matches.length !== 1 || !saved?.id || saved.stop_type !== stop.stop_type || saved.location_id !== stop.location_id ||
-        instant(saved.sched_arrive_early) !== instant(stop.sched_arrive_early) ||
-        instant(saved.sched_arrive_late) !== instant(stop.sched_arrive_late))
+        localClock(saved.sched_arrive_early) !== stop.sched_arrive_early ||
+        localClock(saved.sched_arrive_late) !== stop.sched_arrive_late)
       mismatches.push(`stop ${stop.order_sequence}`);
   }
   return mismatches;

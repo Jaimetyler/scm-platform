@@ -12,16 +12,18 @@ test("Houston pilot is scoped to the reviewed order and verifies the saved McLeo
   const draft = draftHoustonOrder(source, preview, [{ early: "08:00", late: "15:00" }], "V");
   assert.equal(houstonPilotPayload({ ...draft, salesOrder: "2601968" }), null);
   const payload = houstonPilotPayload(draft);
-  assert.equal(payload.stops[0].sched_arrive_early, "20261112080000-0600");
-  assert.equal(payload.stops[1].sched_arrive_late, "20261113200000-0600");
+  assert.equal(payload.stops[0].sched_arrive_early, "2026-11-12T08:00:00");
+  assert.equal(payload.stops[1].sched_arrive_late, "2026-11-13T20:00:00");
   assert.equal(payload.collection_method, "T");
   assert.equal(payload.rate_type, "F");
   assert.equal(payload.rate_units, undefined);
   assert.equal(payload.rate, undefined);
   const actual = { ...payload, id: "1234567", stops: payload.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
-  actual.stops[1].sched_arrive_late = "20261113150000-0600";
-  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), ["stop 2"]);
+  actual.stops[0].sched_arrive_early = "20261112080000-0500";
+  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
+  actual.stops[0].sched_arrive_early = "20261112090000-0500";
+  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), ["stop 1"]);
 });
 
 test("only the recorded missing-field rejection can be corrected once", () => {
