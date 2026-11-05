@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 
-type Review = { salesOrder:string;status:string;reason:string;preview?:{blnum:string;pickupStops:{locationCode:string;scheduledDate:string}[]} };
+type Review = { salesOrder:string;status:string;reason:string;pickupWindows?:{locationCode:string;originalRtlDate:string;early:string|null;late:string|null;status:string;reason:string}[];preview?:{blnum:string;pickupStops:{locationCode:string;scheduledDate:string}[]} };
 type Result = { ok:boolean;error?:string;filename?:string;destination?:string;counts?:{orders:number;pickupLines:number;blocked:number;sourceErrors:number};reviews?:Review[];sourceErrors?:{row:number;reason:string}[] };
 export default function CottonImportPage() {
  const [file,setFile]=useState<File|null>(null),[result,setResult]=useState<Result|null>(null),[busy,setBusy]=useState(false);
@@ -35,8 +35,8 @@ export default function CottonImportPage() {
    </div>
 
    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-    <thead><tr>{["Select","Sales order","BLNUM","Pickup locations","Status","Reason"].map(h=><th key={h} style={{padding:8,textAlign:"left",borderBottom:"1px solid gray"}}>{h}</th>)}</tr></thead>
-    <tbody>{result.reviews?.map((r,i)=><tr key={i}><td><input type="checkbox" aria-label={`Select SO ${r.salesOrder}`} disabled={r.status==="blocked"} checked={selected.includes(r.salesOrder)} onChange={e=>setSelected(current=>e.target.checked?[...current,r.salesOrder]:current.filter(x=>x!==r.salesOrder))}/></td><td>{r.salesOrder}</td><td>{r.preview?.blnum||"—"}</td><td>{r.preview?.pickupStops.map(s=>s.locationCode).join(", ")||"—"}</td><td>{r.status}</td><td>{r.reason}</td></tr>)}</tbody>
+    <thead><tr>{["Select","Sales order","BLNUM","Pickup locations","RTL / scheduled window","Status","Reason"].map(h=><th key={h} style={{padding:8,textAlign:"left",borderBottom:"1px solid gray"}}>{h}</th>)}</tr></thead>
+    <tbody>{result.reviews?.map((r,i)=><tr key={i}><td><input type="checkbox" aria-label={`Select SO ${r.salesOrder}`} disabled={r.status==="blocked"} checked={selected.includes(r.salesOrder)} onChange={e=>setSelected(current=>e.target.checked?[...current,r.salesOrder]:current.filter(x=>x!==r.salesOrder))}/></td><td>{r.salesOrder}</td><td>{r.preview?.blnum||"—"}</td><td>{r.preview?.pickupStops.map(s=>s.locationCode).join(", ")||"—"}</td><td>{r.pickupWindows?.map((w,j)=><div key={j}>{w.locationCode}: {w.originalRtlDate} · {w.early||"?"}–{w.late||"?"} ({w.status})</div>)||"—"}</td><td>{r.status}</td><td>{r.reason}</td></tr>)}</tbody>
    </table></div>
   </section>}
  </main>;
