@@ -1,4 +1,4 @@
-import { resolveCottonWarehouseName, type CottonLocation } from "./location-resolution.ts";
+import { resolveCottonWarehouseName, resolveCottonLocation, type CottonLocation } from "./location-resolution.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
 import { buildCottonOrderPreview, type CottonOrderPreview } from "./preview.ts";
 
@@ -19,7 +19,12 @@ export function previewBungeDispatchOrders(
       if (destinationKind === "DALLAS_2")
         throw new Error("Dallas #2 destination code must be explicitly verified before import.");
       const pickups = order.pickups.map(line => {
-        const location = resolveCottonWarehouseName(line.warehouse, locations);
+        const byName = resolveCottonWarehouseName(line.warehouse, locations);
+        const location = line.usdaWarehouseCode
+          ? resolveCottonLocation(line.usdaWarehouseCode, locations)
+          : byName;
+        if (location.id !== byName.id)
+          throw new Error("USDA warehouse code conflicts with dispatch warehouse name.");
         const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(line.rtl);
         if (!match) throw new Error("Invalid pickup RTL date");
         const year = match[3].length === 2 ? "20" + match[3] : match[3];
