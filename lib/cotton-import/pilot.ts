@@ -40,6 +40,10 @@ export function draftHoustonOrder(
     referenceNumber: `${order.mark.toUpperCase()} ${line.bales} BALES`,
   })) : [];
 
+  const weight = order.pickups.every(line => line.weight != null)
+    ? order.pickups.reduce((total, line) => total + Math.round(line.weight! * 10), 0) / 10 : null;
+  if (weight !== null && (!Number.isFinite(weight) || weight <= 0 || weight > 999999.9))
+    throw Error("Order weight exceeds the McLeod weight field.");
   const deliveryDate = defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
   const receiving = scmReceivingHours(preview.deliveryLocation);
@@ -55,6 +59,7 @@ export function draftHoustonOrder(
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
       order_type_id: "FSC", order_mode: "T", ordered_by: order.salesOrder,
       equipment_type_id: equipmentCode,
+      ...(weight === null ? {} : { weight }),
       blnum: preview.blnum, consignee_refno: order.mark.toUpperCase(),
       stops: [...pickups, {
         __type: "stop", __name: "stops", company_id: "TMS", stop_type: "SO",

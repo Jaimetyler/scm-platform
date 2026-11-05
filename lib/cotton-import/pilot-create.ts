@@ -3,14 +3,18 @@ import type { draftHoustonOrder } from "./pilot.ts";
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
 export function houstonPilotPayload(draft: Draft) {
-  if (draft.salesOrder !== "2601887" || draft.order.blnum !== "TA004 89 BALES" || draft.baleCount !== 89 ||
-      draft.order.equipment_type_id !== "V" || draft.order.stops.length !== 2 ||
-      draft.order.stops[0].location_id !== "MOODGAT3" || draft.order.stops[1].location_id !== "SUPPBAT1" ||
-      draft.order.stops[0].sched_arrive_early !== "2026-11-12T08:00:00" ||
-      draft.order.stops[0].sched_arrive_late !== "2026-11-12T15:00:00" ||
-      draft.order.stops[1].sched_arrive_early !== "2026-11-13T07:00:00" ||
-      draft.order.stops[1].sched_arrive_late !== "2026-11-13T20:00:00")
-    return null;
+  const expectedStops = [
+    ["MOODGAT4", "2026-11-10T08:00:00", "2026-11-10T15:00:00"],
+    ["MOODGAT3", "2026-11-10T08:00:00", "2026-11-10T15:00:00"],
+    ["SUPPBAT1", "2026-11-11T07:00:00", "2026-11-11T20:00:00"],
+  ];
+  if (draft.salesOrder !== "2601771" || draft.order.blnum !== "NX005 91 BALES" || draft.baleCount !== 91 ||
+      draft.order.equipment_type_id !== "V" || draft.order.weight !== 44667 ||
+      draft.order.stops.length !== expectedStops.length ||
+      draft.order.stops.some((stop, index) => {
+        const [location, early, late] = expectedStops[index];
+        return stop.location_id !== location || stop.sched_arrive_early !== early || stop.sched_arrive_late !== late;
+      })) return null;
   return {
     ...draft.order,
     collection_method: "T",
@@ -33,6 +37,7 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
     "order_type_id", "order_mode", "ordered_by", "equipment_type_id", "blnum", "consignee_refno",
     "collection_method", "rate_type"] as const;
   const mismatches: string[] = fields.filter(field => String(actual[field] ?? "").trim() !== expected[field]);
+  if (expected.weight !== undefined && Number(actual.weight) !== expected.weight) mismatches.push("weight");
   if (String(actual.id ?? "").trim() !== id) mismatches.push("id");
   const stops = Array.isArray(actual.stops) ? actual.stops : [];
   if (stops.length !== expected.stops.length) mismatches.push("stop count");
@@ -68,33 +73,23 @@ export function isArrivalFormatRejection(salesOrder: string, audit: {
 }
 
 export function matchCorrectedSchedule(payload: Payload, example: Record<string, unknown>): Payload {
-  if (example?.id !== "0829468" || String(example.ordered_by ?? "").trim() !== "2601780" ||
-      example.customer_id !== payload.customer_id || example.blnum !== "NM293 90 BALES" ||
-      !Array.isArray(example.stops) || example.stops.length !== payload.stops.length)
-    throw Error("McLeod order 0829468 could not be verified as the schedule reference.");
-  const [pickup, delivery] = payload.stops;
-  const stops = example.stops as Record<string, unknown>[];
-  const matchingStop = (stop: typeof pickup) => {
-    const matches = stops.filter(row => Number(row.order_sequence) === stop.order_sequence);
-    const [saved] = matches;
-    if (matches.length !== 1 || saved.stop_type !== stop.stop_type || saved.location_id !== stop.location_id)
-      throw Error(`Reference order stop ${stop.order_sequence} does not match the pilot route.`);
-    return saved;
-  };
-  const savedPickup = matchingStop(pickup);
-  matchingStop(delivery);
-  const early = String(savedPickup.sched_arrive_early ?? "").trim();
-  const late = String(savedPickup.sched_arrive_late ?? "").trim();
+  if (example?.id !== "0829475" || String(example.ordered_by ?? "").trim() !== "2601887" ||
+      example.customer_id !== payload.customer_id || example.blnum !== "TA004 89 BALES" ||
+      !Array.isArray(example.stops) || example.stops.length !== 2)
+    throw Error("McLeod order 0829475 could not be verified as the schedule reference.");
+  const pickup = example.stops.find(stop => Number(stop?.order_sequence) === 1);
+  const delivery = example.stops.find(stop => Number(stop?.order_sequence) === 2);
+  const early = String(pickup?.sched_arrive_early ?? "").trim();
+  const late = String(pickup?.sched_arrive_late ?? "").trim();
   const offset = early.match(/^\d{14}([+-]\d{4})$/)?.[1];
-  if (!offset || !late.match(/^\d{14}([+-]\d{4})$/) || late.slice(-5) !== offset ||
-      localClock(early) !== pickup.sched_arrive_early || localClock(late) !== pickup.sched_arrive_late)
-    throw Error(`Reference order stop 1 must show 08:00–15:00 local. McLeod returned ${early || "blank"} and ${late || "blank"}.`);
-  // Both pilot stops are in the same time zone on consecutive dates, with no DST change.
-  // Keep the Baytown wall times and use the encoding observed on the corrected pickup.
+  if (pickup?.stop_type !== "PU" || pickup.location_id !== "MOODGAT3" ||
+      delivery?.stop_type !== "SO" || delivery.location_id !== "SUPPBAT1" ||
+      !offset || !/^\d{14}[+-]\d{4}$/.test(late) || late.slice(-5) !== offset ||
+      localClock(early) !== "2026-11-12T08:00:00" || localClock(late) !== "2026-11-12T15:00:00")
+    throw Error(`The verified pilot's pickup clock times could not be reused. McLeod returned ${early || "blank"} and ${late || "blank"}.`);
+  // The pilot and reference stops are in Central time in the same week, after the DST transition.
   const encode = (wallTime: string) => wallTime.replace(/[-:T]/g, "") + offset;
-  return { ...payload, stops: [
-    { ...pickup, sched_arrive_early: early, sched_arrive_late: late },
-    { ...delivery, sched_arrive_early: encode(delivery.sched_arrive_early),
-      sched_arrive_late: encode(delivery.sched_arrive_late) },
-  ] };
+  return { ...payload, stops: payload.stops.map(stop => ({
+    ...stop, sched_arrive_early: encode(stop.sched_arrive_early), sched_arrive_late: encode(stop.sched_arrive_late),
+  })) };
 }

@@ -3,40 +3,39 @@ import assert from "node:assert/strict";
 import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
 import { houstonPilotPayload, isMissingCollectionMethodRejection, matchCorrectedSchedule, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
 
-test("Houston pilot is scoped to the reviewed order and verifies the saved McLeod stops", () => {
-  const source = { salesOrder: "2601887", mark: "TA004", bales: 89, pickups: [{ bales: 89 }] };
+test("two-pickup pilot sends combined weight and verifies all three stops", () => {
+  const source = { salesOrder: "2601771", mark: "NX005", bales: 91, pickups: [
+    { bales: 53, weight: 26087 }, { bales: 38, weight: 18580 },
+  ] };
   const preview = {
     customerId: "BUNGOMNE", revenueCode: "MAIN", commodity: "COTTON", deliveryLocation: "SUPPBAT1",
-    blnum: "TA004 89 BALES", pickupStops: [{ locationCode: "MOODGAT3", scheduledDate: "2026-11-12", timezone: "America/Chicago" }],
-  };
-  const draft = draftHoustonOrder(source, preview, [{ early: "08:00", late: "15:00" }], "V");
-  assert.equal(houstonPilotPayload({ ...draft, salesOrder: "2601780" }), null);
-  const payload = houstonPilotPayload(draft);
-  assert.equal(payload.stops[0].sched_arrive_early, "2026-11-12T08:00:00");
-  assert.equal(payload.stops[1].sched_arrive_late, "2026-11-13T20:00:00");
-  assert.equal(payload.collection_method, "T");
-  assert.equal(payload.rate_type, "F");
-  assert.equal(payload.rate_units, undefined);
-  assert.equal(payload.rate, undefined);
-  const example = { id: "0829468", ordered_by: "2601780", customer_id: "BUNGOMNE", blnum: "NM293 90 BALES",
-    stops: payload.stops.map(stop => ({
-      ...stop,
-      sched_arrive_early: stop.sched_arrive_early.replace(/[-:T]/g, "") + "-0500",
-      sched_arrive_late: stop.sched_arrive_late.replace(/[-:T]/g, "") + "-0500",
+    blnum: "NX005 91 BALES",
+    pickupStops: ["MOODGAT4", "MOODGAT3"].map(locationCode => ({
+      locationCode, scheduledDate: "2026-11-10", timezone: "America/Chicago",
     })),
   };
-  example.stops[1].sched_arrive_early = "20261113080000-0500";
+  const draft = draftHoustonOrder(source, preview, Array(2).fill({ early: "08:00", late: "15:00" }), "V");
+  assert.equal(houstonPilotPayload({ ...draft, salesOrder: "2601887" }), null);
+  const payload = houstonPilotPayload(draft);
+  assert.equal(payload.weight, 44667);
+  assert.equal(payload.collection_method, "T");
+  assert.equal(payload.rate_type, "F");
+  assert.equal(payload.rate, undefined);
+  const example = { id: "0829475", ordered_by: "2601887", customer_id: "BUNGOMNE", blnum: "TA004 89 BALES",
+    stops: [
+      { order_sequence: 1, stop_type: "PU", location_id: "MOODGAT3", sched_arrive_early: "20261112080000-0500", sched_arrive_late: "20261112150000-0500" },
+      { order_sequence: 2, stop_type: "SO", location_id: "SUPPBAT1" },
+    ],
+  };
   const matched = matchCorrectedSchedule(payload, example);
-  assert.equal(matched.stops[0].sched_arrive_early, "20261112080000-0500");
-  assert.equal(matched.stops[1].sched_arrive_early, "20261113070000-0500");
-  example.stops[0].sched_arrive_early = "20261112090000-0500";
-  assert.throws(() => matchCorrectedSchedule(payload, example), /Reference order stop 1/);
-  const actual = { ...payload, id: "1234567", stops: payload.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
-  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
-  actual.stops[0].sched_arrive_early = "20261112080000-0500";
-  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
-  actual.stops[0].sched_arrive_early = "20261112090000-0500";
-  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), ["stop 1"]);
+  assert.deepEqual(matched.stops.map(stop => stop.sched_arrive_early), [
+    "20261110080000-0500", "20261110080000-0500", "20261111070000-0500",
+  ]);
+  const actual = { ...matched, id: "1234567", stops: matched.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
+  assert.deepEqual(verifyHoustonPilot(actual, actual.id, matched), []);
+  actual.weight = 26087;
+  actual.stops[1].sched_arrive_early = "20261110090000-0500";
+  assert.deepEqual(verifyHoustonPilot(actual, actual.id, matched), ["weight", "stop 2"]);
 });
 
 test("only the recorded missing-field rejection can be corrected once", () => {

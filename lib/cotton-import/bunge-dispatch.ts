@@ -1,9 +1,10 @@
-export type DispatchLine = { row: number; mark: string; salesOrder: string; bales: number; warehouse: string; rtl: string; usdaWarehouseCode: string | null };
+export type DispatchLine = { row: number; mark: string; salesOrder: string; bales: number; weight?: number; warehouse: string; rtl: string; usdaWarehouseCode: string | null };
 export type DispatchOrder = { mark: string; salesOrder: string; bales: number; pickups: DispatchLine[] };
 const str = (v: unknown) => String(v ?? "").trim();
 export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
   const header = rows.findIndex(r => str(r[0]).toUpperCase() === "MARK" && str(r[1]).toUpperCase() === "SO");
   if (header < 0) throw new Error("Bunge Mark/SO header missing");
+  const weightColumn = rows[header].findIndex(value => str(value).toUpperCase() === "WEIGHT");
   const destination = str(rows.find(r => str(r[0]).toUpperCase() === "DESTINATION:")?.[1]);
   if (!destination) throw new Error("Dispatch destination missing");
   const destinationKind = /DALLAS\s*#?\s*2/i.test(destination) ? "DALLAS_2"
@@ -17,6 +18,9 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
     if (!mark || !/^\d{5,}$/.test(salesOrder)) continue;
     const key = salesOrder + "|" + mark.toUpperCase();
     const bales = Number(r[4]), warehouse = str(r[9]), rtl = str(r[14]);
+    const rawWeight = weightColumn < 0 ? "" : str(r[weightColumn]);
+    const weight = rawWeight && /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d)?$/.test(rawWeight)
+      ? Number(rawWeight.replaceAll(",", "")) : undefined;
     const dateMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(rtl);
     const iso = dateMatch ? `${dateMatch[3].length === 2 ? "20" + dateMatch[3] : dateMatch[3]}-${dateMatch[1].padStart(2,"0")}-${dateMatch[2].padStart(2,"0")}` : "";
     const validDate = Boolean(iso) && !Number.isNaN(Date.parse(iso + "T00:00:00Z")) && new Date(iso + "T00:00:00Z").toISOString().slice(0,10) === iso;
@@ -31,7 +35,12 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
       invalidOrders.add(key);
       continue;
     }
-    order.pickups.push({ row: index + 1, mark, salesOrder, bales, warehouse, rtl, usdaWarehouseCode: /^\d{6}$/.test(str(r[8])) ? str(r[8]) : null });
+    if (rawWeight && (!weight || weight > 999999.9)) {
+      blocked.push({ row: index + 1, reason: "Invalid pickup weight" });
+      invalidOrders.add(key);
+      continue;
+    }
+    order.pickups.push({ ...(weight === undefined ? {} : { weight }), row: index + 1, mark, salesOrder, bales, warehouse, rtl, usdaWarehouseCode: /^\d{6}$/.test(str(r[8])) ? str(r[8]) : null });
     order.bales += bales;
     grouped.set(key, order);
   }

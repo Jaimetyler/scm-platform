@@ -143,7 +143,7 @@ async function preflight(req: NextRequest) {
   let payload = houstonPilotPayload(draft);
   if (payload) {
     try {
-      const example = await vendor(true).read("/orders/0829468");
+      const example = await vendor(true).read("/orders/0829475");
       payload = matchCorrectedSchedule(payload, example);
     } catch (cause) {
       return NextResponse.json({ ...response, delivery, draft, auditStatus: saved.data.status,
@@ -151,7 +151,7 @@ async function preflight(req: NextRequest) {
     }
   }
   const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
-    : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601887 pilot."
+    : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601771 pilot."
     : !existing.data ? "The audit entry was just saved. Run preflight again before creating."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;
@@ -210,7 +210,7 @@ async function preflight(req: NextRequest) {
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
     draft, canCreate, reviewToken,
     reason: createBlock ?? (correctedRetry
-      ? "The corrected one-order retry is ready. Its schedule matches McLeod order 0829468."
+      ? "The corrected one-order retry is ready. Its schedule matches McLeod order 0829475."
       : "Ready for the one-order McLeod pilot."),
 
   });
