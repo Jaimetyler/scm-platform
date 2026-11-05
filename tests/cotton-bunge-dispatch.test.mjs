@@ -28,3 +28,12 @@ test("missing warehouse and third pickup are blocked",()=>{
  const p=parseBungeDispatch(rows);
  assert.equal(p.orders.length,0);assert.equal(p.blocked.length,1);
 });
+
+test("Houston Underwood dispatch is routed to Houston for Baytown import",()=>{
+ const rows=[["Destination:","Supply Chain Management LLC - 4331 Underwood Road, Pasadena TX"],["Mark","SO"],
+ ["H123","2601771",null,null,40,null,null,null,null,"MOODY COMPRESS #03",null,null,null,null,"11/05/26"]];
+ const p=parseBungeDispatch(rows);
+ assert.equal(p.destinationKind,"HOUSTON");
+ assert.equal(p.orders.length,1);
+ assert.equal(p.orders[0].salesOrder,"2601771");
+});
