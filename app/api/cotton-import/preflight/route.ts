@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import { terminalDeliveryCode } from "@/lib/bunge/destinations";
-import { staffActor, withStaffAccess } from "@/lib/auth/guard";
+import { staffActor, staffProfile, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { readDeliveryLocation } from "@/lib/bunge/delivery-server";
 import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
@@ -23,6 +23,8 @@ async function preflight(req: NextRequest) {
   const form = await req.formData();
   const create = form.get("action") === "create-pilot";
   const reconcile = form.get("action") === "reconcile-pilot";
+  const canRecover = staffProfile(req)?.role === "admin";
+  if (reconcile && !canRecover) return NextResponse.json({ ok: false, error: "Administrator access is required to reopen an order." }, { status: 403 });
   const pilotEnabled = process.env.BUNGE_IMPORT_WRITES_ENABLED === "true" ||
     process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
   if ((create || reconcile) && !pilotEnabled) throw Error("The Houston pilot is disabled.");
@@ -114,7 +116,7 @@ async function preflight(req: NextRequest) {
   const saved = await findAudit();
   if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
-  const canReconcile = pilotEnabled && salesOrder === "2601730" && proposal.blnum === "C0437 90 BALES" &&
+  const canReconcile = canRecover && pilotEnabled && salesOrder === "2601730" && proposal.blnum === "C0437 90 BALES" &&
     saved.data.destination_code === "SUPPBAT1" && proposal.deliveryLocation === "SUPPBAT1" &&
     saved.data.status === "creation_uncertain" && saved.data.mcleod_order_id === null &&
     saved.data.error_message === "McLeod create returned HTTP 406." &&

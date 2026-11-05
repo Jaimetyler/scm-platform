@@ -17,6 +17,9 @@ export function warehouseReadPath(path: string) {
   return /^\/api\/warehouse\/(?:domestic-queue(?:\/match)?|domestic-history|container-queue|inventory|checkin-bol\/[^/]+|outbound\/(?:source-arrivals|bookings(?:\/[^/]+(?:\/(?:export|container-info))?)?))$/.test(path) ||
     /^\/api\/inbound\/(?:history|checkin\/(?:cotton-match|rows(?:\/[^/]+\/dispatcher)?))$/.test(path);
 }
+export function canUseInboundImporter(staff: Staff | null) {
+  return staff?.status === "active" && (staff.role === "admin" || staff.role === "viewer");
+}
 export function staffHome(staff: Staff) {
   return staff.role === "admin" ? "/" : `/warehouse?terminal=${staff.terminal ?? "all"}&warehouse=all`;
 }

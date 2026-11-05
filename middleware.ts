@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { staffSession } from "@/lib/auth/session";
-import { AccessError, staffHome } from "@/lib/auth/policy";
+import { AccessError, canUseInboundImporter, staffHome } from "@/lib/auth/policy";
 
 export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
@@ -14,7 +14,8 @@ export async function middleware(req: NextRequest) {
     if (staff.status === "pending") return session.finish(NextResponse.redirect(new URL("/auth/password", req.url)));
     const warehouse = path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/");
     const outreach = path === "/cotton-locations/outreach";
-    if (staff.role !== "admin" && !outreach && (path === "/" || !warehouse || path === "/warehouse/gate"))
+    const importer = (path === "/bunge-import" || path === "/cotton-import") && canUseInboundImporter(staff);
+    if (staff.role !== "admin" && !outreach && !importer && (path === "/" || !warehouse || path === "/warehouse/gate"))
       return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
     if (staff.role === "operator") {
       const routeTerminal = path.match(/^\/(?:warehouse\/(?:outbound|inventory|gate)|inbound\/checkin)\/(hou|sav)\//i)?.[1]?.toUpperCase();

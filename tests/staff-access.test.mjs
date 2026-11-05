@@ -68,10 +68,23 @@ test("forged Houston body cannot authorize a Savannah row, inventory lot, contai
 test("moving a Houston row into Savannah is denied",async()=>{
   assert.equal((await call(`/api/inbound/checkin/rows/${id}`,"PATCH",{terminal:"SAV"})).status,403);
 });
-test("viewer can read/search both terminals but cannot operate, import, or manage invitations",async()=>{
+test("viewer can read/search both terminals but cannot edit warehouse records or manage invitations",async()=>{
   for(const terminal of ["HOU","SAV"]) assert.equal((await call(`/api/warehouse/domestic-queue?terminal=${terminal}`,"GET",undefined,viewer)).status,200);
   for(const path of ["/api/warehouse/domestic-queue","/api/warehouse/outbound/preview","/api/admin/users"])
     assert.equal((await call(path,"POST",{terminal:"HOU"},viewer)).status,403);
+});
+test("dispatcher / viewer can use only the inbound Bunge importer endpoints", async () => {
+  for (const [path, method] of [
+    ["/api/bunge-import", "GET"], ["/api/bunge-import", "POST"],
+    ["/api/cotton-import/upload", "POST"], ["/api/cotton-import/preflight", "POST"],
+  ]) {
+    assert.equal((await call(path, method, undefined, viewer)).status, 200, path);
+    assert.equal((await call(path, method, undefined, hou)).status, 403, path);
+    assert.equal((await call(path, method, undefined, { ...viewer, status: "disabled" })).status, 403, path);
+  }
+  assert.equal((await call("/api/cotton-import/preflight", "POST", {}, viewer, { origin: false })).status, 403);
+  assert.equal((await call("/api/cotton-import/preflight", "DELETE", {}, viewer)).status, 403);
+  assert.equal((await call("/api/cotton-import/future", "POST", {}, viewer)).status, 403);
 });
 test("unknown, financial and QR settings APIs default to administrator-only",async()=>{
   for(const path of ["/api/warehouse/future-feature","/api/pnl/summary","/api/warehouse/gate-sites","/api/admin/users","/api/inbound/process-excel"])

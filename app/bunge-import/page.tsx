@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { canUseInboundImporter, staffHome } from "@/lib/auth/policy";
 import { requireStaffPage } from "@/lib/auth/page";
 import HoustonPreviewClient from "./HoustonPreviewClient";
 import PreviewClient from "./PreviewClient";
@@ -13,7 +14,7 @@ export default async function Page({ searchParams }: {
   searchParams: Promise<{ terminal?: string }>;
 }) {
   const staff = await requireStaffPage();
-  if (staff.role !== "admin") redirect("/access-denied");
+  if (!canUseInboundImporter(staff)) redirect("/access-denied");
   const terminal = inboundTerminal((await searchParams).terminal) ?? inboundTerminals[0];
 
   return <main className={styles.page}>
@@ -23,7 +24,7 @@ export default async function Page({ searchParams }: {
         <h1>Inbound order importer</h1>
         <p>Review dispatch rows, warehouse mappings and proposed pickup windows</p>
       </div>
-      <Link href="/">Platform home</Link>
+      <Link href={staffHome(staff)}>{staff.role === "admin" ? "Platform home" : "Warehouse operations"}</Link>
     </header>
     <nav aria-label="Inbound location" className={layout.regions}>
       {inboundTerminals.map(location => <Link key={location.id} href={`/bunge-import?terminal=${location.id}`}

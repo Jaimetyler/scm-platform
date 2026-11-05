@@ -24,7 +24,7 @@ export default function UsersPage() {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not update users"); }
     finally { setBusy(false); }
   }
-  return <main className="staff-users"><h1>Staff access</h1><p>Invite Houston operators for both 5300 and 4331. Viewers can search and read warehouse information across terminals.</p>
+  return <main className="staff-users"><h1>Staff access</h1><p>Invite Houston operators for both 5300 and 4331. Dispatchers / viewers can use the inbound importer and read warehouse information across terminals.</p>
     <form onSubmit={e=>{e.preventDefault(); void action({action:"invite",name,email,role,terminal},`Invitation sent to ${email}.`);}}>
       <label>Name<input required maxLength={100} value={name} onChange={e=>setName(e.target.value)} /></label>
       <label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} /></label>

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { canUseInboundImporter } from "@/lib/auth/policy";
 import { useStaff } from "@/components/auth/StaffSession";
 import { useWarehouseWorkspace } from "./WarehouseWorkspace";
 import { availableCheckinViews, sitesForLocation, workspaceHref, type WarehouseSection } from "@/lib/warehouse/navigation";
@@ -29,6 +30,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
     <div className="warehouse-operations-heading">
       <div><div className="warehouse-eyebrow">Live workspace</div><h1>Operations</h1>
         <p>Pick the site you are working and go straight to the freight. Existing check-in screens stay underneath this board.</p></div>
+      {canUseInboundImporter(staff) && <Link href="/bunge-import?terminal=houston" className="warehouse-secondary-action">Inbound order importer</Link>}
       <Link href="/cotton-locations/outreach" className="warehouse-secondary-action">Tariff outreach</Link>
       {staff?.role === "admin" && <Link href="/warehouse/gate" className="warehouse-secondary-action">Driver QR setup</Link>}
     </div>
