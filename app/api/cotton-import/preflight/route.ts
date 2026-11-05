@@ -23,7 +23,8 @@ async function preflight(req: NextRequest) {
   const form = await req.formData();
   const create = form.get("action") === "create-pilot";
   const reconcile = form.get("action") === "reconcile-pilot";
-  const pilotEnabled = process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
+  const pilotEnabled = process.env.BUNGE_IMPORT_WRITES_ENABLED === "true" ||
+    process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
   if ((create || reconcile) && !pilotEnabled) throw Error("The Houston pilot is disabled.");
   const destination = terminalDeliveryCode("houston", form.get("destination"));
   if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
@@ -171,7 +172,7 @@ async function preflight(req: NextRequest) {
     }
   }
   const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
-    : !payload ? "This order or its pickup, equipment, weight or delivery details do not match the approved Houston dispatch."
+    : !payload ? "Live Houston creation requires a complete weight and verified pickup schedule for Baytown."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;
   const canCreate = createBlock === null;

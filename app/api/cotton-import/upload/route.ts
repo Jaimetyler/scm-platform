@@ -65,7 +65,7 @@ async function upload(req: NextRequest) {
       equipment: reviewPickupEquipment(review.preview.pickupStops, equipmentRows, equipment),
       reason: windows.some(w => w.status !== "ready")
         ? "Pickup hours or appointment requirements need review: " + windows.filter(w => w.status !== "ready").map(w => w.locationCode + " (" + w.reason + ")").join("; ")
-        : "Pickup windows resolved. Run single-order McLeod preflight."};
+        : "Pickup windows resolved."};
   });
   return NextResponse.json({ok:true,previewOnly:true,writesEnabled:false,
     filename:file.name,destination:dispatch.destination,destinationKind:dispatch.destinationKind,

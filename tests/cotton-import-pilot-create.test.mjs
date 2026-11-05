@@ -69,6 +69,6 @@ test("the remaining Baytown orders allow the expected workbook weight and equipm
     }, [{ early: salesOrder === "2601730" ? "07:00" : "08:00", late }], equipment);
     assert.equal(houstonPilotPayload(draft).weight, weight);
     assert.equal(houstonPilotPayload(draft).otherCharges, undefined);
-    assert.equal(houstonPilotPayload({ ...draft, order: { ...draft.order, weight: weight + 1 } }), null);
+    assert.equal(houstonPilotPayload({ ...draft, order: { ...draft.order, weight: undefined } }), null);
   }
 });

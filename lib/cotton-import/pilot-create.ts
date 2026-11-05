@@ -1,36 +1,13 @@
+import { warehouseWallTime } from "../inbound/checkin/mcleod-time.ts";
 import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
-const approvedOrders = new Map([
-  ["2601730", { blnum: "C0437 90 BALES", weight: 43865, equipment: "V",
-    pickups: ["UNITELTX"], pickupDate: "2026-11-11", hours: ["07:00", "16:00"], deliveryDate: "2026-11-12" }],
-  ["2601771", { blnum: "NX005 91 BALES", weight: 44667, equipment: "V",
-    pickups: ["MOODGAT4", "MOODGAT3"], pickupDate: "2026-11-10", hours: ["08:00", "15:00"], deliveryDate: "2026-11-11" }],
-  ["2601967", { blnum: "E1316 90 BALES", weight: 44125, equipment: "V",
-    pickups: ["MOODGAT4"], pickupDate: "2026-11-10", hours: ["08:00", "15:00"], deliveryDate: "2026-11-11" }],
-  ["2601968", { blnum: "EH020 90 BALES", weight: 43902, equipment: "VT",
-    pickups: ["GULFCOT2"], pickupDate: "2026-11-10", hours: ["08:00", "16:00"], deliveryDate: "2026-11-11" }],
-  ["2601996", { blnum: "BZ042 91 BALES", weight: 44976, equipment: "VT",
-    pickups: ["TAYLTAT1"], pickupDate: "2026-11-11", hours: ["08:00", "16:00"], deliveryDate: "2026-11-12" }],
-  ["2601997", { blnum: "E1318 90 BALES", weight: 44425, equipment: "VT",
-    pickups: ["GULFCOT2"], pickupDate: "2026-11-11", hours: ["08:00", "16:00"], deliveryDate: "2026-11-12" }],
-]);
-
 export function houstonPilotPayload(draft: Draft) {
-  const approved = approvedOrders.get(draft.salesOrder);
-  if (!approved || draft.order.blnum !== approved.blnum ||
-      draft.order.equipment_type_id !== approved.equipment || draft.order.weight !== approved.weight)
-    return null;
-  const expectedStops = [
-    ...approved.pickups.map(code => [code, `${approved.pickupDate}T${approved.hours[0]}:00`, `${approved.pickupDate}T${approved.hours[1]}:00`]),
-    ["SUPPBAT1", `${approved.deliveryDate}T07:00:00`, `${approved.deliveryDate}T20:00:00`],
-  ];
-  if (draft.order.stops.length !== expectedStops.length ||
-      draft.order.stops.some((stop, index) => {
-        const [location, early, late] = expectedStops[index];
-        return stop.location_id !== location || stop.sched_arrive_early !== early || stop.sched_arrive_late !== late;
-      })) return null;
+  const stops = draft.order.stops;
+  if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight ||
+      stops.at(-1)?.location_id !== "SUPPBAT1" ||
+      stops.some(stop => stop.timezone !== "America/Chicago")) return null;
   return {
     ...draft.order,
     collection_method: "T",
@@ -109,8 +86,11 @@ export function matchCorrectedSchedule(payload: Payload, example: Record<string,
       !offset || !/^\d{14}[+-]\d{4}$/.test(late) || late.slice(-5) !== offset ||
       localClock(early) !== "2026-11-12T08:00:00" || localClock(late) !== "2026-11-12T15:00:00")
     throw Error(`The verified pilot's pickup clock times could not be reused. McLeod returned ${early || "blank"} and ${late || "blank"}.`);
-  // The pilot and reference stops are in Central time in the same week, after the DST transition.
-  const encode = (wallTime: string) => wallTime.replace(/[-:T]/g, "") + offset;
+  // McLeod expects the Eastern transport offset while preserving the warehouse's wall clock.
+  const encode = (wallTime: string) => warehouseWallTime(wallTime.slice(0, 10),
+    Number(wallTime.slice(11, 13)), Number(wallTime.slice(14, 16)), "SAV");
+  if (encode("2026-11-12T08:00:00") !== early || encode("2026-11-12T15:00:00") !== late)
+    throw Error("McLeod's schedule encoding differs from the verified Houston pilot.");
   return { ...payload, stops: payload.stops.map(stop => ({
     ...stop, sched_arrive_early: encode(stop.sched_arrive_early), sched_arrive_late: encode(stop.sched_arrive_late),
   })) };
