@@ -151,8 +151,7 @@ async function preflight(req: NextRequest) {
     }
   }
   const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
-    : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601771 pilot."
-    : !existing.data ? "The audit entry was just saved. Run preflight again before creating."
+    : !payload ? "This order or its pickup, equipment, weight or delivery details do not match the approved Houston dispatch."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;
   const canCreate = createBlock === null;
@@ -211,7 +210,7 @@ async function preflight(req: NextRequest) {
     draft, canCreate, reviewToken,
     reason: createBlock ?? (correctedRetry
       ? "The corrected one-order retry is ready. Its schedule matches McLeod order 0829475."
-      : "Ready for the one-order McLeod pilot."),
+      : "Ready to create in McLeod."),
 
   });
 }

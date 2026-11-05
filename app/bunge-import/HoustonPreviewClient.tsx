@@ -25,6 +25,7 @@ type Result = {
 };
 type Preflight = {
   canCreate?: boolean; reviewToken?: string; pilotBuild?: string;
+  mcleodOrderId?: string | null;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
   draft?: {
     deliveryDate?: string;
@@ -41,15 +42,34 @@ const feeUnits: Record<string, string> = {
   PER_BALE_PER_DAY: "per bale per day",
 };
 
+async function requestPreflight(input: DispatchInput, salesOrder: string, reviewToken?: string): Promise<Preflight> {
+  const form = new FormData();
+  form.set("file", input.file);
+  form.set("equipment", input.equipment);
+  form.set("destination", input.destination);
+  form.set("salesOrder", salesOrder);
+  if (reviewToken) {
+    form.set("action", "create-pilot");
+    form.set("reviewToken", reviewToken);
+  }
+  const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
+  return response.json();
+}
+
 export default function HoustonPreviewClient() {
   const [submission, setSubmission] = useState<DispatchInput | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const [busy, setBusy] = useState<"preview" | "preflight" | "create" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "preflight" | "create" | "batch" | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
   const [checked, setChecked] = useState<{ salesOrder: string; data: Preflight } | null>(null);
 
+  const [batchResults, setBatchResults] = useState<{ so: string; outcome: string }[]>([]);
+  const [batchCurrent, setBatchCurrent] = useState("");
+
   function clear() {
+    setBatchResults([]);
+    setBatchCurrent("");
     setResult(null);
     setSelected("");
     setChecked(null);
@@ -83,20 +103,42 @@ export default function HoustonPreviewClient() {
     setBusy(reviewToken ? "create" : "preflight");
     setChecked(null);
     try {
-      const form = new FormData();
-      form.set("file", submission.file);
-      form.set("equipment", submission.equipment);
-      form.set("destination", submission.destination);
-      form.set("salesOrder", selected);
-      if (reviewToken) {
-        form.set("action", "create-pilot");
-        form.set("reviewToken", reviewToken);
-      }
-      const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
-      setChecked({ salesOrder: selected, data: await response.json() });
+      setChecked({ salesOrder: selected, data: await requestPreflight(submission, selected, reviewToken) });
     } catch (cause) {
       setChecked({ salesOrder: selected, data: { error: cause instanceof Error ? cause.message : "Preflight failed." } });
     } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createBatch() {
+    if (!submission || !result || busy) return;
+    if (!window.confirm("Create eligible orders from this workbook in live McLeod? Each order will be checked for duplicates first.")) return;
+    setBusy("batch");
+    setChecked(null);
+    setBatchResults([]);
+    const report = (so: string, outcome: string) => setBatchResults(rows => [...rows, { so, outcome }]);
+    const orders = [...new Set(result.reviews.map(row => row.salesOrder))];
+    try {
+      for (const so of orders) {
+        setBatchCurrent(so);
+        const review = await requestPreflight(submission, so);
+        if (!review.canCreate || !review.reviewToken) {
+          report(so, `Skipped · ${review.error || review.reason || "Preflight did not allow creation."}`);
+          continue;
+        }
+        const created = await requestPreflight(submission, so, review.reviewToken);
+        if (created.ok && created.auditStatus === "verified" && created.mcleodOrderId) {
+          report(so, `Created and verified · McLeod ${created.mcleodOrderId}`);
+          continue;
+        }
+        report(so, `Batch stopped · ${created.mcleodOrderId ? `McLeod ${created.mcleodOrderId} · ` : ""}${created.error || created.reason || "Create could not be verified."}`);
+        break;
+      }
+    } catch (cause) {
+      report("Batch", `Stopped · ${cause instanceof Error ? cause.message : "Request failed."} Check the audit before running again.`);
+    } finally {
+      setBatchCurrent("");
       setBusy(null);
     }
   }
@@ -121,9 +163,17 @@ export default function HoustonPreviewClient() {
         <button type="button" disabled={!selected || !!busy} onClick={() => void preflight()}>
           {busy === "preflight" ? "Checking McLeod…" : "Run McLeod preflight"}
         </button>
+        <button type="button" disabled={!!busy || !submission} onClick={() => void createBatch()}>
+          Create all eligible orders
+        </button>
         <span>{selected ? `SO ${selected} selected` : "Select one order below to check it in McLeod."}</span>
       </div>
       <div aria-live="polite">
+        {busy === "batch" && <p>Batch checking or creating SO {batchCurrent}…</p>}
+        {!!batchResults.length && <section className={styles.guide} aria-label="Batch results">
+          <h3>Batch results</h3>
+          <ul>{batchResults.map(row => <li key={row.so}><strong>{row.so}</strong> · {row.outcome}</li>)}</ul>
+        </section>}
         {busy === "preflight" && <p>Checking SO {selected}…</p>}
         {busy === "create" && <p>Creating SO {selected} and verifying it in McLeod…</p>}
         {checked && <section className={`${styles.guide} ${layout.preflight}`}>

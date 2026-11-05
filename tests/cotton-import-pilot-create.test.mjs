@@ -51,3 +51,20 @@ test("only the recorded missing-field rejection can be corrected once", () => {
     ...rejected, reviewed_payload: { payload: { collection_method: "T" }, previousAttempt: rejected },
   }), false);
 });
+
+test("the remaining Baytown orders allow the expected workbook weight and equipment", () => {
+  const orders = [
+    ["2601967", "E1316", 90, 44125, "MOODGAT4", "2026-11-10", "15:00", "V"],
+    ["2601968", "EH020", 90, 43902, "GULFCOT2", "2026-11-10", "16:00", "VT"],
+    ["2601996", "BZ042", 91, 44976, "TAYLTAT1", "2026-11-11", "16:00", "VT"],
+    ["2601997", "E1318", 90, 44425, "GULFCOT2", "2026-11-11", "16:00", "VT"],
+  ];
+  for (const [salesOrder, mark, bales, weight, locationCode, scheduledDate, late, equipment] of orders) {
+    const draft = draftHoustonOrder({ salesOrder, mark, bales, pickups: [{ bales, weight }] }, {
+      customerId: "BUNGOMNE", revenueCode: "MAIN", commodity: "COTTON", deliveryLocation: "SUPPBAT1",
+      blnum: `${mark} ${bales} BALES`, pickupStops: [{ locationCode, scheduledDate, timezone: "America/Chicago" }],
+    }, [{ early: "08:00", late }], equipment);
+    assert.equal(houstonPilotPayload(draft).weight, weight);
+    assert.equal(houstonPilotPayload({ ...draft, order: { ...draft.order, weight: weight + 1 } }), null);
+  }
+});

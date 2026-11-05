@@ -2,15 +2,29 @@ import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
+const approvedOrders = new Map([
+  ["2601771", { blnum: "NX005 91 BALES", weight: 44667, equipment: "V",
+    pickups: ["MOODGAT4", "MOODGAT3"], pickupDate: "2026-11-10", hours: ["08:00", "15:00"], deliveryDate: "2026-11-11" }],
+  ["2601967", { blnum: "E1316 90 BALES", weight: 44125, equipment: "V",
+    pickups: ["MOODGAT4"], pickupDate: "2026-11-10", hours: ["08:00", "15:00"], deliveryDate: "2026-11-11" }],
+  ["2601968", { blnum: "EH020 90 BALES", weight: 43902, equipment: "VT",
+    pickups: ["GULFCOT2"], pickupDate: "2026-11-10", hours: ["08:00", "16:00"], deliveryDate: "2026-11-11" }],
+  ["2601996", { blnum: "BZ042 91 BALES", weight: 44976, equipment: "VT",
+    pickups: ["TAYLTAT1"], pickupDate: "2026-11-11", hours: ["08:00", "16:00"], deliveryDate: "2026-11-12" }],
+  ["2601997", { blnum: "E1318 90 BALES", weight: 44425, equipment: "VT",
+    pickups: ["GULFCOT2"], pickupDate: "2026-11-11", hours: ["08:00", "16:00"], deliveryDate: "2026-11-12" }],
+]);
+
 export function houstonPilotPayload(draft: Draft) {
+  const approved = approvedOrders.get(draft.salesOrder);
+  if (!approved || draft.order.blnum !== approved.blnum ||
+      draft.order.equipment_type_id !== approved.equipment || draft.order.weight !== approved.weight)
+    return null;
   const expectedStops = [
-    ["MOODGAT4", "2026-11-10T08:00:00", "2026-11-10T15:00:00"],
-    ["MOODGAT3", "2026-11-10T08:00:00", "2026-11-10T15:00:00"],
-    ["SUPPBAT1", "2026-11-11T07:00:00", "2026-11-11T20:00:00"],
+    ...approved.pickups.map(code => [code, `${approved.pickupDate}T${approved.hours[0]}:00`, `${approved.pickupDate}T${approved.hours[1]}:00`]),
+    ["SUPPBAT1", `${approved.deliveryDate}T07:00:00`, `${approved.deliveryDate}T20:00:00`],
   ];
-  if (draft.salesOrder !== "2601771" || draft.order.blnum !== "NX005 91 BALES" || draft.baleCount !== 91 ||
-      draft.order.equipment_type_id !== "V" || draft.order.weight !== 44667 ||
-      draft.order.stops.length !== expectedStops.length ||
+  if (draft.order.stops.length !== expectedStops.length ||
       draft.order.stops.some((stop, index) => {
         const [location, early, late] = expectedStops[index];
         return stop.location_id !== location || stop.sched_arrive_early !== early || stop.sched_arrive_late !== late;
