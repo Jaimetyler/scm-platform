@@ -12,8 +12,12 @@ export const maxDuration = 60;
 async function upload(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file");
-  if (!(file instanceof File) || !/\\.xlsx?$/i.test(file.name) || file.size > 2_000_000 || file.size === 0)
-    return NextResponse.json({ok:false,error:"Upload one Bunge Excel dispatch file under 2 MB."},{status:400});
+  if (!(file instanceof File))
+    return NextResponse.json({ok:false,error:"No Excel file received. Choose a dispatch workbook."},{status:400});
+  if (!/\.xlsx?$/i.test(file.name))
+    return NextResponse.json({ok:false,error:"Unsupported file type. Choose an .xlsx or .xls workbook."},{status:400});
+  if (file.size === 0 || file.size > 2_000_000)
+    return NextResponse.json({ok:false,error:"Excel workbook must be nonempty and under 2 MB."},{status:400});
   const workbook = XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return NextResponse.json({ok:false,error:"Workbook is empty."},{status:400});
