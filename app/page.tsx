@@ -1,10 +1,11 @@
-"use client";
-
 import Link from "next/link";
+import { requireStaffPage } from "@/lib/auth/page";
 
 const LOGO_SRC = "/scm-logo.png";
 
-export default function Home() {
+export default async function Home() {
+  const staff = await requireStaffPage();
+  const admin = staff.role === "admin";
   return (
     <main style={{ maxWidth: 1320, margin: "0 auto" }}>
       {/* TOP PILL ONLY */}
@@ -65,7 +66,7 @@ export default function Home() {
             color: "#e5e7eb",
           }}
         >
-          Internal Operations
+          {admin ? "Internal Operations" : "Dispatch Operations"}
         </div>
       </section>
 
@@ -79,6 +80,7 @@ export default function Home() {
       >
         <Link href="/bunge-import" style={cardStylePrimary}><h2>Inbound Order Importer</h2><p>Review Savannah, Dallas and Houston dispatches, warehouse mappings and pickup windows.</p></Link>
         <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>Find tariff documents and record pickup hours and fees by location.</p></Link>
+        {admin && <>
         <Link href="/dray-import" style={cardStylePrimary}><h2>Savannah Dray Import</h2><p>Match FirstStar carrier pay, review billing and deliver orders.</p></Link>
         <Link href="/pnl" style={cardStyleLocked}>
           <div
@@ -105,6 +107,7 @@ export default function Home() {
           <div style={lockedTagStyle}>Administrator access</div>
         </Link>
 
+        </>}
         <Link href="/warehouse" style={cardStylePrimary}>
           <div style={cardTitle}>Warehouse</div>
           <div style={cardDesc}>
@@ -113,6 +116,7 @@ export default function Home() {
           <div style={{ marginTop: 16, color: "#67e8f9", fontSize: 13, fontWeight: 700 }}>Open warehouse dashboard →</div>
         </Link>
 
+        {admin && <>
         <Link href="/late-fees" style={cardStyle}>
           <div style={cardTitle}>Late Fees</div>
           <div style={cardDesc}>Review late fee candidates and totals</div>
@@ -129,6 +133,7 @@ export default function Home() {
             Upload billing details and apply charges to McLeod orders
           </div>
         </Link>
+        </>}
       </div>
     </main>
   );

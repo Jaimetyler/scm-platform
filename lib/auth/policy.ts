@@ -21,7 +21,7 @@ export function canUseInboundImporter(staff: Staff | null) {
   return staff?.status === "active" && (staff.role === "admin" || staff.role === "viewer");
 }
 export function staffHome(staff: Staff) {
-  return staff.role === "admin" ? "/" : `/warehouse?terminal=${staff.terminal ?? "all"}&warehouse=all`;
+  return staff.role === "operator" ? `/warehouse?terminal=${staff.terminal ?? "all"}&warehouse=all` : "/";
 }
 export function validInvite(value: Record<string, unknown>) {
   const email = String(value.email ?? "").trim().toLowerCase();

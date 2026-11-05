@@ -110,3 +110,17 @@ test("invitation activation outage is retryable while expired/cancelled rejectio
     assert.equal(response.headers.get("Retry-After"),status===503?"10":null);
   }
 });
+
+test("dispatchers can open the platform home while operators land at their warehouse", async () => {
+  const url = "https://scm.example.test";
+  const dispatcher = scenario({profile:{role:"viewer",terminal:null}});
+  const middleware = dispatcher.load("middleware.ts").middleware;
+  const home = await middleware(new NextRequest(url));
+  assert.equal(home.headers.get("x-middleware-next"), "1");
+  const restricted = await middleware(new NextRequest(url + "/admin/staff"));
+  assert.equal(restricted.headers.get("location"), url + "/");
+
+  const operator = scenario().load("middleware.ts").middleware;
+  const warehouse = await operator(new NextRequest(url));
+  assert.equal(new URL(warehouse.headers.get("location")).pathname, "/warehouse");
+});

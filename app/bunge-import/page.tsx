@@ -24,7 +24,7 @@ export default async function Page({ searchParams }: {
         <h1>Inbound order importer</h1>
         <p>Review dispatch rows, warehouse mappings and proposed pickup windows</p>
       </div>
-      <Link href={staffHome(staff)}>{staff.role === "admin" ? "Platform home" : "Warehouse operations"}</Link>
+      <Link href={staffHome(staff)}>Platform home</Link>
     </header>
     <nav aria-label="Inbound location" className={layout.regions}>
       {inboundTerminals.map(location => <Link key={location.id} href={`/bunge-import?terminal=${location.id}`}
