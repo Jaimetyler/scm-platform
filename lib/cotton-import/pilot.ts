@@ -26,13 +26,28 @@ export function draftHoustonOrder(
     };
   });
 
-  // Keep local times and the source SO explicit until their McLeod encoding is confirmed.
+  if (order.pickups.length !== pickups.length ||
+      order.pickups.some(line => !Number.isSafeInteger(line.bales) || line.bales <= 0) ||
+      order.pickups.reduce((total, line) => total + line.bales, 0) !== order.bales)
+    throw new Error("Pickup bale counts do not reconcile with the order total.");
+
+  // Draft references retain pickup sequence until the McLeod reference write contract is verified.
+  const pickupReferences = pickups.length === 2 ? order.pickups.map((line, index) => ({
+    stopSequence: pickups[index].order_sequence,
+    locationCode: pickups[index].location_id,
+    qualifier: "PU",
+    referenceNumber: `${order.mark.toUpperCase()} ${line.bales} BALES`,
+  })) : [];
+
+  // Keep local times explicit until their McLeod encoding is confirmed.
   return {
     salesOrder: order.salesOrder,
     baleCount: order.bales,
+    pickupReferences,
     order: {
       __type: "orders", company_id: "TMS", status: "A", customer_id: preview.customerId,
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
+      order_type_id: "FSC", order_mode: "T", ordered_by: order.salesOrder,
       equipment_type_id: equipmentCode,
       blnum: preview.blnum, consignee_refno: order.mark.toUpperCase(),
       stops: [...pickups, {

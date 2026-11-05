@@ -32,7 +32,7 @@ test("Houston honors effective facility restrictions and flags unknown pickup eq
 test("Houston draft sends the validated McLeod equipment code", () => {
   const proposal = { customerId: "BUNGOMNE", revenueCode: "MAIN", commodity: "COTTON", deliveryLocation: "SUPPBAT1",
     blnum: "EH020 90 BALES", pickupStops: [stop("GULFCOT2")] };
-  const order = { salesOrder: "2601968", mark: "EH020", bales: 90 };
+  const order = { salesOrder: "2601968", mark: "EH020", bales: 90, pickups: [{ bales: 90 }] };
   const windows = [{ early: "08:00", late: "16:00" }];
   for (const code of ["V", "VT", "FT"]) {
     assert.equal(draftHoustonOrder(order, proposal, windows, code).order.equipment_type_id, code);

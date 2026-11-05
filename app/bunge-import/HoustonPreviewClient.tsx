@@ -24,6 +24,7 @@ type Result = {
 };
 type Preflight = {
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
+  draft?: { pickupReferences: { stopSequence: number; locationCode: string; qualifier: string; referenceNumber: string }[] };
   duplicates?: { id: string; blnum: string }[];
   delivery?: { code: string; address: string; address2: string; city: string; state: string; zip: string };
   dispatchDestination?: { address: string[] };
@@ -126,6 +127,12 @@ export default function HoustonPreviewClient() {
             {checked.data.dispatchDestination && <div><dt>Workbook delivery address</dt>
               <dd>{checked.data.dispatchDestination.address.join(", ")}</dd></div>}
           </dl>}
+          {!!checked.data.draft?.pickupReferences.length && <section aria-label="Draft pickup references">
+            <h4>Pickup references</h4>
+            <ul>{checked.data.draft.pickupReferences.map(reference => <li key={reference.stopSequence}>
+              Pickup {reference.stopSequence} · {reference.locationCode} · {reference.qualifier} · {reference.referenceNumber}
+            </li>)}</ul>
+          </section>}
           <details><summary>Show server response</summary><pre className={layout.response}>{JSON.stringify(checked.data, null, 2)}</pre></details>
         </section>}
       </div>
