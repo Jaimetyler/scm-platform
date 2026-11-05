@@ -26,6 +26,7 @@ type Result = {
 type Preflight = {
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
   draft?: {
+    deliveryDate?: string;
     pickupReferences: { stopSequence: number; locationCode: string; qualifier: string; referenceNumber: string }[];
     pickupNotes?: { stopSequence: number; locationCode: string; comment: string }[];
   };
@@ -127,7 +128,7 @@ export default function HoustonPreviewClient() {
             <div><dt>Proposed McLeod delivery · {checked.data.delivery.code}</dt><dd>{[
               checked.data.delivery.address, checked.data.delivery.address2, checked.data.delivery.city,
               checked.data.delivery.state, checked.data.delivery.zip,
-            ].filter(Boolean).join(", ")}</dd><dd>{checked.data.delivery.receivingHours.open}–{checked.data.delivery.receivingHours.close} local · {checked.data.delivery.receivingHours.method}</dd></div>
+            ].filter(Boolean).join(", ")}</dd><dd>{checked.data.draft?.deliveryDate && `${checked.data.draft.deliveryDate} · `}{checked.data.delivery.receivingHours.open}–{checked.data.delivery.receivingHours.close} local · {checked.data.delivery.receivingHours.method}</dd></div>
             {checked.data.dispatchDestination && <div><dt>Workbook delivery address</dt>
               <dd>{checked.data.dispatchDestination.address.join(", ")}</dd></div>}
           </dl>}

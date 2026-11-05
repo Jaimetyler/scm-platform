@@ -45,3 +45,40 @@ export function terminalDeliveryCode(terminal: InboundTerminal, value: unknown):
 export function inboundTerminal(value: unknown) {
  return inboundTerminals.find(terminal => terminal.id === value);
 }
+
+function observedFixedHoliday(year: number, month: number, day: number) {
+ const date = new Date(Date.UTC(year, month, day));
+ if (date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() - 1);
+ if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() + 1);
+ return date.toISOString().slice(0, 10);
+}
+
+function isMajorUsHoliday(date: Date) {
+ const year = date.getUTCFullYear(), month = date.getUTCMonth(), day = date.getUTCDate();
+ const weekday = date.getUTCDay(), key = date.toISOString().slice(0, 10);
+ return [
+  observedFixedHoliday(year, 0, 1),
+  observedFixedHoliday(year + 1, 0, 1),
+  observedFixedHoliday(year, 6, 4),
+  observedFixedHoliday(year, 11, 25),
+ ].includes(key) ||
+  (month === 4 && weekday === 1 && day >= 25) ||
+  (month === 8 && weekday === 1 && day <= 7) ||
+  (month === 10 && weekday === 4 && day >= 22 && day <= 28);
+}
+
+export function defaultDeliveryDate(pickupDates: readonly (string | null)[]): string | null {
+ if (!pickupDates.length) return null;
+ let lastPickup = "";
+ for (const value of pickupDates) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return null;
+  if (value > lastPickup) lastPickup = value;
+ }
+ const delivery = new Date(`${lastPickup}T00:00:00Z`);
+ do {
+  delivery.setUTCDate(delivery.getUTCDate() + 1);
+ } while ([0, 6].includes(delivery.getUTCDay()) || isMajorUsHoliday(delivery));
+ return delivery.toISOString().slice(0, 10);
+}

@@ -16,6 +16,8 @@ test("a two-pickup draft preserves the combined BOL and individual PU counts", (
   assert.equal(draft.order.consignee_refno, "NX005");
   assert.equal(draft.order.ordered_by, "2601771");
   assert.equal(draft.order.order_type_id, "FSC");
+  assert.equal(draft.order.stops.at(-1).sched_arrive_early, "2026-11-11T07:00:00");
+  assert.equal(draft.order.stops.at(-1).sched_arrive_late, "2026-11-11T20:00:00");
   assert.deepEqual(draft.pickupReferences, [
     { stopSequence: 1, locationCode: "MOODGAT4", qualifier: "PU", referenceNumber: "NX005 40 BALES" },
     { stopSequence: 2, locationCode: "MOODGAT3", qualifier: "PU", referenceNumber: "NX005 51 BALES" },

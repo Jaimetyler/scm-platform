@@ -104,3 +104,20 @@ test('SCM delivery locations default to local FCFS hours with Baytown extended r
  }
  assert.throws(()=>scmReceivingHours('UNKNOWN'),/SCM delivery/);
 });
+
+test('delivery defaults use the last pickup, with Friday rolling to Monday', () => {
+ const {defaultDeliveryDate}=load('lib/bunge/destinations.ts');
+ assert.equal(defaultDeliveryDate(['2026-11-11']), '2026-11-12');
+ assert.equal(defaultDeliveryDate(['2026-11-13','2026-11-12']), '2026-11-16');
+ assert.equal(defaultDeliveryDate(['2026-12-31']), '2027-01-04');
+ assert.equal(defaultDeliveryDate(['2021-12-30']), '2022-01-03');
+ assert.equal(defaultDeliveryDate(['2026-07-02']), '2026-07-06');
+ assert.equal(defaultDeliveryDate(['2027-07-02']), '2027-07-06');
+ assert.equal(defaultDeliveryDate(['2026-11-25']), '2026-11-27');
+ assert.equal(defaultDeliveryDate(['2026-09-04']), '2026-09-08');
+ assert.equal(defaultDeliveryDate(['2026-05-22']), '2026-05-26');
+ assert.equal(defaultDeliveryDate(['2026-12-24']), '2026-12-28');
+ assert.equal(defaultDeliveryDate(['2026-11-14']), '2026-11-16');
+ assert.equal(defaultDeliveryDate(['2026-11-11',null]), null);
+ assert.equal(defaultDeliveryDate(['2026-11-31']), null);
+});

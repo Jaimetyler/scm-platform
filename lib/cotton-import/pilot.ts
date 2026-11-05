@@ -1,3 +1,4 @@
+import { defaultDeliveryDate, scmReceivingHours } from "../bunge/destinations.ts";
 import type { CottonOrderPreview } from "./preview.ts";
 import type { McLeodCottonEquipmentCode } from "./equipment.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
@@ -39,11 +40,16 @@ export function draftHoustonOrder(
     referenceNumber: `${order.mark.toUpperCase()} ${line.bales} BALES`,
   })) : [];
 
+  const deliveryDate = defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
+  if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
+  const receiving = scmReceivingHours(preview.deliveryLocation);
+
   // Keep local times explicit until their McLeod encoding is confirmed.
   return {
     salesOrder: order.salesOrder,
     baleCount: order.bales,
     pickupReferences,
+    deliveryDate,
     order: {
       __type: "orders", company_id: "TMS", status: "A", customer_id: preview.customerId,
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
@@ -53,6 +59,9 @@ export function draftHoustonOrder(
       stops: [...pickups, {
         __type: "stop", __name: "stops", company_id: "TMS", stop_type: "SO",
         status: "A", order_sequence: pickups.length + 1, location_id: preview.deliveryLocation,
+        sched_arrive_early: `${deliveryDate}T${receiving.open}:00`,
+        sched_arrive_late: `${deliveryDate}T${receiving.close}:00`,
+        timezone: receiving.timezone,
       }],
     },
   };
