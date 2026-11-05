@@ -3,14 +3,14 @@ import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
-export function unitedAgPilotPayload(draft: Draft) {
-  if (draft.salesOrder !== "2601730" || draft.order.blnum !== "C0437 90 BALES" || draft.baleCount !== 90 ||
+export function houstonPilotPayload(draft: Draft) {
+  if (draft.salesOrder !== "2601780" || draft.order.blnum !== "NM293 90 BALES" || draft.baleCount !== 90 ||
       draft.order.equipment_type_id !== "V" || draft.order.stops.length !== 2 ||
-      draft.order.stops[0].location_id !== "UNITELTX" || draft.order.stops[1].location_id !== "SUPPBAT1" ||
-      draft.order.stops[0].sched_arrive_early !== "2026-11-11T07:00:00" ||
-      draft.order.stops[0].sched_arrive_late !== "2026-11-11T16:00:00" ||
-      draft.order.stops[1].sched_arrive_early !== "2026-11-12T07:00:00" ||
-      draft.order.stops[1].sched_arrive_late !== "2026-11-12T20:00:00")
+      draft.order.stops[0].location_id !== "MOODGAT3" || draft.order.stops[1].location_id !== "SUPPBAT1" ||
+      draft.order.stops[0].sched_arrive_early !== "2026-11-12T08:00:00" ||
+      draft.order.stops[0].sched_arrive_late !== "2026-11-12T15:00:00" ||
+      draft.order.stops[1].sched_arrive_early !== "2026-11-13T07:00:00" ||
+      draft.order.stops[1].sched_arrive_late !== "2026-11-13T20:00:00")
     return null;
   return {
     ...draft.order,
@@ -23,14 +23,14 @@ export function unitedAgPilotPayload(draft: Draft) {
   };
 }
 
-type Payload = NonNullable<ReturnType<typeof unitedAgPilotPayload>>;
+type Payload = NonNullable<ReturnType<typeof houstonPilotPayload>>;
 function instant(value: unknown) {
   const raw = String(value ?? "");
   const iso = raw.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})$/, "$1-$2-$3T$4:$5:$6$7");
   return /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? Date.parse(iso) : NaN;
 }
 
-export function verifyUnitedAgPilot(actual: Record<string, unknown>, id: string, expected: Payload) {
+export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, expected: Payload) {
   const fields = ["company_id", "status", "customer_id", "revenue_code_id", "commodity_id",
     "order_type_id", "order_mode", "ordered_by", "equipment_type_id", "blnum", "consignee_refno",
     "rate_type"] as const;

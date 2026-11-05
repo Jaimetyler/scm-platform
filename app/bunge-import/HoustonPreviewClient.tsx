@@ -149,7 +149,7 @@ export default function HoustonPreviewClient() {
             {checked.data.draft.pickupNotes.map(note => <pre className={layout.response} key={note.stopSequence}>{note.comment}</pre>)}
           </section>}
           {checked.data.canCreate && checked.data.reviewToken && <button type="button" disabled={!!busy} onClick={() => {
-            if (window.confirm("Create SO 2601730 in live McLeod? This will create one order.")) void preflight(checked.data.reviewToken);
+            if (window.confirm(`Create SO ${checked.salesOrder} in live McLeod? This will create one order.`)) void preflight(checked.data.reviewToken);
           }}>Create one live pilot order</button>}
           <details><summary>Show server response</summary><pre className={layout.response}>{JSON.stringify(checked.data, null, 2)}</pre></details>
         </section>}

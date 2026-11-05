@@ -11,7 +11,7 @@ import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
 import { draftPickupNotes } from "@/lib/cotton-import/pickup-notes";
-import { unitedAgPilotPayload, verifyUnitedAgPilot } from "@/lib/cotton-import/pilot-create";
+import { houstonPilotPayload, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
@@ -23,7 +23,7 @@ async function preflight(req: NextRequest) {
   const form = await req.formData();
   const create = form.get("action") === "create-pilot";
   const pilotEnabled = process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
-  if (create && !pilotEnabled) throw Error("The United Ag pilot is disabled.");
+  if (create && !pilotEnabled) throw Error("The Houston pilot is disabled.");
   const destination = terminalDeliveryCode("houston", form.get("destination"));
   if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
   const file = form.get("file");
@@ -138,13 +138,13 @@ async function preflight(req: NextRequest) {
 
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
-  const payload = unitedAgPilotPayload(draft);
+  const payload = houstonPilotPayload(draft);
   const canCreate = Boolean(pilotEnabled && payload && existing.data &&
     saved.data.destination_code === proposal.deliveryLocation);
   const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id })).digest("hex") : null;
   if (create) {
     if (!canCreate || !payload || form.get("reviewToken") !== reviewToken)
-      throw Error("Run a fresh preflight for the approved United Ag order and review the draft before creating.");
+      throw Error("Run a fresh preflight for the approved Houston pilot order and review the draft before creating.");
     const base = process.env.MCLEOD_BASE_URL;
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw Error("McLeod create connection is unavailable.");
@@ -173,7 +173,7 @@ async function preflight(req: NextRequest) {
       orderId = id;
       status = "created";
       const actual = await vendor(true).read("/orders/" + encodeURIComponent(id));
-      const mismatches = verifyUnitedAgPilot(actual, id, payload);
+      const mismatches = verifyHoustonPilot(actual, id, payload);
       if (mismatches.length) throw Error("Read-back differs: " + mismatches.join(", "));
       status = "verified";
     } catch (cause) {
