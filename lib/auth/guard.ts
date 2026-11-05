@@ -28,7 +28,10 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
     path === "/api/bunge-import" && ["GET", "POST"].includes(req.method) ||
     ["/api/cotton-import/upload", "/api/cotton-import/preflight"].includes(path) && req.method === "POST"
   )) return;
-  // Outreach is a separate staff workflow; policy approval remains administrator-only.
+  // Location evidence is available to dispatchers and operators without master-data access.
+  if ((path === "/api/cotton-locations" || path === "/api/cotton-locations/policies") && req.method === "GET") return;
+  if (["/api/cotton-locations/review", "/api/cotton-locations/outreach/documents"].includes(path) && req.method === "POST") return;
+  // Document and equipment permissions continue to use the existing outreach endpoints.
   if (/^\/api\/cotton-locations\/outreach(?:\/(?:documents|equipment))?$/.test(path) &&
       (req.method === "GET" || staff.role === "operator" && ["POST", "PATCH"].includes(req.method))) return;
   if (["GET", "HEAD"].includes(req.method) && warehouseReadPath(path)) {

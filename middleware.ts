@@ -13,9 +13,9 @@ export async function middleware(req: NextRequest) {
     const { staff } = await session.identity();
     if (staff.status === "pending") return session.finish(NextResponse.redirect(new URL("/auth/password", req.url)));
     const warehouse = path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/");
-    const outreach = path === "/cotton-locations/outreach";
+    const cottonLocations = ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path);
     const importer = (path === "/bunge-import" || path === "/cotton-import") && canUseInboundImporter(staff);
-    if (staff.role !== "admin" && !outreach && !importer && (path === "/" || !warehouse || path === "/warehouse/gate"))
+    if (staff.role !== "admin" && !cottonLocations && !importer && (path === "/" || !warehouse || path === "/warehouse/gate"))
       return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
     if (staff.role === "operator") {
       const routeTerminal = path.match(/^\/(?:warehouse\/(?:outbound|inventory|gate)|inbound\/checkin)\/(hou|sav)\//i)?.[1]?.toUpperCase();

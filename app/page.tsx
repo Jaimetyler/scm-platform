@@ -78,7 +78,7 @@ export default function Home() {
         }}
       >
         <Link href="/bunge-import" style={cardStylePrimary}><h2>Inbound Order Importer</h2><p>Review Savannah, Dallas and Houston dispatches, warehouse mappings and pickup windows.</p></Link>
-        <Link href="/cotton-locations/outreach" style={cardStylePrimary}><h2>Tariff Outreach</h2><p>Collect current warehouse tariffs, track follow-ups and review documents.</p></Link>
+        <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>Find tariff documents and record pickup hours and fees by location.</p></Link>
         <Link href="/dray-import" style={cardStylePrimary}><h2>Savannah Dray Import</h2><p>Match FirstStar carrier pay, review billing and deliver orders.</p></Link>
         <Link href="/pnl" style={cardStyleLocked}>
           <div
