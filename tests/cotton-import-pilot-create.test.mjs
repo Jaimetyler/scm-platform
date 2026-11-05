@@ -14,6 +14,9 @@ test("United Ag pilot is scoped to the reviewed order and verifies the saved McL
   const payload = unitedAgPilotPayload(draft);
   assert.equal(payload.stops[0].sched_arrive_early, "20261111070000-0600");
   assert.equal(payload.stops[1].sched_arrive_late, "20261112200000-0600");
+  assert.equal(payload.collection_method, "T");
+  assert.equal(payload.rate_type, "F");
+  assert.equal(payload.rate_units, 1);
   assert.equal(payload.rate, undefined);
   const actual = { ...payload, id: "1234567", stops: payload.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
   assert.deepEqual(verifyUnitedAgPilot(actual, actual.id, payload), []);

@@ -14,6 +14,9 @@ export function unitedAgPilotPayload(draft: Draft) {
     return null;
   return {
     ...draft.order,
+    collection_method: "T",
+    rate_type: "F",
+    rate_units: 1,
     stops: draft.order.stops.map(({ timezone, ...stop }) => {
       if (timezone !== "America/Chicago") throw Error("Pilot stop timezone changed.");
       const stamp = (value: string) => warehouseWallTime(value.slice(0, 10), Number(value.slice(11, 13)), Number(value.slice(14, 16)), "HOU");
@@ -31,7 +34,8 @@ function instant(value: unknown) {
 
 export function verifyUnitedAgPilot(actual: Record<string, unknown>, id: string, expected: Payload) {
   const fields = ["company_id", "status", "customer_id", "revenue_code_id", "commodity_id",
-    "order_type_id", "order_mode", "ordered_by", "equipment_type_id", "blnum", "consignee_refno"] as const;
+    "order_type_id", "order_mode", "ordered_by", "equipment_type_id", "blnum", "consignee_refno",
+    "collection_method", "rate_type"] as const;
   const mismatches: string[] = fields.filter(field => String(actual[field] ?? "").trim() !== expected[field]);
   if (String(actual.id ?? "").trim() !== id) mismatches.push("id");
   const stops = Array.isArray(actual.stops) ? actual.stops : [];
