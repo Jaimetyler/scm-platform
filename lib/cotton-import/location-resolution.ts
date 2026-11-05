@@ -60,6 +60,8 @@ export function resolveCottonWarehouseName(
   // Confirmed Bunge Houston dispatch aliases; resolve to the master rather than inventing locations.
   const houstonAliases: Record<string,string> = {
     "MOODY COMPRESS #03":"MOODGAT4",
+    "MOODY COMPRESS AND WAREHOUSE #03":"MOODGAT4",
+    "MOODY COMPRESS AND WAREHOUSE #04":"MOODGAT3",
     "MOODY COMPRESS #04":"MOODGAT3",
     "MOODY COMPRESS #3":"MOODGAT4",
     "MOODY COMPRESS #4":"MOODGAT3",
@@ -67,6 +69,7 @@ export function resolveCottonWarehouseName(
     "GULF COMPRESS #1":"GULFCOT2",
     "TAYLOR COMPRESS":"TAYLTAT1",
     "UNITED AGRICULTURAL COOPERATIVE":"UNITELTX",
+    "UNITED AGRICULTURAL COOPERATIVE, INC.":"UNITELTX",
     "UNITED AGRICULTURAL CO-OP":"UNITELTX",
   };
   if (houstonAliases[name]) return resolveCottonLocation(houstonAliases[name], locations);
