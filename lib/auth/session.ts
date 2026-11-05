@@ -11,7 +11,10 @@ export function staffDatabase() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: dependencyFetch } });
 }
 export function appOrigin() {
-  const origin = new URL(process.env.SCM_APP_URL || "http://localhost:3000").origin;
+  const previewHost = process.env.VERCEL_ENV === "preview" &&
+    process.env.VERCEL_GIT_COMMIT_REF === "integration/houston-bunge-import-20261105"
+    ? process.env.VERCEL_URL : undefined;
+  const origin = new URL(process.env.SCM_APP_URL || (previewHost ? `https://${previewHost}` : "http://localhost:3000")).origin;
   if (process.env.NODE_ENV === "production" && !origin.startsWith("https://")) throw new Error("Set SCM_APP_URL to the production HTTPS origin");
   return origin;
 }

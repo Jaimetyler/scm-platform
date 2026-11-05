@@ -77,6 +77,7 @@ export default function Home() {
           gap: 20,
         }}
       >
+        <Link href="/cotton-import" style={cardStylePrimary}><h2>Houston Bunge Import</h2><p>Preview Houston dispatches and run single-order McLeod preflight.</p></Link>
         <Link href="/bunge-import" style={cardStylePrimary}><h2>Bunge Order Preview</h2><p>Review domestic cotton dispatches, warehouse mappings and multi-stop pickups.</p></Link>
         <Link href="/cotton-locations/outreach" style={cardStylePrimary}><h2>Tariff Outreach</h2><p>Collect current warehouse tariffs, track follow-ups and review documents.</p></Link>
         <Link href="/dray-import" style={cardStylePrimary}><h2>Savannah Dray Import</h2><p>Match FirstStar carrier pay, review billing and deliver orders.</p></Link>
