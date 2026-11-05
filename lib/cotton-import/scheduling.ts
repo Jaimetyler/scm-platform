@@ -4,7 +4,7 @@ export type CottonSchedule = {
   appointment_required: boolean | null; verified: boolean | null;
   effective_from: string | null; effective_to: string | null;
 };
-const clock = (v: string | null) => v && /^([01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?$/.test(v) ? v.slice(0,5) : null;
+const clock = (v: string | null) => v && /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(v) ? v.slice(0,5) : null;
 /** Postgres extract(dow): Sunday=0, Monday=1. No invented appointment times. */
 export function scheduleForPickup(rows: readonly CottonSchedule[], locationId: string, isoDate: string) {
   const dow = new Date(isoDate + "T12:00:00Z").getUTCDay();
