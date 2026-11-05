@@ -7,7 +7,7 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
   const destination = str(rows.find(r => str(r[0]).toUpperCase() === "DESTINATION:")?.[1]);
   if (!destination) throw new Error("Dispatch destination missing");
   const destinationKind = /DALLAS\s*#?\s*2/i.test(destination) ? "DALLAS_2"
-    : /SAVANNAH|\(SAV\)/i.test(destination) ? "SAVANNAH" : "UNKNOWN";
+    : /SAVANNAH|\(SAV\)/i.test(destination) ? "SAVANNAH" : /HOUSTON|PASADENA|BAYTOWN|UNDERWOOD|\(HOU\)/i.test(destination) ? "HOUSTON" : "UNKNOWN";
   if (destinationKind === "UNKNOWN") throw new Error("Unrecognized Bunge dispatch destination");
   const grouped = new Map<string, DispatchOrder>();
   const blocked: { row: number; reason: string }[] = [];
