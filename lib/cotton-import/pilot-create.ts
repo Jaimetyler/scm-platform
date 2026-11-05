@@ -72,16 +72,29 @@ export function matchCorrectedSchedule(payload: Payload, example: Record<string,
       example.customer_id !== payload.customer_id || example.blnum !== "NM293 90 BALES" ||
       !Array.isArray(example.stops) || example.stops.length !== payload.stops.length)
     throw Error("McLeod order 0829468 could not be verified as the schedule reference.");
-  return { ...payload, stops: payload.stops.map(stop => {
-    const matches = (example.stops as Record<string, unknown>[]).filter(row => Number(row.order_sequence) === stop.order_sequence);
+  const [pickup, delivery] = payload.stops;
+  const stops = example.stops as Record<string, unknown>[];
+  const matchingStop = (stop: typeof pickup) => {
+    const matches = stops.filter(row => Number(row.order_sequence) === stop.order_sequence);
     const [saved] = matches;
     if (matches.length !== 1 || saved.stop_type !== stop.stop_type || saved.location_id !== stop.location_id)
       throw Error(`Reference order stop ${stop.order_sequence} does not match the pilot route.`);
-    const early = String(saved.sched_arrive_early ?? "").trim();
-    const late = String(saved.sched_arrive_late ?? "").trim();
-    if (![early, late].every(value => /^\d{14}[+-]\d{4}$/.test(value)) ||
-        localClock(early) !== stop.sched_arrive_early || localClock(late) !== stop.sched_arrive_late)
-      throw Error(`Reference order stop ${stop.order_sequence} must show ${stop.sched_arrive_early}–${stop.sched_arrive_late} local. McLeod returned ${early || "blank"} and ${late || "blank"}.`);
-    return { ...stop, sched_arrive_early: early, sched_arrive_late: late };
-  }) };
+    return saved;
+  };
+  const savedPickup = matchingStop(pickup);
+  matchingStop(delivery);
+  const early = String(savedPickup.sched_arrive_early ?? "").trim();
+  const late = String(savedPickup.sched_arrive_late ?? "").trim();
+  const offset = early.match(/^\d{14}([+-]\d{4})$/)?.[1];
+  if (!offset || !late.match(/^\d{14}([+-]\d{4})$/) || late.slice(-5) !== offset ||
+      localClock(early) !== pickup.sched_arrive_early || localClock(late) !== pickup.sched_arrive_late)
+    throw Error(`Reference order stop 1 must show 08:00–15:00 local. McLeod returned ${early || "blank"} and ${late || "blank"}.`);
+  // Both pilot stops are in the same time zone on consecutive dates, with no DST change.
+  // Keep the Baytown wall times and use the encoding observed on the corrected pickup.
+  const encode = (wallTime: string) => wallTime.replace(/[-:T]/g, "") + offset;
+  return { ...payload, stops: [
+    { ...pickup, sched_arrive_early: early, sched_arrive_late: late },
+    { ...delivery, sched_arrive_early: encode(delivery.sched_arrive_early),
+      sched_arrive_late: encode(delivery.sched_arrive_late) },
+  ] };
 }

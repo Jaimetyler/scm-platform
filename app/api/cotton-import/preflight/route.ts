@@ -163,9 +163,8 @@ async function preflight(req: NextRequest) {
     const base = process.env.MCLEOD_BASE_URL;
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw Error("McLeod create connection is unavailable.");
-    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req), ...(correctedRetry ? {
-      previousAttempt: { request: saved.data.reviewed_payload, error: saved.data.error_message, at: saved.data.updated_at },
-    } : {}) },
+    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req), ...(saved.data.reviewed_payload?.previousAttempt ? { previousAttempt: saved.data.reviewed_payload.previousAttempt }
+      : correctedRetry ? { previousAttempt: { request: saved.data.reviewed_payload, error: saved.data.error_message, at: saved.data.updated_at } } : {}) },
       updated_at: new Date().toISOString() }).eq("id", saved.data.id).eq("status", saved.data.status).eq("updated_at", saved.data.updated_at)
       .eq("source_hash", saved.data.source_hash).is("mcleod_order_id", null).select("id").maybeSingle();
     if (claim.error || !claim.data) throw Error("Pilot claim failed. Check the audit record before retrying.");

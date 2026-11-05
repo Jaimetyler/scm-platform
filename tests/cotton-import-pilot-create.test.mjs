@@ -25,7 +25,10 @@ test("Houston pilot is scoped to the reviewed order and verifies the saved McLeo
       sched_arrive_late: stop.sched_arrive_late.replace(/[-:T]/g, "") + "-0500",
     })),
   };
-  assert.equal(matchCorrectedSchedule(payload, example).stops[0].sched_arrive_early, "20261112080000-0500");
+  example.stops[1].sched_arrive_early = "20261113080000-0500";
+  const matched = matchCorrectedSchedule(payload, example);
+  assert.equal(matched.stops[0].sched_arrive_early, "20261112080000-0500");
+  assert.equal(matched.stops[1].sched_arrive_early, "20261113070000-0500");
   example.stops[0].sched_arrive_early = "20261112090000-0500";
   assert.throws(() => matchCorrectedSchedule(payload, example), /Reference order stop 1/);
   const actual = { ...payload, id: "1234567", stops: payload.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
