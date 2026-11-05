@@ -65,7 +65,7 @@ async function upload(req: NextRequest) {
     if (!review.preview) return review;
     const windows = review.preview.pickupStops.map(stop => ({
       locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
-      ...scheduleForPickup(scheduleRows, stop.locationId, stop.scheduledDate)
+      ...scheduleForPickup(scheduleRows, stop.locationId, stop.scheduledDate, stop.locationCode)
     }));
     const pickupPolicies = review.preview.pickupStops.map(stop => ({locationCode:stop.locationCode, originalRtlDate:stop.scheduledDate, versions:(policyByLocation.get(stop.locationId) ?? []).filter(p => (!p.effective_from || p.effective_from <= stop.scheduledDate) && (!p.effective_to || p.effective_to >= stop.scheduledDate))}));
     return {...review, pickupWindows: windows, pickupPolicies,
