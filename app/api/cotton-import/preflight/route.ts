@@ -65,7 +65,7 @@ async function preflight(req: NextRequest) {
     locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
     ...scheduleForPickup(schedules.data as CottonSchedule[], stop.locationId, stop.scheduledDate, stop.locationCode),
   }));
-  const response = { ok: true, canCreate: false, salesOrder, blnum: proposal.blnum, windows, equipment };
+  const response = { ok: true, canCreate: false, pilotBuild: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7), salesOrder, blnum: proposal.blnum, windows, equipment };
   if (!equipment.code) return NextResponse.json({ ...response, reason: equipment.reason || "Equipment requires review." });
   if (windows.some(window => window.status !== "ready"))
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
@@ -140,8 +140,12 @@ async function preflight(req: NextRequest) {
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
   const payload = houstonPilotPayload(draft);
-  const canCreate = Boolean(pilotEnabled && payload && existing.data &&
-    saved.data.destination_code === proposal.deliveryLocation);
+  const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
+    : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601780 pilot."
+    : !existing.data ? "The audit entry was just saved. Run preflight again before creating."
+    : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
+    : null;
+  const canCreate = createBlock === null;
   const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id, auditVersion: saved.data.updated_at })).digest("hex") : null;
   if (create) {
     if (!canCreate || !payload || form.get("reviewToken") !== reviewToken)
@@ -196,9 +200,10 @@ async function preflight(req: NextRequest) {
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
     draft, canCreate, reviewToken,
-    reason: saved.data.destination_code === proposal.deliveryLocation
-      ? canCreate ? (correctedRetry ? "McLeod rejected the previous request for a missing billing method. The corrected one-order retry is ready." : "Ready for the one-order McLeod pilot.") : "Audit record verified and no matching BLNUM found. Creation is disabled for this order."
-      : `No matching BLNUM found. The existing audit record uses ${saved.data.destination_code}. The new delivery selection is shown in the draft and needs audit reconciliation before the pilot.`,
+    reason: createBlock ?? (correctedRetry
+      ? "McLeod rejected the previous request for a missing billing method. The corrected one-order retry is ready."
+      : "Ready for the one-order McLeod pilot."),
+
   });
 }
 

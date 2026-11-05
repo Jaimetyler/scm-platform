@@ -24,7 +24,7 @@ type Result = {
   reviews: Review[]; sourceErrors: { row: number; reason: string }[];
 };
 type Preflight = {
-  canCreate?: boolean; reviewToken?: string;
+  canCreate?: boolean; reviewToken?: string; pilotBuild?: string;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
   draft?: {
     deliveryDate?: string;
@@ -148,9 +148,13 @@ export default function HoustonPreviewClient() {
             <h4>Draft dispatch notes</h4>
             {checked.data.draft.pickupNotes.map(note => <pre className={layout.response} key={note.stopSequence}>{note.comment}</pre>)}
           </section>}
-          {checked.data.canCreate && checked.data.reviewToken && <button type="button" disabled={!!busy} onClick={() => {
-            if (window.confirm(`Create SO ${checked.salesOrder} in live McLeod? This will create one order.`)) void preflight(checked.data.reviewToken);
-          }}>Create one live pilot order</button>}
+          <div className={layout.actions}>
+            <button type="button" disabled={!!busy || !checked.data.canCreate || !checked.data.reviewToken} onClick={() => {
+              if (window.confirm(`Create SO ${checked.salesOrder} in live McLeod? This will create one order.`)) void preflight(checked.data.reviewToken);
+            }}>Create one live pilot order</button>
+            <span>{checked.data.canCreate ? "Ready" : "Unavailable · see reason above"}
+              {checked.data.pilotBuild && ` · build ${checked.data.pilotBuild}`}</span>
+          </div>
           <details><summary>Show server response</summary><pre className={layout.response}>{JSON.stringify(checked.data, null, 2)}</pre></details>
         </section>}
       </div>
