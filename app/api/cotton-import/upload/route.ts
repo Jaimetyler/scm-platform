@@ -35,13 +35,36 @@ async function upload(req: NextRequest) {
       return NextResponse.json({ok:false,error:"Location schedules unavailable; cannot validate pickup windows."},{status:503});
     scheduleRows = response.data as CottonSchedule[];
   }
+  const policyByLocation = new Map<string, {status:string; effective_from:string|null; effective_to:string|null; rules:unknown[]}[]>();
+  if (uniqueIds.length) {
+    const policies = await staffDatabase().from("cotton_location_policy_versions")
+      .select("id,location_id,status,effective_from,effective_to")
+      .in("location_id",uniqueIds).limit(5000);
+    if (policies.error || !policies.data)
+      return NextResponse.json({ok:false,error:"Location policies unavailable; preview blocked."},{status:503});
+    const versionIds = policies.data.map(p=>p.id);
+    const rules = versionIds.length
+      ? await staffDatabase().from("cotton_location_policy_rules")
+          .select("policy_version_id,rule_kind,fee_type,amount,grace_days,grace_unit,avoidable_fee,conditions,notes")
+          .in("policy_version_id",versionIds).limit(5000)
+      : {data:[],error:null};
+    if (rules.error || !rules.data)
+      return NextResponse.json({ok:false,error:"Location policy rules unavailable; preview blocked."},{status:503});
+    for (const p of policies.data) {
+      const list = policyByLocation.get(p.location_id) ?? [];
+      list.push({status:p.status,effective_from:p.effective_from,effective_to:p.effective_to,
+        rules:rules.data.filter(r=>r.policy_version_id===p.id)});
+      policyByLocation.set(p.location_id,list);
+    }
+  }
   const scheduledReviews = reviews.map(review => {
     if (!review.preview) return review;
     const windows = review.preview.pickupStops.map(stop => ({
       locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
       ...scheduleForPickup(scheduleRows, stop.locationId, stop.scheduledDate)
     }));
-    return {...review, pickupWindows: windows,
+    const pickupPolicies = review.preview.pickupStops.map(stop => ({locationCode:stop.locationCode, originalRtlDate:stop.scheduledDate, versions:(policyByLocation.get(stop.locationId) ?? []).filter(p => (!p.effective_from || p.effective_from <= stop.scheduledDate) && (!p.effective_to || p.effective_to >= stop.scheduledDate))}));
+    return {...review, pickupWindows: windows, pickupPolicies,
       reason: windows.some(w => w.status !== "ready")
         ? "Pickup hours or appointment requirements need review: " + windows.filter(w => w.status !== "ready").map(w => w.locationCode + " (" + w.reason + ")").join("; ")
         : "Pickup windows resolved. McLeod duplicate lookup and creation are not enabled."};
