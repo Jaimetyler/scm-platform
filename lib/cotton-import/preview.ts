@@ -11,13 +11,14 @@ export type CottonImportInput = {
   mark: string;
   baleCount: number;
   pickups: CottonPickup[];
+  deliveryLocation?: "SAVAGAG2" | "SUPPBAT1";
 };
 export type CottonOrderPreview = {
   customerId: string;
   revenueCode: "MAIN" | "DAVIS";
   blnum: string;
   commodity: "COTTON";
-  deliveryLocation: "SAVAGAG2";
+  deliveryLocation: "SAVAGAG2" | "SUPPBAT1";
   pickupStops: { locationId: string; locationCode: string; timezone: string; scheduledDate: string; scheduledTime: string | null }[];
   requiresScheduleReview: boolean;
 };
@@ -54,6 +55,6 @@ export function buildCottonOrderPreview(input: CottonImportInput, locations: rea
     return { locationId: location.id, locationCode: location.mcleod_code, timezone: location.timezone!, scheduledDate: date(pickup.scheduledDate), scheduledTime };
   });
   return { customerId, revenueCode: input.revenueCode, blnum, commodity: "COTTON",
-    deliveryLocation: "SAVAGAG2", pickupStops,
+    deliveryLocation: input.deliveryLocation ?? "SAVAGAG2", pickupStops,
     requiresScheduleReview: pickupStops.some(stop => !stop.scheduledTime) };
 }
