@@ -19,3 +19,11 @@ test("missing, unverified and appointment-required schedules require review",()=
  assert.equal(scheduleForPickup([{...base,verified:false}],"loc1","2026-11-05").status,"review_required");
  assert.equal(scheduleForPickup([{...base,appointment_required:true}],"loc1","2026-11-05").status,"review_required");
 });
+
+test("Taylor Compress 2026 holidays override normal weekday hours",()=>{
+ const thanksgiving={...base,weekday:4};
+ const result=scheduleForPickup([thanksgiving],"loc1","2026-11-26","TAYLTAT1");
+ assert.equal(result.status,"review_required");
+ assert.match(result.reason,/closure/);
+ assert.equal(scheduleForPickup([base],"loc1","2026-11-05","TAYLTAT1").status,"ready");
+});
