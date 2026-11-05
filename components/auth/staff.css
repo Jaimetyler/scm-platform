@@ -1,5 +1,9 @@
-.staff-bar { display:flex; gap:18px; justify-content:flex-end; align-items:center; padding:10px 22px; font-size:13px; background:#0b1727; color:#cbd5e1; }
+.staff-bar { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-end; align-items:center; padding:10px 22px; font-size:13px; background:#0b1727; color:#cbd5e1; }
 .staff-bar a { color:#67e8f9; }
+.staff-bar .staff-home { margin-right:auto; color:white; background:#155e75; border:1px solid #64748b; border-radius:6px; padding:8px 14px; text-decoration:none; }
+.staff-home:hover { background:#164e63; }
+.staff-home:focus-visible { outline:2px solid #67e8f9; outline-offset:2px; }
+@media print { .staff-bar { display:none !important; } }
 .staff-bar button,.staff-card button,.staff-users button { cursor:pointer; color:white; background:#155e75; border:1px solid #64748b; border-radius:6px; padding:8px 14px; }
 .staff-card { max-width:440px; margin:70px auto; padding:28px; border:1px solid #334155; border-radius:12px; background:#0f172a; color:#e2e8f0; }
 .staff-card h1,.staff-users h1 { font-size:26px; font-weight:700; margin-bottom:12px; }

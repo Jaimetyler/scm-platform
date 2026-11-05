@@ -59,7 +59,7 @@ export default function CottonIntelligence(){
  const linksMissing=(selected?selected.locations:filtered.flatMap(c=>c.locations)).filter(c=>c.relationshipReview).length;
  return <main className={styles.shell}>
   <header className={styles.head}><div><p className={styles.eyebrow}>SCM / REPORTING & ANALYTICS</p><h1>Cotton Intelligence</h1><p className={styles.sub}>Cotton transport and warehouse billing · Jan 2025 – Oct 20, 2026 · Bill-date basis</p></div><div className={styles.tag}>Historical snapshot · Not live</div></header>
-  <p><Link style={{color:'#67e8f9'}} href="/reporting/warehouse-intelligence">3PL & Warehouse Intelligence</Link> · <Link style={{color:'#67e8f9'}} href="/">Platform home</Link></p>
+  <p><Link style={{color:'#67e8f9'}} href="/reporting/warehouse-intelligence">3PL & Warehouse Intelligence</Link></p>
   {loading&&<p role="status">Loading protected cotton data…</p>}
   {error&&<p role="alert">{error}</p>}
   <div className={styles.toolbar}>

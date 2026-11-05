@@ -67,7 +67,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
   return <Context.Provider value={{ location, ready, href }}>
     {visible && <header className="warehouse-workspace" aria-label="Warehouse workspace">
       <div className="warehouse-brand-row"><Link href={href("overview")} className="warehouse-brand">SCM <span>Warehouse operations</span></Link>
-        <div className="warehouse-utilities">{staff?.role === "admin" && <><Link href="/warehouse/gate">Driver QR setup</Link><Link href="/">Platform home</Link></>}</div>
+        <div className="warehouse-utilities">{staff?.role === "admin" && <Link href="/warehouse/gate">Driver QR setup</Link>}</div>
       </div>
       <div className="warehouse-location-row">
         <nav aria-label="Terminal" className="warehouse-location-options">

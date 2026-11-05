@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
-import type { Staff } from "@/lib/auth/policy";
+import { staffHome, type Staff } from "@/lib/auth/policy";
 import "./staff.css";
 const Context = createContext<Staff | null>(null);
 export const useStaff = () => useContext(Context);
@@ -39,6 +39,7 @@ export default function StaffSession({ children }: { children: ReactNode }) {
     if (response.ok) location.assign("/login");
   }
   return <Context.Provider value={staff}>{!publicPage && <div className="staff-bar">
+    <Link className="staff-home" href={staff ? staffHome(staff) : "/"} aria-current={path === "/" ? "page" : undefined}>Platform home</Link>
     <span>{staff ? `${staff.name} · ${staff.role === "operator" ? `${staff.terminal === "HOU" ? "Houston" : "Savannah"} operator` : staff.role === "viewer" ? "Dispatcher / viewer" : "Administrator"}` : "Loading staff account…"}</span>
     {unavailable && <span role="status">Staff access could not be refreshed. Your work is still here. <button disabled={polling.refreshing} onClick={() => void polling.refresh()}>Try again</button></span>}
     {staff?.role === "admin" && <Link href="/admin/users">Manage users</Link>}

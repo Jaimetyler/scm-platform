@@ -351,12 +351,6 @@ export default function PnlPage() {
                 </div>
 
                 <Link
-                  href="/"
-                  className="inline-flex items-center rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-white/10"
-                >
-                  ← Back Home
-                </Link>
-                <Link
                   href="/pnl/upload"
                   className="inline-flex items-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-2.5 text-sm font-medium text-cyan-300 transition hover:bg-cyan-400/15"
                 >

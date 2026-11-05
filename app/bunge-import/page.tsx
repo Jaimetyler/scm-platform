@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { canUseInboundImporter, staffHome } from "@/lib/auth/policy";
+import { canUseInboundImporter } from "@/lib/auth/policy";
 import { requireStaffPage } from "@/lib/auth/page";
 import HoustonPreviewClient from "./HoustonPreviewClient";
 import PreviewClient from "./PreviewClient";
@@ -24,7 +24,6 @@ export default async function Page({ searchParams }: {
         <h1>Inbound order importer</h1>
         <p>Review dispatch rows, warehouse mappings and proposed pickup windows</p>
       </div>
-      <Link href={staffHome(staff)}>Platform home</Link>
     </header>
     <nav aria-label="Inbound location" className={layout.regions}>
       {inboundTerminals.map(location => <Link key={location.id} href={`/bunge-import?terminal=${location.id}`}

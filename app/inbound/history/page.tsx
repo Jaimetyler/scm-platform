@@ -636,9 +636,6 @@ export default function InboundHistoryPage() {
               justifyContent: "flex-start",
             }}
           >
-            <Link href="/" style={linkButtonStyle}>
-              ← Back Home
-            </Link>
 
             <Link href="/inbound" style={linkButtonStyle}>
               Back to Uploader

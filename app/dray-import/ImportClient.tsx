@@ -234,7 +234,7 @@ export default function ImportClient() {
       )}
       <section style={card}>
         <h2>Weekly reports</h2>
-        <p><a href="/ecotton-import">eCotton import</a> · <a href="/">Platform Home</a></p>
+        <p><a href="/ecotton-import">eCotton import</a></p>
         <div className={styles.uploadGrid}>
         <div>
         <label htmlFor="import-profile">Terminal / warehouse</label>

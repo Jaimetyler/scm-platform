@@ -82,19 +82,6 @@ export default function LateFeesLandingPage() {
           SCM Platform
         </div>
 
-        <Link
-          href="/"
-          style={{
-            marginLeft: "auto",
-            textDecoration: "none",
-            color: "#e5e7eb",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 10,
-            padding: "8px 12px",
-          }}
-        >
-          Back Home
-        </Link>
       </div>
 
       <div style={{ marginBottom: 24 }}>
