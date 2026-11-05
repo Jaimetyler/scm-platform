@@ -33,3 +33,12 @@ test("unknown warehouse and Dallas destination fail closed",()=>{
  assert.match(previewBungeDispatchOrders(orders,"DALLAS_2",locations)[0].reason,/destination/);
  assert.equal(previewBungeDispatchOrders(orders,"SAVANNAH",[])[0].status,"blocked");
 });
+
+test("Houston Bunge orders route to Baytown without changing Savannah",()=>{
+ const result=previewBungeDispatchOrders(orders,"HOUSTON",locations);
+ assert.equal(result[0].status,"review_required");
+ assert.equal(result[0].preview.deliveryLocation,"SUPPBAT1");
+ assert.equal(result[0].preview.customerId,"BUNGOMNE");
+ assert.equal(result[0].preview.revenueCode,"MAIN");
+ assert.equal(previewBungeDispatchOrders(orders,"SAVANNAH",locations)[0].preview.deliveryLocation,"SAVAGAG2");
+});
