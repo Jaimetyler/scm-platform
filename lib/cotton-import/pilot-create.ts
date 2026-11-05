@@ -3,7 +3,7 @@ import type { draftHoustonOrder } from "./pilot.ts";
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
 export function houstonPilotPayload(draft: Draft) {
-  if (draft.salesOrder !== "2601780" || draft.order.blnum !== "NM293 90 BALES" || draft.baleCount !== 90 ||
+  if (draft.salesOrder !== "2601887" || draft.order.blnum !== "TA004 89 BALES" || draft.baleCount !== 89 ||
       draft.order.equipment_type_id !== "V" || draft.order.stops.length !== 2 ||
       draft.order.stops[0].location_id !== "MOODGAT3" || draft.order.stops[1].location_id !== "SUPPBAT1" ||
       draft.order.stops[0].sched_arrive_early !== "2026-11-12T08:00:00" ||

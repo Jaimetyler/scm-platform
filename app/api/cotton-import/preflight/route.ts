@@ -141,7 +141,7 @@ async function preflight(req: NextRequest) {
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
   const payload = houstonPilotPayload(draft);
   const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
-    : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601780 pilot."
+    : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601887 pilot."
     : !existing.data ? "The audit entry was just saved. Run preflight again before creating."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;

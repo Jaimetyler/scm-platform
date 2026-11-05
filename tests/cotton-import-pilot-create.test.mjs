@@ -4,13 +4,13 @@ import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
 import { houstonPilotPayload, isMissingCollectionMethodRejection, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
 
 test("Houston pilot is scoped to the reviewed order and verifies the saved McLeod stops", () => {
-  const source = { salesOrder: "2601780", mark: "NM293", bales: 90, pickups: [{ bales: 90 }] };
+  const source = { salesOrder: "2601887", mark: "TA004", bales: 89, pickups: [{ bales: 89 }] };
   const preview = {
     customerId: "BUNGOMNE", revenueCode: "MAIN", commodity: "COTTON", deliveryLocation: "SUPPBAT1",
-    blnum: "NM293 90 BALES", pickupStops: [{ locationCode: "MOODGAT3", scheduledDate: "2026-11-12", timezone: "America/Chicago" }],
+    blnum: "TA004 89 BALES", pickupStops: [{ locationCode: "MOODGAT3", scheduledDate: "2026-11-12", timezone: "America/Chicago" }],
   };
   const draft = draftHoustonOrder(source, preview, [{ early: "08:00", late: "15:00" }], "V");
-  assert.equal(houstonPilotPayload({ ...draft, salesOrder: "2601968" }), null);
+  assert.equal(houstonPilotPayload({ ...draft, salesOrder: "2601780" }), null);
   const payload = houstonPilotPayload(draft);
   assert.equal(payload.stops[0].sched_arrive_early, "2026-11-12T08:00:00");
   assert.equal(payload.stops[1].sched_arrive_late, "2026-11-13T20:00:00");
