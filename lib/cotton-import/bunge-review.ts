@@ -11,12 +11,12 @@ export type DispatchOrderReview = {
 /** This stage never writes to McLeod or assumes a destination code for Dallas #2. */
 export function previewBungeDispatchOrders(
   orders: readonly DispatchOrder[],
-  destinationKind: "SAVANNAH" | "DALLAS_2",
+  destinationKind: "SAVANNAH" | "DALLAS_2" | "HOUSTON",
   locations: readonly CottonLocation[],
 ): DispatchOrderReview[] {
   return orders.map(order => {
     try {
-      if (destinationKind !== "SAVANNAH")
+      if (destinationKind === "DALLAS_2")
         throw new Error("Dallas #2 destination code must be explicitly verified before import.");
       const pickups = order.pickups.map(line => {
         const location = resolveCottonWarehouseName(line.warehouse, locations);
@@ -29,6 +29,7 @@ export function previewBungeDispatchOrders(
       const preview = buildCottonOrderPreview({
         customerId: "BUNGOMNE", revenueCode: "MAIN", mark: order.mark,
         baleCount: order.bales, pickups,
+        deliveryLocation: destinationKind === "HOUSTON" ? "SUPPBAT1" : "SAVAGAG2",
       }, locations);
       return { salesOrder: order.salesOrder, status: "review_required" as const,
         reason: "Pickup schedule, duplicate lookup and final delivery must be verified.", preview };
