@@ -11,7 +11,7 @@ import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
 import { draftPickupNotes } from "@/lib/cotton-import/pickup-notes";
-import { houstonPilotPayload, isMissingCollectionMethodRejection, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
+import { houstonPilotPayload, isArrivalFormatRejection, isMissingCollectionMethodRejection, matchCorrectedSchedule, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
@@ -112,7 +112,8 @@ async function preflight(req: NextRequest) {
   const saved = await findAudit();
   if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
-  const correctedRetry = isMissingCollectionMethodRejection(salesOrder, saved.data);
+  const arrivalRetry = isArrivalFormatRejection(salesOrder, saved.data);
+  const correctedRetry = arrivalRetry || isMissingCollectionMethodRejection(salesOrder, saved.data);
   if (!correctedRetry && (saved.data.status !== "previewed" || saved.data.mcleod_order_id)) {
     let comparison: Record<string, unknown> | undefined;
     if (salesOrder === "2601730" && saved.data.status === "creation_uncertain") {
@@ -139,7 +140,16 @@ async function preflight(req: NextRequest) {
 
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
-  const payload = houstonPilotPayload(draft);
+  let payload = houstonPilotPayload(draft);
+  if (payload) {
+    try {
+      const example = await vendor(true).read("/orders/0829468");
+      payload = matchCorrectedSchedule(payload, example);
+    } catch (cause) {
+      return NextResponse.json({ ...response, delivery, draft, auditStatus: saved.data.status,
+        reason: cause instanceof Error ? cause.message : "The corrected McLeod schedule could not be verified." });
+    }
+  }
   const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
     : !payload ? "This order or its pickup/delivery details do not match the approved SO 2601887 pilot."
     : !existing.data ? "The audit entry was just saved. Run preflight again before creating."
@@ -201,7 +211,7 @@ async function preflight(req: NextRequest) {
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
     draft, canCreate, reviewToken,
     reason: createBlock ?? (correctedRetry
-      ? "McLeod rejected the previous request for a missing billing method. The corrected one-order retry is ready."
+      ? "The corrected one-order retry is ready. Its schedule matches McLeod order 0829468."
       : "Ready for the one-order McLeod pilot."),
 
   });

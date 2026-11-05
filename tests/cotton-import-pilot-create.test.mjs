@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
-import { houstonPilotPayload, isMissingCollectionMethodRejection, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
+import { houstonPilotPayload, isMissingCollectionMethodRejection, matchCorrectedSchedule, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
 
 test("Houston pilot is scoped to the reviewed order and verifies the saved McLeod stops", () => {
   const source = { salesOrder: "2601887", mark: "TA004", bales: 89, pickups: [{ bales: 89 }] };
@@ -18,6 +18,16 @@ test("Houston pilot is scoped to the reviewed order and verifies the saved McLeo
   assert.equal(payload.rate_type, "F");
   assert.equal(payload.rate_units, undefined);
   assert.equal(payload.rate, undefined);
+  const example = { id: "0829468", ordered_by: "2601780", customer_id: "BUNGOMNE", blnum: "NM293 90 BALES",
+    stops: payload.stops.map(stop => ({
+      ...stop,
+      sched_arrive_early: stop.sched_arrive_early.replace(/[-:T]/g, "") + "-0500",
+      sched_arrive_late: stop.sched_arrive_late.replace(/[-:T]/g, "") + "-0500",
+    })),
+  };
+  assert.equal(matchCorrectedSchedule(payload, example).stops[0].sched_arrive_early, "20261112080000-0500");
+  example.stops[0].sched_arrive_early = "20261112090000-0500";
+  assert.throws(() => matchCorrectedSchedule(payload, example), /Reference order stop 1/);
   const actual = { ...payload, id: "1234567", stops: payload.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
   actual.stops[0].sched_arrive_early = "20261112080000-0500";
