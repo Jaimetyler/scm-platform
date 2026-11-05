@@ -146,7 +146,7 @@ export default function HoustonPreviewClient() {
             </div>) || "—"}</td>
             <td>{review.equipment?.choice && <strong>{equipmentLabels[review.equipment.choice]}</strong>}
               {review.equipment?.stops.map((stop, index) => <small key={index}>
-                {stop.locationCode} · {stop.accepted === "van_only" ? "Van only" : stop.accepted === "van_and_flatbed" ? "Van or flatbed" : "Unknown"}
+                {stop.locationCode} · {stop.accepted === "van_only" ? "Van only" : stop.accepted === "van_and_flatbed" ? "Van or tarped flatbed" : "Unknown"}
               </small>)}
             </td>
             <td>{review.pickupPolicies?.map((policy, stop) => {

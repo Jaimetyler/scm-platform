@@ -6,7 +6,7 @@ import { requestedEquipment, type EquipmentOption } from "@/lib/cotton-import/eq
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
 
-export const equipmentLabels = { auto: "Use pickup location rules", van: "Van", flatbed: "Flatbed", VT: "VT — van or flatbed" };
+export const equipmentLabels = { auto: "Use pickup location rules", van: "V — van", flatbed: "FT — tarped flatbed", VT: "VT — van or tarped flatbed" };
 export type DispatchInput = { file: File; equipment: EquipmentOption; destination: string };
 
 export default function DispatchUpload({ terminal, busy, onPreview, onChange }: {

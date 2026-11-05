@@ -9,7 +9,8 @@ test("Houston defaults to VT at Gulf and Taylor and to van on mixed Moody pickup
   const flexible = [stop("GULFCOT2"), stop("TAYLTAT1")];
   assert.equal(reviewPickupEquipment(flexible, [], "auto").code, "VT");
   assert.equal(reviewPickupEquipment(flexible, [], "van").choice, "van");
-  assert.equal(reviewPickupEquipment(flexible, [], "van").code, null);
+  assert.equal(reviewPickupEquipment(flexible, [], "van").code, "V");
+  assert.equal(reviewPickupEquipment(flexible, [], "flatbed").code, "FT");
   assert.equal(reviewPickupEquipment([stop("GULFCOT2"), stop("MOODGAT3")], [], "auto").choice, "van");
   for (const code of ["MOODGAT1", "MOODGAT2", "MOODGAT3", "MOODGAT4"]) {
     for (const option of ["VT", "flatbed"]) {
@@ -28,11 +29,16 @@ test("Houston honors effective facility restrictions and flags unknown pickup eq
   assert.throws(() => requestedEquipment("invalid"));
 });
 
-test("Houston draft sends the validated VT code", () => {
+test("Houston draft sends the validated McLeod equipment code", () => {
   const proposal = { customerId: "BUNGOMNE", revenueCode: "MAIN", commodity: "COTTON", deliveryLocation: "SUPPBAT1",
     blnum: "EH020 90 BALES", pickupStops: [stop("GULFCOT2")] };
   const order = { salesOrder: "2601968", mark: "EH020", bales: 90 };
   const windows = [{ early: "08:00", late: "16:00" }];
-  assert.equal(draftHoustonOrder(order, proposal, windows, "VT").order.equipment_type_id, "VT");
-  assert.equal(draftHoustonOrder(order, proposal, windows, null).order.equipment_type_id, undefined);
+  for (const code of ["V", "VT", "FT"]) {
+    assert.equal(draftHoustonOrder(order, proposal, windows, code).order.equipment_type_id, code);
+  }
+  const united = stop("UNITELTX");
+  const policy = { location_id: united.locationId, accepted_equipment: "van_only", effective_date: null, verified: true };
+  const equipment = reviewPickupEquipment([united], [policy], "auto");
+  assert.equal(draftHoustonOrder({ ...order, salesOrder: "2601730" }, { ...proposal, pickupStops: [united] }, windows, equipment.code).order.equipment_type_id, "V");
 });

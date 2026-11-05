@@ -1,4 +1,5 @@
 import type { CottonOrderPreview } from "./preview.ts";
+import type { McLeodCottonEquipmentCode } from "./equipment.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
 
 type PickupWindow = { early: string | null; late: string | null };
@@ -7,7 +8,7 @@ export function draftHoustonOrder(
   order: DispatchOrder,
   preview: CottonOrderPreview,
   windows: readonly PickupWindow[],
-  equipmentCode: "VT" | null,
+  equipmentCode: McLeodCottonEquipmentCode,
 ) {
   if (preview.customerId !== "BUNGOMNE" || preview.revenueCode !== "MAIN" ||
       !["SUPPBAT1", "SUPPPAT1"].includes(preview.deliveryLocation) || windows.length !== preview.pickupStops.length)
@@ -32,7 +33,7 @@ export function draftHoustonOrder(
     order: {
       __type: "orders", company_id: "TMS", status: "A", customer_id: preview.customerId,
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
-      ...(equipmentCode ? { equipment_type_id: equipmentCode } : {}),
+      equipment_type_id: equipmentCode,
       blnum: preview.blnum, consignee_refno: order.mark.toUpperCase(),
       stops: [...pickups, {
         __type: "stop", __name: "stops", company_id: "TMS", stop_type: "SO",

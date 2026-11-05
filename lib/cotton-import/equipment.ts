@@ -11,6 +11,8 @@ const confirmedFlexible = new Set([
 
 export const equipmentOptions = ["auto", "van", "flatbed", "VT"] as const;
 export type EquipmentOption = typeof equipmentOptions[number];
+const mcleodEquipmentCodes = { van: "V", flatbed: "FT", VT: "VT" } as const;
+export type McLeodCottonEquipmentCode = typeof mcleodEquipmentCodes[keyof typeof mcleodEquipmentCodes];
 
 export function requestedEquipment(value: unknown): EquipmentOption {
   if (value == null) return "auto";
@@ -40,5 +42,5 @@ export function reviewPickupEquipment(
     : unknown.length ? `Confirm accepted equipment at ${unknown.map(stop => stop.locationCode).join(", ")}.` : null;
   const choice = requested === "auto" ? (vanOnly.length ? "van" : "VT") : requested;
   return { stops, choice: reason ? null : choice, reason,
-    code: !reason && choice === "VT" ? "VT" as const : null };
+    code: reason ? null : mcleodEquipmentCodes[choice] };
 }

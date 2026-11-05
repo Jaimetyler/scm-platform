@@ -60,7 +60,7 @@ async function preflight(req: NextRequest) {
     ...scheduleForPickup(schedules.data as CottonSchedule[], stop.locationId, stop.scheduledDate, stop.locationCode),
   }));
   const response = { ok: true, canCreate: false, salesOrder, blnum: proposal.blnum, windows, equipment };
-  if (equipment.reason) return NextResponse.json({ ...response, reason: equipment.reason });
+  if (!equipment.code) return NextResponse.json({ ...response, reason: equipment.reason || "Equipment requires review." });
   if (windows.some(window => window.status !== "ready"))
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
 
