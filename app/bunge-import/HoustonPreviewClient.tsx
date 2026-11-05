@@ -29,7 +29,7 @@ type Preflight = {
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
   draft?: {
     deliveryDate?: string;
-    order?: { weight?: number };
+    order?: { weight?: number; otherCharges?: { charge_id: string; descr: string; amount: number }[] };
     pickupReferences: { stopSequence: number; locationCode: string; qualifier: string; referenceNumber: string }[];
     pickupNotes?: { stopSequence: number; locationCode: string; comment: string }[];
   };
@@ -180,6 +180,7 @@ export default function HoustonPreviewClient() {
           <h3>Preflight · SO {checked.salesOrder}</h3>
           <p>{checked.data.error || checked.data.reason || "No preflight result returned."}</p>
           {checked.data.draft?.order?.weight != null && <p>Order weight · {checked.data.draft.order.weight.toLocaleString("en-US")} lb</p>}
+          {checked.data.draft?.order?.otherCharges?.map(charge => <p key={charge.charge_id}>{charge.descr} · ${charge.amount.toFixed(2)}</p>)}
           {checked.data.auditStatus && <p>Audit status · <strong>{checked.data.auditStatus}</strong></p>}
           {checked.data.duplicates?.map(order => <p key={order.id}>{order.id} · {order.blnum}</p>)}
           {checked.data.delivery && <dl className={layout.addresses}>

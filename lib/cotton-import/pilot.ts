@@ -60,6 +60,11 @@ export function draftHoustonOrder(
       order_type_id: "FSC", order_mode: "T", ordered_by: order.salesOrder,
       equipment_type_id: equipmentCode,
       ...(weight === null ? {} : { weight }),
+      ...(pickups.length === 2 ? { otherCharges: [{
+        __type: "other_charge", __name: "otherCharges", company_id: "TMS",
+        charge_id: "006", descr: "Stop Off Charge", units: 1, rate: 50, amount: 50,
+        incl_in_freight: "N", bill_type: "F", calc_method: "F",
+      }] } : {}),
       blnum: preview.blnum, consignee_refno: order.mark.toUpperCase(),
       stops: [...pickups, {
         __type: "stop", __name: "stops", company_id: "TMS", stop_type: "SO",

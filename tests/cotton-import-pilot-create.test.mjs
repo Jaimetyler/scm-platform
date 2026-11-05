@@ -18,6 +18,7 @@ test("two-pickup pilot sends combined weight and verifies all three stops", () =
   assert.equal(houstonPilotPayload({ ...draft, salesOrder: "2601887" }), null);
   const payload = houstonPilotPayload(draft);
   assert.equal(payload.weight, 44667);
+  assert.deepEqual(payload.otherCharges.map(c => [c.charge_id, c.units, c.rate, c.amount]), [["006", 1, 50, 50]]);
   assert.equal(payload.collection_method, "T");
   assert.equal(payload.rate_type, "F");
   assert.equal(payload.rate, undefined);
@@ -33,6 +34,7 @@ test("two-pickup pilot sends combined weight and verifies all three stops", () =
   ]);
   const actual = { ...matched, id: "1234567", stops: matched.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, matched), []);
+  assert.deepEqual(verifyHoustonPilot({ ...actual, otherCharges: [] }, actual.id, matched), ["Stop Off Charge 006"]);
   actual.weight = 26087;
   actual.stops[1].sched_arrive_early = "20261110090000-0500";
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, matched), ["weight", "stop 2"]);
@@ -65,6 +67,7 @@ test("the remaining Baytown orders allow the expected workbook weight and equipm
       blnum: `${mark} ${bales} BALES`, pickupStops: [{ locationCode, scheduledDate, timezone: "America/Chicago" }],
     }, [{ early: "08:00", late }], equipment);
     assert.equal(houstonPilotPayload(draft).weight, weight);
+    assert.equal(houstonPilotPayload(draft).otherCharges, undefined);
     assert.equal(houstonPilotPayload({ ...draft, order: { ...draft.order, weight: weight + 1 } }), null);
   }
 });

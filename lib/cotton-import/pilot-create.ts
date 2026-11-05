@@ -52,6 +52,12 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
     "collection_method", "rate_type"] as const;
   const mismatches: string[] = fields.filter(field => String(actual[field] ?? "").trim() !== expected[field]);
   if (expected.weight !== undefined && Number(actual.weight) !== expected.weight) mismatches.push("weight");
+  if (expected.otherCharges?.length) {
+    const charges = actual.otherCharges ?? actual.other_charges;
+    const stopOff = Array.isArray(charges) ? charges.filter(charge => String(charge?.charge_id ?? "").trim() === "006") : [];
+    if (stopOff.length !== 1 || Number(stopOff[0].units) !== 1 || Number(stopOff[0].rate) !== 50 ||
+        Number(stopOff[0].amount) !== 50) mismatches.push("Stop Off Charge 006");
+  }
   if (String(actual.id ?? "").trim() !== id) mismatches.push("id");
   const stops = Array.isArray(actual.stops) ? actual.stops : [];
   if (stops.length !== expected.stops.length) mismatches.push("stop count");
