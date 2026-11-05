@@ -31,3 +31,6 @@
 .ready, .review { display: inline-block; border-radius: 6px; padding: 3px 8px; white-space: nowrap; }
 .ready { background: #193c35; color: #b7efd8; }
 .review { background: #453822; color: #ffdc9f; }
+.equipmentOverride { margin-top: 14px; color: #aec1d6; }
+.equipmentOverride summary { width: fit-content; }
+.equipmentOverride select { margin-left: 6px; }

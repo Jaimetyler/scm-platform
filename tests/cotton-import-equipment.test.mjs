@@ -6,7 +6,10 @@ import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
 const stop = code => ({ locationId: code, locationCode: code, scheduledDate: "2026-11-10", timezone: "America/Chicago" });
 
 test("Houston defaults to VT at Gulf and Taylor and to van on mixed Moody pickups", () => {
-  assert.equal(reviewPickupEquipment([stop("GULFCOT2"), stop("TAYLTAT1")], [], "auto").code, "VT");
+  const flexible = [stop("GULFCOT2"), stop("TAYLTAT1")];
+  assert.equal(reviewPickupEquipment(flexible, [], "auto").code, "VT");
+  assert.equal(reviewPickupEquipment(flexible, [], "van").choice, "van");
+  assert.equal(reviewPickupEquipment(flexible, [], "van").code, null);
   assert.equal(reviewPickupEquipment([stop("GULFCOT2"), stop("MOODGAT3")], [], "auto").choice, "van");
   for (const code of ["MOODGAT1", "MOODGAT2", "MOODGAT3", "MOODGAT4"]) {
     for (const option of ["VT", "flatbed"]) {

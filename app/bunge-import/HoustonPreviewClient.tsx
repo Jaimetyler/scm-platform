@@ -90,12 +90,18 @@ export default function HoustonPreviewClient() {
       <p>Use the original Bunge Excel workbook (.xlsx or .xls, up to 2 MB).</p>
       <div className={layout.actions}>
         <input aria-label="Houston dispatch workbook" type="file" accept=".xls,.xlsx" disabled={!!busy} onChange={event => {
+          if (file) setEquipment("auto");
           setFile(event.target.files?.[0] ?? null);
           setResult(null);
           setSelected("");
           setChecked(null);
           setError("");
         }} />
+        <button type="submit" disabled={!file || !!busy}>{busy === "preview" ? "Building preview…" : "Preview dispatch"}</button>
+      </div>
+      <details className={layout.equipmentOverride}>
+        <summary>{equipment === "auto" ? "Equipment override (optional)" : `Equipment override · ${equipmentLabels[equipment]}`}</summary>
+        <p>Pickup locations set the default. Choose an override for this workbook, such as Van for a dispatch that requires vans. Each pickup must accept the selected equipment.</p>
         <label>Pickup equipment <select value={equipment} disabled={!!busy} onChange={event => {
           setEquipment(requestedEquipment(event.target.value));
           setResult(null);
@@ -105,8 +111,7 @@ export default function HoustonPreviewClient() {
         }}>
           {Object.entries(equipmentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
-        <button type="submit" disabled={!file || !!busy}>{busy === "preview" ? "Building preview…" : "Preview dispatch"}</button>
-      </div>
+      </details>
     </form>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {result && <section className={layout.results}>
