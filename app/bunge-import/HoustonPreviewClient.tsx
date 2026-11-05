@@ -24,6 +24,7 @@ type Result = {
   reviews: Review[]; sourceErrors: { row: number; reason: string }[];
 };
 type Preflight = {
+  canReconcile?: boolean; reconciled?: boolean;
   canCreate?: boolean; reviewToken?: string; pilotBuild?: string;
   mcleodOrderId?: string | null;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
@@ -42,7 +43,7 @@ const feeUnits: Record<string, string> = {
   PER_BALE_PER_DAY: "per bale per day",
 };
 
-async function requestPreflight(input: DispatchInput, salesOrder: string, reviewToken?: string): Promise<Preflight> {
+async function requestPreflight(input: DispatchInput, salesOrder: string, reviewToken?: string, reconcile = false): Promise<Preflight> {
   const form = new FormData();
   form.set("file", input.file);
   form.set("equipment", input.equipment);
@@ -51,6 +52,10 @@ async function requestPreflight(input: DispatchInput, salesOrder: string, review
   if (reviewToken) {
     form.set("action", "create-pilot");
     form.set("reviewToken", reviewToken);
+  }
+  if (reconcile) {
+    form.set("action", "reconcile-pilot");
+    form.set("confirmation", salesOrder);
   }
   const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
   return response.json();
@@ -98,12 +103,13 @@ export default function HoustonPreviewClient() {
     }
   }
 
-  async function preflight(reviewToken?: string) {
+  async function preflight(reviewToken?: string, reconcile = false) {
     if (!submission || !selected || busy) return;
     setBusy(reviewToken ? "create" : "preflight");
     setChecked(null);
     try {
-      setChecked({ salesOrder: selected, data: await requestPreflight(submission, selected, reviewToken) });
+      const data = await requestPreflight(submission, selected, reviewToken, reconcile);
+      setChecked({ salesOrder: selected, data: data.reconciled ? await requestPreflight(submission, selected) : data });
     } catch (cause) {
       setChecked({ salesOrder: selected, data: { error: cause instanceof Error ? cause.message : "Preflight failed." } });
     } finally {
@@ -202,6 +208,10 @@ export default function HoustonPreviewClient() {
             {checked.data.draft.pickupNotes.map(note => <pre className={layout.response} key={note.stopSequence}>{note.comment}</pre>)}
           </section>}
           <div className={layout.actions}>
+            {checked.data.canReconcile && <button type="button" disabled={!!busy} onClick={() => {
+              if (window.prompt("Search McLeod by Ordered by 2601730 across all statuses. If no order exists, type 2601730 to reopen it.") === "2601730")
+                void preflight(undefined, true);
+            }}>Reopen after McLeod search</button>}
             <button type="button" disabled={!!busy || !checked.data.canCreate || !checked.data.reviewToken} onClick={() => {
               if (window.confirm(`Create SO ${checked.salesOrder} in live McLeod? This will create one order.`)) void preflight(checked.data.reviewToken);
             }}>Create one live pilot order</button>

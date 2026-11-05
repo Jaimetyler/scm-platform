@@ -3,6 +3,8 @@ import type { draftHoustonOrder } from "./pilot.ts";
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
 const approvedOrders = new Map([
+  ["2601730", { blnum: "C0437 90 BALES", weight: 43865, equipment: "V",
+    pickups: ["UNITELTX"], pickupDate: "2026-11-11", hours: ["07:00", "16:00"], deliveryDate: "2026-11-12" }],
   ["2601771", { blnum: "NX005 91 BALES", weight: 44667, equipment: "V",
     pickups: ["MOODGAT4", "MOODGAT3"], pickupDate: "2026-11-10", hours: ["08:00", "15:00"], deliveryDate: "2026-11-11" }],
   ["2601967", { blnum: "E1316 90 BALES", weight: 44125, equipment: "V",

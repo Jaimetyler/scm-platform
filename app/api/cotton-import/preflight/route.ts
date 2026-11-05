@@ -22,8 +22,9 @@ export const maxDuration = 120;
 async function preflight(req: NextRequest) {
   const form = await req.formData();
   const create = form.get("action") === "create-pilot";
+  const reconcile = form.get("action") === "reconcile-pilot";
   const pilotEnabled = process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
-  if (create && !pilotEnabled) throw Error("The Houston pilot is disabled.");
+  if ((create || reconcile) && !pilotEnabled) throw Error("The Houston pilot is disabled.");
   const destination = terminalDeliveryCode("houston", form.get("destination"));
   if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
   const file = form.get("file");
@@ -112,6 +113,25 @@ async function preflight(req: NextRequest) {
   const saved = await findAudit();
   if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
+  const canReconcile = pilotEnabled && salesOrder === "2601730" && proposal.blnum === "C0437 90 BALES" &&
+    saved.data.destination_code === "SUPPBAT1" && proposal.deliveryLocation === "SUPPBAT1" &&
+    saved.data.status === "creation_uncertain" && saved.data.mcleod_order_id === null &&
+    saved.data.error_message === "McLeod create returned HTTP 406." &&
+    Boolean(saved.data.reviewed_payload?.payload && !saved.data.reviewed_payload.previousAttempt);
+  if (reconcile) {
+    if (!canReconcile || form.get("confirmation") !== salesOrder)
+      throw Error("This rejected order is not eligible for manual reconciliation.");
+    const reopened = await ledger.update({ status: "previewed", error_message: null,
+      reviewed_payload: { previousAttempt: { request: saved.data.reviewed_payload, error: saved.data.error_message,
+        at: saved.data.updated_at, reconciliation: "Operator confirmed no match in McLeod Ordered by search",
+        reconciledBy: staffActor(req), reconciledAt: new Date().toISOString() } },
+      updated_at: new Date().toISOString(),
+    }).eq("id", saved.data.id).eq("status", "creation_uncertain").eq("updated_at", saved.data.updated_at)
+      .is("mcleod_order_id", null).select("id").maybeSingle();
+    if (reopened.error || !reopened.data) throw Error("Audit state changed. Run preflight again.");
+    return NextResponse.json({ ...response, auditStatus: "previewed", reconciled: true,
+      reason: "The original rejection is preserved and the order was reopened." });
+  }
   const arrivalRetry = isArrivalFormatRejection(salesOrder, saved.data);
   const correctedRetry = arrivalRetry || isMissingCollectionMethodRejection(salesOrder, saved.data);
   if (!correctedRetry && (saved.data.status !== "previewed" || saved.data.mcleod_order_id)) {
@@ -131,10 +151,10 @@ async function preflight(req: NextRequest) {
         comparison = { error: "The historical Baytown example could not be read or verified." };
       }
     }
-    return NextResponse.json({ ...response, delivery, duplicates, comparison,
+    return NextResponse.json({ ...response, delivery, duplicates, comparison, canReconcile,
       auditId: saved.data.id, auditStatus: saved.data.status,
       reason: saved.data.status === "creation_uncertain"
-        ? "No matching BLNUM found in the configured pickup-date range. The earlier create attempt is still locked; review the audit and McLeod before any retry."
+        ? (canReconcile ? "No matching BLNUM found. Search McLeod by Ordered by 2601730 before reopening this order." : "No matching BLNUM found in the configured pickup-date range. The earlier create attempt is still locked; review the audit and McLeod before any retry.")
         : "This order already has a pilot audit state. Review the existing record before proceeding." });
   }
 
