@@ -42,3 +42,21 @@ test("Houston Bunge orders route to Baytown without changing Savannah",()=>{
  assert.equal(result[0].preview.revenueCode,"MAIN");
  assert.equal(previewBungeDispatchOrders(orders,"SAVANNAH",locations)[0].preview.deliveryLocation,"SAVAGAG2");
 });
+
+test("Houston dispatch USDA codes and actual Moody warehouse labels resolve together",()=>{
+ const houstonLocations=[
+  {id:"m3",mcleod_code:"MOODGAT4",prev_code:"858055",name:"Moody Compress #3",timezone:"America/Chicago",active:true},
+  {id:"m4",mcleod_code:"MOODGAT3",prev_code:"858056",name:"Moody Compress #4",timezone:"America/Chicago",active:true}
+ ];
+ const dispatch=[{mark:"NX005",salesOrder:"2601771",bales:91,pickups:[
+  {row:1,mark:"NX005",salesOrder:"2601771",bales:53,warehouse:"Moody Compress and Warehouse #03",rtl:"11/10/26",usdaWarehouseCode:"858055"},
+  {row:2,mark:"NX005",salesOrder:"2601771",bales:38,warehouse:"Moody Compress and Warehouse #04",rtl:"11/10/26",usdaWarehouseCode:"858056"}
+ ]}];
+ const result=previewBungeDispatchOrders(dispatch,"HOUSTON",houstonLocations);
+ assert.equal(result[0].status,"review_required");
+ assert.deepEqual(result[0].preview.pickupStops.map(s=>s.locationCode),["MOODGAT4","MOODGAT3"]);
+ assert.equal(result[0].preview.deliveryLocation,"SUPPBAT1");
+ const conflict=structuredClone(dispatch);
+ conflict[0].pickups[0].usdaWarehouseCode="858056";
+ assert.equal(previewBungeDispatchOrders(conflict,"HOUSTON",houstonLocations)[0].status,"blocked");
+});
