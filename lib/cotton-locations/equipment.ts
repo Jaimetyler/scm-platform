@@ -16,7 +16,7 @@ export function validateEquipment(input:Record<string,unknown>,admin:boolean){
 export function equipmentNotes(policy:EquipmentPolicy|undefined,requested:string,state:string|null):string[]{
  const priority=["TX","OK","KS","NM"].includes(state||"");const notes:string[]=[];
  if(requested==="unknown"&&priority)notes.push("Confirm van/flatbed equipment and loading restrictions.");
- if(requested!=="flatbed")return notes;
+ if(requested!=="flatbed"&&requested!=="VT")return notes;
  if(!policy||policy.accepted_equipment==="unknown")notes.push("Flatbed acceptance is unknown; confirm before booking.");
  else if(policy.accepted_equipment==="van_only")notes.push(`VAN ONLY: flatbed pickup conflicts with recorded restriction${policy.verified?"":" (unverified; confirm with facility)"}.`);
  if(policy?.fee_basis==="none")notes.push("No flatbed fee recorded"+(policy.verified?".":" — unverified."));

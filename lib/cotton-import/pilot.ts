@@ -10,8 +10,8 @@ export function draftHoustonOrder(
   equipmentCode: "VT" | null,
 ) {
   if (preview.customerId !== "BUNGOMNE" || preview.revenueCode !== "MAIN" ||
-      preview.deliveryLocation !== "SUPPBAT1" || windows.length !== preview.pickupStops.length)
-    throw new Error("Houston order draft requires the approved Bunge Baytown profile.");
+      !["SUPPBAT1", "SUPPPAT1"].includes(preview.deliveryLocation) || windows.length !== preview.pickupStops.length)
+    throw new Error("Houston order draft requires the Houston Bunge profile.");
 
   const pickups = preview.pickupStops.map((pickup, index) => {
     const { early, late } = windows[index];

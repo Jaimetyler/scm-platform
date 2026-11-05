@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
-import { requestedEquipment, type EquipmentOption, type reviewPickupEquipment } from "@/lib/cotton-import/equipment";
-
-const equipmentLabels = { auto: "Use pickup location rules", van: "Van", flatbed: "Flatbed", VT: "VT — van or flatbed" };
+import type { reviewPickupEquipment } from "@/lib/cotton-import/equipment";
+import DispatchUpload, { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
 type Window = {
   locationCode: string; originalRtlDate: string; early: string | null;
@@ -35,30 +34,35 @@ const feeUnits: Record<string, string> = {
 };
 
 export default function HoustonPreviewClient() {
-  const [equipment, setEquipment] = useState<EquipmentOption>("auto");
-  const [file, setFile] = useState<File | null>(null);
+  const [submission, setSubmission] = useState<DispatchInput | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState<"preview" | "preflight" | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState("");
   const [checked, setChecked] = useState<{ salesOrder: string; data: Preflight } | null>(null);
 
-  async function preview(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!file || busy) return;
-    setBusy("preview");
+  function clear() {
     setResult(null);
     setSelected("");
     setChecked(null);
     setError("");
+    setSubmission(null);
+  }
+
+  async function preview(input: DispatchInput) {
+    if (busy) return;
+    clear();
+    setBusy("preview");
     try {
       const form = new FormData();
-      form.set("file", file);
-      form.set("equipment", equipment);
+      form.set("file", input.file);
+      form.set("equipment", input.equipment);
+      form.set("destination", input.destination);
       const response = await fetch("/api/cotton-import/upload", { method: "POST", body: form });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "Preview failed.");
       setResult(data);
+      setSubmission(input);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Preview failed.");
     } finally {
@@ -67,13 +71,14 @@ export default function HoustonPreviewClient() {
   }
 
   async function preflight() {
-    if (!file || !selected || busy) return;
+    if (!submission || !selected || busy) return;
     setBusy("preflight");
     setChecked(null);
     try {
       const form = new FormData();
-      form.set("file", file);
-      form.set("equipment", equipment);
+      form.set("file", submission.file);
+      form.set("equipment", submission.equipment);
+      form.set("destination", submission.destination);
       form.set("salesOrder", selected);
       const response = await fetch("/api/cotton-import/preflight", { method: "POST", body: form });
       setChecked({ salesOrder: selected, data: await response.json() });
@@ -85,34 +90,7 @@ export default function HoustonPreviewClient() {
   }
 
   return <section aria-label="Houston dispatch preview">
-    <form className={styles.guide} onSubmit={preview}>
-      <h2>Upload Houston dispatch</h2>
-      <p>Use the original Bunge Excel workbook (.xlsx or .xls, up to 2 MB).</p>
-      <div className={layout.actions}>
-        <input aria-label="Houston dispatch workbook" type="file" accept=".xls,.xlsx" disabled={!!busy} onChange={event => {
-          if (file) setEquipment("auto");
-          setFile(event.target.files?.[0] ?? null);
-          setResult(null);
-          setSelected("");
-          setChecked(null);
-          setError("");
-        }} />
-        <button type="submit" disabled={!file || !!busy}>{busy === "preview" ? "Building preview…" : "Preview dispatch"}</button>
-      </div>
-      <details className={layout.equipmentOverride}>
-        <summary>{equipment === "auto" ? "Equipment override (optional)" : `Equipment override · ${equipmentLabels[equipment]}`}</summary>
-        <p>Pickup locations set the default. Choose an override for this workbook, such as Van for a dispatch that requires vans. Each pickup must accept the selected equipment.</p>
-        <label>Pickup equipment <select value={equipment} disabled={!!busy} onChange={event => {
-          setEquipment(requestedEquipment(event.target.value));
-          setResult(null);
-          setSelected("");
-          setChecked(null);
-          setError("");
-        }}>
-          {Object.entries(equipmentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select></label>
-      </details>
-    </form>
+    <DispatchUpload terminal="houston" busy={!!busy} onPreview={preview} onChange={clear} />
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {result && <section className={layout.results}>
       <h2>Review Houston orders</h2>

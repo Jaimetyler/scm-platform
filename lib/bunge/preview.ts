@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import {equipmentNotes,type EquipmentPolicy} from "@/lib/cotton-locations/equipment";
 export type PickupLine={sheet:string;row:number;mark:string;so:string;bales:number;weight:number|null;warehouse:string;warehouseCode:string;address:string[];rtl:string|null};
 export type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;city:string|null;state:string|null;timezone:string|null};
@@ -58,10 +59,15 @@ export function buildPreview(lines:PickupLine[],locations:Location[],schedules:S
  const hours=eligible[0]||null;
  if(!hours)stopIssues.push("No pickup hours for this date; confirm weekday/seasonal availability.");else if(!hours.verified)stopIssues.push("Suggested hours are unverified historical information.");
  if(hours&&!hours.open_time&&!hours.close_time)stopIssues.push("Pickup time window is unknown.");
- stopIssues.push(...equipmentNotes(equipmentPolicies.find(p=>p.location_id===location?.id),equipment,location?.state||null));
+ const equipmentPolicy=equipmentPolicies.find(p=>p.location_id===location?.id&&(!p.effective_date||(line.rtl&&p.effective_date<=line.rtl)));
+ stopIssues.push(...equipmentNotes(equipmentPolicy,equipment,location?.state||null));
  return {location,warehouseCode:line.warehouseCode,warehouse:line.warehouse,bales:part.reduce((n,l)=>n+l.bales,0),rtl:line.rtl,sourceRows:part.map(l=>l.sheet+":"+l.row),address:part.find(l=>l.address.length)?.address||[],hours,issues:stopIssues};
  });
  if(pickups.length>2)issues.push("More than two pickup stops: manual review required.");
- return {equipment,key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId:"BUNGOMNE",revenue,destination,pickups,issues};
+ const resolvedEquipment=equipment==="unknown"?null:reviewPickupEquipment(pickups.map(p=>({
+  locationId:p.location?.id||"",locationCode:p.location?.mcleod_code||p.warehouseCode||p.warehouse,scheduledDate:p.rtl||"",
+ })),equipmentPolicies,requestedEquipment(equipment));
+ if(resolvedEquipment?.reason)issues.push(resolvedEquipment.reason);
+ return {equipment:resolvedEquipment?.choice??"unknown",key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId:"BUNGOMNE",revenue,destination,pickups,issues};
  });
 }

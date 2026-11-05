@@ -2,16 +2,16 @@
 // MAIN: Pasted text(116).txt (2026-05-21 order extract). DAVIS: CottonLocationHistoryTx.csv.
 // Current names, addresses and active status are fetched from McLeod before selection/preview.
 export const SCM_DELIVERY_LOCATIONS=[
- {code:"SAVAGAG2",label:"Savannah — Bourne Avenue (default)"},
- {code:"SUPPSAG2",label:"Savannah"},
- {code:"SUPPBAT1",label:"Houston area — Baytown"},
- {code:"SUPPPAT1",label:"Houston area — Pasadena"},
- {code:"SCMDDETX",label:"Dallas area — DeSoto"},
- {code:"SCMDDATX",label:"Dallas"},
- {code:"SUPPLAT1",label:"Dallas area — Lancaster"},
- {code:"SUPPHUTX",label:"Dallas area — Hutchins"},
- {code:"SUPPDATX",label:"Dallas"},
- {code:"SCM7ARTX",label:"Dallas area"},
+ {terminal:"savannah",code:"SAVAGAG2",label:"Savannah — Bourne Avenue (default)"},
+ {terminal:"savannah",code:"SUPPSAG2",label:"Savannah"},
+ {terminal:"houston",code:"SUPPBAT1",label:"Houston area — Baytown"},
+ {terminal:"houston",code:"SUPPPAT1",label:"Houston area — Pasadena"},
+ {terminal:"dallas",code:"SCMDDETX",label:"Dallas area — DeSoto"},
+ {terminal:"dallas",code:"SCMDDATX",label:"Dallas"},
+ {terminal:"dallas",code:"SUPPLAT1",label:"Dallas area — Lancaster"},
+ {terminal:"dallas",code:"SUPPHUTX",label:"Dallas area — Hutchins"},
+ {terminal:"dallas",code:"SUPPDATX",label:"Dallas"},
+ {terminal:"dallas",code:"SCM7ARTX",label:"Dallas area"},
 ] as const;
 export const DEFAULT_BUNGE_DELIVERY="SAVAGAG2";
 export function deliveryCode(value:unknown):string{
@@ -19,3 +19,21 @@ export function deliveryCode(value:unknown):string{
  if(!SCM_DELIVERY_LOCATIONS.some(l=>l.code===code))throw Error("Choose an SCM delivery location.");return code;
 }
 export type DeliveryLocation={code:string;name:string;address:string;address2:string;city:string;state:string;zip:string};
+
+export const inboundTerminals = [
+ { id: "savannah", label: "Savannah", revenue: "MAIN" },
+ { id: "dallas", label: "Dallas", revenue: "DAVIS" },
+ { id: "houston", label: "Houston", revenue: "MAIN" },
+] as const;
+export type InboundTerminal = typeof inboundTerminals[number]["id"];
+
+export function terminalDeliveryCode(terminal: InboundTerminal, value: unknown): string {
+ const options = SCM_DELIVERY_LOCATIONS.filter(location => location.terminal === terminal);
+ const code = value == null ? options[0].code : value;
+ if (!options.some(location => location.code === code)) throw Error("Choose a delivery location in the selected inbound region.");
+ return String(code);
+}
+
+export function inboundTerminal(value: unknown) {
+ return inboundTerminals.find(terminal => terminal.id === value);
+}

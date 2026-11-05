@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {createRequire} from 'node:module';import ts from 'typescript';
 const require=createRequire(import.meta.url);const cache=new Map();
-function load(path){if(cache.has(path))return cache.get(path);const mod={exports:{}};const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',code)(n=>n==='@/lib/cotton-locations/equipment'?load('lib/cotton-locations/equipment.ts'):n==='./duplicate-window'?load('lib/bunge/duplicate-window.ts'):n==='@/lib/mcleod/inbound/search-response'?load('lib/mcleod/inbound/search-response.ts'):require(n),mod,mod.exports);cache.set(path,mod.exports);return mod.exports;}
+function load(path){if(cache.has(path))return cache.get(path);const mod={exports:{}};const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',code)(n=>n==='@/lib/cotton-import/equipment'?load('lib/cotton-import/equipment.ts'):n==='@/lib/cotton-locations/equipment'?load('lib/cotton-locations/equipment.ts'):n==='./duplicate-window'?load('lib/bunge/duplicate-window.ts'):n==='@/lib/mcleod/inbound/search-response'?load('lib/mcleod/inbound/search-response.ts'):require(n),mod,mod.exports);cache.set(path,mod.exports);return mod.exports;}
 const {parseDispatch,buildPreview}=load('lib/bunge/preview.ts');const {nonVoidBlnumMatches}=load('lib/bunge/duplicates.ts');
 const loc=(id,code,prev)=>({id,mcleod_code:code,prev_code:prev,name:code,address:'Street',city:'Town',state:'GA',timezone:'America/New_York'});
 const locations=[loc('l1','FUNSMOG3','266405'),loc('l2','BCTGMOGA','304495'),loc('dest','SAVAGAG2',null)];
@@ -72,4 +72,24 @@ test('Dallas B/C and Savannah BALES suffixes are equivalent without changing mar
  },'D1085 90 BALES',['2026-04-30']);
  assert.deepEqual(queries,['D1085 90 BALES','D1085 90 B/C']);assert.deepEqual(result.map(r=>r.id),['0820001']);assert.equal(reads.filter(p=>p.endsWith('0820001')).length,1);
  const {canonicalBlnum}=load('lib/bunge/duplicates.ts');assert.equal(canonicalBlnum('d1085  90 b / c'),'D1085 90 BALES');assert.equal(canonicalBlnum('D1085 90 BOXES'),null);
+});
+
+test('inbound destination choices stay inside their selected region',()=>{
+ const {terminalDeliveryCode}=load('lib/bunge/destinations.ts');
+ assert.equal(terminalDeliveryCode('savannah',null),'SAVAGAG2');
+ assert.equal(terminalDeliveryCode('dallas',null),'SCMDDETX');
+ assert.equal(terminalDeliveryCode('houston','SUPPPAT1'),'SUPPPAT1');
+ assert.throws(()=>terminalDeliveryCode('savannah','SUPPPAT1'),/selected inbound region/);
+ assert.throws(()=>terminalDeliveryCode('dallas','SAVAGAG2'),/selected inbound region/);
+});
+
+test('Savannah and Dallas previews apply location equipment defaults and compatible overrides',()=>{
+ const policy={location_id:'l1',accepted_equipment:'van_and_flatbed',effective_date:null,verified:true};
+ for(const revenue of ['MAIN','DAVIS']){
+  assert.equal(buildPreview([line()],locations,[],revenue,'SAVAGAG2','auto',[policy])[0].equipment,'VT');
+  assert.equal(buildPreview([line()],locations,[],revenue,'SAVAGAG2','van',[policy])[0].equipment,'van');
+  const [blocked]=buildPreview([line()],locations,[],revenue,'SAVAGAG2','VT',[{...policy,accepted_equipment:'van_only'}]);
+  assert.equal(blocked.equipment,'unknown');
+  assert.match(blocked.issues.join(),/Van only/);
+ }
 });

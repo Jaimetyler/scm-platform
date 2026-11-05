@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { terminalDeliveryCode } from "@/lib/bunge/destinations";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
@@ -12,6 +13,8 @@ export const maxDuration = 60;
 
 async function upload(req: NextRequest) {
   const form = await req.formData();
+  const destination = terminalDeliveryCode("houston", form.get("destination"));
+  if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
   const file = form.get("file");
   const equipment = requestedEquipment(form.get("equipment"));
   if (!(file instanceof File))
@@ -30,7 +33,7 @@ async function upload(req: NextRequest) {
     .select("id,mcleod_code,prev_code,name,timezone,active").limit(5000);
   if (error || !locations) return NextResponse.json({ok:false,error:"Cotton location master unavailable."},{status:503});
   const reviews = previewBungeDispatchOrders(dispatch.orders,
-    dispatch.destinationKind,locations);
+    dispatch.destinationKind,locations,destination);
   const ids = reviews.flatMap(r => r.preview?.pickupStops.map(s => s.locationId) ?? []);
   const uniqueIds = [...new Set(ids)];
   let scheduleRows: CottonSchedule[] = [];

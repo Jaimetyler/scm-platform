@@ -13,6 +13,7 @@ export function previewBungeDispatchOrders(
   orders: readonly DispatchOrder[],
   destinationKind: "SAVANNAH" | "DALLAS_2" | "HOUSTON",
   locations: readonly CottonLocation[],
+  houstonDelivery: "SUPPBAT1" | "SUPPPAT1" = "SUPPBAT1",
 ): DispatchOrderReview[] {
   return orders.map(order => {
     try {
@@ -34,7 +35,7 @@ export function previewBungeDispatchOrders(
       const preview = buildCottonOrderPreview({
         customerId: "BUNGOMNE", revenueCode: "MAIN", mark: order.mark,
         baleCount: order.bales, pickups,
-        deliveryLocation: destinationKind === "HOUSTON" ? "SUPPBAT1" : "SAVAGAG2",
+        deliveryLocation: destinationKind === "HOUSTON" ? houstonDelivery : "SAVAGAG2",
       }, locations);
       return { salesOrder: order.salesOrder, status: "review_required" as const,
         reason: "Pickup schedule, duplicate lookup and final delivery must be verified.", preview };

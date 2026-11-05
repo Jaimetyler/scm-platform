@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
+import { terminalDeliveryCode } from "@/lib/bunge/destinations";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { readDeliveryLocation } from "@/lib/bunge/delivery-server";
@@ -17,6 +18,8 @@ export const maxDuration = 120;
 
 async function preflight(req: NextRequest) {
   const form = await req.formData();
+  const destination = terminalDeliveryCode("houston", form.get("destination"));
+  if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
   const file = form.get("file");
   const requested = requestedEquipment(form.get("equipment"));
   const salesOrder = String(form.get("salesOrder") ?? "").trim();
@@ -38,7 +41,7 @@ async function preflight(req: NextRequest) {
   const locations = await db.from("cotton_location_master")
     .select("id,mcleod_code,prev_code,name,timezone,active").limit(5000);
   if (locations.error || !locations.data) throw new Error("Location master unavailable.");
-  const review = previewBungeDispatchOrders(matches, dispatch.destinationKind, locations.data)[0];
+  const review = previewBungeDispatchOrders(matches, dispatch.destinationKind, locations.data, destination)[0];
   const proposal = review.preview;
   if (!proposal) throw new Error("Selected order blocked: " + review.reason);
 
@@ -62,7 +65,7 @@ async function preflight(req: NextRequest) {
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
 
   const ledger = db.from("cotton_bunge_import_orders");
-  const auditFields = "id,source_hash,status,mcleod_order_id";
+  const auditFields = "id,source_hash,status,mcleod_order_id,destination_code";
   const findAudit = () => ledger.select(auditFields).eq("customer_id", proposal.customerId)
     .eq("revenue_code", proposal.revenueCode).eq("blnum", proposal.blnum).maybeSingle();
   const existing = await findAudit();
@@ -72,16 +75,15 @@ async function preflight(req: NextRequest) {
     row: line.row, mark: line.mark, salesOrder: line.salesOrder, bales: line.bales,
     warehouse: line.warehouse, usdaWarehouseCode: line.usdaWarehouseCode, originalRtl: line.rtl,
   }));
-  const sourceHash = createHash("sha256").update(JSON.stringify({
-    salesOrder, blnum: proposal.blnum, destination: proposal.deliveryLocation, originalPickups,
+  const hashSource = (destinationCode: string, legacy = false) => createHash("sha256").update(JSON.stringify({
+    salesOrder, blnum: proposal.blnum, destination: destinationCode,
+    originalPickups: legacy ? originalPickups.map(line => ({ ...line, usdaWarehouseCode: null })) : originalPickups,
   })).digest("hex");
-  // Older preflights omitted the USDA code. Recognize the same source without rewriting its original record.
-  const legacyHash = createHash("sha256").update(JSON.stringify({
-    salesOrder, blnum: proposal.blnum, destination: proposal.deliveryLocation,
-    originalPickups: originalPickups.map(line => ({ ...line, usdaWarehouseCode: null })),
-  })).digest("hex");
-  const sameSource = (hash: string) => hash === sourceHash || hash === legacyHash;
-  if (existing.data && !sameSource(existing.data.source_hash))
+  const sourceHash = hashSource(proposal.deliveryLocation);
+  // Compare older records against their original selection and the original pickup lines.
+  const sameSource = (row: { source_hash: string; destination_code: string }) =>
+    row.source_hash === hashSource(row.destination_code) || row.source_hash === hashSource(row.destination_code, true);
+  if (existing.data && !sameSource(existing.data))
     throw new Error("Existing audit record conflicts with this dispatch.");
 
   const [duplicates, delivery] = await Promise.all([
@@ -101,7 +103,7 @@ async function preflight(req: NextRequest) {
     if (inserted.error) throw new Error("Could not save original RTL audit record.");
   }
   const saved = await findAudit();
-  if (saved.error || !saved.data || !sameSource(saved.data.source_hash))
+  if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
   if (saved.data.status !== "previewed" || saved.data.mcleod_order_id)
     return NextResponse.json({ ...response, delivery, auditId: saved.data.id, auditStatus: saved.data.status,
@@ -111,7 +113,9 @@ async function preflight(req: NextRequest) {
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
     dispatchDestination: { name: dispatch.destination, address: rows.slice(rows.findIndex(row => String(row[0]).trim().toUpperCase() === "DESTINATION:") + 1).slice(0, 2).map(row => String(row[1] ?? "")) },
     draft: draftHoustonOrder(source, proposal, windows, equipment.code),
-    reason: "Audit record verified and no matching BLNUM found. Confirm the delivery address, McLeod create fields and read-back before the pilot.",
+    reason: saved.data.destination_code === proposal.deliveryLocation
+      ? "Audit record verified and no matching BLNUM found. Confirm the delivery address, McLeod create fields and read-back before the pilot."
+      : `No matching BLNUM found. The existing audit record uses ${saved.data.destination_code}. The new delivery selection is shown in the draft and needs audit reconciliation before the pilot.`,
   });
 }
 
