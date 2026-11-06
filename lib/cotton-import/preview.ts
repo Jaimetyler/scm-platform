@@ -34,12 +34,11 @@ function date(value: string): string {
     throw new Error("Invalid scheduled pickup date");
   return value;
 }
-export function buildCottonOrderPreview(input: CottonImportInput, locations: readonly CottonLocation[]): CottonOrderPreview {
+export function buildCottonOrderPreview(input: CottonImportInput, locations: readonly CottonLocation[], customerId: "BUNGOMNE" | "OLAMRITX" = "BUNGOMNE"): CottonOrderPreview {
   if (!["MAIN", "DAVIS"].includes(input.revenueCode)) throw new Error("Unsupported cotton revenue code");
   const suppliedCustomer = String(input.customerId ?? "").trim().toUpperCase();
-  if (suppliedCustomer && suppliedCustomer !== "BUNGOMNE")
-    throw new Error("Bunge import requires McLeod customer BUNGOMNE.");
-  const customerId = "BUNGOMNE";
+  if (suppliedCustomer && suppliedCustomer !== customerId)
+    throw new Error(`Cotton import requires McLeod customer ${customerId}.`);
   const mark = required(input.mark, "mark").replace(/\s+/g, " ").toUpperCase();
   if (!/^[A-Z0-9][A-Z0-9 .\/-]*$/.test(mark)) throw new Error("Invalid mark");
   if (!Number.isSafeInteger(input.baleCount) || input.baleCount <= 0) throw new Error("Invalid bale count");

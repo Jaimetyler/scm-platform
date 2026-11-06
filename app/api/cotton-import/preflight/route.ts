@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
-import { inboundTerminal, terminalDeliveryCode } from "@/lib/bunge/destinations";
+import { inboundTerminal, terminalDeliveryCode, OLAM_CUSTOMER, olamDeliveryCode, SCM_DELIVERY_LOCATIONS } from "@/lib/bunge/destinations";
 import { staffActor, staffProfile, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
-import { readDeliveryLocation } from "@/lib/bunge/delivery-server";
+import { readActiveDeliveryLocation, readDeliveryLocation } from "@/lib/bunge/delivery-server";
 import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
 import { vendor } from "@/lib/dray/server";
+import { parseOlamWorkbook } from "@/lib/bunge/olam";
 import { parseDispatch } from "@/lib/bunge/preview";
 import { regionalOrder } from "@/lib/cotton-import/regional-dispatch";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
@@ -23,6 +24,7 @@ export const maxDuration = 120;
 
 async function preflight(req: NextRequest) {
   const form = await req.formData();
+  const olam = form.get("action") === "preflight-olam";
   const create = form.get("action") === "create-pilot";
   const reconcile = form.get("action") === "reconcile-pilot";
   const canRecover = staffProfile(req)?.role === "admin";
@@ -33,14 +35,14 @@ async function preflight(req: NextRequest) {
   const terminal = inboundTerminal(form.get("terminal") ?? "houston");
   if (!terminal) throw Error("Unknown inbound location.");
   const houston = terminal.id === "houston";
-  if (terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
-  const destination = terminalDeliveryCode(terminal.id, form.get("destination"));
+  if (!olam && terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
+  const destination = olam ? olamDeliveryCode(form.get("destination")) : terminalDeliveryCode(terminal.id, form.get("destination"));
   const file = form.get("file");
   const requested = requestedEquipment(form.get("equipment"));
   const salesOrder = String(form.get("salesOrder") ?? "").trim();
-  const format = houston ? /\.xlsx?$/i : /\.(xlsx|xls|csv)$/i;
+  const format = olam ? /\.(xlsb|xlsx|xls)$/i : houston ? /\.xlsx?$/i : /\.(xlsx|xls|csv)$/i;
   if (!(file instanceof File) || !format.test(file.name) || file.size === 0 ||
-      file.size > (houston ? 2_000_000 : 3 * 1024 * 1024) || !/^\d{5,}$/.test(salesOrder))
+      file.size > (houston && !olam ? 2_000_000 : 3 * 1024 * 1024) || !/^\d{5,}$/.test(salesOrder))
     throw new Error("Select one sales order and upload its original dispatch workbook.");
 
   const db = staffDatabase();
@@ -50,6 +52,11 @@ async function preflight(req: NextRequest) {
   const bytes = await file.arrayBuffer();
   let workbookDestination: { name: string; address: string[] } | undefined;
   const { source, proposal } = (() => {
+    if (olam) {
+      const parsed = parseOlamWorkbook(XLSX.read(bytes, { type: "array", cellDates: false }));
+      if (!parsed) throw Error("Upload the original OLAM dispatch workbook.");
+      return regionalOrder(parsed.lines, salesOrder, destination, terminal.revenue, locations.data, OLAM_CUSTOMER);
+    }
     if (!houston) {
       const parsed = parseDispatch(new Uint8Array(bytes));
       const regionPattern = terminal.id === "savannah" ? /SAVANNAH|\(SAV\)/i : /DALLAS|DESOTO/i;
@@ -92,6 +99,24 @@ async function preflight(req: NextRequest) {
     ...scheduleForPickup(schedules.data as CottonSchedule[], stop.locationId, stop.scheduledDate, stop.locationCode),
   }));
   const response = { ok: true, canCreate: false, pilotBuild: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7), salesOrder, blnum: proposal.blnum, windows, equipment };
+  if (olam) {
+    const scmDelivery = SCM_DELIVERY_LOCATIONS.some(location => location.code === destination);
+    const [duplicates, delivery] = await Promise.all([
+      nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate), OLAM_CUSTOMER),
+      scmDelivery ? readDeliveryLocation(destination) : readActiveDeliveryLocation(destination),
+    ]);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+    const blockers = [
+      duplicates.length ? "An existing McLeod order matches this load." : null,
+      windows.some(window => window.originalRtlDate < today) ? "Pickup dates are historical." : null,
+      windows.some(window => window.status !== "ready") ? "Pickup schedule requires review." : null,
+      !equipment.code ? equipment.reason || "Equipment requires review." : null,
+      source.pickups.some(line => !line.weight || !Number.isFinite(line.weight) || line.weight <= 0)
+        ? "Every pickup needs a valid weight." : null,
+      !scmDelivery ? "Confirm receiving hours for this Merih location before live creation." : null,
+    ].filter(Boolean);
+    return NextResponse.json({ ...response, delivery, duplicates, blockers, previewOnly: true });
+  }
   if (!equipment.code) return NextResponse.json({ ...response, reason: equipment.reason || "Equipment requires review." });
   if (windows.some(window => window.status !== "ready"))
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });

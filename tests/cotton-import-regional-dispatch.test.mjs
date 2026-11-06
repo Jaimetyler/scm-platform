@@ -25,3 +25,12 @@ test("regional orders use Houston draft rules with the selected terminal and ver
   }
   assert.throws(() => regionalOrder([lines[0], lines[0]], "2511158", "SAVAGAG2", "MAIN", locations), /Repeated/);
 });
+
+test("OLAM preflight builds a single selected order without changing the Bunge profile", () => {
+  const { source, proposal } = regionalOrder(lines, "2511158", "MERIBAT2", "MAIN", locations, "OLAMRITX");
+  assert.equal(proposal.customerId, "OLAMRITX");
+  assert.equal(proposal.deliveryLocation, "MERIBAT2");
+  assert.equal(proposal.blnum, "D1085 90 BALES");
+  assert.equal(source.pickups.length, 2);
+  assert.throws(() => regionalOrder(lines, "9999999", "MERIBAT2", "MAIN", locations, "OLAMRITX"), /Selected order/);
+});
