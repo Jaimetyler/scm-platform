@@ -18,7 +18,7 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  }
  async function save(){
  setBusy(true);onBusy?.(true);try{
- const payload=kind==="hours"?{kind,locationId,days,openTime:open||null,closeTime:close||null,cutoffTime:cutoff||null,appointmentRequired:appt,verified,source}:{kind,locationId,source,effectiveFrom:effective,rules:[{rule_kind:"late_pickup",fee_type:lateType,amount:lateAmount,grace_days:grace},{rule_kind:"early_pickup",fee_type:earlyType,amount:earlyAmount}]};
+ const payload=kind==="hours"?{kind,locationId,days,openTime:open||null,closeTime:close||null,cutoffTime:cutoff||null,appointmentRequired:appt,verified}:{kind,locationId,source,effectiveFrom:effective,rules:[{rule_kind:"late_pickup",fee_type:lateType,amount:lateAmount,grace_days:grace},{rule_kind:"early_pickup",fee_type:earlyType,amount:earlyAmount}]};
  const r=await fetch("/api/cotton-locations/review",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
  const j=await r.json();
  if(!r.ok||!j.ok)throw Error(j.error||"Save failed");
@@ -45,7 +45,7 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  <label>Appointment <select value={appt===null?"":appt?"required":"not-required"} onChange={e=>setAppt(e.target.value===""?null:e.target.value==="required")}>
   <option value="">Choose appointment requirement</option><option value="not-required">Not required</option><option value="required">Required</option>
  </select></label>
- <label><input type="checkbox" checked={verified} onChange={e=>setVerified(e.target.checked)}/> Hours confirmed by source</label>
+ <label><input type="checkbox" checked={verified} onChange={e=>setVerified(e.target.checked)}/> Hours verified</label>
  </>:<>
  <label>Effective date <input type="date" value={effective} onChange={e=>setEffective(e.target.value)}/></label>
  <label>Late fee type <select value={lateType} onChange={e=>setLateType(e.target.value)}>{feeTypes.map(t=><option key={t}>{t}</option>)}</select></label>
@@ -54,8 +54,8 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  <label>Early fee type <select value={earlyType} onChange={e=>setEarlyType(e.target.value)}>{feeTypes.map(t=><option key={t}>{t}</option>)}</select></label>
  <label>Early fee amount <input type="number" min="0" step="0.01" value={earlyAmount} onChange={e=>setEarlyAmount(Number(e.target.value))}/></label>
  </>}
- <label>Source / person / tariff reference <input style={{...inputStyle,width:"100%"}} value={source} onChange={e=>setSource(e.target.value)}/></label>
- <button disabled={busy||!source.trim()||(kind==="hours"&&(!days.length||appt===null||(!appt&&(!open||!close))))} onClick={()=>void save()}>{busy?"Saving...":kind==="hours"?(verified?"Save verified hours":"Save hours"):"Save fee draft"}</button>
+ {kind==="fees"&&<label>Source / person / tariff reference <input style={{...inputStyle,width:"100%"}} value={source} onChange={e=>setSource(e.target.value)}/></label>}
+ <button disabled={busy||(kind==="hours"?(!days.length||appt===null||(!appt&&(!open||!close))):!source.trim())} onClick={()=>void save()}>{busy?"Saving...":kind==="hours"?(verified?"Save verified hours":"Save hours"):"Save fee draft"}</button>
  {onCancel&&<button type="button" onClick={onCancel}>Cancel</button>}
  </fieldset>}
  </section>

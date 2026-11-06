@@ -22,10 +22,10 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
   const open=input.openTime,close=input.closeTime,cutoff=input.cutoffTime;
   if((open!=null&&!time(open))||(close!=null&&!time(close))||(cutoff!=null&&!time(cutoff))||(open&&close&&open>=close))
    return NextResponse.json({ok:false,error:"Invalid pickup hours"},{status:400});
-  if(typeof input.appointmentRequired!=="boolean"||typeof input.verified!=="boolean"||typeof input.source!=="string"||!input.source.trim())
-   return NextResponse.json({ok:false,error:"Appointment, verification and source are required"},{status:400});
+  if(typeof input.appointmentRequired!=="boolean"||typeof input.verified!=="boolean")
+   return NextResponse.json({ok:false,error:"Appointment and verification are required"},{status:400});
   if(!input.appointmentRequired&&(!open||!close))return NextResponse.json({ok:false,error:"Pickup window required for non-appointment location"},{status:400});
-  const {data,error}=await db.rpc("save_cotton_schedule_review",{p_location_id:id,p_days:days,p_open:open||null,p_close:close||null,p_cutoff:cutoff||null,p_appointment:input.appointmentRequired,p_verified:input.verified,p_source:input.source.trim(),p_actor:actor});
+  const {data,error}=await db.rpc("save_cotton_schedule_review",{p_location_id:id,p_days:days,p_open:open||null,p_close:close||null,p_cutoff:cutoff||null,p_appointment:input.appointmentRequired,p_verified:input.verified,p_source:actor,p_actor:actor});
   if(error)return NextResponse.json({ok:false,error:error.message},{status:409});
   return NextResponse.json({ok:true,result:data});
  }
