@@ -28,3 +28,10 @@
 .booking-charge-table table { border-collapse: collapse; width: 100%; }
 .booking-charge-table th, .booking-charge-table td { padding: 8px; border-bottom: 1px solid #334155; text-align: left; }
 .booking-charge-table th { color: #bfcee2; }
+.booking-charge-overview { display: flex; flex-wrap: wrap; gap: 16px 32px; padding: 12px 16px; margin: 12px 0; border: 1px solid #334155; border-radius: 8px; }
+.booking-charge-overview span, .booking-charge-table small { display: block; color: #a7b9cf; font-size: 12px; }
+.booking-charge-overview strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.booking-charge-table .booking-charge-mark > * { background: #21344c; }
+.booking-charge-table .booking-charge-amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.booking-charge-choice { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto; align-items: start; gap: 8px; padding: 5px 0; cursor: pointer; }
+.booking-charge-choice strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
