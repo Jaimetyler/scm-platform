@@ -74,7 +74,7 @@ export default function DomesticHistoryPage() {
   }
   if (!site) return <main><PlatformPageHeader title="Domestic History Not Found" /></main>;
   const time = (value: string | null) => value ? new Date(value).toLocaleString("en-US", {
-    timeZone: site.terminal === "HOU" ? "America/Chicago" : "America/New_York",
+    timeZone: site.terminal === "HOU" || site.terminal === "DAL" ? "America/Chicago" : "America/New_York",
     month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
   }) : "—";
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>

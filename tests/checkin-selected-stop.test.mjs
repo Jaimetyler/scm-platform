@@ -51,3 +51,14 @@ test('conflicting duplicate city evidence is an integrity error, not a false oth
   const order={stops:[{id:'S',stop_type:'SO',location:{name:'SCM Houston 5300',city:'Houston'}}],movements:[{id:'M',stops:[{id:'S',stop_type:'SO',location:{city_name:'Savannah'}}]}]};
   assert.throws(()=>selectMcleodYardStop(order,'HOU','Houston 5300','delivery'),e=>e.code==='CONFLICTING_STOP_IDENTITY');
 });
+
+test('Dallas stops must match the exact McLeod location for the selected yard', () => {
+  const stops = [
+    { id: 'desoto', stop_type: 'SO', location_id: 'SCMDDETX' },
+    { id: 'dallas', stop_type: 'SO', location: { id: 'SCMDDATX' } },
+  ];
+  assert.equal(selectMcleodYardStop({ stops }, 'DAL', 'Dallas - DeSoto (SCMDDETX)', 'delivery').stop.id, 'desoto');
+  assert.equal(selectMcleodYardStop({ stops }, 'DAL', 'Dallas - SCMDDATX', 'delivery').stop.id, 'dallas');
+  assert.throws(() => selectMcleodYardStop({ stops: [stops[0]] }, 'DAL', 'Dallas - SCMDDATX', 'delivery'),
+    error => error.code === 'YARD_STOP_NOT_FOUND');
+});

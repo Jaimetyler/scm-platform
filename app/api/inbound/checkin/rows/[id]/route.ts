@@ -1,3 +1,4 @@
+import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
 import { canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
@@ -199,7 +200,7 @@ async function PATCHHandler(
     const identityChanged = existing.mark !== merged.mark || existing.bol_bc !== merged.bol_bc;
     const matchedOrderId = requestedOrderId || (identityChanged ? "" : cleanText(existing.matched_order_id));
     if (matchedOrderId && (identityChanged || matchedOrderId !== cleanText(existing.matched_order_id))) {
-      merged.expected_bale_count = await verifyCottonOrder(matchedOrderId, merged.mark ?? "", merged.bol_bc);
+      merged.expected_bale_count = await verifyCottonOrder(matchedOrderId, merged.mark ?? "", merged.bol_bc, false, merged.terminal === "DAL" ? getCheckinSite(merged.terminal, merged.site_code) ?? undefined : undefined);
     }
 
     if (identityChanged && !matchedOrderId) merged.expected_bale_count = null;

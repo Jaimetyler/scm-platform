@@ -1,4 +1,4 @@
-import { CHECKIN_SITES, getCheckinSite, type TerminalCode } from "../inbound/checkin/sites.ts";
+import { CHECKIN_SITES, TERMINAL_NAMES, getCheckinSite, type TerminalCode } from "../inbound/checkin/sites.ts";
 
 export type WarehouseLocation = { terminal: TerminalCode | "all"; siteCode: string };
 export type WarehouseSection = "overview" | "checkins" | "inventory" | "outbound" | "history";
@@ -11,7 +11,7 @@ export function validLocation(value: unknown): WarehouseLocation {
   if (!value || typeof value !== "object") return ALL_LOCATIONS;
   const raw = value as Record<string, unknown>;
   const terminal = String(raw.terminal ?? "").toUpperCase();
-  if (terminal !== "SAV" && terminal !== "HOU") return ALL_LOCATIONS;
+  if (terminal !== "SAV" && terminal !== "HOU" && terminal !== "DAL") return ALL_LOCATIONS;
   const siteCode = String(raw.siteCode ?? "all");
   return { terminal, siteCode: getCheckinSite(terminal, siteCode) ? siteCode : "all" };
 }
@@ -78,7 +78,7 @@ export function workspaceHref(section: WarehouseSection, location: WarehouseLoca
 
 export function locationLabel(location: WarehouseLocation) {
   if (location.terminal === "all") return "All locations";
-  return `${location.terminal === "SAV" ? "Savannah" : "Houston"} · ${location.siteCode === "all" ? "All sites" : location.siteCode}`;
+  return `${TERMINAL_NAMES[location.terminal]} · ${location.siteCode === "all" ? "All sites" : location.siteCode}`;
 }
 
 export function sitesForLocation(location: WarehouseLocation) {

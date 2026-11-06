@@ -214,7 +214,7 @@ async function POSTHandler(req: NextRequest) {
     if (driverName.length > 120 || driverPhone.length > 40 || truckingCompany.length > 200) {
       return NextResponse.json({ ok: false, error: "Driver or trucking company details are too long" }, { status: 400 });
     }
-    const expectedBales = matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true) : null;
+    const expectedBales = matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true, CHECKIN_SITES.find(site => site.terminal === terminal && site.siteCode === site_code)) : null;
 
     const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
     const defaultEquipment: EquipmentType =

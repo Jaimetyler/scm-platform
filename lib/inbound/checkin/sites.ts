@@ -1,8 +1,10 @@
-export type TerminalCode = "SAV" | "HOU";
+export type TerminalCode = "SAV" | "HOU" | "DAL";
+
+export const TERMINAL_NAMES = { SAV: "Savannah", HOU: "Houston", DAL: "Dallas" } as const;
 
 export type CheckinSite = {
   terminal: TerminalCode;
-  terminalSlug: "sav" | "hou";
+  terminalSlug: "sav" | "hou" | "dal";
   siteCode: string;
   siteName: string;
   subLocations: string[];
@@ -11,6 +13,16 @@ export type CheckinSite = {
 };
 
 export const CHECKIN_SITES: CheckinSite[] = [
+  {
+    terminal: "DAL", terminalSlug: "dal", siteCode: "SCMDDETX",
+    siteName: "Dallas - DeSoto (SCMDDETX)", subLocations: ["MAIN"],
+    materials: ["cotton", "lumber", "other"], containers: false,
+  },
+  {
+    terminal: "DAL", terminalSlug: "dal", siteCode: "SCMDDATX",
+    siteName: "Dallas - SCMDDATX", subLocations: ["MAIN"],
+    materials: ["cotton", "lumber", "other"], containers: false,
+  },
   {
     terminal: "SAV",
     terminalSlug: "sav",
@@ -78,4 +90,10 @@ export function getCheckinSite(
         site.siteCode === siteCode
     ) ?? null
   );
+}
+
+
+export function eligibleCheckinRevenue(revenue: unknown, terminal?: string) {
+  const code = String(revenue ?? "").trim().toUpperCase();
+  return code === "MAIN" || (terminal === "DAL" && code === "DAVIS");
 }

@@ -48,8 +48,13 @@ export function mcleodOrderStops(order: RecordValue): RecordValue[] {
   return [...byId.values(), ...withoutId];
 }
 
-export function stopAtScmYard(stop: RecordValue, siteName: string, terminal?: "SAV" | "HOU"): boolean {
+export function stopAtScmYard(stop: RecordValue, siteName: string, terminal?: "SAV" | "HOU" | "DAL"): boolean {
   const location = stop.location && typeof stop.location === "object" ? stop.location : {};
+  if (terminal === "DAL") {
+    const site = CHECKIN_SITES.find(item => item.terminal === terminal && item.siteName === siteName);
+    const codes = [stop.location_id, location.id, location.code].map(value => text(value).toUpperCase()).filter(Boolean);
+    return !!site && codes.length > 0 && codes.every(code => code === site.siteCode);
+  }
   const name = text(location.name ?? stop.location_name).toUpperCase();
   const address = [location.address, location.address1, location.address2, stop.address].map(text).join(" ").toUpperCase();
   const siteWords: string[] = siteName.toUpperCase().match(/\b\d{3,}\b/g) ?? [];
@@ -60,16 +65,16 @@ export function stopAtScmYard(stop: RecordValue, siteName: string, terminal?: "S
       expected === "SAV" && (/HOUSTON/.test(`${name} ${city}`) || /^(TX|TEXAS)$/.test(state))) return false;
   // A numeric database identifier is not yard/address evidence. An explicit
   // different known SCM yard in the location name overrides an address hit.
-  const knownYards = CHECKIN_SITES.map(site => site.siteCode);
+  const knownYards = CHECKIN_SITES.filter(site => site.terminal !== "DAL").map(site => site.siteCode);
   if (knownYards.some(yard => !siteWords.includes(yard) && new RegExp(`(^|\\D)${yard}(\\D|$)`).test(name))) return false;
   return /\bSCM\b|SUPPLY CHAIN|SAVANNAH WAREHOUSE|HOUSTON WAREHOUSE/.test(name) &&
     siteWords.some(word => new RegExp(`(^|\\D)${word}(\\D|$)`).test(`${name} ${address}`));
 }
 
 /** Direction is applied BEFORE counting matches. Repeated same-direction visits need explicit selection. */
-export function selectMcleodYardStop(order: RecordValue, terminal: "SAV" | "HOU", siteName: string,
+export function selectMcleodYardStop(order: RecordValue, terminal: "SAV" | "HOU" | "DAL", siteName: string,
   direction?: "pickup" | "delivery", selectedStopId?: string | null) {
-  if (!["SAV", "HOU"].includes(terminal)) throw new YardStopError("Choose a valid terminal.", "INVALID_TERMINAL");
+  if (!["SAV", "HOU", "DAL"].includes(terminal)) throw new YardStopError("Choose a valid terminal.", "INVALID_TERMINAL");
   const stops = mcleodOrderStops(order);
   const candidates = stops.filter(stop => (stop.stop_type === "PU" || stop.stop_type === "SO") &&
     (!direction || stop.stop_type === (direction === "pickup" ? "PU" : "SO")) && stopAtScmYard(stop, siteName, terminal));

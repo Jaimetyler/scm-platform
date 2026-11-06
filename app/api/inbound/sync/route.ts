@@ -539,7 +539,7 @@ async function POSTHandler(req: NextRequest) {
       const departure = new Date(row.verifiedAt ?? "");
       if (Number.isNaN(arrival.getTime()) || Number.isNaN(departure.getTime()) ||
           departure.getTime() < arrival.getTime() ||
-          (row.terminal !== "SAV" && row.terminal !== "HOU")) {
+          (row.terminal !== "SAV" && row.terminal !== "HOU" && row.terminal !== "DAL")) {
         return validationFailure({
           error: "Invalid check-in or verification time - blocked delivery",
           reason: "INVALID_CHECKIN_TIME", matchedOrderId: preview.matchedOrderId,

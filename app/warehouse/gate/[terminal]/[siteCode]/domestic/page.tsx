@@ -447,7 +447,7 @@ export default function DomesticQueuePage() {
 }
 
 function time(value: string, terminal: string) {
-  return new Intl.DateTimeFormat("en-US", { timeZone: terminal === "HOU" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", { timeZone: terminal === "HOU" || terminal === "DAL" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 function formatOrderDate(value: string) {
   const match = value.match(/^(\d{4})(\d{2})(\d{2})/);

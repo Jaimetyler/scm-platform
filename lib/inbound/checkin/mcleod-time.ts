@@ -1,6 +1,6 @@
 // Format an instant for McLeod in the warehouse's local time, including the
 // correct offset on either side of daylight saving transitions.
-export function formatWarehouseTime(instant: Date, terminal: "SAV" | "HOU") {
+export function formatWarehouseTime(instant: Date, terminal: "SAV" | "HOU" | "DAL") {
   if (Number.isNaN(instant.getTime())) throw new Error("Invalid check-in time");
   const timeZone = terminal === "SAV" ? "America/New_York" : "America/Chicago";
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -22,7 +22,7 @@ type StopActuals = { id?: string; actual_arrival?: string | null; actual_departu
 type StopPlan = { stopId: string; skipped: boolean; arrivalDate: string; departureDate: string;
   generatedArrival: boolean; generatedDeparture: boolean };
 
-export function warehouseWallTime(day: string, hour: number, minute: number, terminal: "SAV" | "HOU") {
+export function warehouseWallTime(day: string, hour: number, minute: number, terminal: "SAV" | "HOU" | "DAL") {
   const date = new Date(`${day}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== day)
     throw new Error("Invalid received date - cannot backfill pickup actuals");
@@ -50,10 +50,10 @@ function actualInstant(raw: string) {
 // Planning is pure: preserve every existing actual, fill only missing values,
 // and validate the entire timeline before either stop is written.
 export function planLiveDeliveryActuals(input: {
-  receivedDate: string; terminal: "SAV" | "HOU";
+  receivedDate: string; terminal: "SAV" | "HOU" | "DAL";
   checkedInAt: Date; verifiedAt: Date; pickups: StopActuals[]; delivery: StopActuals;
 }): { pickup: StopPlan; delivery: StopPlan } {
-  if (!["SAV", "HOU"].includes(input.terminal) || !Number.isFinite(input.checkedInAt.getTime()) ||
+  if (!["SAV", "HOU", "DAL"].includes(input.terminal) || !Number.isFinite(input.checkedInAt.getTime()) ||
       !Number.isFinite(input.verifiedAt.getTime()) || input.verifiedAt < input.checkedInAt)
     throw new Error("Invalid check-in or verification time - blocked delivery");
   if (input.pickups.length === 0 || !input.delivery.id)

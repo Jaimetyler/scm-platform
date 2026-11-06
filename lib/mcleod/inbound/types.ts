@@ -9,7 +9,7 @@ export type InboundExcelRow = {
   source?: "live_checkin";
   checkedInAt?: string | null;
   verifiedAt?: string | null;
-  terminal?: "SAV" | "HOU";
+  terminal?: "SAV" | "HOU" | "DAL";
 };
 
 export type CustomerXrefRow = {

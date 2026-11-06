@@ -1,3 +1,4 @@
+import { eligibleCheckinRevenue } from "./sites.ts";
 import { selectMcleodYardStop, stopAtScmYard } from "./yard-stop.ts";
 import { dependencyFetch, DependencyError } from "../../http/dependency.ts";
 export type McleodCompletion = {
@@ -86,7 +87,7 @@ export async function lookupMcleodOrderById(orderId: string, direction: string) 
     actualDeparture: String(stop?.actual_departure ?? "").trim() };
 }
 
-export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "HOU", siteName: string, requestedDirection?: "pickup" | "delivery", selectedStopId?: string | null, providedOrder?: Record<string, any>, signal?: AbortSignal) {
+export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "HOU" | "DAL", siteName: string, requestedDirection?: "pickup" | "delivery", selectedStopId?: string | null, providedOrder?: Record<string, any>, signal?: AbortSignal) {
   if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) throw new Error("Enter a valid SCM order number");
   const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
   const token = process.env.MCLEOD_AUTH_TOKEN;
@@ -103,8 +104,8 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
     }
     order = await response.json();
   }
-  if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== "MAIN")
-    throw new Error(`SCM order ${orderId} is not a MAIN revenue code order. Check in using the reference from your paperwork.`);
+  if (!eligibleCheckinRevenue(order.revenue_code_id, terminal))
+    throw new Error(`SCM order ${orderId} is not in an eligible revenue code for this yard. Check in using the reference from your paperwork.`);
   const selection = selectMcleodYardStop(order, terminal, siteName, requestedDirection, selectedStopId);
   const { stops, stop, direction, movement } = selection;
   const field = direction === "pickup" ? "blnum" : "consignee_refno";

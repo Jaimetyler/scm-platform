@@ -197,7 +197,7 @@ function formatArrivalTime(row: CheckinRow): string {
   if (!row.checked_in_at) return "";
 
   return new Date(row.checked_in_at).toLocaleTimeString("en-US", {
-    timeZone: row.terminal === "HOU" ? "America/Chicago" : "America/New_York",
+    timeZone: row.terminal === "HOU" || row.terminal === "DAL" ? "America/Chicago" : "America/New_York",
     hour: "numeric",
     minute: "2-digit",
   });

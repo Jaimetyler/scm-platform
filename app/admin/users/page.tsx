@@ -29,7 +29,7 @@ export default function UsersPage() {
       <label>Name<input required maxLength={100} value={name} onChange={e=>setName(e.target.value)} /></label>
       <label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} /></label>
       <label>Role<select value={role} onChange={e=>setRole(e.target.value)}><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option><option value="admin">Administrator</option></select></label>
-      {role === "operator" && <label>Terminal<select value={terminal} onChange={e=>setTerminal(e.target.value)}><option value="HOU">Houston · 5300 + 4331</option><option value="SAV">Savannah · all sites</option></select></label>}
+      {role === "operator" && <label>Terminal<select value={terminal} onChange={e=>setTerminal(e.target.value)}><option value="HOU">Houston · 5300 + 4331</option><option value="SAV">Savannah · all sites</option><option value="DAL">Dallas · both sites</option></select></label>}
       <button disabled={busy}>Send invitation</button>
     </form>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
@@ -39,7 +39,7 @@ export default function UsersPage() {
           {!supportedRole(user.role)&&<option value={user.role} disabled>Legacy role: {user.role} — choose supported access</option>}<option value="admin">Administrator</option><option value="operator">Warehouse operator</option><option value="viewer">Dispatcher / viewer</option>
         </select>{user.role === "operator" && <select aria-label={`Terminal for ${user.email}`} disabled={busy} value={user.terminal ?? "HOU"}
           onChange={e=>setUsers(current=>current.map(item=>item.id===user.id ? {...item,terminal:e.target.value} : item))}>
-          <option value="HOU">Houston</option><option value="SAV">Savannah</option></select>}
+          <option value="HOU">Houston</option><option value="SAV">Savannah</option><option value="DAL">Dallas</option></select>}
         <button disabled={busy||!supportedRole(user.role)} onClick={()=>{if(confirm(`Save ${user.role} access${user.terminal ? ` for ${user.terminal}` : ""} for ${user.email}?`)) void action({...user,action:"access"},"Permissions updated.");}}>Save access</button>
       </> : <>{user.role}{user.terminal ? ` · ${user.terminal}` : " · all terminals"}</>}</td>
       <td>{user.status === "pending" && Date.parse(user.invite_expires_at) < Date.now() ? "Expired invitation" : user.status}</td>

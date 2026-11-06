@@ -38,7 +38,7 @@ function database() {
 }
 
 function warehouseMidnight(date: string, terminal: string) {
-  const zone = terminal === "HOU" ? "America/Chicago" : "America/New_York";
+  const zone = terminal === "HOU" || terminal === "DAL" ? "America/Chicago" : "America/New_York";
   const target = Date.parse(`${date}T00:00:00Z`);
   let instant = target;
   for (let attempt = 0; attempt < 3; attempt++) {

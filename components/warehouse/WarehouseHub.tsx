@@ -39,7 +39,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
       const views = availableCheckinViews(siteLocation);
       return <section key={`${site.terminal}:${site.siteCode}`} className="warehouse-operation-row">
         <div className="warehouse-operation-site">
-          <span className="warehouse-operation-terminal">{site.terminal === "SAV" ? "Savannah" : "Houston"}</span>
+          <span className="warehouse-operation-terminal">{site.terminal === "SAV" ? "Savannah" : site.terminal === "DAL" ? "Dallas" : "Houston"}</span>
           <strong>{site.siteCode}</strong>
           <span className="warehouse-operation-materials">{[
             site.materials.includes("cotton") ? "Cotton" : null,

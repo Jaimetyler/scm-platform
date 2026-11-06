@@ -1,5 +1,5 @@
 export type Staff = { id: string; email: string; name: string; role: "admin" | "operator" | "viewer";
-  terminal: "HOU" | "SAV" | null; status: "pending" | "active" | "disabled"; user_id: string | null };
+  terminal: "HOU" | "SAV" | "DAL" | null; status: "pending" | "active" | "disabled"; user_id: string | null };
 export class AccessError extends Error {
   status: number;
   constructor(message: string, status = 403) { super(message); this.status = status; }
@@ -29,7 +29,7 @@ export function validInvite(value: Record<string, unknown>) {
   const role = String(value.role ?? "");
   const terminal = role === "operator" ? String(value.terminal ?? "").toUpperCase() : null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !name || name.length > 100 ||
-      !["admin", "operator", "viewer"].includes(role) || role === "operator" && !["HOU", "SAV"].includes(terminal))
+      !["admin", "operator", "viewer"].includes(role) || role === "operator" && !["HOU", "SAV", "DAL"].includes(terminal))
     throw new AccessError("Enter a name, email, role, and an operator terminal.", 400);
   return { email, name, role: role as Staff["role"], terminal: terminal as Staff["terminal"] };
 }

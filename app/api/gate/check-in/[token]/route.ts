@@ -95,7 +95,7 @@ async function getGate(token: string) {
   if (!data || data.latitude === null || data.longitude === null ||
       !CHECKIN_SITES.some((site) => site.terminal === data.terminal && site.siteCode === data.site_code)) return null;
   return data as {
-    id: string; terminal: "SAV" | "HOU"; site_code: string; site_name: string;
+    id: string; terminal: "SAV" | "HOU" | "DAL"; site_code: string; site_name: string;
     latitude: number; longitude: number; radius_m: number; active: boolean;
   };
 }

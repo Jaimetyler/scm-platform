@@ -32,7 +32,7 @@ export default async function DriverCheckinDetailsPage({
   if (error) throw new Error(error.message);
   if (!row || staff.role === "operator" && row.terminal !== staff.terminal) notFound();
 
-  const terminalSlug = row.terminal === "HOU" ? "hou" : "sav";
+  const terminalSlug = row.terminal.toLowerCase();
   const isCotton = row.material_type === "cotton";
   return (
     <main style={{ maxWidth: 760, margin: "0 auto" }}>
@@ -56,7 +56,7 @@ export default async function DriverCheckinDetailsPage({
           {isCotton && <Detail label="Mark" value={row.mark || "—"} />}
           {isCotton && <Detail label="Bale count on BOL" value={row.bol_bc ?? "—"} />}
           <Detail label="Arrival" value={row.checked_in_at ? new Date(row.checked_in_at).toLocaleString("en-US", {
-            timeZone: row.terminal === "HOU" ? "America/Chicago" : "America/New_York",
+            timeZone: row.terminal === "HOU" || row.terminal === "DAL" ? "America/Chicago" : "America/New_York",
           }) : "—"} />
           <Detail label="Location verification" value={row.gate_location_verified_at ? "Verified at yard" : "Not verified"} />
           <Detail label="Distance from gate pin" value={row.driver_distance_m === null ? "—" : `${Math.round(Number(row.driver_distance_m))} meters`} />

@@ -3,7 +3,7 @@ import { mapLimit } from "../../http/map-limit.ts";
 import { extractSearchOrders } from "../../mcleod/inbound/search-response.ts";
 import { lookupMcleodGateOrder } from "./mcleod-order-id.ts";
 import { mcleodOrderStops, YardStopError } from "./yard-stop.ts";
-import { CHECKIN_SITES } from "./sites.ts";
+import { CHECKIN_SITES, eligibleCheckinRevenue } from "./sites.ts";
 import { referenceMatchesInput } from "./reference-match.ts";
 import { searchReferenceOrders } from "./reference-search.ts";
 
@@ -24,7 +24,7 @@ export type DriverLookupMatch = {
  * At most 20 reference pages of 5 raw rows, one exact-ID search, and 21 distinct
  * detail requests (20 true reference IDs + one exact ID), four at once. Search,
  * body consumption, details, and optional enrichment share a 20-second deadline. */
-export async function lookupDriverReference(input: string, terminal: "SAV" | "HOU", siteName: string,
+export async function lookupDriverReference(input: string, terminal: "SAV" | "HOU" | "DAL", siteName: string,
   direction: "pickup" | "delivery", selection?: { orderId: string; stopId?: string }) {
   const originalInput = text(input);
   const reference = key(input);
@@ -91,7 +91,7 @@ export async function lookupDriverReference(input: string, terminal: "SAV" | "HO
     const raw = validateOrder(await read(`/orders/${encodeURIComponent(candidate.orderId)}`), candidate.orderId);
     // A changed search/detail snapshot is not proof that the submitted input has no match.
     if (candidate.paths.includes("reference") && (typeof raw[field] !== "string" || !referenceMatchesInput(raw[field], reference))) throw unavailable();
-    if (key(raw.revenue_code_id) !== "MAIN") {
+    if (!eligibleCheckinRevenue(raw.revenue_code_id, terminal)) {
       blocked.push(new YardStopError("A matching order is not eligible for this SCM freight check-in. Please speak with warehouse staff.", "NOT_MAIN_ORDER"));
       return null;
     }

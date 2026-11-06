@@ -13,7 +13,7 @@ test('all sites stays scoped to its terminal and an explicit all overrides remem
 });
 test('obsolete and malformed locations never become operational site routes', () => {
   assert.deepEqual(validLocation({ terminal: 'SAV', siteCode: '1701' }), { terminal: 'SAV', siteCode: 'all' });
-  assert.deepEqual(validLocation({ terminal: 'DAL', siteCode: '246' }), ALL_LOCATIONS);
+  assert.deepEqual(validLocation({ terminal: 'DAL', siteCode: '246' }), { terminal: 'DAL', siteCode: 'all' });
   assert.deepEqual(validLocation(null), ALL_LOCATIONS);
   assert.equal(workspaceHref('checkins', { terminal: 'SAV', siteCode: 'all' }), '/inbound/checkin?terminal=SAV&warehouse=all');
 });
@@ -40,4 +40,14 @@ test('every warehouse screen belongs to a stable main section', () => {
   assert.equal(sectionForPath('/inbound/history'), 'history');
   assert.equal(sectionForPath('/warehouse/gate/sav/1601/containers'), 'checkins');
   assert.equal(sectionForPath('/warehouse/inventory/sav/175'), 'inventory');
+});
+
+
+test('both Dallas yards retain independent booking and check-in routes', () => {
+  for (const siteCode of ['SCMDDETX', 'SCMDDATX']) {
+    const location = { terminal: 'DAL', siteCode };
+    assert.deepEqual(validLocation(location), location);
+    assert.equal(workspaceHref('checkins', location), `/inbound/checkin/dal/${siteCode}`);
+    assert.equal(workspaceHref('outbound', location), `/warehouse/outbound?terminal=DAL&siteCode=${siteCode}`);
+  }
 });

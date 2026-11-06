@@ -22,7 +22,7 @@ export default async function CheckinDiagnostics({ params }: { params: Promise<{
   if (error) throw new Error("Could not load check-in diagnostics");
   const departed = (data || []).filter(row => row.physical_departed_at && !["completed","cancelled"].includes(row.yard_status));
   const unresolved = (data || []).filter(row => row.yard_status === "completed" && row.outside_carrier_override_at && row.mcleod_lookup_status === "unresolved");
-  const time = (value: string) => new Date(value).toLocaleString("en-US",{timeZone:site.terminal === "HOU" ? "America/Chicago" : "America/New_York"});
+  const time = (value: string) => new Date(value).toLocaleString("en-US",{timeZone:site.terminal === "HOU" || site.terminal === "DAL" ? "America/Chicago" : "America/New_York"});
   const entry = (row: NonNullable<typeof data>[number]) => <li key={row.id} style={{ marginTop: 14 }}>
     <Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.reference_number || row.mark || "Arrival"} · {row.driver_name || "Staff entry"}</Link>
     {row.physical_departed_at && <p>Departed {time(row.physical_departed_at)}</p>}

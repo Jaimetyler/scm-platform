@@ -11,7 +11,7 @@ import * as orderHelpers from "../lib/inbound/checkin/mcleod-order-id.ts";
 import * as referenceSearchHelpers from "../lib/inbound/checkin/reference-search.ts";
 import * as driverLookupHelpers from "../lib/inbound/checkin/driver-lookup.ts";
 import { currentCottonOrder } from "../lib/inbound/checkin/current-cotton-order.ts";
-import { CHECKIN_SITES } from "../lib/inbound/checkin/sites.ts";
+import { CHECKIN_SITES, eligibleCheckinRevenue, getCheckinSite } from "../lib/inbound/checkin/sites.ts";
 import { extractSearchOrders } from "../lib/mcleod/inbound/search-response.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -32,7 +32,7 @@ function load(path, overrides = {}) {
     "@/lib/inbound/checkin/yard-stop": yardHelpers,
     "@/lib/http/dependency": dependencyHelpers,
     "@/lib/inbound/checkin/current-cotton-order": { currentCottonOrder },
-    "@/lib/inbound/checkin/sites": { CHECKIN_SITES },
+    "@/lib/inbound/checkin/sites": { CHECKIN_SITES, eligibleCheckinRevenue, getCheckinSite },
     "@/lib/mcleod/inbound/search-response": { extractSearchOrders },
     "@/lib/mcleod/inbound/utils": { normalizeKey: (v) => String(v).toUpperCase().replace(/[^A-Z0-9]/g, "") },
     "@/lib/mcleod/inbound/xref": { CUSTOMER_XREF: [] },

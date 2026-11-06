@@ -202,6 +202,10 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
 }
 export function warehouseMatchesSite(warehouse: string, terminal: string, siteCode: string, detail = "") {
   const text = `${warehouse} ${detail}`.toUpperCase();
+  if (terminal === "DAL") {
+    const reportCode = siteCode === "SCMDDETX" ? "875260" : siteCode === "SCMDDATX" ? "843001" : null;
+    return !!reportCode && text.split(/[^A-Z0-9]+/).some(word => word === siteCode || word === reportCode);
+  }
   const city = terminal === "SAV" ? /SAVANNAH|GARDEN CITY|PORT WENTWORTH/ : /HOUSTON|BAYTOWN/;
   return city.test(text) && new RegExp(`(^|\\D)${siteCode}(\\D|$)`).test(text);
 }

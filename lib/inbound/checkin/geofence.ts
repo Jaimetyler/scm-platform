@@ -70,9 +70,9 @@ export function verifyGateLocation(input: GateLocationCheck) {
   return { ok: true as const, distanceMeters };
 }
 
-export function warehouseDate(instant: Date, terminal: "SAV" | "HOU") {
+export function warehouseDate(instant: Date, terminal: "SAV" | "HOU" | "DAL") {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: terminal === "HOU" ? "America/Chicago" : "America/New_York",
+    timeZone: terminal === "HOU" || terminal === "DAL" ? "America/Chicago" : "America/New_York",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

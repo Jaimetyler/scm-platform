@@ -71,7 +71,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
       </div>
       <div className="warehouse-location-row">
         <nav aria-label="Terminal" className="warehouse-location-options">
-          {[{ terminal: "all" as const, label: "All locations" }, { terminal: "SAV" as const, label: "Savannah" }, { terminal: "HOU" as const, label: "Houston" }].filter((item) => staff?.role !== "operator" || item.terminal === staff.terminal).map((item) =>
+          {[{ terminal: "all" as const, label: "All locations" }, { terminal: "SAV" as const, label: "Savannah" }, { terminal: "HOU" as const, label: "Houston" }, { terminal: "DAL" as const, label: "Dallas" }].filter((item) => staff?.role !== "operator" || item.terminal === staff.terminal).map((item) =>
             <Link key={item.terminal} href={locationHref({ terminal: item.terminal, siteCode: "all" })} aria-current={location.terminal === item.terminal ? "true" : undefined}>{item.label}</Link>)}
         </nav>
         {location.terminal !== "all" && <nav aria-label="Warehouse location" className="warehouse-location-options warehouse-sites">
@@ -91,7 +91,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
     </header>}
     <div className={visible ? "warehouse-page" : undefined}>
       {visible && staff && staff.role !== "admin" && (staff.role === "viewer" || location.terminal !== staff.terminal) &&
-        <p className="staff-readonly">Read-only warehouse view. {staff.role === "operator" ? `You can update records in ${staff.terminal === "HOU" ? "Houston" : "Savannah"}.` : "Operational changes require a warehouse operator."}</p>}
+        <p className="staff-readonly">Read-only warehouse view. {staff.role === "operator" ? `You can update records in ${staff.terminal === "HOU" ? "Houston" : staff.terminal === "DAL" ? "Dallas" : "Savannah"}.` : "Operational changes require a warehouse operator."}</p>}
       {visible && <div className="warehouse-breadcrumb" aria-label="Current warehouse context">{locationLabel(location)}
         {returnTo && <> / <Link href={returnTo}>← Back to booking list</Link></>}
         {path === "/inbound/history" && " / Processing report uses its own terminal and date filters"}

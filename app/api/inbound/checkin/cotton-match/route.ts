@@ -1,8 +1,9 @@
+import { stopAtScmYard } from "@/lib/inbound/checkin/yard-stop";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { describeMcleodCompletion, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import { NextRequest, NextResponse } from "next/server";
-import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { CHECKIN_SITES, eligibleCheckinRevenue } from "@/lib/inbound/checkin/sites";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
@@ -61,7 +62,7 @@ async function GETHandler(request: NextRequest) {
           .some((candidate) => candidate && normalizeKey(candidate).includes(normalizeKey(mark)))) continue;
         const revenueCode = value(order.revenue_code_id).toUpperCase();
         if (!revenueCode) missingRevenueCode = true;
-        if (revenueCode !== "MAIN") continue;
+        if (!eligibleCheckinRevenue(revenueCode, terminal)) continue;
         const commodity = value((order.commodity as Record<string, unknown> | undefined)?.description || order.commodity_description || order.commodity_id).toUpperCase();
         if (!/\bCOTTON\b/.test(commodity)) continue;
         const customer = order.customer as Record<string, unknown> | undefined;
@@ -80,9 +81,11 @@ async function GETHandler(request: NextRequest) {
       const response = await fetch(`${base}/orders/${encodeURIComponent(match.orderId)}`, { headers, cache: "no-store" });
       if (!response.ok) throw new Error(`Could not verify McLeod order (${response.status})`);
       const order = await response.json() as Record<string, unknown>;
-      if (value(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
+      if (!eligibleCheckinRevenue(order.revenue_code_id, terminal)) return null;
       const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
-      const delivery = stops.find((stop) => stop.stop_type === "SO");
+      const site = CHECKIN_SITES.find(item => item.terminal === terminal && item.siteCode === siteCode);
+      const delivery = stops.find(stop => stop.stop_type === "SO" && (terminal !== "DAL" || !!site && stopAtScmYard(stop, site.siteName, "DAL")));
+      if (terminal === "DAL" && !delivery) return null;
       match.completion = await describeMcleodCompletion(order, delivery, "delivery");
       const eligibility = currentCottonOrder(order);
       if (!eligibility.eligible && !match.completion) {

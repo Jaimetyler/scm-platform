@@ -9,7 +9,7 @@ import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 
 
-type Site = { terminal: "SAV" | "HOU"; siteCode: string; siteName: string; materials: string[]; containers: boolean };
+type Site = { terminal: "SAV" | "HOU" | "DAL"; siteCode: string; siteName: string; materials: string[]; containers: boolean };
 type ReferenceMatch = {
   orderId: string; stopId: string; carrierName: string; driverName?: string;
   driverPhoneLast4?: string; selectable?: boolean; completion?: McleodCompletion | null;

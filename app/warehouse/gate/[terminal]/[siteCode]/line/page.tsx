@@ -242,7 +242,7 @@ export default function DomesticLinePage() {
   const waiting = active.filter((row) => row.yard_status === "waiting").length;
   const nextWaitingId = active.find((row) => row.yard_status === "waiting")?.id;
   const time = (value: string) => new Date(value).toLocaleTimeString("en-US", {
-    timeZone: site.terminal === "HOU" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit",
+    timeZone: site.terminal === "HOU" || site.terminal === "DAL" ? "America/Chicago" : "America/New_York", hour: "numeric", minute: "2-digit",
   });
   return <main style={{ width: "100%", padding: "0 12px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Active Line`}

@@ -8,7 +8,7 @@ import PlatformPanel from "@/components/platform/PlatformPanel";
 
 type GateSite = {
   id: string;
-  terminal: "SAV" | "HOU";
+  terminal: "SAV" | "HOU" | "DAL";
   site_code: string;
   site_name: string;
   public_token: string;

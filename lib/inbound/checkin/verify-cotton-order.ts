@@ -1,8 +1,10 @@
+import { eligibleCheckinRevenue } from "./sites";
+import { stopAtScmYard } from "./yard-stop";
 import { currentCottonOrder } from "./current-cotton-order";
 import { describeMcleodCompletion } from "./mcleod-order-id";
 import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 
-export async function verifyCottonOrder(orderId: string, mark: string, bolBC: number | null, forNewCheckin = false) {
+export async function verifyCottonOrder(orderId: string, mark: string, bolBC: number | null, forNewCheckin = false, site?: {terminal:string;siteName:string}) {
   if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) throw new Error("Invalid SCM order number");
   const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
   const token = process.env.MCLEOD_AUTH_TOKEN;
@@ -12,7 +14,7 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
   });
   if (!response.ok) throw new Error(`Could not verify SCM order ${orderId} (${response.status})`);
   const order = await response.json();
-  if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== "MAIN")
+  if (!eligibleCheckinRevenue(order.revenue_code_id, site?.terminal))
     throw new Error(`SCM order ${orderId} is not in the MAIN revenue code`);
   const commodity = String(order.commodity?.description ?? order.commodity?.name ?? order.commodity_description ?? order.commodity_id ?? "").toUpperCase();
   if (!/\bCOTTON\b/.test(commodity)) throw new Error(`SCM order ${orderId} is not a cotton order`);
@@ -25,6 +27,8 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
     throw new Error(`SCM order ${orderId} has a different BOL bale count`);
   const deliveryStop = (Array.isArray(order.stops) ? order.stops : [])
     .find((stop: { stop_type?: string }) => stop.stop_type === "SO");
+  if (site?.terminal === "DAL" && (!deliveryStop || !stopAtScmYard(deliveryStop, site.siteName, "DAL")))
+    throw new Error("The cotton delivery is assigned to a different Dallas yard.");
   const completion = await describeMcleodCompletion(order, deliveryStop, "delivery");
   if (completion) throw new Error(completion.message);
   const eligibility = currentCottonOrder(order);

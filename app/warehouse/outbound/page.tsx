@@ -33,7 +33,7 @@ function dashboardUrl(preferences: Preferences) {
   return `/warehouse/outbound?${query}`;
 }
 function validPreferences(raw: Partial<Preferences>): Preferences {
-  return { warehouse: ["SAV:all", "HOU:all"].includes(raw.warehouse) || CHECKIN_SITES.some((site) => `${site.terminal}:${site.siteCode}` === raw.warehouse) ? raw.warehouse! : "all",
+  return { warehouse: ["SAV:all", "HOU:all", "DAL:all"].includes(raw.warehouse) || CHECKIN_SITES.some((site) => `${site.terminal}:${site.siteCode}` === raw.warehouse) ? raw.warehouse! : "all",
     view: ["today", "upcoming", "past"].includes(raw.view ?? "") ? raw.view! : "all",
     group: ["customer", "vessel", "erd"].includes(raw.group ?? "") ? raw.group! : "schedule", search: String(raw.search ?? ""), basis: raw.basis === "erd" ? "erd" : "cutoff" };
 }
@@ -186,7 +186,7 @@ export default function CottonOutboundPage() {
         <CutoffInput label="Cutoff" value={importDates.cutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, cutoff: value })); }} />
         <label>Vessel<input aria-label="Import vessel" maxLength={200} style={input} value={importDates.vessel} onChange={(event) => setImportDates((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div>
-      {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
+      {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" || site?.terminal === "DAL" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
       {importDates.erd && importDates.cutoff && importDates.erd > importDates.cutoff.slice(0, 10) && <p style={{ color: "#94a3b8" }}>ERD is after the cutoff. Review the loading window before confirming.</p>}
       <label style={{ display: "block", margin: "12px 0" }}><input type="checkbox" checked={datesConfirmed} onChange={(event) => setDatesConfirmed(event.target.checked)} /> I reviewed ERD, doc cutoff, and cutoff (including any dates still unknown).</label>
       {preview.booking.sourceDates?.length > 0 && <p style={{ color: "#94a3b8", fontSize: 12 }}>Source dates: {preview.booking.sourceDates.map(({ label, value }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`).join(" · ")}</p>}
@@ -220,7 +220,7 @@ export default function CottonOutboundPage() {
 
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
-      <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
+      <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : location.terminal === "DAL" ? "Dallas" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
         {([{ key: "schedule", label: "By cutoff" }, { key: "erd", label: "By ERD" }, { key: "customer", label: "By customer" }, { key: "vessel", label: "By vessel" }] as const).map((item) =>
           <button key={item.key} type="button" aria-pressed={preferences.group === item.key} style={{ ...button, ...(preferences.group === item.key ? active : {}) }} onClick={() => setPreferences((current) => ({ ...current, group: item.key }))}>{item.label}</button>)}
