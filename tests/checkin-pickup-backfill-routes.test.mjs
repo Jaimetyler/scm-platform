@@ -88,7 +88,7 @@ async function scenario(options, run) {
   });
   const checkin = { id: "12345678-1234-4234-8234-123456789012", terminal: "HOU", site_code: "5300",
     material_type: "lumber", movement_direction: "delivery", matched_order_id: "ORDER1", matched_stop_id: "SO1", reference_number: "MARK1",
-    draft_status: "checked_in", yard_status: "working", checked_in_at: row.checkedInAt };
+    draft_status: "checked_in", yard_status: "working", checked_in_at: row.checkedInAt, ...options.checkin };
   const departureWrites = [], writeClaims = [];
   let revision = 0;
   const query = () => {
@@ -103,6 +103,9 @@ async function scenario(options, run) {
       async maybeSingle() {
         if (!filters.every(matches => matches(checkin))) return { data: null };
         if (patch) {
+          if (checkin.mcleod_processing_phase === "write_pending" &&
+              Object.hasOwn(patch, "yard_updated_by") && patch.yard_updated_by !== checkin.yard_updated_by)
+            return { error: { message: "An uncertain McLeod write requires reconciliation before changing receiving details" } };
           if (patch.physical_departed_at) departureWrites.push(patch);
           else if (patch.mcleod_processing_phase === "write_pending") writeClaims.push(patch);
           else dbWrites.push(patch);
@@ -124,9 +127,9 @@ async function scenario(options, run) {
     const response = await sync.POST({ json: async () => ({ row, checkinId: checkin.id, lookupAttemptId: attemptId }) });
     return { status: response.status, body: await response.json() };
   };
-  const checkout = async () => {
-    order.commodity_id = "LUMBER";
-    const response = await domestic.PATCH({ headers: new Headers(), json: async () => ({ action: "checkout",
+  const checkout = async (action = "checkout") => {
+    order.commodity_id = options.checkin?.material_type === "cotton" ? "COTTON" : "LUMBER";
+    const response = await domestic.PATCH({ headers: new Headers(), json: async () => ({ action, expectedUpdatedAt: checkin.updated_at,
       id: checkin.id, terminal: "HOU", siteCode: "5300" }) });
     return { status: response.status, body: await response.json() };
   };
@@ -348,4 +351,31 @@ test("simultaneous non-cotton checkout claims permit one remote write sequence",
     assert.equal((await checkout()).body.ok, true);
     assert.equal(writes.length, 2, "Completed replay cannot issue another vendor write");
   });
+});
+
+test("cotton pickup checkout completes the yard row after one McLeod write", async () => {
+  await scenario({ pickup: { location: { name: "SCM Houston 5300" } },
+    checkin: { material_type: "cotton", movement_direction: "pickup", matched_stop_id: "PU1", reference_number: "MARK1 88 BALES" } },
+    async ({ checkout, writes, checkin }) => {
+      const result = await checkout();
+      assert.equal(result.body.ok, true, JSON.stringify(result.body));
+      assert.equal(checkin.yard_status, "completed");
+      assert.equal(writes.length, 1);
+    });
+});
+
+test("pending cotton checkout reconciles only when the same McLeod stop has both actuals", async () => {
+  await scenario({ pickup: { location: { name: "SCM Houston 5300" }, actual_arrival: "20261002101200-0500" },
+    checkin: { material_type: "cotton", movement_direction: "pickup", matched_stop_id: "PU1", reference_number: "MARK1 88 BALES",
+      draft_status: "processing", updated_at: "pending", mcleod_processing_phase: "write_pending", mcleod_lookup_attempt_id: "attempt" } },
+    async ({ checkout, writes, checkin, pickup }) => {
+      assert.equal((await checkout("reconcile_checkout")).status, 409);
+      assert.equal(checkin.yard_status, "working");
+      pickup.actual_departure = "20261002102000-0500";
+      const result = await checkout("reconcile_checkout");
+      assert.equal(result.body.ok, true, JSON.stringify(result.body));
+      assert.equal(checkin.yard_status, "completed");
+      assert.equal(checkin.mcleod_processing_result_id, "attempt");
+      assert.equal(writes.length, 0);
+    });
 });

@@ -28,6 +28,10 @@ type Arrival = ShortageFields & OutsideCarrierRow & {
   warehouse_location: string | null; equipment_type: string | null;
   has_bol_photo: boolean; checkin_source: string | null;
 };
+function canReconcileCheckout(row: Arrival) {
+  return row.mcleod_processing_phase === "write_pending" && !!row.matched_order_id && !!row.matched_stop_id &&
+    !(row.material_type === "cotton" && row.movement_direction === "delivery");
+}
 type CottonFields = { mark: string; customer: string; bolBC: string; baleCount: string; warehouseLocation: string; equipmentType: string; shortageNote: string; acknowledgeShortage: boolean };
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
@@ -169,12 +173,12 @@ export default function DomesticLinePage() {
     setCottonFields((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
   }
 
-  async function move(row: Arrival & { yard_status: Status }, to: "checkout" | "cancelled" | "retry_lookup", cotton?: CottonFields) {
+  async function move(row: Arrival & { yard_status: Status }, to: "checkout" | "cancelled" | "retry_lookup" | "reconcile_checkout", cotton?: CottonFields) {
     const controller = operation.current;
     const fresh = currentRows.current.find((item) => item.id === row.id);
     if (!site || !currentCanWrite.current || workingRef.current || refreshRequired.current.has(row.id) || outsideReviewId || !controller || controller.signal.aborted ||
         !fresh || fresh.updated_at !== row.updated_at || fresh.yard_status !== row.yard_status) return;
-    if (to === "retry_lookup" ? !canRetryInterruptedLookup(fresh) :
+    if (to === "reconcile_checkout" ? !canReconcileCheckout(fresh) : to === "retry_lookup" ? !canRetryInterruptedLookup(fresh) :
         checkoutNeedsReview(fresh) && !(to === "checkout" && canPrepareLegacyLookup(fresh))) return;
     if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number || row.mark} from the line?`)) return;
     setNotice(""); setError("");
@@ -290,7 +294,8 @@ export default function DomesticLinePage() {
               {row.carrier_code && <small style={{ display: "block", color: "#94a3b8" }}>Carrier {row.carrier_code}</small>}</td>
             <td style={cell}>{LABEL[row.yard_status]}{checkoutNeedsReview(row) && !canRetryInterruptedLookup(row) && !canPrepareLegacyLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>McLeod status needs review. This arrival stays active until any pending update is reconciled.</div>}{canPrepareLegacyLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>This earlier lookup failed before any McLeod update. Retry Search must verify the saved receiving details again.</div>}{canRetryInterruptedLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>Lookup has not finished. Retry Search uses the saved receiving details.</div>}<OutsideCarrierMarker row={row} />{cottonShortage(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>{cottonShortage(row)!.missing} bales short · McLeod delivery blocked{!row.customer_notified_at && " · Notify customer"}</div>}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
             <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              {canRetryInterruptedLookup(row) ? <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={primary}
+              {canReconcileCheckout(row) ? <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={primary}
+                onClick={() => void move(row, "reconcile_checkout")}>Reconcile checkout</button> : canRetryInterruptedLookup(row) ? <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={primary}
                 onClick={() => void move(row, "retry_lookup")}>Retry Search</button> : canPrepareLegacyLookup(row) ? <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={primary}
                 onClick={() => retrySearch(row)}>Retry Search</button> : <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)
                 ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>}

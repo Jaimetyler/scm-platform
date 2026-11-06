@@ -240,7 +240,7 @@ async function PATCHHandler(req: NextRequest) {
           : { error: processed?.processing_error || "The lookup has not completed. Refresh the line.",
             ...(eligible ? { code: "MCLEOD_LOOKUP_UNRESOLVED", outsideCarrierEligible: true } : {}) }) }, { status: ok ? 200 : 409 });
     }
-    if (body?.action === "checkout") {
+    if (body?.action === "checkout" || body?.action === "reconcile_checkout") {
       if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode)) {
         return NextResponse.json({ ok: false, error: "Invalid check-out" }, { status: 400 });
       }
@@ -287,6 +287,34 @@ async function PATCHHandler(req: NextRequest) {
       if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
         return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
       }
+      if (body.action === "reconcile_checkout") {
+        if (row.mcleod_processing_phase !== "write_pending" || !row.mcleod_lookup_attempt_id ||
+            !row.matched_order_id || !row.matched_stop_id || row.updated_at !== body.expectedUpdatedAt ||
+            (row.material_type === "cotton" && row.movement_direction === "delivery")) {
+          return NextResponse.json({ ok: false, error: "Refresh the line before reconciling this checkout." }, { status: 409 });
+        }
+        const site = CHECKIN_SITES.find(item => item.terminal === terminal && item.siteCode === siteCode)!;
+        const order = await lookupMcleodGateOrder(row.matched_order_id, site.terminal, site.siteName,
+          row.movement_direction, row.matched_stop_id);
+        if (order.stopId !== row.matched_stop_id || order.direction !== row.movement_direction ||
+            order.materialType !== row.material_type || !row.reference_number ||
+            !referenceMatchesInput(order.reference, row.reference_number) ||
+            !order.actualArrival || !order.actualDeparture || order.completion?.kind === "cancelled") {
+          return NextResponse.json({ ok: false, error: "McLeod has not confirmed arrival and departure for this exact stop. The arrival is still pending." }, { status: 409 });
+        }
+        const completedAt = row.physical_departed_at || new Date().toISOString();
+        const result = await sb.from("inbound_checkin_rows")
+          .update({ yard_status: "completed", yard_completed_at: completedAt,
+            draft_status: "processed", processed_at: completedAt, processing_error: null,
+            mcleod_processing_phase: "complete", mcleod_processing_result_id: row.mcleod_lookup_attempt_id })
+          .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
+          .eq("updated_at", row.updated_at).eq("yard_status", row.yard_status)
+          .eq("mcleod_lookup_attempt_id", row.mcleod_lookup_attempt_id).eq("mcleod_processing_phase", "write_pending")
+          .select("*").maybeSingle();
+        if (result.error) return databaseFailure(result, true);
+        if (!result.data) return NextResponse.json({ ok: false, error: "This arrival changed. Refresh the line." }, { status: 409 });
+        return NextResponse.json({ ok: true, row: queueRow(result.data), mcleod: "McLeod departure verified; SCM checkout reconciled" });
+      }
       if (row.mcleod_processing_phase === "write_pending") {
         return NextResponse.json({ ok: false, error: "A McLeod write may already have happened. Reconcile it before retrying check-out.",
           code: "MCLEOD_WRITE_UNCERTAIN", row: queueRow(row) }, { status: 409 });
@@ -330,7 +358,7 @@ async function PATCHHandler(req: NextRequest) {
         const attempt = randomUUID();
         const { data: claimed, error } = await sb.from("inbound_checkin_rows")
           .update({ draft_status: "processing", mcleod_lookup_attempt_id: attempt,
-            mcleod_processing_phase: "write_pending", mcleod_lookup_status: "matched" })
+            mcleod_processing_phase: "write_pending", mcleod_lookup_status: "matched", yard_updated_by: user(req) })
           .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
           .eq("updated_at", row.updated_at).eq("yard_status", row.yard_status)
           .in("draft_status", ["checked_in", "ready"])
@@ -571,9 +599,9 @@ async function PATCHHandler(req: NextRequest) {
         }
       }
       let completion = sb.from("inbound_checkin_rows")
-        .update({ yard_status: "completed", yard_completed_at: departure.toISOString(), yard_updated_by: user(req),
+        .update({ yard_status: "completed", yard_completed_at: departure.toISOString(),
           ...(nonCottonWriteAttempt ? { draft_status: "processed", processed_at: departure.toISOString(),
-            mcleod_processing_phase: "complete", mcleod_processing_result_id: nonCottonWriteAttempt } : {}) })
+            mcleod_processing_phase: "complete", mcleod_processing_result_id: nonCottonWriteAttempt } : { yard_updated_by: user(req) }) })
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("yard_status", row.yard_status);
       if (nonCottonWriteAttempt) completion = completion.eq("updated_at", row.updated_at)
         .eq("mcleod_lookup_attempt_id", nonCottonWriteAttempt).eq("mcleod_processing_phase", "write_pending");
