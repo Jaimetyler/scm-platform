@@ -14,3 +14,17 @@
 .booking-mark-actions summary { color: #94a3b8; font-size: 11px; font-weight: 400; cursor: pointer; list-style: none; }
 .booking-mark-actions > div { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .outbound-booking :focus-visible { outline: 2px solid #94a3b8; outline-offset: 3px; }
+
+.booking-charge-button { padding: 9px 12px; border: 1px solid #475569; border-radius: 8px; background: #17263a; color: #f8fafc; cursor: pointer; }
+.booking-charge-button:disabled { opacity: .5; cursor: default; }
+.booking-charge-dialog { width: min(980px, calc(100% - 24px)); max-height: 88vh; padding: 0; background: #111e31; color: #e2e8f0; border: 1px solid #475569; border-radius: 12px; }
+.booking-charge-dialog[open] { display: flex; flex-direction: column; }
+.booking-charge-dialog::backdrop { background: #020617bc; }
+.booking-charge-dialog header, .booking-charge-dialog footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 18px; background: #17263a; }
+.booking-charge-dialog header h2, .booking-charge-dialog header p { margin: 0; }
+.booking-charge-body { overflow: auto; padding: 14px 18px; }
+.booking-charge-body textarea { width: 100%; margin-top: 8px; padding: 8px; background: #0f172a; color: inherit; }
+.booking-charge-table { overflow-x: auto; margin-bottom: 12px; }
+.booking-charge-table table { border-collapse: collapse; width: 100%; }
+.booking-charge-table th, .booking-charge-table td { padding: 8px; border-bottom: 1px solid #334155; text-align: left; }
+.booking-charge-table th { color: #bfcee2; }
