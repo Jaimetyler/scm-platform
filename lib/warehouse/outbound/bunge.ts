@@ -216,5 +216,5 @@ export function warehouseMatchesSite(warehouse: string, terminal: string, siteCo
 
 export function classifyBookingLoads(booking: BungeBooking, terminal: string, siteCode: string) {
   return booking.lines.map((line) => ({ ...line, loadSource: warehouseMatchesSite(line.warehouse, terminal, siteCode,
-    booking.warehouseDetails[line.warehouseCode]) ? "warehouse" as const : "source_load" as const }));
+    terminal === "DAL" ? line.warehouseCode : booking.warehouseDetails[line.warehouseCode]) ? "warehouse" as const : "source_load" as const }));
 }

@@ -15,6 +15,14 @@ async function POSTHandler(req: NextRequest) {
     if (!(file instanceof File) || file.size > 4 * 1024 * 1024 || !/\.xlsx$/i.test(file.name))
       return NextResponse.json({ ok: false, error: "Choose a Bunge .xlsx file under 4 MB." }, { status: 400 });
     const booking = parseBungeBooking(Buffer.from(await file.arrayBuffer()));
+    if (terminal === "DAL") {
+      const rampCutoff = booking.sourceDates.find(date => date.label === "Ramp Cut");
+      if (rampCutoff) {
+        booking.cutoff = rampCutoff.value;
+        if (booking.docCutoff === rampCutoff.value) booking.docCutoff = null;
+        booking.detailNotes = ["Dallas cargo cutoff uses Ramp Cut. Review the separate source dates before saving."];
+      }
+    }
     booking.lines = classifyBookingLoads(booking, terminal, siteCode);
     return NextResponse.json({ ok: true, site, booking, mismatches: [],
       sourceLoads: booking.lines.filter((line) => line.loadSource === "source_load").length });
