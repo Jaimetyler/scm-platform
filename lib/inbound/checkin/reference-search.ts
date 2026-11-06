@@ -24,6 +24,7 @@ export async function searchReferenceOrders(
   field: "blnum" | "consignee_refno",
   input: string,
   signal: AbortSignal,
+  revenueCode?: string,
 ): Promise<Record<string, any>[]> {
   const reference = key(input);
   if (!reference || /[\u0000-\u001f*?]/.test(reference))
@@ -54,6 +55,7 @@ export async function searchReferenceOrders(
     // No assumed OR/regex/date/yard filtering. Anchor retrieval is filtered locally.
     const query = new URLSearchParams({ [`orders.${field}`]: `*${anchor}*`,
       recordLength: String(PAGE_SIZE), recordOffset: String(scannedRows) });
+    if (revenueCode) query.set("orders.revenue_code_id", revenueCode);
     let payload: unknown;
     try { payload = await readPath(`/orders/search?${query}`); }
     catch { throw unavailable(); }
@@ -78,7 +80,7 @@ export async function searchReferenceOrders(
       // Do not guess the vendor DB's ID collation with a JavaScript comparator.
       if (seenIds.has(idKey) || pageIds.has(idKey) && pageIds.get(idKey) !== fingerprint) throw unavailable();
       pageIds.set(idKey, fingerprint);
-      if (!referenceMatchesInput(row[field], reference)) continue;
+      if (revenueCode && key(row.revenue_code_id) !== revenueCode || !referenceMatchesInput(row[field], reference)) continue;
       candidates.set(idKey, row);
       if (candidates.size > MAX_TRUE_CANDIDATES) throw tooManyMatches();
     }

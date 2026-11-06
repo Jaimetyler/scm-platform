@@ -3,6 +3,7 @@ import { normalizeReference } from "../inbound/checkin/reference-match.ts";
 import { mcleodOrderStops, stopAtScmYard } from "../inbound/checkin/yard-stop.ts";
 import type { CheckinSite } from "../inbound/checkin/sites.ts";
 
+const revenueCode = "DDRAY";
 const amount = (value: unknown) => {
   if (typeof value !== "string" && typeof value !== "number" || String(value).trim() === "") return null;
   const number = Number(value);
@@ -16,14 +17,15 @@ export async function readBookingMarkCharges(
 ) {
   const key = normalizeReference(mark);
   const candidates = await Promise.all((["blnum", "consignee_refno"] as const).map(field =>
-    searchReferenceOrders(read, field, key, signal)));
+    searchReferenceOrders(read, field, key, signal, revenueCode)));
   const ids = new Set(candidates.flat().map(row => String(row.id)));
   const orders = [];
   for (const id of ids) {
     signal.throwIfAborted();
     const order = await read(`/orders/${encodeURIComponent(id)}`) as Record<string, any> | null;
     if (!order || String(order.id) !== id || !order.customer_id) throw Error("McLeod order identity could not be verified.");
-    if (String(order.customer_id).trim().toUpperCase() !== "BUNGOMNE" ||
+    if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== revenueCode ||
+        String(order.customer_id).trim().toUpperCase() !== "BUNGOMNE" ||
         /^(?:V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(String(order.__statusDescr || order.status || "").trim()) ||
         ![order.blnum, order.consignee_refno].some(reference => matchesMark(reference, key))) continue;
     if (!mcleodOrderStops(order).some(stop => stopAtScmYard(stop, site.siteName, site.terminal))) continue;
