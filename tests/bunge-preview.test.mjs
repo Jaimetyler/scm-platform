@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {createRequire} from 'node:module';import ts from 'typescript';
 const require=createRequire(import.meta.url);const cache=new Map();
-function load(path){if(cache.has(path))return cache.get(path);const mod={exports:{}};const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',code)(n=>n==='@/lib/cotton-import/equipment'?load('lib/cotton-import/equipment.ts'):n==='@/lib/cotton-locations/equipment'?load('lib/cotton-locations/equipment.ts'):n==='./duplicate-window'?load('lib/bunge/duplicate-window.ts'):n==='@/lib/mcleod/inbound/search-response'?load('lib/mcleod/inbound/search-response.ts'):require(n),mod,mod.exports);cache.set(path,mod.exports);return mod.exports;}
+function load(path){if(cache.has(path))return cache.get(path);const mod={exports:{}};const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','module','exports',code)(n=>n==='@/lib/cotton-import/equipment'?load('lib/cotton-import/equipment.ts'):n==='@/lib/cotton-locations/equipment'?load('lib/cotton-locations/equipment.ts'):n==='./preview'?load('lib/bunge/preview.ts'):n==='./destinations'?load('lib/bunge/destinations.ts'):n==='./duplicate-window'?load('lib/bunge/duplicate-window.ts'):n==='@/lib/mcleod/inbound/search-response'?load('lib/mcleod/inbound/search-response.ts'):require(n),mod,mod.exports);cache.set(path,mod.exports);return mod.exports;}
 const {parseDispatch,buildPreview}=load('lib/bunge/preview.ts');const {nonVoidBlnumMatches}=load('lib/bunge/duplicates.ts');
 const loc=(id,code,prev)=>({id,mcleod_code:code,prev_code:prev,name:code,address:'Street',city:'Town',state:'GA',timezone:'America/New_York'});
 const locations=[loc('l1','FUNSMOG3','266405'),loc('l2','BCTGMOGA','304495'),loc('dest','SAVAGAG2',null)];
@@ -120,4 +120,62 @@ test('delivery defaults use the last pickup, with Friday rolling to Monday', () 
  assert.equal(defaultDeliveryDate(['2026-11-14']), '2026-11-16');
  assert.equal(defaultDeliveryDate(['2026-11-11',null]), null);
  assert.equal(defaultDeliveryDate(['2026-11-31']), null);
+});
+
+const { parseOlamWorkbook } = load('lib/bunge/olam.ts');
+const { OLAM_CUSTOMER, olamDeliveryCode } = load('lib/bunge/destinations.ts');
+const XLSX = require('xlsx');
+
+test('recognizes OLAM workbook content and maps both Merih destinations independently', () => {
+ const makeWorkbook = (address, code, company = 'Olam America Cotton Company') => {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+   ['', company], ['Carrier:', 'SUPPLY CHAIN MANAGEMENT LLC-1038580'],
+   ['Destination:', 'Merih Logistics'], ['', address], ['Dest Code:', code],
+   ['Mark', '', 'SO', 'Sale', 'Bales', 'Weight', 'Warehouse', 'Warehouse Name', 'Ready/Confirmed Load (RTL)'],
+   ['SLT03', '', 3587071, 'TRANSIT', 90, 41742, 940015, 'Taylor Compress', 46339],
+  ]), 'LoadList');
+  return workbook;
+ };
+ const parsed = parseOlamWorkbook(makeWorkbook('7525 Sutton Road', 819201));
+ assert.equal(parsed.destination, 'MERIBAT2');
+ assert.equal(parseOlamWorkbook(makeWorkbook('Cedar Blvd', '')).destination, 'MERIBATX');
+ assert.equal(parseOlamWorkbook(makeWorkbook('Cedar Blvd', 819201)).destination, '');
+ assert.equal(parseOlamWorkbook(makeWorkbook('', 'SUPPBAT1')).destination, 'SUPPBAT1');
+ assert.equal(parseOlamWorkbook(makeWorkbook('', '')).destination, '');
+ assert.equal(parseOlamWorkbook(makeWorkbook('', '', 'Bunge')), null);
+ assert.equal(olamDeliveryCode('SCMDDETX'), 'SCMDDETX');
+ assert.throws(() => olamDeliveryCode('MERIBAT1'), /Choose a Merih or SCM/);
+ const [proposal] = buildPreview(parsed.lines, [], [], 'MAIN', parsed.destination, 'auto', [], OLAM_CUSTOMER);
+ assert.equal(proposal.customerId, 'OLAMRITX');
+ assert.equal(proposal.blnum, 'SLT03 90 BALES');
+ assert.equal(proposal.pickups[0].warehouseCode, '940015');
+ assert.equal(proposal.pickups[0].rtl, '2026-11-13');
+});
+
+test('OLAM duplicate lookup finds a matching order at the old Merih destination', async () => {
+ const matches = await nonVoidBlnumMatches(async path => {
+  if (path.startsWith('/orders/search?')) {
+   const query = new URLSearchParams(path.split('?')[1]);
+   assert.equal(query.get('orders.customer_id'), 'OLAMRITX');
+   assert.deepEqual([...query.keys()].filter(key => /destination|consignee/.test(key)), []);
+   return [{ id: '0820001' }];
+  }
+  return { id: '0820001', company_id: 'TMS', customer_id: 'OLAMRITX', status: 'A',
+   blnum: 'SLT03 90 B/C', consignee_id: 'MERIBATX',
+   stops: [{ stop_type: 'PU', sched_arrive_early: '20261113080000-0600' }] };
+ }, 'SLT03 90 BALES', ['2026-11-13'], OLAM_CUSTOMER);
+ assert.deepEqual(matches.map(match => match.id), ['0820001']);
+});
+
+test('original OLAM workbook yields the expected order preview', { skip: !process.env.SCM_OLAM_TEST_WORKBOOK }, () => {
+ const workbook = XLSX.read(readFileSync(process.env.SCM_OLAM_TEST_WORKBOOK));
+ const parsed = parseOlamWorkbook(workbook);
+ const xlsxBytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+ assert.deepEqual(parseOlamWorkbook(XLSX.read(xlsxBytes)), parsed);
+ const proposals = buildPreview(parsed.lines, [], [], 'MAIN', parsed.destination, 'auto', [], OLAM_CUSTOMER);
+ assert.equal(proposals.length, 13);
+ assert.equal(proposals.reduce((sum, order) => sum + order.bales, 0), 1167);
+ assert.ok(proposals.every(order => order.customerId === 'OLAMRITX' && order.destination === 'MERIBAT2'));
+ assert.deepEqual([...new Set(proposals.flatMap(order => order.pickups.map(stop => stop.warehouseCode)))], ['940015', '928532']);
 });

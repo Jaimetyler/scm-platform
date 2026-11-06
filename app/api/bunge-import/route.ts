@@ -1,12 +1,14 @@
+import * as XLSX from "xlsx";
 import {NextRequest,NextResponse} from "next/server";
 import {withStaffAccess} from "@/lib/auth/guard";
 import {staffDatabase} from "@/lib/auth/session";
-import {parseDispatch,buildPreview} from "@/lib/bunge/preview";
+import {parseBungeWorkbook,buildPreview} from "@/lib/bunge/preview";
 import {pickupMonthRanges} from "@/lib/bunge/duplicate-window";
 import {nonVoidBlnumMatches} from "@/lib/bunge/duplicates";
 import {vendor} from "@/lib/dray/server";
-import {SCM_DELIVERY_LOCATIONS,deliveryCode,inboundTerminal,terminalDeliveryCode} from "@/lib/bunge/destinations";
-import {readDeliveryLocation} from "@/lib/bunge/delivery-server";
+import {SCM_DELIVERY_LOCATIONS,deliveryCode,inboundTerminal,terminalDeliveryCode,OLAM_CUSTOMER,olamDeliveryCode} from "@/lib/bunge/destinations";
+import {parseOlamWorkbook} from "@/lib/bunge/olam";
+import {readActiveDeliveryLocation,readDeliveryLocation} from "@/lib/bunge/delivery-server";
 export const dynamic="force-dynamic";
 export const maxDuration=120;
 export const GET=withStaffAccess(async(req:NextRequest)=>{
@@ -23,21 +25,30 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  try{
  if(req.headers.get("content-type")?.includes("application/json")){
  const body=await req.json();if(body.action!=="duplicates")return NextResponse.json({ok:false,error:"Preview only; order creation is unavailable."},{status:400});
- const matches=await nonVoidBlnumMatches(vendor(true).read,body.blnum,body.pickupDates);return NextResponse.json({ok:true,matches,ranges:pickupMonthRanges(body.pickupDates),scope:"Non-void BUNGOMNE orders with matching mark and bale count (BALES/B/C equivalent) and scheduled pickup within one calendar month before/after each proposed pickup date; not approval to create."});
+ const matches=await nonVoidBlnumMatches(vendor(true).read,body.blnum,body.pickupDates,body.customerId);return NextResponse.json({ok:true,matches,ranges:pickupMonthRanges(body.pickupDates),scope:"Non-void orders for the selected customer with matching mark and bale count (BALES/B/C equivalent) and scheduled pickup within one calendar month before/after each proposed pickup date; not approval to create."});
  }
  if(Number(req.headers.get("content-length")||0)>3*1024*1024+65536)throw Error("Maximum workbook size is 3 MB.");
- const form=await req.formData(),file=form.get("file");if(!(file instanceof File)||!file.size||file.size>3*1024*1024||! /\.(xlsx|xls|csv)$/i.test(file.name))throw Error("Upload a Bunge dispatch XLSX, XLS or CSV up to 3 MB.");
+ const form=await req.formData(),file=form.get("file");if(!(file instanceof File)||!file.size||file.size>3*1024*1024||! /\.(xlsx|xlsb|xls|csv)$/i.test(file.name))throw Error("Upload a dispatch XLSB, XLSX, XLS or CSV up to 3 MB.");
  const region=form.get("terminal"),terminal=inboundTerminal(region);
  if(region&&!terminal)throw Error("Unknown inbound location.");
- const destination=terminal?terminalDeliveryCode(terminal.id,form.get("destination")):deliveryCode(form.get("destination"));
+ const workbook=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
+ const olam=parseOlamWorkbook(workbook);
+ if(!olam&&/\.xlsb$/i.test(file.name))throw Error("XLSB uploads must be original OLAM load lists.");
+ if(!olam&&terminal?.id==="houston")
+   return NextResponse.json({ok:true,useHoustonBungePreview:true},{headers:{"Cache-Control":"private, no-store"}});
+ const override=form.get("olamDestination");
+ const destination=olam
+   ? override ? olamDeliveryCode(override) : olam.destination
+   : terminal?terminalDeliveryCode(terminal.id,form.get("destination")):deliveryCode(form.get("destination"));
+ const customerId=olam?OLAM_CUSTOMER:"BUNGOMNE";
  const equipment=String(form.get("equipment")||"unknown");if(!["unknown","auto","van","flatbed","VT"].includes(equipment))throw Error("Choose van, flatbed or equipment not selected.");
- const parsed=parseDispatch(new Uint8Array(await file.arrayBuffer()));const requested=form.get("revenue")||"auto";
+ const parsed=olam??parseBungeWorkbook(workbook);const requested=form.get("revenue")||"auto";
  if(!["auto","MAIN","DAVIS"].includes(String(requested)))throw Error("Choose MAIN or DAVIS.");
  const revenue=terminal?.revenue ?? (requested==="auto"?(parsed.destinations.some(d=>/DALLAS|DESOTO/i.test(d))?"DAVIS":"MAIN"):requested as "MAIN"|"DAVIS");
  const db=staffDatabase();const [locations,schedules,delivery,equipmentPolicies]=await Promise.all([
  db.from("cotton_location_master").select("id,mcleod_code,prev_code,name,address,city,state,timezone").limit(3000),
- db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),readDeliveryLocation(destination),db.from("cotton_location_equipment").select("*").limit(3000)]);
+ db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),destination ? SCM_DELIVERY_LOCATIONS.some(l=>l.code===destination) ? readDeliveryLocation(destination) : readActiveDeliveryLocation(destination) : null,db.from("cotton_location_equipment").select("*").limit(3000)]);
  if(locations.error||schedules.error||equipmentPolicies.error)throw Error("Location schedules unavailable. Please retry.");
- return NextResponse.json({ok:true,filename:file.name,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,equipment,proposals:buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[]),previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
+ return NextResponse.json({ok:true,filename:file.name,customerId,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,equipment,proposals:buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[],customerId),previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:"Preview failed"},{status:400})}
 });

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
 import type { reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import BatchCreate from "./BatchCreate";
-import DispatchUpload, { equipmentLabels, type DispatchInput } from "./DispatchUpload";
+import { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
 type Window = {
   locationCode: string; originalRtlDate: string; early: string | null;
@@ -28,43 +27,11 @@ const feeUnits: Record<string, string> = {
   PER_BALE_PER_DAY: "per bale per day",
 };
 
-export default function HoustonPreviewClient() {
-  const [submission, setSubmission] = useState<DispatchInput | null>(null);
-  const [result, setResult] = useState<Result | null>(null);
-  const [busy, setBusy] = useState<"preview" | "batch" | null>(null);
-  const [error, setError] = useState("");
-
-
-  function clear() {
-    setResult(null);
-    setError("");
-    setSubmission(null);
-  }
-
-  async function preview(input: DispatchInput) {
-    if (busy) return;
-    clear();
-    setBusy("preview");
-    try {
-      const form = new FormData();
-      form.set("file", input.file);
-      form.set("equipment", input.equipment);
-      form.set("destination", input.destination);
-      const response = await fetch("/api/cotton-import/upload", { method: "POST", body: form });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "Preview failed.");
-      setResult(data);
-      setSubmission(input);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Preview failed.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
+export type HoustonResult = Result;
+export default function HoustonPreviewClient({ result, submission, onBusy }: {
+  result: Result; submission: DispatchInput; onBusy: (busy: boolean) => void;
+}) {
   return <section aria-label="Houston dispatch preview">
-    <DispatchUpload terminal="houston" busy={!!busy} onPreview={preview} onChange={clear} />
-    {error && <p role="alert" className={styles.error}>{error}</p>}
     {result && <section className={layout.results}>
       <h2>Review Houston orders</h2>
       <p>{result.filename} · {result.destination}</p>
@@ -79,7 +46,7 @@ export default function HoustonPreviewClient() {
         {result.sourceErrors.map(issue => <p key={issue.row}>Row {issue.row} · {issue.reason}</p>)}
       </details>}
       {submission && <BatchCreate terminal="houston" submission={submission}
-        orders={result.reviews.map(row => row.salesOrder)} onBusy={value => setBusy(value ? "batch" : null)} />}
+        orders={result.reviews.map(row => row.salesOrder)} onBusy={onBusy} />}
       <div className={styles.tableWrap}><table>
         <thead><tr><th scope="col">Order</th><th scope="col">Pickup and RTL</th>
           <th scope="col">Equipment</th><th scope="col">Late-fee policy</th><th scope="col">Review</th></tr></thead>

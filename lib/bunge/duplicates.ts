@@ -5,7 +5,8 @@ export function canonicalBlnum(value:unknown):string|null{
  const m=value.trim().toUpperCase().match(/^([A-Z0-9-]{1,30})\s+([1-9]\d{0,6})\s+(?:BALES|B\s*\/\s*C)$/);
  return m?`${m[1]} ${m[2]} BALES`:null;
 }
-export async function nonVoidBlnumMatches(read:(path:string)=>Promise<any>,blnum:string,pickupDates:unknown){
+export async function nonVoidBlnumMatches(read:(path:string)=>Promise<any>,blnum:string,pickupDates:unknown,customerId:unknown="BUNGOMNE"){
+ if(customerId!=="BUNGOMNE"&&customerId!=="OLAMRITX")throw Error("Unknown cotton customer.");
  const ranges=pickupMonthRanges(pickupDates),canonical=canonicalBlnum(blnum);
  if(!canonical)throw Error("Invalid BLNUM");
  const found=new Map<string,any>(),hydrated=new Map<string,any>();
@@ -13,11 +14,11 @@ export async function nonVoidBlnumMatches(read:(path:string)=>Promise<any>,blnum
  for(const reference of [canonical,canonical.replace(/ BALES$/," B/C")]){
  const seen=new Set<string>();let complete=false;
  for(let offset=0;offset<100;offset+=5){
- const q=new URLSearchParams({"orders.blnum":reference,"orders.customer_id":"BUNGOMNE",orderBy:"shipper.sched_arrive_early DESC,orders.id DESC",recordLength:"5",recordOffset:String(offset)});
+ const q=new URLSearchParams({"orders.blnum":reference,"orders.customer_id":customerId,orderBy:"shipper.sched_arrive_early DESC,orders.id DESC",recordLength:"5",recordOffset:String(offset)});
  const rows=extractSearchOrders(await read("/orders/search?"+q));if(!rows||rows.length>5)throw Error("Duplicate lookup returned an incomplete response.");let progress=0;
  for(const row of rows){const id=String((row as any)?.id||"");if(!/^[A-Za-z0-9_-]{1,60}$/.test(id))throw Error("Invalid search result");if(seen.has(id))continue;seen.add(id);progress++;
  let order=hydrated.get(id);if(!order){order=await read("/orders/"+encodeURIComponent(id));if(String(order?.id)!==id)throw Error("Order read-back failed");hydrated.set(id,order)}
- if(order.company_id==="TMS"&&order.customer_id==="BUNGOMNE"&&canonicalBlnum(order.blnum)===canonical){
+ if(order.company_id==="TMS"&&order.customer_id===customerId&&canonicalBlnum(order.blnum)===canonical){
  const status=String(order.status??"").trim().toUpperCase();
  if(!status)throw Error("Cannot verify the existing order’s status.");
  if(status==="V"||status==="VOID")continue;

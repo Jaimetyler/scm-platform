@@ -82,3 +82,16 @@ export function defaultDeliveryDate(pickupDates: readonly (string | null)[]): st
  } while ([0, 6].includes(delivery.getUTCDay()) || isMajorUsHoliday(delivery));
  return delivery.toISOString().slice(0, 10);
 }
+
+export const OLAM_CUSTOMER = "OLAMRITX";
+export const OLAM_DELIVERY_LOCATIONS = [
+  { code: "MERIBATX", label: "Merih — Cedar Blvd" },
+  { code: "MERIBAT2", label: "Merih 2 — Sutton Road" },
+  ...SCM_DELIVERY_LOCATIONS,
+];
+
+export function olamDeliveryCode(value: unknown) {
+  const match = OLAM_DELIVERY_LOCATIONS.find(location => location.code === value);
+  if (!match) throw Error("Choose a Merih or SCM delivery location.");
+  return match.code;
+}

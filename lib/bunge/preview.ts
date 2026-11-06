@@ -7,7 +7,7 @@ export type Schedule={location_id:string;weekday:number|null;open_time:string|nu
 export type Proposal={equipment:string;key:string;so:string;mark:string;blnum:string;bales:number;customerId:string;revenue:string;destination:string;pickups:{location:Location|null;warehouseCode:string;warehouse:string;bales:number;rtl:string|null;sourceRows:string[];address:string[];hours:Schedule|null;issues:string[]}[];issues:string[]};
 const norm=(v:unknown)=>String(v??"").trim().replace(/\s+/g," ");
 const header=(v:unknown)=>norm(v).toUpperCase().replace(/[^A-Z0-9]/g,"");
-function date(v:unknown):string|null{
+export function dispatchDate(v:unknown):string|null{
  if(v==null||norm(v)==="")return null;
  let y:number,m:number,d:number;
  if(typeof v==="number"){const p=XLSX.SSF.parse_date_code(v);if(!p)throw Error("Invalid RTL date");({y,m,d}=p)}
@@ -15,7 +15,9 @@ function date(v:unknown):string|null{
  const dt=new Date(Date.UTC(y,m-1,d));if(y<2000||y>2100||dt.getUTCFullYear()!==y||dt.getUTCMonth()!==m-1||dt.getUTCDate()!==d)throw Error("Invalid RTL date");return dt.toISOString().slice(0,10);
 }
 export function parseDispatch(bytes:Uint8Array){
- const wb=XLSX.read(bytes,{type:"array",cellDates:false});const lines:PickupLine[]=[];const destinations=new Set<string>();let matchedSheets=0;const excluded:{sheet:string;row:number;reason:string}[]=[];
+ return parseBungeWorkbook(XLSX.read(bytes,{type:"array",cellDates:false}));
+}
+export function parseBungeWorkbook(wb:XLSX.WorkBook){const lines:PickupLine[]=[];const destinations=new Set<string>();let matchedSheets=0;const excluded:{sheet:string;row:number;reason:string}[]=[];
  for(const sheet of wb.SheetNames){const rows=XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheet],{header:1,raw:true,defval:""});
  const h=rows.findIndex(r=>r.some(v=>header(v)==="MARK")&&r.some(v=>header(v)==="SO")&&r.some(v=>header(v)==="BALES")&&r.some(v=>header(v)==="WAREHOUSE"));if(h<0)continue;matchedSheets++;
  const headers=rows[h].map(header),mark=headers.indexOf("MARK"),so=headers.indexOf("SO"),bales=headers.indexOf("BALES"),warehouse=headers.indexOf("WAREHOUSE"),weight=headers.indexOf("WEIGHT"),rtl=headers.findIndex(v=>["LOADRTL","READYCONFIRMEDLOADRTL","RTL","READYDATE"].includes(v));
@@ -31,7 +33,7 @@ export function parseDispatch(bytes:Uint8Array){
  if(!/SUPPLY\s+CHAIN\s+MANAGEMENT/i.test(carrier)){excluded.push({sheet,row:i+1,reason:"Carrier section is not Supply Chain Management: "+(carrier||"missing")});last=null;continue}
  if(!/^[A-Za-z0-9-]{1,30}$/.test(m)||!/^\d{1,20}$/.test(s)||!Number.isSafeInteger(Number(b))||Number(b)<=0)throw Error(`${sheet} row ${i+1}: invalid mark, SO or bale count`);
  const code=norm(r[warehouse-1]);if(code&&!/^\d{6}$/.test(code))throw Error(`${sheet} row ${i+1}: invalid warehouse code`);
- last={sheet,row:i+1,mark:m.toUpperCase(),so:s,bales:Number(b),weight:weight>=0&&norm(r[weight])?Number(r[weight]):null,warehouse:norm(r[warehouse]),warehouseCode:code,address:[],rtl:date(r[rtl])};
+ last={sheet,row:i+1,mark:m.toUpperCase(),so:s,bales:Number(b),weight:weight>=0&&norm(r[weight])?Number(r[weight]):null,warehouse:norm(r[warehouse]),warehouseCode:code,address:[],rtl:dispatchDate(r[rtl])};
  if(!last.warehouse)throw Error(`${sheet} row ${i+1}: warehouse missing`);lines.push(last);
  }else if((m||s)&&b&&Number.isFinite(Number(b))){throw Error(`${sheet} row ${i+1}: missing mark or SO on pickup row`)}else if(last&&!m&&!s){const part=norm(r[warehouse]);if(part&&last.address.length<4)last.address.push(part)}
  }
@@ -43,7 +45,7 @@ export function parseDispatch(bytes:Uint8Array){
  for(const l of lines)if(!l.warehouseCode){const set=codes.get(header(l.warehouse));if(set?.size===1)l.warehouseCode=[...set][0]}
  return {lines,destinations:[...destinations],excluded};
 }
-export function buildPreview(lines:PickupLine[],locations:Location[],schedules:Schedule[],revenue:"MAIN"|"DAVIS",destination="SAVAGAG2",equipment="unknown",equipmentPolicies:EquipmentPolicy[]=[]):Proposal[]{
+export function buildPreview(lines:PickupLine[],locations:Location[],schedules:Schedule[],revenue:"MAIN"|"DAVIS",destination="SAVAGAG2",equipment="unknown",equipmentPolicies:EquipmentPolicy[]=[],customerId="BUNGOMNE"):Proposal[]{
  const groups=new Map<string,PickupLine[]>();for(const l of lines){const k=l.so+":"+l.mark;groups.set(k,[...(groups.get(k)||[]),l])}
  return [...groups].map(([key,source])=>{
  const first=source[0],bales=source.reduce((n,l)=>n+l.bales,0);if(!Number.isSafeInteger(bales))throw Error("Grouped bale total exceeds supported range.");const issues:string[]=[];
@@ -68,6 +70,6 @@ export function buildPreview(lines:PickupLine[],locations:Location[],schedules:S
   locationId:p.location?.id||"",locationCode:p.location?.mcleod_code||p.warehouseCode||p.warehouse,scheduledDate:p.rtl||"",
  })),equipmentPolicies,requestedEquipment(equipment));
  if(resolvedEquipment?.reason)issues.push(resolvedEquipment.reason);
- return {equipment:resolvedEquipment?.choice??"unknown",key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId:"BUNGOMNE",revenue,destination,pickups,issues};
+ return {equipment:resolvedEquipment?.choice??"unknown",key,so:first.so,mark:first.mark,blnum:`${first.mark} ${bales} BALES`,bales,customerId,revenue,destination,pickups,issues};
  });
 }

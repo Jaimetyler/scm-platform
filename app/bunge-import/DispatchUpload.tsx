@@ -48,18 +48,18 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
 
   return <form className={styles.guide} onSubmit={event => {
     event.preventDefault();
-    if (file && selected && !busy && !loading) onPreview({ file, equipment, destination });
+    if (file && !busy && !loading) onPreview({ file, equipment, destination });
   }}>
     <h2>Upload dispatch</h2>
-    <p>Supported format: Bunge · {houston ? "XLSX or XLS, up to 2 MB" : "XLSX, XLS or CSV, up to 3 MB and 250 pickup rows"}.</p>
+    <p>Bunge or OLAM · OLAM Excel, up to 3 MB · Bunge {houston ? "XLSX or XLS, up to 2 MB" : "XLSX, XLS or CSV, up to 3 MB and 250 pickup rows"}.</p>
     <div className={layout.actions}>
-      <input aria-label="Dispatch workbook" type="file" accept={houston ? ".xlsx,.xls" : ".xlsx,.xls,.csv"}
+      <input aria-label="Dispatch workbook" type="file" accept={houston ? ".xlsb,.xlsx,.xls" : ".xlsb,.xlsx,.xls,.csv"}
         disabled={busy} onChange={event => {
           if (file) setEquipment("auto");
           setFile(event.target.files?.[0] ?? null);
           onChange();
         }} />
-      <label>SCM delivery location <select value={destination} disabled={busy || loading} onChange={event => {
+      <label>Bunge delivery location <select value={destination} disabled={busy || loading} onChange={event => {
         setDestination(event.target.value);
         onChange();
       }}>
@@ -68,7 +68,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
           {SCM_DELIVERY_LOCATIONS.find(entry => entry.code === location.code)?.label ?? location.name} · {location.address}, {location.city} ({location.code})
         </option>)}
       </select></label>
-      <button type="submit" disabled={busy || loading || !selected || !file}>{busy ? "Working…" : "Preview dispatch"}</button>
+      <button type="submit" disabled={busy || loading || !file}>{busy ? "Working…" : "Preview dispatch"}</button>
     </div>
     {selectedLocation && <p>Receiving hours · {selectedLocation.receivingHours.open}–{selectedLocation.receivingHours.close} local · {selectedLocation.receivingHours.method}</p>}
     {error && <p role="alert" className={styles.error}>{error}</p>}
