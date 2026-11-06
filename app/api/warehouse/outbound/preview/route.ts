@@ -11,7 +11,7 @@ async function POSTHandler(req: NextRequest) {
     const terminal = String(form.get("terminal") ?? "").toUpperCase();
     const siteCode = String(form.get("siteCode") ?? "");
     const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode && item.materials.includes("cotton"));
-    if (!site) return NextResponse.json({ ok: false, error: "Choose a Savannah or Houston cotton warehouse." }, { status: 400 });
+    if (!site) return NextResponse.json({ ok: false, error: "Choose a cotton warehouse." }, { status: 400 });
     if (!(file instanceof File) || file.size > 4 * 1024 * 1024 || !/\.xlsx$/i.test(file.name))
       return NextResponse.json({ ok: false, error: "Choose a Bunge .xlsx file under 4 MB." }, { status: 400 });
     const booking = parseBungeBooking(Buffer.from(await file.arrayBuffer()));

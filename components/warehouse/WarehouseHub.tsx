@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { TERMINAL_NAMES } from "@/lib/inbound/checkin/sites";
 import { canUseInboundImporter } from "@/lib/auth/policy";
 import { useStaff } from "@/components/auth/StaffSession";
 import { useWarehouseWorkspace } from "./WarehouseWorkspace";
@@ -39,8 +40,8 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
       const views = availableCheckinViews(siteLocation);
       return <section key={`${site.terminal}:${site.siteCode}`} className="warehouse-operation-row">
         <div className="warehouse-operation-site">
-          <span className="warehouse-operation-terminal">{site.terminal === "SAV" ? "Savannah" : site.terminal === "DAL" ? "Dallas" : "Houston"}</span>
-          <strong>{site.siteCode}</strong>
+          <span className="warehouse-operation-terminal">{TERMINAL_NAMES[site.terminal]}</span>
+          <strong>{site.terminal === "DAL" ? site.siteName.replace(/^Dallas - /, "") : site.siteCode}</strong>
           <span className="warehouse-operation-materials">{[
             site.materials.includes("cotton") ? "Cotton" : null,
             site.materials.includes("lumber") ? "Lumber / FAK" : null,
@@ -52,11 +53,14 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
             {view.label}<span aria-hidden="true">→</span>
           </Link>)}</div>
         <div className="warehouse-operation-tools">
-          {site.materials.includes("cotton") && <Link href={workspaceHref("inventory", siteLocation)}>Inventory</Link>}
+          {site.materials.includes("cotton") && <>
+            <Link href={workspaceHref("inventory", siteLocation)}>Inventory</Link>
+            <Link href={workspaceHref("outbound", siteLocation)}>Outbound bookings</Link>
+          </>}
           <Link href={workspaceHref("history", siteLocation)}>History</Link>
         </div>
       </section>;
-    })}</div> : <div className="warehouse-empty-state"><strong>No sites match this view.</strong><span>Select Savannah, Houston, or All locations above.</span></div>}
+    })}</div> : <div className="warehouse-empty-state"><strong>No sites match this view.</strong><span>Select another terminal or All locations above.</span></div>}
 
   </main>;
 }

@@ -111,7 +111,7 @@ export default async function Home() {
         <Link href="/warehouse" style={cardStylePrimary}>
           <div style={cardTitle}>Warehouse</div>
           <div style={cardDesc}>
-            Check-ins, inventory, outbound bookings, and history for Savannah and Houston
+            Check-ins, inventory, outbound bookings, and history for Savannah, Houston, and Dallas
           </div>
           <div style={{ marginTop: 16, color: "#67e8f9", fontSize: 13, fontWeight: 700 }}>Open warehouse dashboard →</div>
         </Link>

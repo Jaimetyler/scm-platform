@@ -714,6 +714,7 @@ export default function InboundHistoryPage() {
               <option value="">All Terminals</option>
               <option value="SAV">Savannah</option>
               <option value="HOU">Houston</option>
+              <option value="DAL">Dallas</option>
             </select>
           </div>
 
