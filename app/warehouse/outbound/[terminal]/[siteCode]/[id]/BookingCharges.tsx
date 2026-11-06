@@ -47,11 +47,11 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   }
   const orderRows = [...orders.values()].map(({ order, marks }) => ({
     id: order.id, total: order.total, rate: order.rate, rateUnits: order.rateUnits, chargesAvailable: order.charges !== null, marks: [...marks].sort().join(", "),
-    charges: (order.charges ?? []).map((charge, index) => ({ ...charge, key: `${order.id}:${index}`,
+    charges: (order.charges ?? []).map(charge => ({ ...charge,
       label: charge.description || charge.code || "Extra charge" })),
   }));
   const rows = orderRows.flatMap(row => row.charges);
-  const chosen = rows.filter(charge => selected.has(charge.key) && charge.amount !== null);
+  const chosen = orderRows.filter(order => selected.has(order.id)).flatMap(order => order.charges);
   const sum = (charges: typeof rows) => currency(charges.reduce((total, charge) =>
     total + Math.round((charge.amount ?? 0) * 100), 0) / 100);
   const total = sum(chosen);
@@ -68,9 +68,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     if (group) group.push(order); else grouped.set(order.marks, [order]);
   }
   const emailGroups = [...grouped].flatMap(([marks, orders]) => {
-    const selectedOrders = orders.map(order => ({ ...order,
-      charges: order.charges.filter(charge => selected.has(charge.key) && charge.amount !== null),
-    }));
+    const selectedOrders = orders.filter(order => selected.has(order.id));
     const extras = selectedOrders.flatMap(order => order.charges);
     return extras.length ? [{ marks, orders: selectedOrders, subtotal: sum(extras),
       markTotal: reviewTotal(orders.map(order => order.total)) }] : [];
@@ -112,7 +110,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         <button type="button" className="booking-charge-button" onClick={() => dialog.current?.close()}>Close</button>
       </header>
       <div className="booking-charge-body">
-        <p>Order and mark totals include drayage. Check only the extras you want to send for approval.</p>
+        <p>Select a load to include its itemized extras in the approval email. Order and mark totals include drayage.</p>
         {busy && <p role="status">Looking up McLeod charges…</p>}
         {error && <p role="alert">{error}</p>}
         {results && <div className="booking-charge-overview">
@@ -123,31 +121,34 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         {results?.filter(result => result.error || !result.orders.length).map(result =>
           <p key={result.mark}>{result.mark} · {result.error || "No matching DDRAY order"}</p>)}
         {!!orderRows.length && <div className="booking-charge-table"><table>
-          <thead><tr><th scope="col">McLeod order</th><th scope="col">Drayage rate</th><th scope="col">Extras · check to include</th>
-            <th scope="col" className="booking-charge-amount">Order total</th></tr></thead>
+          <thead><tr><th scope="col">Include</th><th scope="col">Mark</th><th scope="col">McLeod order</th>
+            <th scope="col">Drayage rate</th><th scope="col">Extra charges</th>
+            <th scope="col" className="booking-charge-amount">Order total</th>
+            <th scope="col" className="booking-charge-amount">Mark total</th></tr></thead>
           {[...grouped].map(([marks, orders]) => <tbody key={marks}>
-            <tr className="booking-charge-mark">
-              <th scope="rowgroup" colSpan={3}>{marks}</th>
-              <td className="booking-charge-amount"><strong>{reviewTotal(orders.map(order => order.total))}</strong><small>Mark total incl. drayage</small></td>
-            </tr>
-            {orders.map(order => <tr key={order.id}>
+            {orders.map((order, index) => <tr key={order.id} className={selected.has(order.id) ? "booking-charge-selected" : undefined}>
+              <td><input type="checkbox" aria-label={`Include load ${order.id} for ${marks}`} checked={selected.has(order.id)}
+                disabled={!order.charges.length || order.charges.some(charge => charge.amount === null)}
+                onChange={event => {
+                  const checked = event.target.checked;
+                  setCopyStatus("");
+                  setSelected(previous => {
+                    const next = new Set(previous);
+                    if (checked) next.add(order.id); else next.delete(order.id);
+                    return next;
+                  });
+                }} /></td>
+              {index === 0 && <th scope="rowgroup" rowSpan={orders.length}>{marks}</th>}
               <td>#{order.id}</td><td>{drayage(order)}</td>
-              <td>{!order.charges.length && <small>{order.chargesAvailable ? "No itemized charges" : "Charge lines unavailable"}</small>}{order.charges.map(charge => <label key={charge.key} className="booking-charge-choice">
-                <input type="checkbox" aria-label={`Include ${charge.label} on order ${order.id}`} checked={selected.has(charge.key)}
-                  disabled={charge.amount === null} onChange={event => {
-                    const checked = event.target.checked;
-                    setCopyStatus("");
-                    setSelected(previous => {
-                      const next = new Set(previous);
-                      if (checked) next.add(charge.key); else next.delete(charge.key);
-                      return next;
-                    });
-                  }} />
-                <span>{charge.label}{charge.units !== null && charge.rate !== null &&
-                  <small>{charge.units} × {currency(charge.rate)}</small>}</span>
-                <strong>{currency(charge.amount)}</strong>
-              </label>)}</td>
+              <td>{!order.charges.length && <small>{order.chargesAvailable ? "No itemized charges" : "Charge lines unavailable"}</small>}
+                {order.charges.map((charge, index) => <div key={index} className="booking-charge-choice">
+                  <span>{charge.label}{charge.units !== null && charge.rate !== null &&
+                    <small>{charge.units} × {currency(charge.rate)}</small>}</span>
+                  <strong>{currency(charge.amount)}</strong>
+                </div>)}
+              </td>
               <td className="booking-charge-amount">{currency(order.total)}</td>
+              {index === 0 && <td rowSpan={orders.length} className="booking-charge-amount"><strong>{reviewTotal(orders.map(order => order.total))}</strong></td>}
             </tr>)}
           </tbody>)}
         </table></div>}
@@ -157,7 +158,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
       </div>
       <footer>
         <button type="button" className="booking-charge-button" disabled={busy} onClick={() => void lookup()}>Refresh charges</button>
-        <strong>{chosen.length} selected · {total}</strong>
+        <strong>{selected.size} loads selected · {total} in extras</strong>
         <button type="button" className="booking-charge-button" disabled={!chosen.length || busy} onClick={() => void copyEmail()}>Copy approval email</button>
         <span role="status">{copyStatus}</span>
       </footer>

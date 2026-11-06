@@ -17,21 +17,24 @@
 
 .booking-charge-button { padding: 9px 12px; border: 1px solid #475569; border-radius: 8px; background: #17263a; color: #f8fafc; cursor: pointer; }
 .booking-charge-button:disabled { opacity: .5; cursor: default; }
-.booking-charge-dialog { width: min(980px, calc(100% - 24px)); max-height: 88vh; padding: 0; background: #111e31; color: #e2e8f0; border: 1px solid #475569; border-radius: 12px; }
+.booking-charge-dialog { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; background: #111e31; color: #e2e8f0; border: 0; border-radius: 0; }
 .booking-charge-dialog[open] { display: flex; flex-direction: column; }
 .booking-charge-dialog::backdrop { background: #020617bc; }
 .booking-charge-dialog header, .booking-charge-dialog footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 18px; background: #17263a; }
 .booking-charge-dialog header h2, .booking-charge-dialog header p { margin: 0; }
-.booking-charge-body { overflow: auto; padding: 14px 18px; }
+.booking-charge-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }
 .booking-charge-body textarea { width: 100%; margin-top: 8px; padding: 8px; background: #0f172a; color: inherit; }
-.booking-charge-table { overflow-x: auto; margin-bottom: 12px; }
-.booking-charge-table table { border-collapse: collapse; width: 100%; }
+.booking-charge-table { margin-bottom: 12px; }
+.booking-charge-table table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 760px; }
 .booking-charge-table th, .booking-charge-table td { padding: 8px; border-bottom: 1px solid #334155; text-align: left; }
 .booking-charge-table th { color: #bfcee2; }
+.booking-charge-table thead th { position: sticky; top: 0; background: #21344c; z-index: 1; }
+.booking-charge-table tbody:nth-of-type(even) { background: #17263a; }
+.booking-charge-table .booking-charge-selected { background: #173749; }
+.booking-charge-table tbody td, .booking-charge-table tbody th { vertical-align: top; }
 .booking-charge-overview { display: flex; flex-wrap: wrap; gap: 16px 32px; padding: 12px 16px; margin: 12px 0; border: 1px solid #334155; border-radius: 8px; }
 .booking-charge-overview span, .booking-charge-table small { display: block; color: #a7b9cf; font-size: 12px; }
 .booking-charge-overview strong { font-size: 19px; font-variant-numeric: tabular-nums; }
-.booking-charge-table .booking-charge-mark > * { background: #21344c; }
 .booking-charge-table .booking-charge-amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.booking-charge-choice { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto; align-items: start; gap: 8px; padding: 5px 0; cursor: pointer; }
+.booking-charge-choice { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: start; gap: 8px; padding: 3px 0; }
 .booking-charge-choice strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
