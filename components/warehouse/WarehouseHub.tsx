@@ -21,7 +21,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
       {!ready ? <p>Loading your workspace…</p> : sites.length ? <div className="warehouse-hub-grid">{sites.map((site) =>
         <Link key={`${site.terminal}:${site.siteCode}`} href={workspaceHref(section, { terminal: site.terminal, siteCode: site.siteCode })} className="warehouse-hub-card">
           <strong>{site.siteName}</strong>
-          <span>{section === "checkins" ? `${site.materials.includes("cotton") ? "Cotton" : "Lumber / FAK"}${site.containers ? " · Containers" : ""}` : section === "history" ? "Completed and removed arrivals" : "Cotton inventory"}</span>
+          {section !== "checkins" && <span>{section === "history" ? "Completed and removed arrivals" : "Cotton inventory"}</span>}
           <span className="warehouse-hub-action">Open →</span>
         </Link>)}</div> : <p>This location does not handle cotton inventory. Select another warehouse above to view its marks.</p>}
     </main>;
