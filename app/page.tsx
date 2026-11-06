@@ -82,6 +82,7 @@ export default async function Home() {
         <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>Find tariff documents and record pickup hours and fees by location.</p></Link>
         {admin && <>
         <Link href="/dray-import" style={cardStylePrimary}><h2>Savannah Dray Import</h2><p>Match FirstStar carrier pay, review billing and deliver orders.</p></Link>
+        <Link href="/dray-import/dallas" style={cardStylePrimary}><h2>Dallas Dray Import</h2><p>Preview planned rail drays from Bunge booking requests.</p></Link>
         <Link href="/pnl" style={cardStyleLocked}>
           <div
             style={{
