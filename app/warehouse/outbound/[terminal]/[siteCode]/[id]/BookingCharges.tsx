@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import type { readBookingMarkCharges } from "@/lib/dray/booking-charges";
 
 type Order = Awaited<ReturnType<typeof readBookingMarkCharges>>[number];
@@ -45,21 +45,41 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
       else orders.set(order.id, { order, marks: new Set([result.mark]) });
     }
   }
-  const rows = [...orders.values()].flatMap(({ order, marks }) =>
-    (order.charges ?? []).map((charge, index) => ({ ...charge, key: `${order.id}:${index}`,
-      orderId: order.id, marks: [...marks].join(", "), label: charge.description || charge.code || "Extra charge" })));
-  const chosen = rows.filter(row => selected.has(row.key) && row.amount !== null);
-  const total = currency(chosen.reduce((sum, row) => sum + Math.round(row.amount! * 100), 0) / 100);
+  const orderRows = [...orders.values()].map(({ order, marks }) => ({
+    id: order.id, marks: [...marks].sort().join(", "),
+    charges: (order.charges ?? []).map((charge, index) => ({ ...charge, key: `${order.id}:${index}`,
+      label: charge.description || charge.code || "Extra charge" })),
+  })).filter(row => row.charges.length);
+  const rows = orderRows.flatMap(row => row.charges);
+  const chosen = rows.filter(charge => selected.has(charge.key) && charge.amount !== null);
+  const sum = (charges: typeof rows) => currency(charges.reduce((total, charge) =>
+    total + Math.round((charge.amount ?? 0) * 100), 0) / 100);
+  const total = sum(chosen);
+  const grouped = new Map<string, typeof orderRows>();
+  for (const order of orderRows) {
+    const group = grouped.get(order.marks);
+    if (group) group.push(order); else grouped.set(order.marks, [order]);
+  }
+  const emailGroups = [...grouped].flatMap(([marks, orders]) => {
+    const selectedOrders = orders.map(order => ({ ...order,
+      charges: order.charges.filter(charge => selected.has(charge.key) && charge.amount !== null),
+    })).filter(order => order.charges.length);
+    return selectedOrders.length ? [{ marks, orders: selectedOrders, subtotal: sum(selectedOrders.flatMap(order => order.charges)) }] : [];
+  });
+  const describe = (charge: typeof rows[number]) => `${clean(charge.label)} — ${currency(charge.amount)}${charge.units !== null && charge.rate !== null ? ` (${charge.units} × ${currency(charge.rate)})` : ""}`;
   const intro = `Please review and approve the additional charges for booking ${clean(bookingNumber)}${customerReference ? ` (customer ref. ${clean(customerReference)})` : ""}.`;
   const email = ["Hi,", "", intro, "",
-    ...chosen.map(row => `• ${clean(row.label)} — ${currency(row.amount)} (mark ${row.marks}, order #${row.orderId})${row.units !== null && row.rate !== null ? ` · ${row.units} × ${currency(row.rate)}` : ""}`),
-    "", `Total for approval: ${total}`, "", "Thank you."].join("\n");
+    ...emailGroups.flatMap(group => [`Mark ${group.marks}`,
+      ...group.orders.map(order => `Order #${order.id}: ${order.charges.map(describe).join(" · ")} | ${sum(order.charges)}`),
+      `Mark subtotal: ${group.subtotal}`, ""]),
+    `Total for approval: ${total}`, "", "Thank you."].join("\n");
 
   async function copyEmail() {
     if (!chosen.length) return;
-    const cells = chosen.map(row => [row.marks, row.orderId, row.label,
-      row.units === null ? "—" : String(row.units), currency(row.rate), currency(row.amount)]);
-    const html = `<p>Hi,</p><p>${escape(intro)}</p><table border="1" cellpadding="6" style="border-collapse:collapse"><thead><tr><th>Mark</th><th>Order</th><th>Extra charge</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>${cells.map(row => `<tr>${row.map(cell => `<td>${escape(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table><p><strong>Total for approval: ${escape(total)}</strong></p><p>Thank you.</p>`;
+    const htmlRows = emailGroups.map(group => group.orders.map(order =>
+      `<tr><td>${escape(group.marks)}</td><td>${escape(order.id)}</td><td>${order.charges.map(charge => escape(describe(charge))).join("<br>")}</td><td>${escape(sum(order.charges))}</td></tr>`
+    ).join("") + `<tr><td colspan="3"><strong>Mark subtotal · ${escape(group.marks)}</strong></td><td><strong>${escape(group.subtotal)}</strong></td></tr>`).join("");
+    const html = `<p>Hi,</p><p>${escape(intro)}</p><table border="1" cellpadding="6" style="border-collapse:collapse"><thead><tr><th>Mark</th><th>Order</th><th>Extra charges</th><th>Amount</th></tr></thead><tbody>${htmlRows}</tbody></table><p><strong>Total for approval: ${escape(total)}</strong></p><p>Thank you.</p>`;
     try {
       if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
         await navigator.clipboard.write([new ClipboardItem({
@@ -92,22 +112,28 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         {[...orders.values()].filter(({ order }) => !order.charges?.length).map(({ order, marks }) =>
           <p key={order.id}>{[...marks].join(", ")} · #{order.id} · {order.charges === null ? "Charge lines unavailable" : "No itemized charges"}</p>)}
         {!!rows.length && <div className="booking-charge-table"><table>
-          <thead><tr>{["Include", "Mark", "McLeod order", "Charge", "Qty", "Rate", "Amount"].map(label =>
+          <thead><tr>{["Mark", "McLeod order", "Charges", "Selected total"].map(label =>
             <th key={label} scope="col">{label}</th>)}</tr></thead>
-          <tbody>{rows.map(row => <tr key={row.key}>
-            <td><input type="checkbox" aria-label={`Include ${row.label} on order ${row.orderId}`} checked={selected.has(row.key)}
-              disabled={row.amount === null} onChange={event => {
-                const checked = event.target.checked;
-                setCopyStatus("");
-                setSelected(previous => {
-                  const next = new Set(previous);
-                  if (checked) next.add(row.key); else next.delete(row.key);
-                  return next;
-                });
-              }} /></td>
-            <td>{row.marks}</td><td>{row.orderId}</td><td>{row.label}</td>
-            <td>{row.units ?? "—"}</td><td>{currency(row.rate)}</td><td>{currency(row.amount)}</td>
-          </tr>)}</tbody>
+          <tbody>{[...grouped].map(([marks, orders]) => <Fragment key={marks}>
+            {orders.map(order => <tr key={order.id}>
+              <td>{marks}</td><td>{order.id}</td>
+              <td>{order.charges.map(charge => <label key={charge.key} style={{ display: "block" }}>
+                <input type="checkbox" aria-label={`Include ${charge.label} on order ${order.id}`} checked={selected.has(charge.key)}
+                  disabled={charge.amount === null} onChange={event => {
+                    const checked = event.target.checked;
+                    setCopyStatus("");
+                    setSelected(previous => {
+                      const next = new Set(previous);
+                      if (checked) next.add(charge.key); else next.delete(charge.key);
+                      return next;
+                    });
+                  }} /> {describe(charge)}
+              </label>)}</td>
+              <td>{sum(order.charges.filter(charge => selected.has(charge.key)))}</td>
+            </tr>)}
+            <tr><th scope="row" colSpan={3}>Mark subtotal · {marks}</th>
+              <td><strong>{sum(orders.flatMap(order => order.charges).filter(charge => selected.has(charge.key)))}</strong></td></tr>
+          </Fragment>)}</tbody>
         </table></div>}
         {!!chosen.length && <details><summary>Email preview</summary>
           <textarea aria-label="Email preview" readOnly value={email} rows={10} />
