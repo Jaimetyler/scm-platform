@@ -57,19 +57,19 @@ export default function CottonLocationsPage(){
  const field=(key:keyof Location,title:string)=><label className={styles.field}><span>{title}</span><input value={String(selected?.[key]??"")} onChange={e=>setSelected(v=>v?{...v,[key]:e.target.value}:v)}/></label>;
  return <main className={styles.page}>
   <div className={styles.heading}><div><h1>Cotton Location Management</h1><p>McLeod locations, pickup schedules and tariff policies</p></div><div><p className={styles.count}>{rows.length} locations</p></div></div>
-  <div className={styles.toolbar}><input aria-label="Search locations" placeholder="Search code, previous code, name or city" value={query} onChange={e=>setQuery(e.target.value)}/><button onClick={()=>void load()}>Refresh</button></div>
+  <div className={styles.toolbar}><input aria-label="Search locations" placeholder="Search McLeod code, EWR warehouse code, name or city" value={query} onChange={e=>setQuery(e.target.value)}/><button onClick={()=>void load()}>Refresh</button></div>
   {error&&!selected&&<p role="alert" className={styles.error}>{error}</p>}{notice&&<p role="status">{notice}</p>}
-  <div className={styles.tableWrap}><table className={styles.table}><thead><tr>{["McLeod code","Previous code","Location","Address","Status",""].map(x=><th key={x}>{x}</th>)}</tr></thead>
+  <div className={styles.tableWrap}><table className={styles.table}><thead><tr>{["McLeod code","EWR Warehouse Code","Location","Address","Status",""].map(x=><th key={x}>{x}</th>)}</tr></thead>
   <tbody>{filtered.map(r=><tr key={r.id}><td className={styles.code}>{r.mcleod_code}</td><td className={styles.code}>{r.prev_code||"—"}</td><td>{r.name||"Unnamed location"}</td><td>{[r.address,r.city,r.state,r.zip_code].filter(Boolean).join(", ")}</td><td>{r.active?"Active":"Unverified"}</td><td><button onClick={()=>void openLocation(r)}>{admin?"View / Edit":"Open location"}</button></td></tr>)}</tbody></table></div>
   {selected&&<div className={styles.overlay} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setSelected(null)}}>
    <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cotton-location-title">
-    <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · Previous: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
+    <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · EWR Warehouse Code: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
     <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["tariffs","Tariff documents"],["equipment","Equipment"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div className={styles.modalBody}>
      {error&&<p role="alert" className={styles.error}>{error}</p>}
      {tab==="details"&&<fieldset className={styles.form} disabled={!admin}>
       {field("name","Location name")}
-      <div className={styles.twoCols}>{field("prev_code","Previous code")}{field("timezone","IANA timezone")}</div>
+      <div className={styles.twoCols}>{field("prev_code","EWR Warehouse Code")}{field("timezone","IANA timezone")}</div>
       {field("address","Street address")}{field("address2","McLeod address line 2 / notes")}
       <div className={styles.threeCols}>{field("city","City")}{field("state","State")}{field("zip_code","ZIP code")}</div>
       <label className={styles.checkbox}><input type="checkbox" checked={selected.active} onChange={e=>setSelected(v=>v?{...v,active:e.target.checked}:v)}/> Active location</label>
