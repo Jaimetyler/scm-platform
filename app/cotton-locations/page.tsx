@@ -8,8 +8,16 @@ import PolicyEditor from "./PolicyEditor";
 import styles from "./page.module.css";
 type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;address2:string|null;city:string|null;state:string|null;zip_code:string|null;timezone:string|null;active:boolean;updated_at:string};
 type Rule={rule_kind:string;fee_type:string;amount:number;grace_days:number|null;grace_unit:string|null};
-type PolicyData={ok:boolean;contact?:{contact_name:string;contact_phone:string;contact_email:string}|null;documents?:TariffDocument[];existingTariffs?:ExistingTariff[];error?:string;clues?:{id:string;source_type:string;source_reference:string;proposed_values:Record<string,unknown>;status:string}[];versions?:{id:string;status:string;source_type:string;source_reference:string|null;rules:Rule[]}[];schedules?:{weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;appointment_required:boolean|null;verified:boolean|null;source_reference:string|null}[]};
-const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+type PickupHours={weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;appointment_required:boolean|null;verified:boolean|null;source_reference:string|null;effective_from:string|null;effective_to:string|null};
+type PolicyData={ok:boolean;contact?:{contact_name:string;contact_phone:string;contact_email:string}|null;documents?:TariffDocument[];existingTariffs?:ExistingTariff[];error?:string;clues?:{id:string;source_type:string;source_reference:string;proposed_values:Record<string,unknown>;status:string}[];versions?:{id:string;status:string;source_type:string;source_reference:string|null;rules:Rule[]}[];schedules?:PickupHours[]};
+const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const orderedDays=[1,2,3,4,5,6,0];
+function formatHour(time:string|null){
+ if(!time)return "Unknown";
+ const [hour,minute]=time.split(":");
+ const h=Number(hour);
+ return `${h%12||12}:${minute} ${h<12?"AM":"PM"}`;
+}
 export default function CottonLocationsPage(){
  const staff=useStaff();
  const admin=staff?.role==="admin", canWrite=staff?.status==="active";
@@ -17,6 +25,7 @@ export default function CottonLocationsPage(){
  const [rows,setRows]=useState<Location[]>([]);
  const [selected,setSelected]=useState<Location|null>(null);
  const [policy,setPolicy]=useState<PolicyData|null>(null);
+ const [editingHours,setEditingHours]=useState<number|null>(null);
  const [policyBusy,setPolicyBusy]=useState(false);
  const [tab,setTab]=useState<"details"|"hours"|"fees"|"tariffs"|"equipment">("details");
  const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
@@ -34,7 +43,7 @@ export default function CottonLocationsPage(){
  const filtered=rows.filter(r=>[r.mcleod_code,r.prev_code,r.name,r.address,r.city,r.state].some(x=>String(x||"").toLowerCase().includes(query.trim().toLowerCase())));
  async function openLocation(r:Location){
   const version=++selectionVersion.current;
-  setSelected({...r});setTab("details");setPolicy(null);setPolicyBusy(true);setError("");
+  setSelected({...r});setTab("details");setEditingHours(null);setPolicy(null);setPolicyBusy(true);setError("");
   try{const res=await fetch("/api/cotton-locations/policies?location_id="+encodeURIComponent(r.id),{cache:"no-store"});const json=await res.json();if(version===selectionVersion.current)setPolicy(res.ok?json:{ok:false,error:json.error||"Policy lookup failed"});}
   catch{if(version===selectionVersion.current)setPolicy({ok:false,error:"Unable to retrieve policies"});}finally{if(version===selectionVersion.current)setPolicyBusy(false);}
  }
@@ -54,6 +63,9 @@ export default function CottonLocationsPage(){
    setSelected(null);setNotice("Location saved and audited.");await load();
   }catch(e){setError(e instanceof Error?e.message:"Save failed");}finally{setBusy(false);}
  }
+ const today=(()=>{try{return new Intl.DateTimeFormat("en-CA",{timeZone:selected?.timezone||"America/New_York"}).format(new Date());}
+ catch{return new Date().toISOString().slice(0,10);}})();
+ const currentHours=(policy?.schedules??[]).filter(row=>(!row.effective_from||row.effective_from<=today)&&(!row.effective_to||row.effective_to>=today));
  const field=(key:keyof Location,title:string)=><label className={styles.field}><span>{title}</span><input value={String(selected?.[key]??"")} onChange={e=>setSelected(v=>v?{...v,[key]:e.target.value}:v)}/></label>;
  return <main className={styles.page}>
   <div className={styles.heading}><div><h1>Cotton Location Management</h1><p>McLeod locations, pickup schedules and tariff policies</p></div><div><p className={styles.count}>{rows.length} locations</p></div></div>
@@ -84,11 +96,35 @@ export default function CottonLocationsPage(){
       documents={policy.documents??[]} existingTariffs={policy.existingTariffs??[]}
       canWrite={canWrite} onBusy={setBusy} onSaved={refreshPolicy}/>}
      {tab==="hours"&&policy?.ok&&<div className={styles.policyList}>
-      <p className={styles.helper}>Only source-confirmed hours should be treated as verified. Historical dispatcher defaults are not reliable.</p>
-      {policy.clues?.filter(c=>c.proposed_values?.pickup_hours_clue).map(c=><article className={styles.policyCard} key={c.id}><strong>Unverified McLeod hours clue</strong><p>{String(c.proposed_values.pickup_hours_clue)}</p><small>Source: {c.source_reference}. Confirm before using for dispatch.</small></article>)}
-      {policy.clues?.filter(c=>c.source_type==="tariff"&&c.proposed_values?.pickup_hours).map(c=><article className={styles.policyCard} key={c.id}><strong>Written tariff — pending review</strong><p>{JSON.stringify(c.proposed_values.pickup_hours)}</p><small>{c.source_reference}</small></article>)}
-      {policy.schedules?.length?policy.schedules.map((v,i)=><article className={styles.policyCard} key={i}><strong>{v.weekday==null?"All days":days[v.weekday]}</strong><p>{v.open_time||"Hours unknown"} – {v.close_time||"Hours unknown"}</p><p>Check-in cutoff: {v.checkin_cutoff||"Not recorded"} · Appointment: {v.appointment_required===true?"Required":v.appointment_required===false?"Not required":"Unknown"}</p><small>{v.verified?"Verified":"Unverified"} · {v.source_reference||"No source"}</small></article>):<p>No pickup hours recorded.</p>}
-      {canWrite&&<PolicyEditor key={selected.id+"hours"} location={selected} kind="hours" onBusy={setBusy} onSaved={refreshPolicy}/>}
+      <p className={styles.helper}>Local pickup hours{selected.timezone?` · ${selected.timezone}`:" · Timezone missing"}</p>
+      <ul className={styles.hoursList}>
+       {orderedDays.map(day=>{
+        const specific=currentHours.filter(row=>row.weekday===day);
+        const schedules=specific.length?specific:currentHours.filter(row=>row.weekday===null);
+        const row=schedules.length===1?schedules[0]:undefined;
+        return <li key={day}>
+         <div className={styles.hoursRow}>
+          <strong>{days[day]}</strong>
+          <div>
+           <span>{row?.open_time&&row.close_time?`${formatHour(row.open_time)} – ${formatHour(row.close_time)}`:schedules.length>1?"Multiple schedules · review required":row?.appointment_required?"By appointment":"Hours not recorded"}</span>
+           {row&&<small>{row.verified?"Confirmed":"Unverified"}{row.checkin_cutoff?` · Cutoff ${formatHour(row.checkin_cutoff)}`:""}{row.appointment_required===true?" · Appointment required":row.appointment_required===false?" · No appointment":""}</small>}
+          </div>
+          {canWrite&&<button type="button" disabled={busy} aria-label={`Edit ${days[day]} pickup hours`} onClick={()=>setEditingHours(day)}>Edit</button>}
+         </div>
+         {editingHours===day&&canWrite&&<div className={styles.hoursEditor}>
+          <PolicyEditor key={selected.id+day} location={selected} kind="hours" hoursSeed={{...row,day}}
+           onBusy={setBusy} onCancel={()=>setEditingHours(null)}
+           onSaved={async()=>{await refreshPolicy();setEditingHours(null);}}/>
+         </div>}
+        </li>;
+       })}
+      </ul>
+      {!!policy.clues?.some(clue=>clue.proposed_values?.pickup_hours_clue||clue.source_type==="tariff"&&clue.proposed_values?.pickup_hours)&&<details>
+       <summary>Hours source notes</summary>
+       {policy.clues.filter(clue=>clue.proposed_values?.pickup_hours_clue||clue.source_type==="tariff"&&clue.proposed_values?.pickup_hours).map(clue=><p className={styles.helper} key={clue.id}>
+        {String(clue.proposed_values.pickup_hours_clue??JSON.stringify(clue.proposed_values.pickup_hours))} · {clue.source_reference} · Pending confirmation
+       </p>)}
+      </details>}
      </div>}
      {tab==="fees"&&policy?.ok&&<div className={styles.policyList}>
       <p className={styles.helper}>Historical policies are drafts until reviewed. No changes here affect the active late-fee engine.</p>

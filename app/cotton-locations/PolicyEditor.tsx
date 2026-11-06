@@ -1,11 +1,13 @@
 "use client";
 import {useState} from "react";
-type Props={location?:{id:string;mcleod_code:string;name:string};kind?:"hours"|"fees";onSaved?:()=>Promise<void>;onBusy?:(busy:boolean)=>void};
-export default function CottonPolicyEditor({location,kind:initialKind,onSaved,onBusy}:Props){
+type HoursSeed = {day:number;open_time?:string|null;close_time?:string|null;checkin_cutoff?:string|null;appointment_required?:boolean|null};
+const weekdays = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+type Props={location?:{id:string;mcleod_code:string;name:string};kind?:"hours"|"fees";onSaved?:()=>Promise<void>;onBusy?:(busy:boolean)=>void;hoursSeed?:HoursSeed;onCancel?:()=>void};
+export default function CottonPolicyEditor({location,kind:initialKind,onSaved,onBusy,hoursSeed,onCancel}:Props){
  const [code,setCode]=useState(""),[locationId,setLocationId]=useState(location?.id||""),[source,setSource]=useState("");
- const [kind,setKind]=useState<"hours"|"fees">(initialKind||"hours"),[days,setDays]=useState([1,2,3,4,5]);
- const [open,setOpen]=useState(""),[close,setClose]=useState(""),[cutoff,setCutoff]=useState("");
- const [appt,setAppt]=useState(false),[verified,setVerified]=useState(false);
+ const [kind,setKind]=useState<"hours"|"fees">(initialKind||"hours"),[days,setDays]=useState(hoursSeed ? [hoursSeed.day] : [1,2,3,4,5]);
+ const [open,setOpen]=useState(hoursSeed?.open_time?.slice(0,5)??""),[close,setClose]=useState(hoursSeed?.close_time?.slice(0,5)??""),[cutoff,setCutoff]=useState(hoursSeed?.checkin_cutoff?.slice(0,5)??"");
+ const [appt,setAppt]=useState<boolean|null>(hoursSeed ? hoursSeed.appointment_required??null : false),[verified,setVerified]=useState(false);
  const [effective,setEffective]=useState(()=>[new Date().getFullYear(),String(new Date().getMonth()+1).padStart(2,"0"),String(new Date().getDate()).padStart(2,"0")].join("-")),[lateType,setLateType]=useState("NONE"),[lateAmount,setLateAmount]=useState(0),[grace,setGrace]=useState(0),[earlyType,setEarlyType]=useState("NONE"),[earlyAmount,setEarlyAmount]=useState(0);
  const [message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  async function find(){
@@ -36,11 +38,13 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  {locationId&&<fieldset disabled={busy} style={{display:"grid",gap:14,border:0,padding:0,margin:0}}>
  {!initialKind&&<label>Update type <select value={kind} onChange={e=>setKind(e.target.value as "hours"|"fees")}><option value="hours">Pickup hours / appointment</option><option value="fees">Early & late fee draft</option></select></label>}
  {kind==="hours"?<>
- <div>{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d,i)=><label key={d} style={{marginRight:10}}><input type="checkbox" checked={days.includes(i)} onChange={e=>setDays(v=>e.target.checked?[...v,i]:v.filter(x=>x!==i))}/>{d}</label>)}</div>
+ <div>{[1,2,3,4,5,6,0].map(i=><label key={i} style={{marginRight:10}}><input type="checkbox" checked={days.includes(i)} onChange={e=>setDays(v=>e.target.checked?[...v,i]:v.filter(x=>x!==i))}/>{weekdays[i]}</label>)}</div>
  <label>Opening time <input type="time" value={open} onChange={e=>setOpen(e.target.value)}/></label>
  <label>Closing time <input type="time" value={close} onChange={e=>setClose(e.target.value)}/></label>
  <label>Check-in cutoff <input type="time" value={cutoff} onChange={e=>setCutoff(e.target.value)}/></label>
- <label><input type="checkbox" checked={appt} onChange={e=>setAppt(e.target.checked)}/> Appointment required</label>
+ <label>Appointment <select value={appt===null?"":appt?"required":"not-required"} onChange={e=>setAppt(e.target.value===""?null:e.target.value==="required")}>
+  <option value="">Choose appointment requirement</option><option value="not-required">Not required</option><option value="required">Required</option>
+ </select></label>
  <label><input type="checkbox" checked={verified} onChange={e=>setVerified(e.target.checked)}/> Hours confirmed by source</label>
  </>:<>
  <label>Effective date <input type="date" value={effective} onChange={e=>setEffective(e.target.value)}/></label>
@@ -51,7 +55,8 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  <label>Early fee amount <input type="number" min="0" step="0.01" value={earlyAmount} onChange={e=>setEarlyAmount(Number(e.target.value))}/></label>
  </>}
  <label>Source / person / tariff reference <input style={{...inputStyle,width:"100%"}} value={source} onChange={e=>setSource(e.target.value)}/></label>
- <button disabled={busy||!source.trim()||(kind==="hours"&&!days.length)} onClick={()=>void save()}>{busy?"Saving...":kind==="hours"?"Save schedule evidence":"Save fee draft"}</button>
+ <button disabled={busy||!source.trim()||(kind==="hours"&&(!days.length||appt===null||(!appt&&(!open||!close))))} onClick={()=>void save()}>{busy?"Saving...":kind==="hours"?"Save hours":"Save fee draft"}</button>
+ {onCancel&&<button type="button" onClick={onCancel}>Cancel</button>}
  </fieldset>}
  </section>
 }
