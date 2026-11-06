@@ -9,3 +9,5 @@ fieldset.form{border:0;margin:0;padding:0;min-width:0}
 .hoursRow{display:grid;grid-template-columns:minmax(5.5rem,1fr) minmax(0,2fr) auto;align-items:center;gap:12px;padding:10px 0;font-size:14px}
 .hoursRow small{display:block;color:#a9b8ce;margin-top:3px}
 .hoursEditor{padding:4px 12px 16px;background:#17263b}
+
+.hoursActions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.hoursActions button{padding:5px 9px;font-size:13px}

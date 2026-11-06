@@ -2,12 +2,12 @@
 import {useState} from "react";
 type HoursSeed = {day:number;open_time?:string|null;close_time?:string|null;checkin_cutoff?:string|null;appointment_required?:boolean|null};
 const weekdays = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-type Props={location?:{id:string;mcleod_code:string;name:string};kind?:"hours"|"fees";onSaved?:()=>Promise<void>;onBusy?:(busy:boolean)=>void;hoursSeed?:HoursSeed;onCancel?:()=>void};
-export default function CottonPolicyEditor({location,kind:initialKind,onSaved,onBusy,hoursSeed,onCancel}:Props){
+type Props={location?:{id:string;mcleod_code:string;name:string};kind?:"hours"|"fees";onSaved?:()=>Promise<void>;onBusy?:(busy:boolean)=>void;hoursSeed?:HoursSeed;verifyHours?:boolean;onCancel?:()=>void};
+export default function CottonPolicyEditor({location,kind:initialKind,onSaved,onBusy,hoursSeed,verifyHours=false,onCancel}:Props){
  const [code,setCode]=useState(""),[locationId,setLocationId]=useState(location?.id||""),[source,setSource]=useState("");
  const [kind,setKind]=useState<"hours"|"fees">(initialKind||"hours"),[days,setDays]=useState(hoursSeed ? [hoursSeed.day] : [1,2,3,4,5]);
  const [open,setOpen]=useState(hoursSeed?.open_time?.slice(0,5)??""),[close,setClose]=useState(hoursSeed?.close_time?.slice(0,5)??""),[cutoff,setCutoff]=useState(hoursSeed?.checkin_cutoff?.slice(0,5)??"");
- const [appt,setAppt]=useState<boolean|null>(hoursSeed ? hoursSeed.appointment_required??null : false),[verified,setVerified]=useState(false);
+ const [appt,setAppt]=useState<boolean|null>(hoursSeed ? hoursSeed.appointment_required??null : false),[verified,setVerified]=useState(verifyHours);
  const [effective,setEffective]=useState(()=>[new Date().getFullYear(),String(new Date().getMonth()+1).padStart(2,"0"),String(new Date().getDate()).padStart(2,"0")].join("-")),[lateType,setLateType]=useState("NONE"),[lateAmount,setLateAmount]=useState(0),[grace,setGrace]=useState(0),[earlyType,setEarlyType]=useState("NONE"),[earlyAmount,setEarlyAmount]=useState(0);
  const [message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  async function find(){
@@ -30,7 +30,7 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  const feeTypes=["NONE","FLAT","PER_DAY","PER_BALE_ONE_TIME","PER_BALE_PER_DAY","NOT_ALLOWED","CUSTOM"];
  return <section style={location?{display:"grid",gap:14}:{maxWidth:800,margin:"30px auto",padding:20,fontFamily:"system-ui"}}>
  {!location&&<><h1>Cotton pickup hours & fee policies</h1><p>Admin-only manual review. Historical fee calculations remain unchanged.</p></>}
- {location&&<h3>{kind==="hours"?"Record reviewed pickup hours":"Create revised early / late fee draft"}</h3>}
+ {location&&<h3>{kind==="hours"?(verifyHours?"Verify pickup hours":"Record reviewed pickup hours"):"Create revised early / late fee draft"}</h3>}
  {!location&&<>
  <label>McLeod location code <input style={inputStyle} value={code} onChange={e=>setCode(e.target.value)}/></label>
  <button onClick={()=>void find()}>Find location</button></>}
@@ -55,7 +55,7 @@ export default function CottonPolicyEditor({location,kind:initialKind,onSaved,on
  <label>Early fee amount <input type="number" min="0" step="0.01" value={earlyAmount} onChange={e=>setEarlyAmount(Number(e.target.value))}/></label>
  </>}
  <label>Source / person / tariff reference <input style={{...inputStyle,width:"100%"}} value={source} onChange={e=>setSource(e.target.value)}/></label>
- <button disabled={busy||!source.trim()||(kind==="hours"&&(!days.length||appt===null||(!appt&&(!open||!close))))} onClick={()=>void save()}>{busy?"Saving...":kind==="hours"?"Save hours":"Save fee draft"}</button>
+ <button disabled={busy||!source.trim()||(kind==="hours"&&(!days.length||appt===null||(!appt&&(!open||!close))))} onClick={()=>void save()}>{busy?"Saving...":kind==="hours"?(verified?"Save verified hours":"Save hours"):"Save fee draft"}</button>
  {onCancel&&<button type="button" onClick={onCancel}>Cancel</button>}
  </fieldset>}
  </section>

@@ -25,7 +25,7 @@ export default function CottonLocationsPage(){
  const [rows,setRows]=useState<Location[]>([]);
  const [selected,setSelected]=useState<Location|null>(null);
  const [policy,setPolicy]=useState<PolicyData|null>(null);
- const [editingHours,setEditingHours]=useState<number|null>(null);
+ const [editingHours,setEditingHours]=useState<{day:number;verify:boolean}|null>(null);
  const [policyBusy,setPolicyBusy]=useState(false);
  const [tab,setTab]=useState<"details"|"hours"|"fees"|"tariffs"|"equipment">("details");
  const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
@@ -107,12 +107,16 @@ export default function CottonLocationsPage(){
           <strong>{days[day]}</strong>
           <div>
            <span>{row?.open_time&&row.close_time?`${formatHour(row.open_time)} – ${formatHour(row.close_time)}`:schedules.length>1?"Multiple schedules · review required":row?.appointment_required?"By appointment":"Hours not recorded"}</span>
-           {row&&<small>{row.verified?"Confirmed":"Unverified"}{row.checkin_cutoff?` · Cutoff ${formatHour(row.checkin_cutoff)}`:""}{row.appointment_required===true?" · Appointment required":row.appointment_required===false?" · No appointment":""}</small>}
+           {row&&<small>{row.verified?"Verified":"Unverified"}{row.checkin_cutoff?` · Cutoff ${formatHour(row.checkin_cutoff)}`:""}{row.appointment_required===true?" · Appointment required":row.appointment_required===false?" · No appointment":""}</small>}
           </div>
-          {canWrite&&<button type="button" disabled={busy} aria-label={`Edit ${days[day]} pickup hours`} onClick={()=>setEditingHours(day)}>Edit</button>}
+          {canWrite&&<div className={styles.hoursActions}>
+           {row&&!row.verified&&((row.open_time&&row.close_time)||row.appointment_required===true)&&
+            <button type="button" disabled={busy} aria-label={`Verify ${days[day]} pickup hours`} onClick={()=>setEditingHours({day,verify:true})}>Verify</button>}
+           <button type="button" disabled={busy} aria-label={`Edit ${days[day]} pickup hours`} onClick={()=>setEditingHours({day,verify:false})}>Edit</button>
+          </div>}
          </div>
-         {editingHours===day&&canWrite&&<div className={styles.hoursEditor}>
-          <PolicyEditor key={selected.id+day} location={selected} kind="hours" hoursSeed={{...row,day}}
+         {editingHours?.day===day&&canWrite&&<div className={styles.hoursEditor}>
+          <PolicyEditor key={`${selected.id}-${day}-${editingHours.verify}`} location={selected} kind="hours" hoursSeed={{...row,day}} verifyHours={editingHours.verify}
            onBusy={setBusy} onCancel={()=>setEditingHours(null)}
            onSaved={async()=>{await refreshPolicy();setEditingHours(null);}}/>
          </div>}
