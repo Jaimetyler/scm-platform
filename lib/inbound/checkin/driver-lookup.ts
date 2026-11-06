@@ -2,7 +2,7 @@ import { dependencyFetch, DependencyError } from "../../http/dependency.ts";
 import { mapLimit } from "../../http/map-limit.ts";
 import { extractSearchOrders } from "../../mcleod/inbound/search-response.ts";
 import { lookupMcleodGateOrder } from "./mcleod-order-id.ts";
-import { mcleodOrderStops, YardStopError } from "./yard-stop.ts";
+import { mcleodOrderStops, stopAtScmYard, YardStopError } from "./yard-stop.ts";
 import { CHECKIN_SITES, eligibleCheckinRevenue } from "./sites.ts";
 import { referenceMatchesInput } from "./reference-match.ts";
 import { searchReferenceOrders } from "./reference-search.ts";
@@ -143,6 +143,7 @@ export async function lookupDriverReference(input: string, terminal: "SAV" | "HO
 
 function hasLocationEvidence(stop: Record<string, any>) {
   const location = stop.location && typeof stop.location === "object" ? stop.location : {};
+  if (CHECKIN_SITES.some(site => site.terminal === "DAL" && stopAtScmYard(stop, site.siteName, site.terminal))) return true;
   const name = key(location.name || stop.location_name);
   if (!name) return false;
   if (!/\bSCM\b|SUPPLY CHAIN|SAVANNAH WAREHOUSE|HOUSTON WAREHOUSE/.test(name)) return true;

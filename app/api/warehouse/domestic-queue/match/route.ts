@@ -1,10 +1,10 @@
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { mapLimit } from "@/lib/http/map-limit";
-import { mcleodOrderStops, YardStopError } from "@/lib/inbound/checkin/yard-stop";
+import { mcleodOrderStops, stopAtScmYard, YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { CHECKIN_SITES, eligibleCheckinRevenue } from "@/lib/inbound/checkin/sites";
 import { lookupMcleodGateOrder, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import { referenceMatchesInput } from "@/lib/inbound/checkin/reference-match";
 import { searchReferenceOrders } from "@/lib/inbound/checkin/reference-search";
@@ -30,6 +30,7 @@ function named(value: unknown) {
 }
 function hasLocationEvidence(stop: Record<string, any>) {
   const location = stop.location && typeof stop.location === "object" ? stop.location : {};
+  if (CHECKIN_SITES.some(site => site.terminal === "DAL" && stopAtScmYard(stop, site.siteName, site.terminal))) return true;
   const name = text(location.name || stop.location_name).toUpperCase();
   if (!name) return false;
   if (!/\bSCM\b|SUPPLY CHAIN|SAVANNAH WAREHOUSE|HOUSTON WAREHOUSE/.test(name)) return true;
@@ -106,7 +107,7 @@ async function GETHandler(req: NextRequest) {
       if (!orderId || !value) throw new DependencyError("McLeod returned incomplete order identity or reference details. Please try again.");
       if (!referenceMatchesInput(value, reference)) continue;
       if (!text(order.revenue_code_id)) throw new DependencyError("McLeod search omitted the revenue code. Cannot verify this order.");
-      if (text(order.revenue_code_id).toUpperCase() !== "MAIN") continue;
+      if (!eligibleCheckinRevenue(order.revenue_code_id, terminal)) continue;
       const matchDirection = set.field === "blnum" ? "pickup" : "delivery";
       const customer = order.customer as Record<string, unknown> | undefined;
       const commodity = text((order.commodity as Record<string, unknown> | undefined)?.description || order.commodity_description || order.commodity_id).toUpperCase();
@@ -135,7 +136,7 @@ async function GETHandler(req: NextRequest) {
           text(order.id).toUpperCase() !== match.orderId.toUpperCase() || !text(order.revenue_code_id)) {
         throw new DependencyError("McLeod returned incomplete or changed order identity details. Please try again.");
       }
-      if (text(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
+      if (!eligibleCheckinRevenue(order.revenue_code_id, terminal)) return null;
       // A changed reference or incomplete stop evidence is uncertainty, not proof
       // that this candidate belongs elsewhere or that the search found no match.
       if (!referenceMatchesInput(order[matchedField], reference) ||

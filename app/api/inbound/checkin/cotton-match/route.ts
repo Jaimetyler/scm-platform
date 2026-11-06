@@ -1,4 +1,4 @@
-import { stopAtScmYard } from "@/lib/inbound/checkin/yard-stop";
+import { stopAtScmYard, mcleodOrderStops } from "@/lib/inbound/checkin/yard-stop";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
 import { describeMcleodCompletion, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
@@ -21,11 +21,13 @@ async function GETHandler(request: NextRequest) {
     const mark = value(params.get("mark")).toUpperCase();
     const terminal = value(params.get("terminal")).toUpperCase();
     const siteCode = value(params.get("siteCode"));
+    const pickup = params.get("direction") === "pickup";
     const shipper = value(params.get("customer")).toUpperCase();
     const customerId = CUSTOMER_XREF.find((row) => row.active &&
       [row.alias, row.canonicalCustomer, row.customerName, row.customerId]
         .some((candidate) => normalizeKey(candidate) === normalizeKey(shipper)))?.customerId;
-    if (!CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton")))
+    const site = CHECKIN_SITES.find(site => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton"));
+    if (!site)
       return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
     if (mark.length < 3 || mark.length > 80 || normalizeKey(mark).length < 3)
       return NextResponse.json({ ok: false, error: "Enter at least three mark characters" }, { status: 400 });
@@ -82,8 +84,22 @@ async function GETHandler(request: NextRequest) {
       if (!response.ok) throw new Error(`Could not verify McLeod order (${response.status})`);
       const order = await response.json() as Record<string, unknown>;
       if (!eligibleCheckinRevenue(order.revenue_code_id, terminal)) return null;
-      const stops = Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
-      const site = CHECKIN_SITES.find(item => item.terminal === terminal && item.siteCode === siteCode);
+      const stops = pickup ? mcleodOrderStops(order) : Array.isArray(order.stops) ? order.stops as Record<string, unknown>[] : [];
+      if (pickup) {
+        const candidates = stops.filter(stop => stop.stop_type === "PU" && stopAtScmYard(stop, site.siteName, site.terminal));
+        if (candidates.length !== 1 || !value(candidates[0].id)) return null;
+        const stop = candidates[0];
+        const completion = await describeMcleodCompletion(order, stop, "pickup");
+        if (completion) return null;
+        const movement = Array.isArray(order.movements) ? order.movements.find(item =>
+          value(stop.movement_id) ? value(item.id) === value(stop.movement_id) :
+          Array.isArray(item.stops) && item.stops.some((nested: Record<string, unknown>) => value(nested.id) === value(stop.id))) : undefined;
+        return { ...match, orderDate: value(stop.sched_arrive_early || stop.sched_arrive_late || order.ordered_date),
+          orderStatus: value(order.__statusDescr || order.status),
+          driverName: value(movement?.override_driver_nm), driverPhone: value(movement?.override_drvr_cell),
+          carrierName: named(movement?.carrier) || named(order.carrier),
+          carrierCode: value(movement?.carrier_id || order.vendor_id) };
+      }
       const delivery = stops.find(stop => stop.stop_type === "SO" && (terminal !== "DAL" || !!site && stopAtScmYard(stop, site.siteName, "DAL")));
       if (terminal === "DAL" && !delivery) return null;
       match.completion = await describeMcleodCompletion(order, delivery, "delivery");

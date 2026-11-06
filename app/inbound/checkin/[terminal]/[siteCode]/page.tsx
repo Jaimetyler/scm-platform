@@ -149,7 +149,7 @@ function rowTone(row: CheckinRow): React.CSSProperties {
 }
 
 function rowDotStyle(row: CheckinRow): React.CSSProperties {
-  const gateOnly = row.checkin_source === "driver_qr" && !usesMcleodCheckin(row);
+  const gateOnly = row.movement_direction === "pickup";
   return {
     width: 10,
     height: 10,
@@ -256,7 +256,7 @@ export default function SiteCheckinPage() {
 
   useEffect(() => {
     for (const row of rows) {
-      if (viewCarryover || row.local_receiving_only || isLocalReceivingCustomer(row.shipper) || isClosedRow(row) || row.matched_order_id || row.checkin_source === "driver_qr") continue;
+      if (viewCarryover || row.local_receiving_only || isLocalReceivingCustomer(row.shipper) || isClosedRow(row) || row.matched_order_id || row.movement_direction === "pickup" || row.checkin_source === "driver_qr") continue;
       const mark = (row.mark ?? "").trim().toUpperCase();
       const key = `${mark}|${(row.shipper ?? "").trim().toUpperCase()}`;
       if (lookupKeysRef.current[row.id] === key) continue;
@@ -312,7 +312,7 @@ export default function SiteCheckinPage() {
   useEffect(() => () => { Object.values(lookupTimersRef.current).forEach(window.clearTimeout); }, []);
 
   function isReadOnlyRow(row: CheckinRow) {
-    return !canWrite || row.draft_status === "delivery_blocked" || isClosedRow(row) &&
+    return !canWrite || row.movement_direction === "pickup" || row.draft_status === "delivery_blocked" || isClosedRow(row) &&
       !(row.draft_status === "processed" && editingProcessedIds.has(row.id) &&
         rowUi[row.id]?.saveState !== "saving");
   }
@@ -329,8 +329,8 @@ export default function SiteCheckinPage() {
   }
 
   useEffect(() => {
-    if (!site || !newCheckin || newCheckin.matched_order_id || manualUnlinkedCheckin || isLocalReceivingCustomer(newCheckin.shipper)) {
-      if (manualUnlinkedCheckin || isLocalReceivingCustomer(newCheckin?.shipper)) { setNewMatches([]); setNewSearching(false); setNewError(""); }
+    if (!site || !newCheckin || newCheckin.matched_order_id || manualUnlinkedCheckin || newCheckin.movement_direction !== "pickup" && isLocalReceivingCustomer(newCheckin.shipper)) {
+      if (manualUnlinkedCheckin || newCheckin?.movement_direction !== "pickup" && isLocalReceivingCustomer(newCheckin?.shipper)) { setNewMatches([]); setNewSearching(false); setNewError(""); }
       return;
     }
     const mark = (newCheckin.mark ?? "").trim().toUpperCase();
@@ -340,7 +340,7 @@ export default function SiteCheckinPage() {
     const timer = window.setTimeout(async () => {
       try {
         const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode,
-          mark, customer: newCheckin.shipper ?? "" });
+          mark, customer: newCheckin.shipper ?? "", direction: newCheckin.movement_direction ?? "delivery" });
         const response = await fetch(`/api/inbound/checkin/cotton-match?${query}`, { cache: "no-store" });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "McLeod lookup failed");
@@ -351,7 +351,7 @@ export default function SiteCheckinPage() {
         if (!result.incomplete && found.length === 1 && !found[0].completion && sameMark(mark, found[0].mark) &&
             (!newCheckin.shipper || normalizeCustomerOption(newCheckin.shipper) === normalizeCustomerOption(found[0].customer))) {
           const match = found[0];
-          setNewCheckin((current) => current && current.id === newCheckin.id && current.mark === newCheckin.mark
+          setNewCheckin((current) => current && current.id === newCheckin.id && current.mark === newCheckin.mark && current.movement_direction === newCheckin.movement_direction
             ? { ...current, shipper: current.shipper || match.customer,
               driver_name: current.driver_name || match.driverName, driver_phone: current.driver_phone || match.driverPhone,
               trucking_company: match.carrierName || current.trucking_company,
@@ -364,7 +364,7 @@ export default function SiteCheckinPage() {
       }
     }, 650);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id, manualUnlinkedCheckin]);
+  }, [site, newCheckin?.id, newCheckin?.mark, newCheckin?.shipper, newCheckin?.matched_order_id, newCheckin?.movement_direction, manualUnlinkedCheckin]);
 
   async function saveNewCheckin() {
     if (!canWrite) return;
@@ -374,6 +374,10 @@ export default function SiteCheckinPage() {
     if (!manualUnlinkedCheckin && newMatches.length > 0 && newMatches.every((match) => match.completion) &&
         !newError) {
       setNewError("These orders are already closed in McLeod. Verify the mark with warehouse staff.");
+      return;
+    }
+    if (newCheckin.movement_direction === "pickup" && !newCheckin.matched_order_id) {
+      setNewError("Select the McLeod pickup order before checking in.");
       return;
     }
     if (!newCheckin.mark?.trim() || !newCheckin.shipper?.trim() || !newCheckin.bol_bc) {
@@ -396,7 +400,7 @@ export default function SiteCheckinPage() {
           driverName: newCheckin.driver_name, driverPhone: newCheckin.driver_phone,
           truckingCompany: newCheckin.trucking_company,
           matchedOrderId: manualUnlinkedCheckin ? null : newCheckin.matched_order_id,
-          localReceivingOnly: manualUnlinkedCheckin,
+          localReceivingOnly: manualUnlinkedCheckin, movementDirection: newCheckin.movement_direction,
         }),
       });
       const result = await response.json();
@@ -974,7 +978,7 @@ export default function SiteCheckinPage() {
   const processedCount = rows.filter((row) => row.draft_status === "processed").length;
   const outsideCount = rows.filter((row) => row.draft_status === "outside_carrier").length;
   const waitingCount = rows.filter((row) => row.draft_status === "checked_in" && !isClosedRow(row) && usesMcleodCheckin(row)).length;
-  const gateOnlyCount = rows.filter((row) => row.checkin_source === "driver_qr" && !usesMcleodCheckin(row)).length;
+  const gateOnlyCount = rows.filter((row) => row.movement_direction === "pickup").length;
   const failedCount = rows.filter((row) => row.draft_status === "failed" || Boolean(cottonShortage(row) && !row.customer_notified_at)).length;
 
   if (!site || !site.materials.includes("cotton")) {
@@ -1361,8 +1365,8 @@ export default function SiteCheckinPage() {
                         {row.driver_name && <span>Driver: {row.driver_name}{row.driver_phone ? ` · ${row.driver_phone}` : ""}</span>}
                         {row.trucking_company && <span>Trucking company: {row.trucking_company}</span>}
                         {row.identity_corrected_at && <span>Identity corrected</span>}
-                        {row.checkin_source === "driver_qr" && <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer" style={detailLinkStyle}>
-                          QR driver details · {row.movement_direction ?? "delivery"}
+                        {(row.checkin_source === "driver_qr" || row.movement_direction === "pickup") && <a href={`/warehouse/checkin/${row.id}`} target="_blank" rel="noreferrer" style={detailLinkStyle}>
+                          Driver details · {row.movement_direction ?? "delivery"}
                         </a>}
                         {row.reference_number && <span>Reference: {row.reference_number}</span>}
                         {row.movement_direction === "pickup" && row.destination && <span>To: {row.destination}</span>}
@@ -1429,6 +1433,16 @@ export default function SiteCheckinPage() {
           </div>
           {newError && <p role="alert" style={{ color: "#fca5a5" }}>{newError}</p>}
           <div style={modalGridStyle}>
+            <label style={modalLabelStyle}>Move
+              <select style={modalInputStyle} value={newCheckin.movement_direction ?? "delivery"} disabled={newSaving}
+                onChange={event => {
+                  const direction = event.target.value as "pickup" | "delivery";
+                  setNewError(""); setNewMatches([]); setManualUnlinkedCheckin(false);
+                  setNewCheckin(current => current && { ...blankRow(), id: current.id, mark: current.mark, movement_direction: direction });
+                }}>
+                <option value="delivery">Delivery</option><option value="pickup">Pickup</option>
+              </select>
+            </label>
             <label style={{ ...modalLabelStyle, gridColumn: "1 / -1" }}>Mark *
               <input autoFocus required style={modalInputStyle} value={newCheckin.mark ?? ""} onChange={(event) => {
                 setNewError(""); setNewMatches([]);
@@ -1436,7 +1450,7 @@ export default function SiteCheckinPage() {
               }} placeholder="Mark on the BOL" /></label>
             <div style={{ gridColumn: "1 / -1", color: "#93c5fd", fontSize: 13 }} aria-live="polite">
               {newSearching ? "Searching McLeod…" : newCheckin.matched_order_id ? `SCM order #${newCheckin.matched_order_id} found` :
-                newMatches.length === 0 && (newCheckin.mark?.length ?? 0) >= 3 && !newError ? "No recent SCM order found. Enter the details below." : null}
+                newMatches.length === 0 && (newCheckin.mark?.length ?? 0) >= 3 && !newError ? "No matching SCM order found for this move." : null}
               {!newCheckin.matched_order_id && newMatches.length > 0 && <div style={{ display: "grid", gap: 7, marginTop: 8 }}>
                 {newMatches.map((match) => match.completion ?
                   <CompletedOrderNotice key={match.orderId} orderId={match.orderId} completion={match.completion} /> : <button type="button" key={match.orderId} style={{ ...toolbarButtonStyle, textAlign: "left" }}
@@ -1480,15 +1494,15 @@ export default function SiteCheckinPage() {
               <input style={modalInputStyle} value={newCheckin.comment_1 ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, comment_1: event.target.value })} placeholder="Optional note" /></label>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+          {newCheckin.movement_direction !== "pickup" && <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
             <input type="checkbox" checked={manualUnlinkedCheckin} onChange={(event) => {
               setManualUnlinkedCheckin(event.target.checked);
               setNewMatches([]);
               setNewCheckin((current) => current ? { ...current, matched_order_id: null } : current);
             }} />
             Customer/order not yet in McLeod — save local check-in without searching
-          </label>
-          <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>Unloaded bales and final warehouse location can be confirmed on the grid after arrival.</p>
+          </label>}
+          <p style={{ color: "#94a3b8", fontSize: 12, margin: "18px 0" }}>{newCheckin.movement_direction === "pickup" ? "Check the truck out from Active Line after loading." : "Unloaded bales and final warehouse location can be confirmed on the grid after arrival."}</p>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" style={toolbarButtonStyle} disabled={newSaving} onClick={() => setNewCheckin(null)}>Cancel</button>
             <button type="submit" style={toolbarPrimaryStyle} disabled={newSaving || (!manualUnlinkedCheckin && newMatches.length > 0 && newMatches.every((match) => match.completion) && !newError)}>{newSaving ? "Checking in…" : "Check in truck"}</button>

@@ -1,3 +1,5 @@
+import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
+import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -202,7 +204,8 @@ async function POSTHandler(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === site_code && site.materials.includes("cotton"))) {
+    const site = CHECKIN_SITES.find(site => site.terminal === terminal && site.siteCode === site_code && site.materials.includes("cotton"));
+    if (!site) {
       return NextResponse.json({ ok: false, error: "Cotton check-in is unavailable at this site" }, { status: 400 });
     }
     if (!mark || !shipper) {
@@ -214,7 +217,15 @@ async function POSTHandler(req: NextRequest) {
     if (driverName.length > 120 || driverPhone.length > 40 || truckingCompany.length > 200) {
       return NextResponse.json({ ok: false, error: "Driver or trucking company details are too long" }, { status: 400 });
     }
-    const expectedBales = matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true, CHECKIN_SITES.find(site => site.terminal === terminal && site.siteCode === site_code)) : null;
+    const pickup = body?.movementDirection === "pickup";
+    if (pickup && !matchedOrderId) return NextResponse.json({ ok: false, error: "Select the McLeod pickup order before checking in." }, { status: 400 });
+    const pickupOrder = pickup ? await lookupMcleodGateOrder(matchedOrderId, site.terminal, site.siteName, "pickup") : null;
+    if (pickupOrder && (pickupOrder.materialType !== "cotton" || pickupOrder.completion ||
+      ![pickupOrder.mark, pickupOrder.reference.replace(/\s+\d+\s+(?:BALES?|B\/?C)$/i, "")].some(value => normalizeKey(value) === normalizeKey(mark)))) {
+      return NextResponse.json({ ok: false, error: pickupOrder.completion?.message || "The McLeod pickup does not match this cotton mark." }, { status: 409 });
+    }
+    const expectedBales = pickupOrder ? positiveInteger(pickupOrder.baleCount)
+      : matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true, site) : null;
 
     const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
     const defaultEquipment: EquipmentType =
@@ -233,6 +244,9 @@ async function POSTHandler(req: NextRequest) {
       driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       matched_order_id: matchedOrderId || null,
+      ...(pickupOrder ? { movement_direction: "pickup", material_type: "cotton",
+        matched_stop_id: pickupOrder.stopId, reference_number: pickupOrder.reference,
+        destination: pickupOrder.destination || null } : {}),
       local_receiving_only: !matchedOrderId && (body?.localReceivingOnly === true || isLocalReceivingCustomer(shipper)),
       expected_bale_count: expectedBales,
       bol_bc: positiveInteger(body?.bolBC),

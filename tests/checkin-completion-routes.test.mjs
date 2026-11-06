@@ -423,3 +423,48 @@ test('staff-created King Ranch receipts default local-only without a client flag
   assert.equal(payload.local_receiving_only,true);assert.equal(payload.matched_order_id,null);
   });
 });
+
+test("Dallas cotton pickup finds an available outbound order scheduled next week and excludes the delivery", async () => {
+  const order = { ...fixture({ cotton: true }), revenue_code_id: "DAVIS", __statusDescr: "Available",
+    blnum: "W4221 88 BALES", consignee_refno: "W4221", stops: [
+      { id: "PICKUP", movement_id: "OLD", stop_type: "PU", location_id: "SCMDDATX",
+        sched_arrive_early: new Date(Date.now() + 7 * 86400000).toISOString() },
+      { id: "DELIVERY", movement_id: "OLD", stop_type: "SO", location_id: "SCMDDETX" },
+    ] };
+  await withMcleod(order, async () => {
+    const { GET } = load("app/api/inbound/checkin/cotton-match/route.ts");
+    for (const [site, count] of [["SCMDDATX", 1], ["SCMDDETX", 0]]) {
+      const response = await GET({ nextUrl: new URL(`https://scm.test/?terminal=DAL&siteCode=${site}&mark=W4221&direction=pickup`) });
+      const result = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(result.matches.length, count);
+    }
+    const writes = [];
+    const db = { from() { return {
+      insert(row) { writes.push(row); return this; }, select() { return this; },
+      async single() { return { data: writes[0] }; },
+    }; } };
+    const { POST } = load("app/api/inbound/checkin/rows/route.ts", { "@supabase/supabase-js": { createClient: () => db } });
+    const response = await POST({ json: async () => ({
+      terminal: "DAL", siteCode: "SCMDDATX", siteName: "Dallas - 9280", movementDirection: "pickup",
+      mark: "W4221", shipper: "CUSTOMER", bolBC: 88, matchedOrderId: order.id,
+    }) });
+    assert.equal(response.status, 200);
+    assert.equal(writes[0].movement_direction, "pickup");
+    assert.equal(writes[0].matched_stop_id, "PICKUP");
+    assert.equal(writes[0].reference_number, "W4221 88 BALES");
+  });
+});
+
+test("DeSoto lumber lookup accepts a DAVIS pickup with McLeod location-code evidence", async () => {
+  const order = { ...fixture(), revenue_code_id: "DAVIS", __statusDescr: "Available",
+    blnum: "WDAL", stops: [{ id: "PICKUP", movement_id: "OLD", stop_type: "PU", location_id: "SCMDDETX",
+      sched_arrive_early: new Date(Date.now() + 7 * 86400000).toISOString() }] };
+  await withMcleod(order, async () => {
+    const { GET } = load("app/api/warehouse/domestic-queue/match/route.ts");
+    const response = await GET({ url: "https://scm.test/?terminal=DAL&siteCode=SCMDDETX&movementDirection=pickup&referenceNumber=WDAL&strictDirection=1" });
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.matches[0].orderId, order.id);
+  });
+});
