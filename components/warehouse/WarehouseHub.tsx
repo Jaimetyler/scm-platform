@@ -41,7 +41,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
       return <section key={`${site.terminal}:${site.siteCode}`} className="warehouse-operation-row">
         <div className="warehouse-operation-site">
           <span className="warehouse-operation-terminal">{TERMINAL_NAMES[site.terminal]}</span>
-          <strong>{site.terminal === "DAL" ? site.siteName.replace(/^Dallas - /, "") : site.siteCode}</strong>
+          <strong>{site.displayCode ?? site.siteCode}</strong>
           <span className="warehouse-operation-materials">{[
             site.materials.includes("cotton") ? "Cotton" : null,
             site.materials.includes("lumber") ? "Lumber / FAK" : null,

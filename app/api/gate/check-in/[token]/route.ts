@@ -92,9 +92,10 @@ async function getGate(token: string) {
     .select("id, terminal, site_code, site_name, latitude, longitude, radius_m, active")
     .eq("public_token", token).eq("active", true).maybeSingle();
   if (error) throw new DependencyError("Driver check-in is temporarily unavailable. Please try again.");
-  if (!data || data.latitude === null || data.longitude === null ||
-      !CHECKIN_SITES.some((site) => site.terminal === data.terminal && site.siteCode === data.site_code)) return null;
-  return data as {
+  if (!data || data.latitude === null || data.longitude === null) return null;
+  const site = CHECKIN_SITES.find(item => item.terminal === data.terminal && item.siteCode === data.site_code);
+  if (!site) return null;
+  return { ...data, site_name: site.siteName } as {
     id: string; terminal: "SAV" | "HOU" | "DAL"; site_code: string; site_name: string;
     latitude: number; longitude: number; radius_m: number; active: boolean;
   };

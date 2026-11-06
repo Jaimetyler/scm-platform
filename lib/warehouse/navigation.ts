@@ -78,7 +78,7 @@ export function workspaceHref(section: WarehouseSection, location: WarehouseLoca
 
 export function locationLabel(location: WarehouseLocation) {
   if (location.terminal === "all") return "All locations";
-  return `${TERMINAL_NAMES[location.terminal]} · ${location.siteCode === "all" ? "All sites" : location.siteCode}`;
+  return `${TERMINAL_NAMES[location.terminal]} · ${location.siteCode === "all" ? "All sites" : getCheckinSite(location.terminal, location.siteCode)?.displayCode ?? location.siteCode}`;
 }
 
 export function sitesForLocation(location: WarehouseLocation) {

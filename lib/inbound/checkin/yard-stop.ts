@@ -51,7 +51,7 @@ export function mcleodOrderStops(order: RecordValue): RecordValue[] {
 export function stopAtScmYard(stop: RecordValue, siteName: string, terminal?: "SAV" | "HOU" | "DAL"): boolean {
   const location = stop.location && typeof stop.location === "object" ? stop.location : {};
   if (terminal === "DAL") {
-    const site = CHECKIN_SITES.find(item => item.terminal === terminal && item.siteName === siteName);
+    const site = CHECKIN_SITES.find(item => item.terminal === terminal && (item.siteName === siteName || item.previousSiteName === siteName));
     const codes = [stop.location_id, location.id, location.code].map(value => text(value).toUpperCase()).filter(Boolean);
     return !!site && codes.length > 0 && codes.every(code => code === site.siteCode);
   }

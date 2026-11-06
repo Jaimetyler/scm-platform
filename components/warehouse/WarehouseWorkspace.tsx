@@ -76,8 +76,8 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
         </nav>
         {location.terminal !== "all" && <nav aria-label="Warehouse location" className="warehouse-location-options warehouse-sites">
           <Link href={locationHref({ terminal: location.terminal, siteCode: "all" })} aria-current={location.siteCode === "all" ? "true" : undefined}>All sites</Link>
-          {CHECKIN_SITES.filter((item) => item.terminal === location.terminal).sort((a, b) => a.siteCode.localeCompare(b.siteCode, undefined, { numeric: true })).map((item) =>
-            <Link key={item.siteCode} href={locationHref({ terminal: item.terminal, siteCode: item.siteCode })} aria-current={location.siteCode === item.siteCode ? "true" : undefined}>{item.siteCode}</Link>)}
+          {CHECKIN_SITES.filter((item) => item.terminal === location.terminal).sort((a, b) => (a.displayCode ?? a.siteCode).localeCompare(b.displayCode ?? b.siteCode, undefined, { numeric: true })).map((item) =>
+            <Link key={item.siteCode} href={locationHref({ terminal: item.terminal, siteCode: item.siteCode })} aria-current={location.siteCode === item.siteCode ? "true" : undefined}>{item.displayCode ?? item.siteCode}</Link>)}
         </nav>}
       </div>
       <nav aria-label="Warehouse navigation" className="warehouse-main-nav">{navigation.map(([key, label]) =>

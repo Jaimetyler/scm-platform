@@ -19,7 +19,10 @@ async function GETHandler() {
       .select("id, terminal, site_code, site_name, public_token, latitude, longitude, radius_m, active, updated_at")
       .order("terminal").order("site_code");
     if (error) throw error;
-    return NextResponse.json({ ok: true, sites: (data ?? []).filter((row) => CHECKIN_SITES.some((site) => site.terminal === row.terminal && site.siteCode === row.site_code)) });
+    return NextResponse.json({ ok: true, sites: (data ?? []).flatMap(row => {
+      const site = CHECKIN_SITES.find(item => item.terminal === row.terminal && item.siteCode === row.site_code);
+      return site ? [{ ...row, site_name: site.siteName }] : [];
+    }) });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not load gate sites" }, { status: 500 });
   }

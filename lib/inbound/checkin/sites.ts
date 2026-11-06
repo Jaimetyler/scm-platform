@@ -7,6 +7,8 @@ export type CheckinSite = {
   terminalSlug: "sav" | "hou" | "dal";
   siteCode: string;
   siteName: string;
+  displayCode?: string;
+  previousSiteName?: string;
   subLocations: string[];
   materials: ("cotton" | "lumber" | "other")[];
   containers: boolean;
@@ -15,12 +17,12 @@ export type CheckinSite = {
 export const CHECKIN_SITES: CheckinSite[] = [
   {
     terminal: "DAL", terminalSlug: "dal", siteCode: "SCMDDETX",
-    siteName: "Dallas - DeSoto (SCMDDETX)", subLocations: ["MAIN"],
+    siteName: "Dallas - 2119", displayCode: "2119", previousSiteName: "Dallas - DeSoto (SCMDDETX)", subLocations: ["MAIN"],
     materials: ["cotton", "lumber", "other"], containers: false,
   },
   {
     terminal: "DAL", terminalSlug: "dal", siteCode: "SCMDDATX",
-    siteName: "Dallas - SCMDDATX", subLocations: ["MAIN"],
+    siteName: "Dallas - 9280", displayCode: "9280", previousSiteName: "Dallas - SCMDDATX", subLocations: ["MAIN"],
     materials: ["cotton", "lumber", "other"], containers: false,
   },
   {

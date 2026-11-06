@@ -58,7 +58,8 @@ test('Dallas stops must match the exact McLeod location for the selected yard', 
     { id: 'dallas', stop_type: 'SO', location: { id: 'SCMDDATX' } },
   ];
   assert.equal(selectMcleodYardStop({ stops }, 'DAL', 'Dallas - DeSoto (SCMDDETX)', 'delivery').stop.id, 'desoto');
-  assert.equal(selectMcleodYardStop({ stops }, 'DAL', 'Dallas - SCMDDATX', 'delivery').stop.id, 'dallas');
+  assert.equal(selectMcleodYardStop({ stops }, 'DAL', 'Dallas - 2119', 'delivery').stop.id, 'desoto');
+  assert.equal(selectMcleodYardStop({ stops }, 'DAL', 'Dallas - 9280', 'delivery').stop.id, 'dallas');
   assert.throws(() => selectMcleodYardStop({ stops: [stops[0]] }, 'DAL', 'Dallas - SCMDDATX', 'delivery'),
     error => error.code === 'YARD_STOP_NOT_FOUND');
 });
