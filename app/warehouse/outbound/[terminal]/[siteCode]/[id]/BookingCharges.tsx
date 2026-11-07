@@ -176,7 +176,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
               <td>#{order.id}{(order.extraTotal ?? 0) > 0 && <span className="booking-charge-pill">{verifiedStandard ? "Extra" : "Review"} {currency(order.extraTotal)}</span>}
                 {order.extraTotal === null && <span className="booking-charge-pill booking-charge-review">Review charges</span>}</td>
               <td>{drayage(order)}{order.includedChassis > 0 && <small>Includes {currency(order.includedChassis)} chassis</small>}</td>
-              <td>{!order.charges.length && <small>{order.chargesAvailable ? "No itemized charges" : "Charge lines unavailable"}</small>}
+              <td>{!order.charges.length && <small>{order.chargesAvailable ? "No extra charges" : "Charge lines unavailable"}</small>}
                 {order.charges.map((charge, index) => <div key={index} className="booking-charge-choice">
                   <span>{charge.label}{charge.includedAmount > 0 && <small>{currency(charge.includedAmount)} standard chassis excluded</small>}{!charge.includedAmount && charge.units !== null && charge.rate !== null &&
                     <small>{charge.units} × {currency(charge.rate)}</small>}</span>
