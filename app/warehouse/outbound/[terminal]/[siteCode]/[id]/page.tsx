@@ -13,6 +13,7 @@ import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/de
 
 import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/warehouse/outbound/container-info-rows";
 import "./booking.css";
+import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
@@ -275,7 +276,7 @@ export default function CottonOutboundBookingPage() {
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import sailing details</button>
         </div></details></>} />
-    {canWrite && terminal === "DAL" && /^BUNGE USA AGRICULTURE\s*,?\s+LLC\.?$/i.test(booking.customer) && <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
+    {canWrite && terminal === "DAL" && bookingChargeCustomer(booking.customer) && <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
       <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status.replaceAll("_", " ")}</span>

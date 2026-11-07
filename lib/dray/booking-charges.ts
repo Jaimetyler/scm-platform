@@ -13,7 +13,7 @@ const matchesMark = (reference: unknown, mark: string) =>
   normalizeReference(reference).replace(/\s+\d+\s+(?:BALES?|B\/?C)$/i, "") === mark;
 
 export async function readBookingMarkCharges(
-  read: (path: string) => Promise<unknown>, site: CheckinSite, mark: string, signal: AbortSignal,
+  read: (path: string) => Promise<unknown>, site: CheckinSite, mark: string, signal: AbortSignal, customerIds: readonly string[] = ["BUNGOMNE"],
 ) {
   const key = normalizeReference(mark);
   const candidates = await Promise.all((["blnum", "consignee_refno"] as const).map(field =>
@@ -25,7 +25,7 @@ export async function readBookingMarkCharges(
     const order = await read(`/orders/${encodeURIComponent(id)}`) as Record<string, any> | null;
     if (!order || String(order.id) !== id || !order.customer_id) throw Error("McLeod order identity could not be verified.");
     if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== revenueCode ||
-        String(order.customer_id).trim().toUpperCase() !== "BUNGOMNE" ||
+        !customerIds.includes(String(order.customer_id).trim().toUpperCase()) ||
         /^(?:V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(String(order.__statusDescr || order.status || "").trim()) ||
         ![order.blnum, order.consignee_refno].some(reference => matchesMark(reference, key))) continue;
     if (!mcleodOrderStops(order).some(stop => stopAtScmYard(stop, site.siteName, site.terminal))) continue;

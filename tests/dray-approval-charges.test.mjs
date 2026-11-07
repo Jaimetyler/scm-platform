@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { approvalCharges, compareApprovalOrders } from "../lib/dray/approval-charges.ts";
+import { approvalCharges, compareApprovalOrders, defaultApprovalSelection } from "../lib/dray/approval-charges.ts";
 
 test("negotiated FSC stays in all-in drayage and is excluded from approval extras", () => {
  const charges = [
@@ -47,4 +47,23 @@ test("incomplete lines require review and preserve known extras", () => {
 test("extras sort before standard loads, then by highest order total", () => {
  const rows = [{id: 1, total: 500, extraTotal: 0}, {id: 2, total: 350, extraTotal: 55}, {id: 3, total: 400, extraTotal: 80}];
  assert.deepEqual(rows.sort(compareApprovalOrders).map(r => r.id), [3, 2, 1]);
+});
+test('customers without negotiated allowances retain FSC and chassis in full for review', () => {
+ const result = approvalCharges(190, [line('Fuel surcharge',45),line('Chassis',45)],null,false);
+ assert.equal(result.includedChassis,0);
+ assert.equal(result.allIn,100);
+ assert.equal(result.extraTotal,90);
+ assert.equal(result.extras.length,2);
+});
+
+test('only complete positive extras are preselected, deduplicated per order; unconfigured rates require review', () => {
+ const orders = [
+  {id:'standard',total:295,charges:[line('Chassis',45)]},
+  {id:'extra',total:340,charges:[line('Chassis',90)]},
+  {id:'extra',total:340,charges:[line('Chassis',90)]},
+  {id:'incomplete',total:400,charges:[line('Chassis',null)]},
+  {id:'credit',total:240,charges:[line('Credit',-10)]},
+ ];
+ assert.deepEqual([...defaultApprovalSelection(orders,rate,true)],['extra']);
+ assert.deepEqual([...defaultApprovalSelection(orders,null,false)],[]);
 });

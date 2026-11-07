@@ -32,3 +32,20 @@ test("reads only DDRAY Bunge orders at the Dallas booking yard and preserves eve
   assert.ok(!reads.includes("/orders/105"));
   assert.equal(reads.filter(path => path === "/orders/101").length, 1);
 });
+
+import { bookingChargeCustomer } from '../lib/dray/booking-customers.ts';
+test('supported customer mappings expose the lookup without treating other names as Bunge', () => {
+ assert.equal(bookingChargeCustomer('Olam Agri Americas Inc').code,'OLAMRITX');
+ assert.equal(bookingChargeCustomer('ED&F Man Cotton').code,'EDFMECTX');
+ assert.equal(bookingChargeCustomer('Bunge USA Agriculture LLC').code,'BUNGOMNE');
+ assert.equal(bookingChargeCustomer('Unknown cotton customer'),null);
+});
+test('Olam and ED&F exact customer IDs are verified after hydration; other customer marks never leak into results',async()=>{
+ for(const name of ['Olam Agri Americas Inc','ED&F Man Cotton']){
+  const customer=bookingChargeCustomer(name);
+  const orders=customer.ids.map((customer_id,i)=>({id:String(201+i),customer_id,blnum:'W0282 88 BALES',consignee_refno:'W0282',status:'A',revenue_code_id:'DDRAY',rate:100,rate_units:1,total_charge:145,other_charges:[{charge_id:'040',descr:'Chassis',amount:45}],stops:[{id:'PU1',stop_type:'PU',location_id:'SCMDDETX'}]}));
+  orders.push({...orders[0],id:'299',customer_id:'BUNGOMNE'});
+  const result=await readBookingMarkCharges(async path=>path.startsWith('/orders/search?')?orders:orders.find(o=>path.endsWith('/'+o.id)),getCheckinSite('DAL','SCMDDETX'),'W0282',new AbortController().signal,customer.ids);
+  assert.deepEqual(result.map(o=>o.id),['201','202']);
+ }
+});
