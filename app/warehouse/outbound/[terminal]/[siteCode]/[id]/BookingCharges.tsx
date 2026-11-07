@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { approvalCharges } from "@/lib/dray/approval-charges";
 import type { readBookingMarkCharges } from "@/lib/dray/booking-charges";
 
 type Order = Awaited<ReturnType<typeof readBookingMarkCharges>>[number];
@@ -47,7 +48,8 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   }
   const orderRows = [...orders.values()].map(({ order, marks }) => ({
     id: order.id, total: order.total, rate: order.rate, rateUnits: order.rateUnits, chargesAvailable: order.charges !== null, marks: [...marks].sort().join(", "),
-    charges: (order.charges ?? []).map(charge => ({ ...charge,
+    allIn: approvalCharges<NonNullable<Order["charges"]>[number]>(order.total, order.charges).allIn,
+    charges: approvalCharges<NonNullable<Order["charges"]>[number]>(order.total, order.charges).extras.map(charge => ({ ...charge,
       label: charge.description || charge.code || "Extra charge" })),
   }));
   const rows = orderRows.flatMap(row => row.charges);
@@ -60,8 +62,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     return !known.length ? "—" : currency(known.reduce((sum, amount) => sum + Math.round(amount * 100), 0) / 100)
       + (known.length < amounts.length ? " (partial)" : "");
   };
-  const drayage = (order: typeof orderRows[number]) => order.rate === null ? "—" :
-    `${currency(order.rate)}${order.rateUnits !== null && order.rateUnits !== 1 ? ` × ${order.rateUnits}` : ""}`;
+  const drayage = (order: typeof orderRows[number]) => currency(order.allIn);
   const grouped = new Map<string, typeof orderRows>();
   for (const order of orderRows) {
     const group = grouped.get(order.marks);
@@ -77,7 +78,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   const intro = `Please review and approve the additional charges for booking ${clean(bookingNumber)}${customerReference ? ` (customer ref. ${clean(customerReference)})` : ""}.`;
   const email = ["Hi,", "", intro, "",
     ...emailGroups.flatMap(group => [`Mark ${group.marks}`,
-      ...group.orders.map(order => `Order #${order.id} | Drayage rate: ${drayage(order)} | Order total: ${currency(order.total)}${order.charges.length ? ` | Extras: ${order.charges.map(describe).join(" · ")}` : ""}`),
+      ...group.orders.map(order => `Order #${order.id} | Drayage + FSC: ${drayage(order)} | Order total: ${currency(order.total)}${order.charges.length ? ` | Extras: ${order.charges.map(describe).join(" · ")}` : ""}`),
       `Mark total incl. drayage: ${group.markTotal} | Extras for approval: ${group.subtotal}`, ""]),
     `Total for approval: ${total}`, "", "Thank you."].join("\n");
 
@@ -86,7 +87,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     const htmlRows = emailGroups.map(group => group.orders.map(order =>
       `<tr><td>${escape(group.marks)}</td><td>${escape(order.id)}</td><td>${escape(drayage(order))}</td><td>${order.charges.map(charge => escape(describe(charge))).join("<br>") || "—"}</td><td>${escape(currency(order.total))}</td></tr>`
     ).join("") + `<tr><td colspan="3"><strong>Mark total · ${escape(group.marks)}</strong></td><td>Extras for approval: ${escape(group.subtotal)}</td><td><strong>${escape(group.markTotal)}</strong></td></tr>`).join("");
-    const html = `<p>Hi,</p><p>${escape(intro)}</p><table border="1" cellpadding="6" style="border-collapse:collapse"><thead><tr><th>Mark</th><th>Order</th><th>Drayage rate</th><th>Extras for approval</th><th>Order total</th></tr></thead><tbody>${htmlRows}</tbody></table><p><strong>Total for approval: ${escape(total)}</strong></p><p>Thank you.</p>`;
+    const html = `<p>Hi,</p><p>${escape(intro)}</p><table border="1" cellpadding="6" style="border-collapse:collapse"><thead><tr><th>Mark</th><th>Order</th><th>Drayage + FSC</th><th>Extras for approval</th><th>Order total</th></tr></thead><tbody>${htmlRows}</tbody></table><p><strong>Total for approval: ${escape(total)}</strong></p><p>Thank you.</p>`;
     try {
       if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
         await navigator.clipboard.write([new ClipboardItem({
@@ -110,7 +111,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         <button type="button" className="booking-charge-button" onClick={() => dialog.current?.close()}>Close</button>
       </header>
       <div className="booking-charge-body">
-        <p>Select a load to include its itemized extras in the approval email. Order and mark totals include drayage.</p>
+        <p>Select a load to include its itemized extras in the approval email. Drayage + FSC is the negotiated all-in amount. Other charges are listed separately.</p>
         {busy && <p role="status">Looking up McLeod charges…</p>}
         {error && <p role="alert">{error}</p>}
         {results && <div className="booking-charge-overview">
@@ -122,7 +123,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
           <p key={result.mark}>{result.mark} · {result.error || "No matching DDRAY order"}</p>)}
         {!!orderRows.length && <div className="booking-charge-table"><table>
           <thead><tr><th scope="col">Include</th><th scope="col">Mark</th><th scope="col">McLeod order</th>
-            <th scope="col">Drayage rate</th><th scope="col">Extra charges</th>
+            <th scope="col">Drayage + FSC</th><th scope="col">Extra charges</th>
             <th scope="col" className="booking-charge-amount">Order total</th>
             <th scope="col" className="booking-charge-amount">Mark total</th></tr></thead>
           {[...grouped].map(([marks, orders]) => <tbody key={marks}>
@@ -140,7 +141,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
                 }} /></td>
               {index === 0 && <th scope="rowgroup" rowSpan={orders.length}>{marks}</th>}
               <td>#{order.id}</td><td>{drayage(order)}</td>
-              <td>{!order.charges.length && <small>{order.chargesAvailable ? "No itemized charges" : "Charge lines unavailable"}</small>}
+              <td>{!order.charges.length && <small>{order.chargesAvailable ? "No extra charges" : "Charge lines unavailable"}</small>}
                 {order.charges.map((charge, index) => <div key={index} className="booking-charge-choice">
                   <span>{charge.label}{charge.units !== null && charge.rate !== null &&
                     <small>{charge.units} × {currency(charge.rate)}</small>}</span>
