@@ -4,7 +4,7 @@ const XLSX = XlsxModule as typeof XlsxTypes;
 
 export type OutboundLine = {
   mark: string; loadBy: string | null; confirmed: boolean; shippingOrder: string;
-  warehouse: string; warehouseCode: string; bales: number; sourceRow: number; loadSource?: "warehouse" | "source_load";
+  warehouse: string; warehouseCode: string; bales: number; sourceRow: number; containerNumber?: string; needsBales?: boolean; loadSource?: "warehouse" | "source_load";
 };
 export type BungeBooking = {
   bookingNumber: string; customerReference: string; customer: string;
@@ -70,7 +70,7 @@ function labeledCell(sheet: XlsxTypes.WorkSheet, rows: unknown[][], labels: stri
   }
   return null;
 }
-function detailDate(cell: XlsxTypes.CellObject | null, label: string) {
+export function detailDate(cell: XlsxTypes.CellObject | null, label: string) {
   if (!cell || String(cell.v ?? "").trim() === "") return null;
   let year: number, month: number, day: number, hour = 0, minute = 0, hasTime = false;
   if (typeof cell.v === "number") {

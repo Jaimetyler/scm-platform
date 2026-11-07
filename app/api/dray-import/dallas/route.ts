@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     const file = (await request.formData()).get("booking");
-    if (!(file instanceof File) || !/\.xlsx$/i.test(file.name) || !file.size || file.size > 4 * 1024 * 1024) {
-      throw Error("Choose an original Bunge .xlsx booking request up to 4 MB.");
+    if (!(file instanceof File) || !/\.(xlsx|xlsb)$/i.test(file.name) || !file.size || file.size > 4 * 1024 * 1024) {
+      throw Error("Choose a supported .xlsx or .xlsb booking request up to 4 MB.");
     }
     const preview = previewDallasBungeDrays(Buffer.from(await file.arrayBuffer()));
     return NextResponse.json({ ok: true, preview }, { headers: { "Cache-Control": "no-store" } });

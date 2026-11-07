@@ -32,9 +32,9 @@ export default function DallasDrayPreview() {
 
   return <main className={styles.page}>
     <h1>Dallas Dray Import</h1>
-    <p>Review a Bunge booking request before the drays run. Preview only.</p>
+    <p>Review a Bunge, Olam, or ED&F booking request before the drays run. Preview only.</p>
     <form className={styles.toolbar} onSubmit={upload}>
-      <label>Bunge booking request <input required name="booking" type="file" accept=".xlsx" disabled={busy}
+      <label>Booking request <input required name="booking" type="file" accept=".xlsx,.xlsb" disabled={busy}
         onChange={() => { setPreview(null); setError(""); }} /></label>
       <button type="submit" disabled={busy}>{busy ? "Reading…" : "Preview booking"}</button>
     </form>
@@ -43,20 +43,20 @@ export default function DallasDrayPreview() {
       <h2>Booking {preview.bookingNumber}</h2>
       <dl className={styles.summary}>
         {([
-          ["Customer", preview.customerId], ["Customer reference", preview.customerReference],
+          ["Customer", preview.customer], ["Customer reference", preview.customerReference],
           ["Load port / ramp", preview.loadPort], ["McLeod delivery", preview.deliveryLocation],
           ["Steamship line", preview.steamshipLine], ["Vessel / voyage", preview.vessel],
-          ["Containers", preview.containers], ["Total bales", preview.totalBales], ["ERD", preview.erd],
+          ["Containers", preview.containers], ["Total bales", preview.totalBales || "Not supplied"], ["ERD", preview.erd],
           ...preview.sourceDates.map(date => [date.label, date.value]),
         ] as [string, string | number | null | undefined][]).map(([label, value]) =>
           <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}
       </dl>
       {preview.issues.map(issue => <p key={issue} className={styles.error}>{issue}</p>)}
       <div className={styles.tableWrap}><table className={styles.table}>
-        <thead><tr>{["Shipping order", "Mark", "Bales", "Load by", "McLeod pickup", "McLeod delivery", "Review"].map(label =>
+        <thead><tr>{["Shipping order", "Mark", "Container", "Bales", "Load by", "McLeod pickup", "McLeod delivery", "Review"].map(label =>
           <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{preview.lines.map(line => <tr key={line.sourceRow}>
-          <td>{line.shippingOrder || "—"}</td><td>{line.mark}</td><td>{line.bales}</td>
+          <td>{line.shippingOrder || "—"}</td><td>{line.mark}</td><td>{line.containerNumber || "—"}</td><td>{line.bales || "Not supplied"}</td>
           <td>{line.loadBy || "—"}{line.confirmed ? " · Confirmed" : ""}</td>
           <td>{line.pickupLocation || line.warehouse || "Unmapped"}</td><td>{preview.deliveryLocation || "Unmapped"}</td>
           <td>{line.issues.join(" ") || "—"}</td>

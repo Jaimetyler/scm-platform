@@ -13,9 +13,9 @@ import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
 
 type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
-  totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
+  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[]; warnings: string[];
-  lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; loadSource: "warehouse" | "source_load" }[] };
+  lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
   mismatches: { row: number; warehouse: string }[] };
 type Preferences = { warehouse: string; view: DeadlineView; group: BookingGroup; search: string; basis: "cutoff" | "erd" };
 const defaultPreferences: Preferences = { warehouse: "all", view: "all", group: "schedule", search: "", basis: "cutoff" };
@@ -79,6 +79,10 @@ export default function CottonOutboundPage() {
   const [importError, setImportError] = useState("");
   const uploadRequest = useRef<AbortController | null>(null);
   const [datesConfirmed, setDatesConfirmed] = useState(false);
+  const [dateYear, setDateYear] = useState("");
+  const [lineBales, setLineBales] = useState<Record<string, string>>({});
+  const [customerConfirmed, setCustomerConfirmed] = useState(false);
+  const [warehouseConfirmed, setWarehouseConfirmed] = useState(false);
   const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
   const canWrite = useCanWrite(site?.terminal);
@@ -111,8 +115,8 @@ export default function CottonOutboundPage() {
     if (working) return;
     if (!site) { setImportError("Choose the receiving warehouse first."); return; }
     if (!file) { setImportError("Choose a booking request file first."); return; }
-    if (!/\.xlsx$/i.test(file.name) || file.size > 4 * 1024 * 1024) {
-      setImportError("Choose a Bunge .xlsx file under 4 MB."); return;
+    if (!/\.(xlsx|xlsb)$/i.test(file.name) || file.size > 4 * 1024 * 1024) {
+      setImportError("Choose a supported .xlsx or .xlsb booking request under 4 MB."); return;
     }
     const controller = new AbortController();
     uploadRequest.current = controller;
@@ -121,6 +125,8 @@ export default function CottonOutboundPage() {
     try {
       const body = new FormData();
       body.set("file", file); body.set("terminal", site.terminal); body.set("siteCode", site.siteCode);
+      body.set("dateYear", dateYear); body.set("lineBales", JSON.stringify(lineBales));
+      body.set("customerConfirmed", String(customerConfirmed)); body.set("warehouseConfirmed", String(warehouseConfirmed));
       if (save) { body.set("datesConfirmed", String(datesConfirmed)); Object.entries(importDates).forEach(([key, value]) => body.set(key, value)); }
       const response = await fetch(save ? "/api/warehouse/outbound/bookings" : "/api/warehouse/outbound/preview", { method: "POST", body, signal: controller.signal });
       const result = await response.json().catch(() => { throw new Error(`The import service returned an unreadable response (${response.status}). Please try again.`); });
@@ -143,6 +149,10 @@ export default function CottonOutboundPage() {
       if (uploadRequest.current === controller) { uploadRequest.current = null; setWorking(false); }
     }
   }
+  const importBaleTotal = preview?.booking.lines.reduce((sum, line) => {
+    const value = line.needsBales ? Number(lineBales[String(line.sourceRow)]) : line.bales;
+    return sum + (Number.isSafeInteger(value) && value > 0 ? value : 0);
+  }, 0) ?? 0;
   const activeBookings = bookings.filter((item) => item.status === "draft");
   const warehouseBookings = activeBookings.filter((item) => (location.terminal === "all" || item.terminal === location.terminal) && (location.siteCode === "all" || item.site_code === location.siteCode));
   const stats = { all: warehouseBookings.length, today: warehouseBookings.filter((item) => deadlineMatches(item, "today", now, preferences.basis)).length,
@@ -167,18 +177,24 @@ export default function CottonOutboundPage() {
         </div>
       </div>}
       <form onSubmit={(event) => void upload(event, false)} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-        <label style={{ display: "grid", gap: 8, color: "#cbd5e1", fontSize: 13 }}>Booking request (.xlsx)
-          <input key={preferences.warehouse} type="file" accept=".xlsx" disabled={!site || working} aria-label="Booking request file"
-            onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); setDatesConfirmed(false); setImportError(""); }} />
+        <label style={{ display: "grid", gap: 8, color: "#cbd5e1", fontSize: 13 }}>Booking request (.xlsx / .xlsb)
+          <input key={preferences.warehouse} type="file" accept=".xlsx,.xlsb" disabled={!site || working} aria-label="Booking request file"
+            onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); setDateYear(""); setLineBales({}); setCustomerConfirmed(false); setWarehouseConfirmed(false); setDatesConfirmed(false); setImportError(""); }} />
         </label>
         <button style={button} disabled={!site || !file || working}>{working ? "Processing…" : "Review booking request"}</button>
       </form>
       {working && <p role="status" style={{ color: "#94a3b8" }}>Processing {file?.name}…</p>}
       {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
-      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge .xlsx files up to 4 MB. Review the marks and sailing dates before saving the draft.</p>
+      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge, Olam Dray Dispatch, and ED&F inland drayage exports up to 4 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
-      <p>{preview.booking.lines.length} marks · {preview.booking.totalBales} bales · {preview.booking.containers ?? "—"} containers</p>
+      <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
+      {preview.booking.sourceFormat === "edf" && <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
+        <label><input type="checkbox" checked={customerConfirmed} onChange={event => setCustomerConfirmed(event.target.checked)} /> This export is for ED&amp;F Man Cotton.</label>
+        <label><input type="checkbox" checked={warehouseConfirmed} onChange={event => setWarehouseConfirmed(event.target.checked)} /> USDAL means {site?.siteName} for these loads.</label>
+        <label>Year for the source dates <input aria-label="Source date year" type="number" min="2000" max="2100" style={input} value={dateYear} onChange={event => { setDateYear(event.target.value); setDatesConfirmed(false); }} /></label>
+        <button type="button" style={button} disabled={working || !dateYear} onClick={event => void upload(event, false)}>Apply year and review dates</button>
+      </div>}
       <p>Confirm the sailing dates below, or correct them before importing. Load-by dates do not control the warehouse loading window.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 12, marginBottom: 12 }}>
         <label>ERD<input aria-label="Import ERD" type="date" style={input} value={importDates.erd} onChange={(event) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, erd: event.target.value })); }} /></label>
@@ -191,12 +207,13 @@ export default function CottonOutboundPage() {
       <label style={{ display: "block", margin: "12px 0" }}><input type="checkbox" checked={datesConfirmed} onChange={(event) => setDatesConfirmed(event.target.checked)} /> I reviewed ERD, doc cutoff, and cutoff (including any dates still unknown).</label>
       {preview.booking.sourceDates?.length > 0 && <p style={{ color: "#94a3b8", fontSize: 12 }}>Source dates: {preview.booking.sourceDates.map(({ label, value }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`).join(" · ")}</p>}
       {preview.booking.detailNotes?.map((note) => <p key={note} style={{ color: "#94a3b8" }}>{note}</p>)}
-      {preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#94a3b8" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
+      {preview.booking.sourceFormat !== "edf" && preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#94a3b8" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
       {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#94a3b8" }}>{warning}</p>)}
-      <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
-        {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.bales}</td><td>{line.shippingOrder}</td><td>{line.warehouse}</td><td>{line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
+      <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Container", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
+        {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.needsBales ? <input aria-label={`Bales for ${line.mark} row ${line.sourceRow}`} type="number" min="1" max="1000000" style={{ ...input, width: 100 }} value={lineBales[String(line.sourceRow)] ?? ""} onChange={event => setLineBales(current => ({ ...current, [String(line.sourceRow)]: event.target.value }))} /> : line.bales}</td><td>{line.shippingOrder || "—"}</td><td>{line.containerNumber || "—"}</td><td>{line.warehouse}</td><td>{preview.booking.sourceFormat === "edf" ? (warehouseConfirmed ? "Warehouse load" : "Confirm warehouse") : line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
-      <button style={{ ...button, marginTop: 14 }} disabled={!canWrite || working || !datesConfirmed || !!preview.booking.warnings.length} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
+      <button style={{ ...button, marginTop: 14 }} disabled={!canWrite || working || !datesConfirmed || !!preview.booking.warnings.length ||
+        (preview.booking.sourceFormat === "edf" && (!customerConfirmed || !warehouseConfirmed || preview.booking.needsDateYear || !dateYear || preview.booking.lines.some(line => !Number.isSafeInteger(Number(lineBales[String(line.sourceRow)])) || Number(lineBales[String(line.sourceRow)]) < 1)))} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
     </PlatformPanel>}
 
     </div>}

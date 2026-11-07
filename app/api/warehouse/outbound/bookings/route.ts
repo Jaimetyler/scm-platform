@@ -2,7 +2,7 @@ import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
-import { parseBungeBooking, classifyBookingLoads } from "@/lib/warehouse/outbound/bunge";
+import { parseBookingRequest, prepareBookingImport, bookingImportOptions } from "@/lib/warehouse/outbound/booking-import";
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 
 export const runtime = "nodejs";
@@ -39,22 +39,22 @@ async function POSTHandler(req: NextRequest) {
     const siteCode = String(form.get("siteCode") ?? "");
     const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode && item.materials.includes("cotton"));
     if (!site) return NextResponse.json({ ok: false, error: "Unknown cotton warehouse" }, { status: 400 });
-    if (!(file instanceof File) || file.size > 4 * 1024 * 1024 || !/\.xlsx$/i.test(file.name))
-      return NextResponse.json({ ok: false, error: "Choose a Bunge .xlsx file under 4 MB." }, { status: 400 });
-    const booking = parseBungeBooking(Buffer.from(await file.arrayBuffer()));
-    booking.lines = classifyBookingLoads(booking, terminal, siteCode);
+    if (!(file instanceof File) || file.size > 4 * 1024 * 1024 || !/\.(xlsx|xlsb)$/i.test(file.name))
+      return NextResponse.json({ ok: false, error: "Choose a supported .xlsx or .xlsb booking request under 4 MB." }, { status: 400 });
+    const options = bookingImportOptions(form);
+    const booking = prepareBookingImport(parseBookingRequest(Buffer.from(await file.arrayBuffer()), options), terminal, siteCode, options, true);
     if (form.get("datesConfirmed") !== "true") return NextResponse.json({ ok: false,
       error: "Review and confirm the sailing dates before importing." }, { status: 400 });
     const sailing = normalizeBookingDetails({ erd: String(form.get("erd") ?? ""), docCutoff: String(form.get("docCutoff") ?? ""),
       cutoff: String(form.get("cutoff") ?? ""), vessel: String(form.get("vessel") ?? "") });
     if (booking.warnings.length) return NextResponse.json({ ok: false,
       error: booking.warnings.join(" ") + " Correct the source sheet before importing." }, { status: 409 });
-    const { data, error } = await database().rpc("create_cotton_outbound_booking_draft_with_details", {
+    const { data, error } = await database().rpc("create_cotton_outbound_booking_import", {
       p_terminal: terminal, p_site_code: siteCode, p_site_name: site.siteName,
       p_customer: booking.customer, p_booking_number: booking.bookingNumber,
       p_customer_reference: booking.customerReference, p_containers: booking.containers,
       p_total_bales: booking.totalBales, p_source_filename: file.name.slice(0, 200), p_lines: booking.lines,
-      p_details: sailing,
+      p_details: { ...sailing, source_format: booking.sourceFormat },
     });
     if (error) return NextResponse.json({ ok: false,
       error: error.code === "23505" ? "This booking already exists at this warehouse." : error.message }, { status: error.code === "23505" ? 409 : 400 });
