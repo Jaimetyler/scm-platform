@@ -32,5 +32,7 @@ test('save rejects missing counts/confirmations, then passes original container/
   const response=await post(request({...fields,lineBales:JSON.stringify({2:88})}));assert.equal(response.status,200);
   assert.equal(calls[0].name,'create_cotton_outbound_booking_import');assert.equal(calls[0].args.p_customer,'ED&F Man Cotton');
   assert.equal(calls[0].args.p_lines[0].containerNumber,'EGSU1373670');assert.equal(calls[0].args.p_lines[0].mark,'W0282');assert.equal(calls[0].args.p_total_bales,88);
+  assert.equal(calls[0].args.p_details.return_location,'Dallas');
+  assert.equal(calls[0].args.p_details.return_location_code,null);
  }finally {delete process.env.SUPABASE_URL;delete process.env.SUPABASE_SERVICE_ROLE_KEY;}
 });

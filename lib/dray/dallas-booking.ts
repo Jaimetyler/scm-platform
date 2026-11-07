@@ -1,3 +1,4 @@
+import { bookingReturnLocation } from "../warehouse/outbound/return-location.ts";
 import { parseBookingRequest, type BookingImportOptions } from "../warehouse/outbound/booking-import.ts";
 
 const pickupLocations: Readonly<Record<string, string>> = {
@@ -8,8 +9,7 @@ const pickupLocations: Readonly<Record<string, string>> = {
 export function previewDallasBungeDrays(bytes: Buffer, options: BookingImportOptions = {}) {
   const booking = parseBookingRequest(bytes, options);
 
-  const ramp = booking.loadPort?.trim().toUpperCase().replace(/\s+/g, " ");
-  const deliveryLocation = ["DALLAS BNSF", "DALLAS RAMP BNSF HASLET", "BNSFHATX"].includes(ramp ?? "") ? "BNSFHATX" : null;
+  const deliveryLocation = bookingReturnLocation(booking.returnLocation || booking.loadPort).return_location_code;
   const issues = [...booking.warnings, ...booking.detailNotes];
   if (!deliveryLocation) issues.push(`Unmapped load port: ${booking.loadPort || "missing"}.`);
   if (booking.containers !== booking.lines.length) {

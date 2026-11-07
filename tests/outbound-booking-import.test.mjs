@@ -21,7 +21,7 @@ test('Olam recognizes cell identity and maps original xlsb/xlsx, bales, SO and d
  for(const type of ['xlsb','xlsx']) {
   const booking=prepareBookingImport(parseBookingRequest(workbook(olam,type)),'DAL','SCMDDETX');
   assert.equal(booking.customer,'Olam Agri Americas Inc'); assert.equal(booking.bookingNumber,'2343518850');
-  assert.equal(booking.totalBales,88); assert.equal(booking.erd,'2026-11-09');
+  assert.equal(booking.returnLocation,'Dallas Ramp BNSF Haslet'); assert.equal(booking.totalBales,88); assert.equal(booking.erd,'2026-11-09');
   assert.equal(booking.docCutoff,'2026-11-18'); assert.equal(booking.cutoff,'2026-11-13');
   assert.equal(booking.lines[0].loadSource,'warehouse'); assert.equal(booking.lines[0].shippingOrder,'3586816');
   assert.equal(previewDallasBungeDrays(workbook(olam,type)).deliveryLocation,'BNSFHATX');
@@ -29,7 +29,7 @@ test('Olam recognizes cell identity and maps original xlsb/xlsx, bales, SO and d
 });
 test('ED&F keeps missing data unresolved and preserves each mark/container pair',()=>{
  const b=parseBookingRequest(workbook(edf));
- assert.equal(b.sourceFormat,'edf'); assert.equal(b.customerNeedsConfirmation,true); assert.equal(b.needsDateYear,true);
+ assert.equal(b.returnLocation,'3701 SOUTH INTERSTATE 45'); assert.equal(b.sourceFormat,'edf'); assert.equal(b.customerNeedsConfirmation,true); assert.equal(b.needsDateYear,true);
  assert.equal(b.erd,null); assert.equal(b.totalBales,0); assert.deepEqual(b.lines.map(l=>l.containerNumber),['EGSU1373670','EMCU0051047']);
  assert.throws(()=>prepareBookingImport(b,'DAL','SCMDDETX',{},true),/Confirm ED&F/);
 });

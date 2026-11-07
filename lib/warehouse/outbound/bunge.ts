@@ -8,7 +8,7 @@ export type OutboundLine = {
 };
 export type BungeBooking = {
   bookingNumber: string; customerReference: string; customer: string;
-  loadPort?: string; steamshipLine?: string;
+  returnLocation?: string; loadPort?: string; steamshipLine?: string;
   erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[];
   containers: number | null; totalBales: number; lines: OutboundLine[];
@@ -200,6 +200,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
   }
   return { ...sailingDetails(sheet, rows), bookingNumber, customerReference, customer,
     loadPort: String(labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
+    returnLocation: String(labeledCell(sheet, rows, ["Loaded Return", "Full Return"])?.v ?? labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
     steamshipLine: String(labeledCell(sheet, rows, ["Ship Line", "Steamship Line"])?.v ?? "").trim(),
     containers, totalBales, lines,
     warehouses: [...new Set(lines.map((line) => line.warehouse))], warehouseDetails, warnings };

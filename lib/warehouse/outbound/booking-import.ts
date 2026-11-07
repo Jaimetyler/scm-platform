@@ -68,7 +68,7 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
     const sourceDates = [{label: "Ramp Cut", value: rampCut}, {label: "Port Cut", value: portCut}].filter((v): v is {label:string;value:string} => !!v.value);
     return { ...base, sourceFormat: "olam", customer: "Olam Agri Americas Inc", bookingNumber: identifier(field("Booking"), "booking number"),
       customerReference: text(field("Sale No")), containers, totalBales, lines, warehouses: [...new Set(lines.map(l => l.warehouse))],
-      loadPort: text(field("Loaded Return")), steamshipLine: text(field("S/S Line")), vessel: text(field("Vessel/Voyage")) || null,
+      returnLocation: text(field("Loaded Return")), loadPort: text(field("Loaded Return")), steamshipLine: text(field("S/S Line")), vessel: text(field("Vessel/Voyage")) || null,
       erd: date("1st Avail / ERD")?.slice(0, 10) ?? null, docCutoff: date("Doc Cut"), cutoff: rampCut ?? portCut, sourceDates,
       detailNotes: [`Olam booking reference: ${text(field("Booking Ref"))}. Equipment release: ${text(field("Equip Release"))}.`,
         "Olam source rates are reference information only; no McLeod orders or rates are created.",
@@ -107,6 +107,7 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
     needsDateYear: !year, bookingNumber: identifier(one("carrier_booking_number"), "booking number"), customerReference: one("exporter_ref_po_number"),
     containers: lines.length, totalBales: lines.reduce((sum,l) => sum+l.bales,0), lines, warehouses: [...new Set(lines.map(l=>l.warehouse))],
     erd: parseDate(rawDates.erd,"ERD")?.slice(0,10) ?? null, docCutoff: parseDate(rawDates.docCutoff,"Doc cutoff"), cutoff: parseDate(rawDates.cutoff,"Cutoff"),
+    returnLocation: [...new Set([one("full_return_place"), one("full_return_place_address")].filter(Boolean))].join(" · "),
     vessel: one("ocean_vessel_name") || null, loadPort: one("full_return_place"), steamshipLine: one("ocean_carrier_name"),
     detailNotes: ["ED&F inland drayage layout recognized. The export does not name the customer; confirm ED&F before saving.",
       "Bale counts are missing. Enter the count for each load before saving.",

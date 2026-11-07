@@ -14,7 +14,7 @@ import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
 
 type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
-  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
+  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[]; warnings: string[];
   lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
   mismatches: { row: number; warehouse: string }[] };
@@ -84,7 +84,7 @@ export default function CottonOutboundPage() {
   const [lineBales, setLineBales] = useState<Record<string, string>>({});
   const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [warehouseConfirmed, setWarehouseConfirmed] = useState(false);
-  const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "" });
+  const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
   const canWrite = useCanWrite(site?.terminal);
   useEffect(() => {
@@ -139,7 +139,7 @@ export default function CottonOutboundPage() {
       } else {
         if (!result.booking || !Array.isArray(result.booking.lines)) throw new Error("The file could not be read as a booking request.");
         setPreview(result); setDatesConfirmed(false);
-        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "" });
+        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "", returnLocation: result.booking.returnLocation ?? "" });
       }
     } catch (reason) {
       if (uploadRequest.current === controller) setImportError(controller.signal.aborted
@@ -160,7 +160,7 @@ export default function CottonOutboundPage() {
     upcoming: warehouseBookings.filter((item) => deadlineMatches(item, "upcoming", now, preferences.basis)).length, past: warehouseBookings.filter((item) => deadlineMatches(item, "past", now, preferences.basis)).length };
   const search = preferences.search.trim().toLowerCase();
   const visible = warehouseBookings.filter((item) => deadlineMatches(item, preferences.view, now, preferences.basis) && (!search ||
-    [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
+    [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
   const groups = groupBookings(visible, preferences.group, now);
   const returnTo = encodeURIComponent(dashboardUrl(preferences));
 
@@ -201,6 +201,7 @@ export default function CottonOutboundPage() {
         <label>ERD<input aria-label="Import ERD" type="date" style={input} value={importDates.erd} onChange={(event) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, erd: event.target.value })); }} /></label>
         <CutoffInput label="Doc cutoff" value={importDates.docCutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, docCutoff: value })); }} />
         <CutoffInput label="Cutoff" value={importDates.cutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, cutoff: value })); }} />
+        <label>Return location<input aria-label="Import return location" maxLength={300} style={input} value={importDates.returnLocation} onChange={event => setImportDates(current => ({ ...current, returnLocation: event.target.value }))} /></label>
         <label>Vessel<input aria-label="Import vessel" maxLength={200} style={input} value={importDates.vessel} onChange={(event) => setImportDates((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div>
       {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" || site?.terminal === "DAL" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}

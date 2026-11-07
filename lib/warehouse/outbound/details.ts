@@ -1,3 +1,4 @@
+import { bookingReturnLocation } from "./return-location.ts";
 // Cutoffs are warehouse-local wall times; never shift them through UTC in the page.
 function dateValue(value: unknown, label: string, withTime = false) {
   if (value == null || value === "") return null;
@@ -23,7 +24,7 @@ export function normalizeBookingDetails(body: Record<string, unknown>) {
   const cargo = cutoffValue(body.cutoff, "Cutoff");
   if (body.scmFileNumber !== undefined && (typeof body.scmFileNumber !== "string" || body.scmFileNumber.trim().length > 80))
     throw new Error("SCM File # must be 80 characters or fewer.");
-  return { ...(body.scmFileNumber !== undefined ? { scm_file_number: String(body.scmFileNumber).trim() || null } : {}), erd: dateValue(body.erd, "ERD"), doc_cutoff: doc.value, doc_cutoff_has_time: doc.hasTime,
+  return { ...(body.returnLocation !== undefined ? bookingReturnLocation(body.returnLocation) : {}), ...(body.scmFileNumber !== undefined ? { scm_file_number: String(body.scmFileNumber).trim() || null } : {}), erd: dateValue(body.erd, "ERD"), doc_cutoff: doc.value, doc_cutoff_has_time: doc.hasTime,
     cutoff: cargo.value, cutoff_has_time: cargo.hasTime, vessel: vessel || null };
 }
 
