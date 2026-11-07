@@ -259,7 +259,7 @@ export default function OrderChargesPage() {
               <thead>
                 <tr>
                   <th>BOL</th>
-                  <th>Order Match</th>
+                  <th>SCM order number</th>
                   <th>Charge</th>
                   <th>Description</th>
                   <th>Units</th>

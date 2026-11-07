@@ -290,7 +290,7 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.reference_number || row.mark || "—"}</td>
             <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.scm_carrier && <strong style={{ color: "#86efac", display: "block" }}>SCM carrier</strong>}
-              {row.matched_order_id ? <span>McLeod #{row.matched_order_id}</span> : "—"}
+              {row.matched_order_id ? <span>SCM order #{row.matched_order_id}</span> : "—"}
               {row.carrier_code && <small style={{ display: "block", color: "#94a3b8" }}>Carrier {row.carrier_code}</small>}</td>
             <td style={cell}>{LABEL[row.yard_status]}{checkoutNeedsReview(row) && !canRetryInterruptedLookup(row) && !canPrepareLegacyLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>McLeod status needs review. This arrival stays active until any pending update is reconciled.</div>}{canPrepareLegacyLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>This earlier lookup failed before any McLeod update. Retry Search must verify the saved receiving details again.</div>}{canRetryInterruptedLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>Lookup has not finished. Retry Search uses the saved receiving details.</div>}<OutsideCarrierMarker row={row} />{cottonShortage(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>{cottonShortage(row)!.missing} bales short · McLeod delivery blocked{!row.customer_notified_at && " · Notify customer"}</div>}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
             <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -304,7 +304,7 @@ export default function DomesticLinePage() {
             </div></td>
           </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={11} style={{ ...cell, background: "#132337" }}>
             <form onSubmit={(event) => { event.preventDefault(); void move(row, "checkout", cottonFields[row.id]); }}>
-              <strong>Finish cotton delivery · McLeod {row.matched_order_id ? `#${row.matched_order_id}` : "order search at completion"}</strong>
+              <strong>Finish cotton delivery · SCM order {row.matched_order_id ? `#${row.matched_order_id}` : "order search at completion"}</strong>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
                 {([ ["Mark", "mark"], ["Customer", "customer"], ["BOL bale count", "bolBC"],
                   ["Bales unloaded", "baleCount"], ["Warehouse location", "warehouseLocation"] ] as [string, Exclude<keyof CottonFields, "acknowledgeShortage">][]).map(([label, field]) =>

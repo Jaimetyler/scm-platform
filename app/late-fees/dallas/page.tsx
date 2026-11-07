@@ -239,7 +239,7 @@ function OfficeLateFeesPage({
               <thead>
                 <tr style={{ background: "rgba(30,41,59,0.9)" }}>
                   {[
-  "Order",
+  "SCM order number",
   "BL",
   "Customer",
   "PU",

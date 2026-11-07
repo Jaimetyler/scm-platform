@@ -50,10 +50,10 @@ export default function BatchCreate({ terminal, submission, orders, onBusy }: {
         }
         const created = await requestPreflight(submission, so, terminal, review.reviewToken);
         if (created.ok && created.auditStatus === "verified" && created.mcleodOrderId) {
-          report(so, `Created and verified · McLeod ${created.mcleodOrderId}`);
+          report(so, `Created and verified · SCM order #${created.mcleodOrderId}`);
           continue;
         }
-        report(so, `Batch stopped · ${created.mcleodOrderId ? `McLeod ${created.mcleodOrderId} · ` : ""}${created.error || created.reason || "Create could not be verified."}`);
+        report(so, `Batch stopped · ${created.mcleodOrderId ? `SCM order #${created.mcleodOrderId} · ` : ""}${created.error || created.reason || "Create could not be verified."}`);
         break;
       }
     } catch (cause) {

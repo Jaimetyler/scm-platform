@@ -105,7 +105,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   const includedTotal = reviewTotal(orderRows.filter(order => selected.has(order.id)).map(order => order.total));
   const email = ["Hi,", "", intro, standardNote, "",
     ...emailGroups.flatMap(group => [
-      ...group.orders.map(order => `${group.marks} | Order ${order.id} | ${standardLabel} ${drayage(order)} | ${order.charges.map(describe).join("; ")} | Total ${currency(order.total)}`),
+      ...group.orders.map(order => `${group.marks} | SCM order number ${order.id} | ${standardLabel} ${drayage(order)} | ${order.charges.map(describe).join("; ")} | Total ${currency(order.total)}`),
       ...(group.orders.length > 1 ? [`Mark ${group.marks} total: ${group.markTotal} | Additional charges: ${group.subtotal}`] : []), ""]),
     `${approvalLabel}: ${total}`, `Full total (selected loads): ${includedTotal}`,
     "", "Thank you."].join("\n");
@@ -120,7 +120,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
       return `<tr style="background-color:${shade};color:#1e293b"><td style="${cell}font-weight:600;white-space:nowrap">${escape(group.marks)}</td><td style="${cell}white-space:nowrap">${escape(order.id)}</td><td style="${moneyCell}">${escape(drayage(order))}</td><td style="${cell}">${order.charges.map(charge => `${escape(chargeLabel(charge))} &middot; <strong>${escape(currency(charge.amount))}</strong>`).join("<br>")}</td><td style="${moneyCell}font-weight:700">${escape(currency(order.total))}</td></tr>`;
     }).join("") + (group.orders.length > 1 ? `<tr style="background-color:#f1f5f9;color:#334155"><td colspan="3" style="${cell}font-weight:700">Mark ${escape(group.marks)} total</td><td style="${cell}">Additional: <strong>${escape(group.subtotal)}</strong></td><td style="${moneyCell}font-weight:700">${escape(group.markTotal)}</td></tr>` : "")).join("");
     const heading = "padding:10px 12px;border-bottom:2px solid #cbd5e1;text-align:left;font-size:12px;color:#475569;background-color:#f1f5f9;";
-    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#1e293b;background-color:#ffffff"><p>Hi,</p><p>${escape(intro)}</p><p style="color:#64748b;font-size:12px">${escape(standardNote)}</p><table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;max-width:850px;font-family:Arial,Helvetica,sans-serif;font-size:13px"><thead><tr><th style="${heading}">Mark</th><th style="${heading}">Order</th><th style="${heading}text-align:right">${escape(standardLabel)}</th><th style="${heading}">${verifiedStandard ? "Additional charges" : "Itemized charges"}</th><th style="${heading}text-align:right">Total</th></tr></thead><tbody>${htmlRows}</tbody></table><p style="margin-top:18px;font-size:15px"><strong>${escape(approvalLabel)}: ${escape(total)}</strong><br><span style="font-size:12px;color:#64748b">Full total (selected loads): ${escape(includedTotal)}</span></p><p>Thank you.</p></div>`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#1e293b;background-color:#ffffff"><p>Hi,</p><p>${escape(intro)}</p><p style="color:#64748b;font-size:12px">${escape(standardNote)}</p><table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;max-width:850px;font-family:Arial,Helvetica,sans-serif;font-size:13px"><thead><tr><th style="${heading}">Mark</th><th style="${heading}">SCM order number</th><th style="${heading}text-align:right">${escape(standardLabel)}</th><th style="${heading}">${verifiedStandard ? "Additional charges" : "Itemized charges"}</th><th style="${heading}text-align:right">Total</th></tr></thead><tbody>${htmlRows}</tbody></table><p style="margin-top:18px;font-size:15px"><strong>${escape(approvalLabel)}: ${escape(total)}</strong><br><span style="font-size:12px;color:#64748b">Full total (selected loads): ${escape(includedTotal)}</span></p><p>Thank you.</p></div>`;
     try {
       if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
         await navigator.clipboard.write([new ClipboardItem({
@@ -155,7 +155,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         {results?.filter(result => result.error || !result.orders.length).map(result =>
           <p key={result.mark}>{result.mark} · {result.error || "No matching DDRAY order"}</p>)}
         {!!orderRows.length && <div className="booking-charge-table"><table>
-          <thead><tr><th scope="col">Include</th><th scope="col">Mark</th><th scope="col">McLeod order</th>
+          <thead><tr><th scope="col">Include</th><th scope="col">Mark</th><th scope="col">SCM order number</th>
             <th scope="col">{standardLabel}</th><th scope="col">{verifiedStandard ? "Extra charges" : "Itemized charges"}</th>
             <th scope="col" className="booking-charge-amount">Order total</th>
             <th scope="col" className="booking-charge-amount">Mark total</th></tr></thead>

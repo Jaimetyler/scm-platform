@@ -21,7 +21,7 @@ const HEADERS: [string, string][] = [
   ["shortage_note", "Shortage note"], ["shortage_acknowledged_at", "Shortage acknowledged (UTC)"], ["shortage_acknowledged_by", "Shortage acknowledged by"],
   ["customer_notified_at", "Customer notified (UTC)"], ["customer_notified_by", "Customer notified by"], ["checkin_completed_at", "Receiving completed (UTC)"],
   ["bol_bc", "BOL bale count"], ["bale_count", "Bales unloaded"], ["shipper", "Customer"],
-  ["destination", "Destination"], ["matched_order_id", "McLeod order ID"],
+  ["destination", "Destination"], ["matched_order_id", "SCM order number"],
   ["draft_status", "McLeod processing status"], ["processing_error", "Processing error"],
   ["processed_at", "McLeod processed (UTC)"], ["checkin_source", "Check-in source"],
   ["warehouse_location", "Warehouse location"], ["equipment_type", "Equipment type"], ["verified", "Verified"],

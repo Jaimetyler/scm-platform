@@ -85,7 +85,7 @@ export default function DomesticHistoryPage() {
     </details>
     <PlatformPanel>
       <form onSubmit={apply} style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, background: "rgba(30,41,59,.36)", border: "1px solid rgba(148,163,184,.12)", flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
-        <label style={label}>Search driver, reference, mark, customer, or McLeod ID
+        <label style={label}>Search driver, reference, mark, customer, or SCM order number
           <input value={search} onChange={(event) => setSearch(event.target.value)} style={input} /></label>
         <label style={label}>From arrival date<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} style={input} /></label>
         <label style={label}>Through arrival date<input type="date" value={through} onChange={(event) => setThrough(event.target.value)} style={input} /></label>

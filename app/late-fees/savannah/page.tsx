@@ -367,7 +367,7 @@ function OfficeLateFeesPage({
                   }}
                 >
                   {[
-                    ["Order", "orderId"],
+                    ["SCM order number", "orderId"],
                     ["Mark", "mark"],
                     ["Customer", "customerId"],
                     ["PU", "puLocationId"],

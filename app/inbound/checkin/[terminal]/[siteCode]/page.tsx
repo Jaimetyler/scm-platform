@@ -377,7 +377,7 @@ export default function SiteCheckinPage() {
       return;
     }
     if (newCheckin.movement_direction === "pickup" && !newCheckin.matched_order_id) {
-      setNewError("Select the McLeod pickup order before checking in.");
+      setNewError("Select the SCM pickup order before checking in.");
       return;
     }
     if (!newCheckin.mark?.trim() || !newCheckin.shipper?.trim() || !newCheckin.bol_bc) {

@@ -152,7 +152,7 @@ export default function SavannahLateFeeImportPage() {
                 <tr>
                   {[
                     "Status",
-                    "Order",
+                    "SCM order number",
                     "Customer",
                     "BLNUM",
                     "Bales",

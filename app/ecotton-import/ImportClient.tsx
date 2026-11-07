@@ -421,7 +421,7 @@ export default function ImportClient() {
             <button style={button} disabled={busy} onClick={() => setDeliveryPreview([])}>Cancel delivery preview</button>
           </section>}
           <div className={styles.toolbar}>
-            <input aria-label="Search import orders" placeholder="Search customer, reference, mark or McLeod ID" value={query} onChange={e => setQuery(e.target.value)} />
+            <input aria-label="Search import orders" placeholder="Search customer, reference, mark or SCM order number" value={query} onChange={e => setQuery(e.target.value)} />
             <select aria-label="Filter import status" value={filter} onChange={e => setFilter(e.target.value)}>
               <option value="all">All orders ({items.length})</option>
               <option value="ready">Ready to process ({items.filter(x => category(x) === "ready").length})</option>
@@ -445,7 +445,7 @@ export default function ImportClient() {
                     "Customer",
                     "Invoice date",
                     "Expected",
-                    "State / McLeod ID",
+                    "State / SCM order number",
                     "Review",
                   ].map((h) => (
                     <th
@@ -529,7 +529,7 @@ export default function ImportClient() {
               <div><dt>Invoice date</dt><dd>{opened.order.invoice.invoiceDate}</dd></div>
               <div><dt>Expected billing</dt><dd>${(opened.order.invoice.cents / 100).toFixed(2)}</dd></div>
               <div><dt>Status</dt><dd>{opened.conflict ? "Source conflict" : opened.order.status}</dd></div>
-              <div><dt>McLeod ID</dt><dd>{opened.order.order_id || "Not created"}</dd></div>
+              <div><dt>SCM order number</dt><dd>{opened.order.order_id || "Not created"}</dd></div>
             </dl>
 
                         {opened.conflict
