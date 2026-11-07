@@ -82,20 +82,36 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     return extras.length ? [{ marks, orders: selectedOrders, subtotal: sum(extras),
       markTotal: reviewTotal(orders.map(order => order.total)) }] : [];
   });
-  const describe = (charge: typeof rows[number]) => `${clean(charge.label)} — ${currency(charge.amount)}${charge.includedAmount ? ` (above ${currency(charge.includedAmount)} included chassis)` : ""}${!charge.includedAmount && charge.units !== null && charge.rate !== null ? ` (${charge.units} × ${currency(charge.rate)})` : ""}`;
-  const intro = `Please review and approve the additional charges for booking ${clean(bookingNumber)}${customerReference ? ` (customer ref. ${clean(customerReference)})` : ""}. Standard charges include negotiated drayage and FSC plus one chassis day up to $45 per load.`;
-  const email = ["Hi,", "", intro, "",
-    ...emailGroups.flatMap(group => [`Mark ${group.marks}`,
-      ...group.orders.map(order => `Order #${order.id} | Standard charges: ${drayage(order)} | Order total: ${currency(order.total)}${order.charges.length ? ` | Extras: ${order.charges.map(describe).join(" · ")}` : ""}`),
-      `Mark total: ${group.markTotal} | Extras for approval: ${group.subtotal}`, ""]),
-    `Total for approval: ${total}`, "", "Thank you."].join("\n");
+  const chargeLabel = (charge: typeof rows[number]) => {
+    if (charge.includedAmount && charge.amount !== null && approvalRate?.chassisDailyRate) {
+      const days = Math.round(charge.amount * 100) / Math.round(approvalRate.chassisDailyRate * 100);
+      if (Number.isInteger(days) && days > 0) return days === 1 ? "Extra chassis day" : `Extra chassis · ${days} days`;
+      return "Additional chassis";
+    }
+    return clean(charge.label);
+  };
+  const describe = (charge: typeof rows[number]) => `${chargeLabel(charge)} · ${currency(charge.amount)}`;
+  const intro = `Please review and approve the additional charges for booking ${clean(bookingNumber)}${customerReference ? ` (customer ref. ${clean(customerReference)})` : ""}.`;
+  const standardNote = "Standard includes drayage, FSC, and one chassis day.";
+  const includedTotal = reviewTotal(orderRows.filter(order => selected.has(order.id)).map(order => order.total));
+  const email = ["Hi,", "", intro, standardNote, "",
+    ...emailGroups.flatMap(group => [
+      ...group.orders.map(order => `${group.marks} | Order ${order.id} | Standard ${drayage(order)} | ${order.charges.map(describe).join("; ")} | Total ${currency(order.total)}`),
+      ...(group.orders.length > 1 ? [`Mark ${group.marks} total: ${group.markTotal} | Additional charges: ${group.subtotal}`] : []), ""]),
+    `Additional charges for approval: ${total}`, `Total including standard charges (selected loads): ${includedTotal}`,
+    "", "Thank you."].join("\n");
 
   async function copyEmail() {
     if (!chosen.length) return;
-    const htmlRows = emailGroups.map(group => group.orders.map(order =>
-      `<tr><td>${escape(group.marks)}</td><td>${escape(order.id)}</td><td>${escape(drayage(order))}</td><td>${order.charges.map(charge => escape(describe(charge))).join("<br>") || "—"}</td><td>${escape(currency(order.total))}</td></tr>`
-    ).join("") + `<tr><td colspan="3"><strong>Mark total · ${escape(group.marks)}</strong></td><td>Extras for approval: ${escape(group.subtotal)}</td><td><strong>${escape(group.markTotal)}</strong></td></tr>`).join("");
-    const html = `<p>Hi,</p><p>${escape(intro)}</p><table border="1" cellpadding="6" style="border-collapse:collapse"><thead><tr><th>Mark</th><th>Order</th><th>Standard charges</th><th>Extras for approval</th><th>Order total</th></tr></thead><tbody>${htmlRows}</tbody></table><p><strong>Total for approval: ${escape(total)}</strong></p><p>Thank you.</p>`;
+    const cell = "padding:10px 12px;border-bottom:1px solid #e2e8f0;vertical-align:top;text-align:left;";
+    const moneyCell = `${cell}text-align:right;white-space:nowrap;`;
+    let rowIndex = 0;
+    const htmlRows = emailGroups.map(group => group.orders.map(order => {
+      const shade = rowIndex++ % 2 ? "#f8fafc" : "#ffffff";
+      return `<tr style="background-color:${shade};color:#1e293b"><td style="${cell}font-weight:600;white-space:nowrap">${escape(group.marks)}</td><td style="${cell}white-space:nowrap">${escape(order.id)}</td><td style="${moneyCell}">${escape(drayage(order))}</td><td style="${cell}">${order.charges.map(charge => `${escape(chargeLabel(charge))} &middot; <strong>${escape(currency(charge.amount))}</strong>`).join("<br>")}</td><td style="${moneyCell}font-weight:700">${escape(currency(order.total))}</td></tr>`;
+    }).join("") + (group.orders.length > 1 ? `<tr style="background-color:#f1f5f9;color:#334155"><td colspan="3" style="${cell}font-weight:700">Mark ${escape(group.marks)} total</td><td style="${cell}">Additional: <strong>${escape(group.subtotal)}</strong></td><td style="${moneyCell}font-weight:700">${escape(group.markTotal)}</td></tr>` : "")).join("");
+    const heading = "padding:10px 12px;border-bottom:2px solid #cbd5e1;text-align:left;font-size:12px;color:#475569;background-color:#f1f5f9;";
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#1e293b;background-color:#ffffff"><p>Hi,</p><p>${escape(intro)}</p><p style="color:#64748b;font-size:12px">${escape(standardNote)}</p><table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;max-width:850px;font-family:Arial,Helvetica,sans-serif;font-size:13px"><thead><tr><th style="${heading}">Mark</th><th style="${heading}">Order</th><th style="${heading}text-align:right">Standard</th><th style="${heading}">Additional charges</th><th style="${heading}text-align:right">Total</th></tr></thead><tbody>${htmlRows}</tbody></table><p style="margin-top:18px;font-size:15px"><strong>Additional charges for approval: ${escape(total)}</strong><br><span style="font-size:12px;color:#64748b">Total including standard charges (selected loads): ${escape(includedTotal)}</span></p><p>Thank you.</p></div>`;
     try {
       if (navigator.clipboard.write && typeof ClipboardItem !== "undefined") {
         await navigator.clipboard.write([new ClipboardItem({
