@@ -304,7 +304,7 @@ export default function DomesticLinePage() {
             </div></td>
           </tr>{cottonEditId === row.id && cottonFields[row.id] && <tr><td colSpan={11} style={{ ...cell, background: "#132337" }}>
             <form onSubmit={(event) => { event.preventDefault(); void move(row, "checkout", cottonFields[row.id]); }}>
-              <strong>Finish cotton delivery · SCM order {row.matched_order_id ? `#${row.matched_order_id}` : "order search at completion"}</strong>
+              <strong>Finish cotton delivery · SCM order {row.matched_order_id ? `#${row.matched_order_id}` : "search at completion"}</strong>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
                 {([ ["Mark", "mark"], ["Customer", "customer"], ["BOL bale count", "bolBC"],
                   ["Bales unloaded", "baleCount"], ["Warehouse location", "warehouseLocation"] ] as [string, Exclude<keyof CottonFields, "acknowledgeShortage">][]).map(([label, field]) =>
