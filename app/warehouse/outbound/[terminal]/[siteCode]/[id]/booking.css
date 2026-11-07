@@ -38,3 +38,5 @@
 .booking-charge-table .booking-charge-amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .booking-charge-choice { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: start; gap: 8px; padding: 3px 0; }
 .booking-charge-choice strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.booking-charge-pill { display: inline-block; margin: 5px 0 0 6px; padding: 3px 7px; border-radius: 999px; background: #78350f; color: #fef3c7; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.booking-charge-review { background: #334155; color: #e2e8f0; }
