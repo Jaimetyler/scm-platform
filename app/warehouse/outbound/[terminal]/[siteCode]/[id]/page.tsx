@@ -9,6 +9,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import CutoffInput from "@/components/warehouse/CutoffInput";
 import PlatformPanel from "@/components/platform/PlatformPanel";
+import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
 import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/details";
 
 import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/warehouse/outbound/container-info-rows";
@@ -285,7 +286,7 @@ export default function CottonOutboundBookingPage() {
       <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>
       <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, booking.doc_cutoff_has_time !== false)}</span>
       <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, booking.cutoff_has_time !== false)}</span>
-      <span><strong>Return location</strong> {booking.return_location || "Not set"}{booking.return_location_code ? ` · ${booking.return_location_code}` : ""}</span>
+      <span><strong>Return location</strong> {bookingReturnLocationLabel(booking.return_location, booking.return_location_code)}{booking.return_location_code ? ` · ${booking.return_location_code}` : ""}</span>
       {booking.vessel ? <span><strong>Vessel</strong> {booking.vessel}</span> : null}
     </div>
     <input ref={requestInput} type="file" accept=".xlsx,.xlsb" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />

@@ -10,6 +10,7 @@ import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 import CutoffInput from "@/components/warehouse/CutoffInput";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
+import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
 import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
 
@@ -160,7 +161,7 @@ export default function CottonOutboundPage() {
     upcoming: warehouseBookings.filter((item) => deadlineMatches(item, "upcoming", now, preferences.basis)).length, past: warehouseBookings.filter((item) => deadlineMatches(item, "past", now, preferences.basis)).length };
   const search = preferences.search.trim().toLowerCase();
   const visible = warehouseBookings.filter((item) => deadlineMatches(item, preferences.view, now, preferences.basis) && (!search ||
-    [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
+    [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, bookingReturnLocationLabel(item.return_location, item.return_location_code), item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
   const groups = groupBookings(visible, preferences.group, now);
   const returnTo = encodeURIComponent(dashboardUrl(preferences));
 

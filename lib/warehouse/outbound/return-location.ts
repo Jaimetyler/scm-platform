@@ -9,3 +9,9 @@ export function bookingReturnLocation(value: unknown) {
     /^3701 (?:S|SOUTH) (?:INTERSTATE ?45|I[ -]?45)(?: |$)/.test(key)) code = "UNIOWITX";
   return { return_location: raw || null, return_location_code: code };
 }
+
+export function bookingReturnLocationLabel(location?: string | null, code?: string | null) {
+  if (code === "UNIOWITX") return "UP Wilmer";
+  if (code === "BNSFHATX") return "BNSF Haslet";
+  return location || "Not set";
+}
