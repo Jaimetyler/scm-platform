@@ -1,4 +1,5 @@
 "use client";
+import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 import { useCanWrite } from "@/components/auth/StaffSession";
 import Link from "next/link";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
@@ -215,7 +216,7 @@ export default function CottonOutboundBookingPage() {
     setWorking("import-details"); setError(""); setMessage("");
     try {
       const body = new FormData();
-      body.set("file", file); body.set("terminal", terminal); body.set("siteCode", siteCode);
+      await attachBookingFile(body, file, terminal); body.set("terminal", terminal); body.set("siteCode", siteCode);
       const response = await fetch("/api/warehouse/outbound/preview", { method: "POST", body });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);

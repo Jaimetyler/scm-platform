@@ -1,4 +1,5 @@
 "use client";
+import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 
 import { useState, type FormEvent } from "react";
 import type { previewDallasBungeDrays } from "@/lib/dray/dallas-booking";
@@ -19,6 +20,9 @@ export default function DallasDrayPreview() {
     setError("");
     setBusy(true);
     try {
+      const file = form.get("booking");
+      if (!(file instanceof File)) throw Error("Choose a booking request.");
+      await attachBookingFile(form, file, "DAL", undefined, "booking");
       const response = await fetch("/api/dray-import/dallas", { method: "POST", body: form });
       const result = await response.json();
       if (!response.ok || !result.ok) throw Error(result.error || "Booking preview failed.");

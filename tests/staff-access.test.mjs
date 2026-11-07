@@ -156,3 +156,8 @@ test("location records allow viewing and scoped evidence updates without master 
  for(const path of ["/api/cotton-locations","/api/cotton-locations/outreach/future"])
   assert.equal((await call(path,"POST",{},hou)).status,403);
 });
+test("large booking upload authorization is terminal-scoped and denies read-only accounts", async () => {
+  assert.equal((await call('/api/warehouse/outbound/uploads', 'POST', {terminal:'HOU'})).status, 200);
+  assert.equal((await call('/api/warehouse/outbound/uploads', 'POST', {terminal:'DAL'})).status, 403);
+  assert.equal((await call('/api/warehouse/outbound/uploads', 'POST', {terminal:'HOU'}, viewer)).status, 403);
+});

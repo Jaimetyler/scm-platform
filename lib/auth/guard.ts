@@ -54,6 +54,9 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   }
   if (path === "/api/auth/me" && req.method === "GET") return;
   if (staff.role !== "operator") throw new AccessError("This account has read-only warehouse access.");
+  if (path === "/api/warehouse/outbound/uploads" && req.method === "POST") {
+    const body = await req.clone().json(); requireTerminal(staff, body.terminal); return;
+  }
   if (path === "/api/warehouse/outbound/preview" && req.method === "POST") {
     const form = await req.clone().formData();
     requireTerminal(staff, form.get("terminal")); return;

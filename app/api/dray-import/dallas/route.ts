@@ -1,16 +1,18 @@
+import { readBookingSource, BOOKING_UPLOAD_BUCKET } from "@/lib/warehouse/outbound/booking-source";
+import { staffDatabase } from "@/lib/auth/session";
 import { NextRequest, NextResponse } from "next/server";
-import { withStaffAccess } from "@/lib/auth/guard";
+import { withStaffAccess, staffProfile } from "@/lib/auth/guard";
 import { previewDallasBungeDrays } from "@/lib/dray/dallas-booking";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
-    const file = (await request.formData()).get("booking");
-    if (!(file instanceof File) || !/\.(xlsx|xlsb)$/i.test(file.name) || !file.size || file.size > 4 * 1024 * 1024) {
-      throw Error("Choose a supported .xlsx or .xlsb booking request up to 4 MB.");
-    }
-    const preview = previewDallasBungeDrays(Buffer.from(await file.arrayBuffer()));
+    const form = await request.formData();
+    const source = await readBookingSource(form, { owner: staffProfile(request)?.user_id ?? "", terminal: "DAL",
+      secret: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "", download: path => staffDatabase().storage.from(BOOKING_UPLOAD_BUCKET).download(path) }, "booking");
+    const preview = previewDallasBungeDrays(source.bytes);
     return NextResponse.json({ ok: true, preview }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Booking could not be read." }, { status: 400 });

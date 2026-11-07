@@ -1,4 +1,6 @@
-import { withStaffAccess } from "@/lib/auth/guard";
+import { readBookingSource, BOOKING_UPLOAD_BUCKET } from "@/lib/warehouse/outbound/booking-source";
+import { staffDatabase } from "@/lib/auth/session";
+import { withStaffAccess, staffProfile } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -6,6 +8,7 @@ import { parseBookingRequest, prepareBookingImport, bookingImportOptions } from 
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 function database() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -34,15 +37,14 @@ async function GETHandler(req: NextRequest) {
 async function POSTHandler(req: NextRequest) {
   try {
     const form = await req.formData();
-    const file = form.get("file");
     const terminal = String(form.get("terminal") ?? "").toUpperCase();
     const siteCode = String(form.get("siteCode") ?? "");
     const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode && item.materials.includes("cotton"));
     if (!site) return NextResponse.json({ ok: false, error: "Unknown cotton warehouse" }, { status: 400 });
-    if (!(file instanceof File) || file.size > 4 * 1024 * 1024 || !/\.(xlsx|xlsb)$/i.test(file.name))
-      return NextResponse.json({ ok: false, error: "Choose a supported .xlsx or .xlsb booking request under 4 MB." }, { status: 400 });
+    const source = await readBookingSource(form, { owner: staffProfile(req)?.user_id ?? "", terminal,
+      secret: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "", download: path => staffDatabase().storage.from(BOOKING_UPLOAD_BUCKET).download(path) });
     const options = bookingImportOptions(form);
-    const booking = prepareBookingImport(parseBookingRequest(Buffer.from(await file.arrayBuffer()), options), terminal, siteCode, options, true);
+    const booking = prepareBookingImport(parseBookingRequest(source.bytes, options), terminal, siteCode, options, true);
     if (form.get("datesConfirmed") !== "true") return NextResponse.json({ ok: false,
       error: "Review and confirm the sailing dates before importing." }, { status: 400 });
     const sailing = normalizeBookingDetails({ erd: String(form.get("erd") ?? ""), docCutoff: String(form.get("docCutoff") ?? ""),
@@ -53,7 +55,7 @@ async function POSTHandler(req: NextRequest) {
       p_terminal: terminal, p_site_code: siteCode, p_site_name: site.siteName,
       p_customer: booking.customer, p_booking_number: booking.bookingNumber,
       p_customer_reference: booking.customerReference, p_containers: booking.containers,
-      p_total_bales: booking.totalBales, p_source_filename: file.name.slice(0, 200), p_lines: booking.lines,
+      p_total_bales: booking.totalBales, p_source_filename: source.name.slice(0, 200), p_lines: booking.lines,
       p_details: { ...sailing, source_format: booking.sourceFormat },
     });
     if (error) return NextResponse.json({ ok: false,

@@ -1,4 +1,5 @@
 "use client";
+import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
@@ -115,16 +116,16 @@ export default function CottonOutboundPage() {
     if (working) return;
     if (!site) { setImportError("Choose the receiving warehouse first."); return; }
     if (!file) { setImportError("Choose a booking request file first."); return; }
-    if (!/\.(xlsx|xlsb)$/i.test(file.name) || file.size > 4 * 1024 * 1024) {
-      setImportError("Choose a supported .xlsx or .xlsb booking request under 4 MB."); return;
+    if (!/\.(xlsx|xlsb)$/i.test(file.name) || file.size > 25 * 1024 * 1024) {
+      setImportError("Choose a supported .xlsx or .xlsb booking request up to 25 MB."); return;
     }
     const controller = new AbortController();
     uploadRequest.current = controller;
-    const timeout = window.setTimeout(() => controller.abort(), 60000);
+    const timeout = window.setTimeout(() => controller.abort(), 180000);
     setWorking(true); setImportError("");
     try {
       const body = new FormData();
-      body.set("file", file); body.set("terminal", site.terminal); body.set("siteCode", site.siteCode);
+      await attachBookingFile(body, file, site.terminal, controller.signal); body.set("terminal", site.terminal); body.set("siteCode", site.siteCode);
       body.set("dateYear", dateYear); body.set("lineBales", JSON.stringify(lineBales));
       body.set("customerConfirmed", String(customerConfirmed)); body.set("warehouseConfirmed", String(warehouseConfirmed));
       if (save) { body.set("datesConfirmed", String(datesConfirmed)); Object.entries(importDates).forEach(([key, value]) => body.set(key, value)); }
@@ -185,7 +186,7 @@ export default function CottonOutboundPage() {
       </form>
       {working && <p role="status" style={{ color: "#94a3b8" }}>Processing {file?.name}…</p>}
       {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
-      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge, Olam Dray Dispatch, and ED&F inland drayage exports up to 4 MB. Review the marks and sailing dates before saving the draft.</p>
+      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge, Olam Dray Dispatch, and ED&F inland drayage exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>

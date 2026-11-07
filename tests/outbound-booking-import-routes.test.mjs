@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
 import XLSX from 'xlsx';
+import * as bookingSource from '../lib/warehouse/outbound/booking-source.ts';
 import * as parser from '../lib/warehouse/outbound/booking-import.ts';
 import * as sites from '../lib/inbound/checkin/sites.ts';
 import * as details from '../lib/warehouse/outbound/details.ts';
@@ -13,7 +14,7 @@ function file() {const w=XLSX.utils.book_new();XLSX.utils.book_append_sheet(w,XL
 function handler(path) {
  const calls=[]; const mod={exports:{}};
  const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
- const local=n=>n==='@/lib/auth/guard'?{withStaffAccess:fn=>fn}:n==='@/lib/warehouse/outbound/booking-import'?parser:n==='@/lib/inbound/checkin/sites'?sites:n==='@/lib/warehouse/outbound/details'?details:n==='@supabase/supabase-js'?{createClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return {data:'11111111-1111-4111-8111-111111111111',error:null};}})}:require(n);
+ const local=n=>n==='@/lib/auth/guard'?{withStaffAccess:fn=>fn,staffProfile:()=>({user_id:'test-user'})}:n==='@/lib/auth/session'?{staffDatabase:()=>({})}:n==='@/lib/warehouse/outbound/booking-source'?bookingSource:n==='@/lib/warehouse/outbound/booking-import'?parser:n==='@/lib/inbound/checkin/sites'?sites:n==='@/lib/warehouse/outbound/details'?details:n==='@supabase/supabase-js'?{createClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return {data:'11111111-1111-4111-8111-111111111111',error:null};}})}:require(n);
  new Function('require','module','exports',code)(local,mod,mod.exports);return {post:mod.exports.POST,calls};
 }
 function request(fields={}) {const form=new FormData();form.set('file',new File([file()],'renamed.xlsx'));form.set('terminal','DAL');form.set('siteCode','SCMDDETX');for(const [k,v]of Object.entries(fields))form.set(k,String(v));return new Request('https://example.test',{method:'POST',body:form});}
