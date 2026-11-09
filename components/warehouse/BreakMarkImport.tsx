@@ -12,7 +12,7 @@ export default function BreakMarkImport({ terminal, siteCode, onImported }: { te
   const [text, setText] = useState("");
   const [customer, setCustomer] = useState("");
   const [location, setLocation] = useState("");
-  const [quantity, setQuantity] = useState("");
+  const [quantity, setQuantity] = useState(terminal === "HOU" ? siteCode === "5300" ? "mckinney" : siteCode === "4331" ? "pasadena" : "" : "");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [requestId, setRequestId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,12 +36,12 @@ export default function BreakMarkImport({ terminal, siteCode, onImported }: { te
   return <PlatformPanel style={{ padding: 16, marginBottom: 18 }}>
     <button type="button" style={field} onClick={() => setOpen(!open)} aria-expanded={open}>＋ Import break marks</button>
     {open && <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-      <p style={{ margin: 0, color: "#a8c3dc" }}>Paste the shipping-order rows from Excel. These become available inventory at this site, tagged as break marks. Source marks will need reconciliation later.</p>
+      <p style={{ margin: 0, color: "#a8c3dc" }}>Paste the shipping-order rows from Excel. Importing into {terminal} · {siteCode}{terminal === "HOU" && (siteCode === "5300" ? " (McKinney)" : siteCode === "4331" ? " (Pasadena)" : "")}. These become available inventory at this site, tagged as break marks. Source marks will need reconciliation later.</p>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, display: "flex", gap: 12, flexWrap: "wrap" }}>
         <label>Customer<br /><input style={field} maxLength={200} value={customer} onChange={e => { invalidate(); setCustomer(e.target.value); }} /></label>
         <label>Warehouse location (optional)<br /><input style={field} maxLength={120} value={location} onChange={e => { invalidate(); setLocation(e.target.value); }} /></label>
         <label>Quantity to import<br /><select style={field} value={quantity} onChange={e => { invalidate(); setQuantity(e.target.value); }}>
-          <option value="">Bale count (unsplit sheets)</option><option value="bales">Total bale count</option><option value="pasadena">Pasadena column</option><option value="mckinney">McKinney column</option>
+          <option value="">Bale count (unsplit sheets)</option><option value="bales">Total bale count</option><option value="pasadena">Pasadena · 4331 column</option><option value="mckinney">McKinney · 5300 column</option>
         </select></label>
       </fieldset>
       <label>Break mark / S.O. # / Bale count<textarea disabled={busy} style={{ ...field, width: "100%", boxSizing: "border-box", display: "block" }} rows={7} maxLength={150000}

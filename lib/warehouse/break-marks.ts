@@ -31,7 +31,9 @@ export function parseBreakMarks(text: string, quantity?: string) {
       throw new Error("This sheet has warehouse quantities. Choose Bale Count, Pasadena or McKinney before previewing.");
     const markIndex=header?header.findIndex(v=>["BREAKMARK","BREAKMARKS","MARK"].includes(v)):0;
     const orderIndex=header?header.findIndex(v=>["SO","SONUMBER","SHIPPINGORDER","SHIPPINGORDERNUMBER"].includes(v)):1;
-    const quantityKey=quantity==="pasadena"?"PASADENA":quantity==="mckinney"?"MCKINNEY":"BALECOUNT";
+    const splitSheet=header?.some(v=>["PASADENA","MCKINNEY"].includes(v));
+    const selected=header && !splitSheet ? "bales" : quantity;
+    const quantityKey=selected==="pasadena"?"PASADENA":selected==="mckinney"?"MCKINNEY":"BALECOUNT";
     const countIndex=header?header.findIndex(v=>v===quantityKey || quantityKey==="BALECOUNT" && ["BALES","BALECOUNT","QUANTITY"].includes(v)):2;
     if(markIndex<0 || countIndex<0)throw new Error(`Missing ${quantityKey==="BALECOUNT"?"bale count":quantityKey} column. Use Mark, S.O. #, Bale Count headers.`);
     const mark=(values[markIndex]??"").toUpperCase(),shippingOrder=orderIndex<0?"":values[orderIndex]??"";

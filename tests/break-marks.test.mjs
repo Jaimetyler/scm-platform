@@ -27,3 +27,12 @@ test('daily activity uses warehouse midnight, with DST and year rollover',()=>{
  assert.equal(warehouseDayRange(new Date('2027-01-01T05:30:00Z'),'HOU').day,'2026-12-31');
  assert.equal(warehouseDayRange(new Date('2027-01-01T05:30:00Z'),'SAV').day,'2027-01-01');
 });
+
+test('site defaults use the total on unsplit sheets and only the matching quantity on split sheets',()=>{
+ const simple='MARK\tSO\tBALES\nRZ024\t52918\t90';
+ assert.equal(parseBreakMarks(simple,'mckinney').totalBales,90);
+ assert.equal(parseBreakMarks(simple,'pasadena').totalBales,90);
+ const split='MARK\tSO\tBALES\tPASADENA\tMCKINNEY\nA\t1\t90\t0\t90\nB\t2\t91\t91\t0';
+ assert.equal(parseBreakMarks(split,'mckinney').rows[0].mark,'A');
+ assert.equal(parseBreakMarks(split,'pasadena').rows[0].mark,'B');
+});

@@ -13,7 +13,8 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
    return NextResponse.json({ok:false,error:"Choose a cotton warehouse and enter the customer."},{status:400});
   if(body.quantityColumn && !["bales","pasadena","mckinney"].includes(body.quantityColumn))
    return NextResponse.json({ok:false,error:"Choose a valid quantity column."},{status:400});
-  const preview=parseBreakMarks(body.text,body.quantityColumn);
+  const defaultQuantity = site.terminal === "HOU" ? site.siteCode === "5300" ? "mckinney" : site.siteCode === "4331" ? "pasadena" : undefined : undefined;
+  const preview=parseBreakMarks(body.text,body.quantityColumn || defaultQuantity);
   const db=staffDatabase();
   if(body.action==="preview") {
    const {data,error}=await db.from("warehouse_inventory_lots").select("mark,customer,source_type,shipping_order,original_bales,current_bales,inventory_status")
