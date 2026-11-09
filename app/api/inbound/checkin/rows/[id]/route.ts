@@ -1,3 +1,4 @@
+import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
 import { canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
@@ -327,6 +328,7 @@ async function PATCHHandler(
       return NextResponse.json({ ok: false, error: "Row changed while saving. Refresh and try again." }, { status: 409 });
     }
 
+    await syncCheckinArrival(sb, id);
     const saved = draft_status === "ready" ? await processCheckinRow(req, id) : data;
     return NextResponse.json({
       ok: true,

@@ -1,3 +1,4 @@
+import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { randomUUID } from "node:crypto";
 import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
 import { outsideCarrierOverrideEligible, canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
@@ -22,7 +23,8 @@ import { cottonShortage, shortageAcknowledged, acknowledgeShortage } from "@/lib
 export const runtime = "nodejs";
 const QUEUE_FIELDS = "id,terminal,site_name,checkin_source,updated_at,checked_in_at,physical_departed_at,local_receiving_only,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,site_code,matched_stop_id,mcleod_lookup_status,mcleod_lookup_attempt_id,mcleod_lookup_failure_code,mcleod_lookup_failed_at,mcleod_lookup_has_known_match,mcleod_processing_phase,processing_error,outside_carrier_override_at,outside_carrier_override_by,outside_carrier_override_reason";
 function queueRow(row: Record<string, any>) {
-  return { ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
+  const arrival = Array.isArray(row.arrival_sync) ? row.arrival_sync[0] : row.arrival_sync;
+  return { arrival_sync_status: arrival?.status ?? null, arrival_sync_error: arrival?.error ?? null, ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
       .map(key => [key, row[key]])),
     has_bol_photo: Boolean(row.bol_photo_path),
     outside_carrier_override_eligible: outsideCarrierOverrideEligible(row),
@@ -88,7 +90,7 @@ async function GETHandler(req: NextRequest) {
       const id = searchParams.get("id") || "";
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         return NextResponse.json({ ok: false, error: "Invalid arrival identifier" }, { status: 400 });
-      const result = await database().from("inbound_checkin_rows").select(QUEUE_FIELDS)
+      const result = await database().from("inbound_checkin_rows").select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error)`)
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
       if (result.error) return databaseFailure(result);
@@ -97,7 +99,7 @@ async function GETHandler(req: NextRequest) {
     }
     const line = searchParams.get("view") === "line";
     const { data, error } = await database().from("inbound_checkin_rows")
-      .select(QUEUE_FIELDS)
+      .select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error)`)
       .eq("terminal", terminal).eq("site_code", siteCode)
       .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
       .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
@@ -167,6 +169,7 @@ async function POSTHandler(req: NextRequest) {
     }).select("id").single();
     if (error?.code === "23505") return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
     if (error) throw error;
+    await syncCheckinArrival(database(), data.id);
     return NextResponse.json({ ok: true, id: data.id });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save manual check-in" }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
@@ -181,6 +184,17 @@ async function PATCHHandler(req: NextRequest) {
     const to = String(body?.to ?? "");
     const terminal = String(body?.terminal ?? "").toUpperCase();
     const siteCode = String(body?.siteCode ?? "");
+    if (body?.action === "sync_arrival") {
+      if (!/^[0-9a-f-]{36}$/i.test(id) || !siteExists(terminal, siteCode))
+        return NextResponse.json({ ok: false, error: "Choose a valid saved arrival." }, { status: 400 });
+      const db = database();
+      const saved = await db.from("inbound_checkin_rows").select("id").eq("id", id)
+        .eq("terminal", terminal).eq("site_code", siteCode).maybeSingle();
+      if (saved.error) return databaseFailure(saved);
+      if (!saved.data) return NextResponse.json({ ok: false, error: "Arrival not found in this yard." }, { status: 404 });
+      const result = await syncCheckinArrival(db, id);
+      return NextResponse.json({ ok: true, arrival: result });
+    }
     if (body?.action === "process_outside_carrier") {
       const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuid.test(id) || !siteExists(terminal, siteCode) ||
@@ -679,6 +693,7 @@ async function PATCHHandler(req: NextRequest) {
         .select("id,updated_at,shipper,matched_order_id").maybeSingle();
       if (error) throw error;
       if (!data) return NextResponse.json({ ok: false, error: "This row changed. Refresh before saving." }, { status: 409 });
+      await syncCheckinArrival(sb, id);
       return NextResponse.json({ ok: true, row: data });
     }
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id) || !siteExists(terminal, siteCode) || !NEXT[from]?.includes(to)) {

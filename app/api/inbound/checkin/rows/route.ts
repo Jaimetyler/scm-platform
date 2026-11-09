@@ -1,3 +1,4 @@
+import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
 import { normalizeKey } from "@/lib/mcleod/inbound/utils";
 import { isLocalReceivingCustomer } from "@/lib/inbound/checkin/local-receiving";
@@ -275,7 +276,7 @@ async function POSTHandler(req: NextRequest) {
         const { data: existing } = await sb.from("inbound_checkin_rows")
           .select("*").eq("id", clientId).eq("terminal", terminal)
           .eq("site_code", site_code).single();
-        if (existing) return NextResponse.json({ ok: true, row: publicCheckinRow(existing) });
+        if (existing) { await syncCheckinArrival(sb, existing.id); return NextResponse.json({ ok: true, row: publicCheckinRow(existing) }); }
       }
       return NextResponse.json(
         { ok: false, error: error.message },
@@ -283,6 +284,7 @@ async function POSTHandler(req: NextRequest) {
       );
     }
 
+    await syncCheckinArrival(sb, data.id);
     return NextResponse.json({
       ok: true,
       row: publicCheckinRow(data),

@@ -1,3 +1,4 @@
+import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { validatePickupAcceptance, PICKUP_TERMS, requiresPickupAgreement } from "@/lib/inbound/checkin/pickup-agreement";
 import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
@@ -473,6 +474,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     }
     if (error?.code === "23505") return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
     if (error) throw error;
+
+    await syncCheckinArrival(sb, clientId);
 
     let photoSaved = false;
     if (photo) {

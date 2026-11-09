@@ -16,8 +16,9 @@ function fixture(id = '92157', extra = {}) {
     commodity_id: 'LUMBER', movements: [{ id: 'M1', carrier_name: 'Actual Trucking', override_driver_nm: 'Known Driver', override_drvr_cell: '555-555-1234' }],
     stops: [{ id: 'PU1', movement_id: 'M1', stop_type: 'PU', sched_arrive_early: new Date().toISOString(), location: { name: 'SCM Houston 5300' } }], ...extra };
 }
-function route(writes, { locationOk = true, gate: configuredGate = gate } = {}) {
+function route(writes, { locationOk = true, gate: configuredGate = gate, onArrivalSync = () => {} } = {}) {
   const modules = {
+    "@/lib/inbound/checkin/arrival-sync": { syncCheckinArrival: async (_db, id) => { assert.equal(writes.at(-1)?.id, id, "arrival sync runs after the saved check-in"); onArrivalSync(id); return { status: "pending" }; } },
     '@/lib/inbound/checkin/pickup-agreement': pickupAgreement,
     'next/server': { NextResponse: Response },
     '@/lib/inbound/checkin/driver-lookup': driverLookup,
@@ -62,7 +63,8 @@ async function withFixture(orders, search, run, override, options = {}) {
     const order = orders[decodeURIComponent(path.pathname.split('/').pop())];
     return order ? Response.json(order) : Response.json(null, { status: 404 });
   };
-  const handler = route(writes, options);
+  const arrivalCalls = [];
+  const handler = route(writes, { ...options, onArrivalSync: id => arrivalCalls.push(id) });
   const send = async (body, multipart = false) => {
     const request = multipart ? (() => {
       const form = new FormData(); for (const [key, value] of Object.entries(body)) form.set(key, key === "pickupAgreement" ? JSON.stringify(value) : value);
@@ -71,7 +73,7 @@ async function withFixture(orders, search, run, override, options = {}) {
     const response = await handler(request, { params: Promise.resolve({ token }) });
     return { response, body: await response.json() };
   };
-  try { await run({ writes, calls, send }); } finally {
+  try { await run({ writes, calls, send }); assert.deepEqual(arrivalCalls, writes.filter(row => row.checked_in_at).map(row => row.id), "every saved driver arrival invokes arrival sync"); } finally {
     globalThis.fetch = previousFetch;
     for (const name of names) if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name];
   }
