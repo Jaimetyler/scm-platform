@@ -211,6 +211,14 @@ export function warehouseMatchesSite(warehouse: string, terminal: string, siteCo
     const reportCode = siteCode === "SCMDDETX" ? "875260" : siteCode === "SCMDDATX" ? "843001" : null;
     return !!reportCode && text.split(/[^A-Z0-9]+/).some(word => word === siteCode || word === reportCode);
   }
+  // Houston customer sheets often use only the SCM terminal label (and an
+  // older warehouse code). The selected booking yard supplies its site context.
+  const label = warehouse.toUpperCase();
+  if (terminal === "HOU" && ["5300", "4331"].includes(siteCode) && /SUPPLY\s+CHAIN\s+(?:MGMT|MANAGEMENT)/.test(label)) {
+    if (/PASADENA|(?:^|\D)4331(?:\D|$)/.test(label)) return siteCode === "4331";
+    if (/MCKINNEY|BAYTOWN|(?:^|\D)5300(?:\D|$)/.test(label)) return siteCode === "5300";
+    if (/HOUSTON/.test(label)) return true;
+  }
   const city = terminal === "SAV" ? /SAVANNAH|GARDEN CITY|PORT WENTWORTH/ : /HOUSTON|BAYTOWN/;
   return city.test(text) && new RegExp(`(^|\\D)${siteCode}(\\D|$)`).test(text);
 }

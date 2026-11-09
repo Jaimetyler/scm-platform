@@ -80,6 +80,14 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
             <Link key={item.siteCode} href={locationHref({ terminal: item.terminal, siteCode: item.siteCode })} aria-current={location.siteCode === item.siteCode ? "true" : undefined}>{item.displayCode ?? item.siteCode}</Link>)}
         </nav>}
       </div>
+      <form className="warehouse-global-search" action="/warehouse/search" role="search">
+        {location.terminal !== "all" && <input type="hidden" name="terminal" value={location.terminal} />}
+        {location.siteCode !== "all" ? <input type="hidden" name="siteCode" value={location.siteCode} /> : <input type="hidden" name="warehouse" value="all" />}
+        <input key={`${location.terminal}:${location.siteCode}:${query.get("q") || ""}`} name="q" type="search" minLength={2} maxLength={100} required
+          defaultValue={path === "/warehouse/search" ? query.get("q") || "" : ""} aria-label={`Search ${locationLabel(location)}`}
+          placeholder={`Search ${locationLabel(location)}: mark, booking, container, SO, driver…`} />
+        <button type="submit">Search warehouse</button>
+      </form>
       <nav aria-label="Warehouse navigation" className="warehouse-main-nav">{navigation.map(([key, label]) =>
         <Link key={key} href={key === "outbound" && returnTo ? returnTo : href(key)} aria-current={section === key ? "page" : undefined}>{label}</Link>)}</nav>
       {<nav aria-label="Check-in views" className="warehouse-subnav"><Link href={href("overview")} className="warehouse-back-operations">← Operations</Link>{(site ? availableCheckinViews(location) : (["line", "cotton", "domestic", "containers"] as CheckinView[]).map(key => ({ key, label: { line: "Active Line", cotton: "Cotton", domestic: "Lumber & Other", containers: "Containers" }[key], href: `/inbound/checkin?${new URLSearchParams({ ...(location.terminal !== "all" ? { terminal: location.terminal } : {}), warehouse: "all", view: key })}` }))).map((item) =>

@@ -79,3 +79,15 @@ test('load-by dates can be old, malformed, empty, or absent and other locations 
   delete wb.Sheets.Sheet1.B4;
   assert.equal(parseBungeBooking(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })).lines[0].loadBy, null);
 });
+
+test('generic SCM Houston labels use the selected warehouse, while specific yards and outside sources stay distinct',()=>{
+ const booking={lines:[{warehouse:'Supply Chain Mgmt - HOUSTON',warehouseCode:'913054'}],warehouseDetails:{'913054':'4331 Underwood Road'}};
+ assert.equal(classifyBookingLoads(booking,'HOU','5300')[0].loadSource,'warehouse');
+ assert.equal(classifyBookingLoads(booking,'HOU','4331')[0].loadSource,'warehouse');
+ for(const [warehouse,site,expected] of [
+  ['Supply Chain Management - McKinney','5300','warehouse'],['Supply Chain Management - McKinney','4331','source_load'],
+  ['Supply Chain Mgmt - PASADENA','5300','source_load'],['Supply Chain Mgmt - PASADENA','4331','warehouse'],
+  ['Outside Compress - HOUSTON','5300','source_load'],['Supply Chain Mgmt - HOUSTON','984','source_load']]) {
+  assert.equal(classifyBookingLoads({...booking,lines:[{warehouse,warehouseCode:''}]},site==='984'?'SAV':'HOU',site)[0].loadSource,expected);
+ }
+});

@@ -136,3 +136,8 @@
     grid-column: auto;
   }
 }
+
+.warehouse-global-search { display:flex; gap:8px; padding:10px 22px; border-top:1px solid #26374b; }
+.warehouse-global-search input[type="search"] { flex:1; min-width:0; padding:10px 12px; border:1px solid #39536b; border-radius:8px; background:#102137; color:#f1f5f9; }
+.warehouse-global-search button { border:1px solid #39536b; border-radius:8px; padding:10px 14px; background:#16475e; color:#f1f5f9; cursor:pointer; }
+@media (max-width:600px) { .warehouse-global-search { padding:10px; flex-wrap:wrap; } .warehouse-global-search input[type="search"] { flex-basis:100%; } }

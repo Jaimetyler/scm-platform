@@ -5,8 +5,8 @@ import Link from "next/link";
 import BreakMarkImport from "@/components/warehouse/BreakMarkImport";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
@@ -75,10 +75,19 @@ export default function WarehouseInventoryPage() {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const linkedSearch = useSearchParams().get("search");
+  const [linkReady, setLinkReady] = useState(linkedSearch === null);
+  const appliedSearch = useRef<string | null>(null);
   const viewReady = searchInputReady && searchReady && statusReady && pageReady;
 
+  useEffect(() => {
+    if (!viewReady || linkedSearch === null || appliedSearch.current === linkedSearch) return;
+    appliedSearch.current = linkedSearch;
+    setSearchInput(linkedSearch); setSearch(linkedSearch); setPage(1); setStatus("all"); setLinkReady(true);
+  }, [viewReady, linkedSearch, setSearchInput, setSearch, setPage, setStatus]);
+
   const loadInventory = useCallback(async () => {
-    if (!site || !viewReady) return;
+    if (!site || !viewReady || !linkReady) return;
     setLoading(true);
     setError("");
     try {
@@ -100,7 +109,7 @@ export default function WarehouseInventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [site, status, search, page, viewReady]);
+  }, [site, status, search, page, viewReady, linkReady]);
 
   useEffect(() => { void loadInventory(); }, [loadInventory]);
 

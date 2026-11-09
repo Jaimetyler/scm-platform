@@ -6,6 +6,7 @@ export function bookingMarkBadges(line: {
   if (line.line_status === "on_hold") badges.push({ label: "On hold", color: "#94a3b8", background: "rgba(180,83,9,.12)", title: "Waiting for new information. Resume before editing equipment or splitting." });
   if (line.load_source === "source_load") {
     badges.push({ label: "Source load", color: "#94a3b8", background: "rgba(71,85,105,.12)", title: "Direct pickup in a container at the source location; warehouse receipt is not expected." });
+    if ((line.warehouse_bales ?? line.available_bales) > 0) badges.push({ label: "In warehouse", color: "#86efac", background: "rgba(22,163,74,.16)", title: "Inventory exists at this warehouse. Review the source-load plan before dispatching." });
     if (line.source_arrivals?.length) badges.push({ label: "Unexpected warehouse arrival", color: "#fde68a", background: "rgba(180,83,9,.12)", title: "This source mark checked in at a warehouse. Review and convert its plan if needed." });
     return badges;
   }

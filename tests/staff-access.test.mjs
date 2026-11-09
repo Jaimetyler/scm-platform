@@ -230,3 +230,9 @@ test("break-mark preview and import require a writer in the selected terminal", 
   assert.equal((await call('/api/warehouse/inventory/break-marks','POST',{terminal:'HOU',action},{...viewer,role:'accounting'})).status,403);
  }
 });
+
+test('global warehouse search is read-only and scoped for operators',async()=>{
+ for(const staff of [hou,viewer,{...viewer,role:'accounting'}]) assert.equal((await call('/api/warehouse/search?terminal=HOU&q=E1078','GET',undefined,staff)).status,200);
+ assert.equal((await call('/api/warehouse/search?terminal=SAV&q=E1078','GET')).status,403);
+ assert.equal((await call('/api/warehouse/search','POST',{terminal:'HOU'})).status,403);
+});

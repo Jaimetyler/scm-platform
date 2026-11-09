@@ -3,8 +3,8 @@ import Link from "next/link";
 
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import PlatformPanel from "@/components/platform/PlatformPanel";
 import PaperworkPhotoLink from "@/components/warehouse/PaperworkPhotoLink";
@@ -39,7 +39,15 @@ export default function DomesticHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const linkedSearch = useSearchParams().get("search");
+  const appliedSearch = useRef<string | null>(null);
   const viewReady = searchReady && fromReady && throughReady && statusReady && filtersReady && pageReady;
+  useEffect(() => {
+    if (!viewReady || linkedSearch === null || appliedSearch.current === linkedSearch) return;
+    appliedSearch.current = linkedSearch;
+    setSearch(linkedSearch); setFrom(""); setThrough(""); setStatus("all"); setPage(0);
+    setFilters({ search: linkedSearch, from: "", through: "", status: "all" });
+  }, [viewReady, linkedSearch, setSearch, setFrom, setThrough, setStatus, setPage, setFilters]);
   const query = useCallback((pageNumber: number, exportFile = false) => {
     if (!site) return "";
     const params = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, page: String(pageNumber), status: filters.status });

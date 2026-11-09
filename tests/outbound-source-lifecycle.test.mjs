@@ -137,3 +137,25 @@ test('container-info Excel has a booking header and only mark/container/seal col
     assert.equal(row.missing_marks,2);
   }finally{await db.close();}
 });
+
+test('Houston correction repairs generic SCM labels with existing regular/break stock, audits the change and preserves explicit source decisions',async()=>{
+ const db=await database();try {
+  await db.exec("alter table warehouse_inventory_lots add column source_type text default 'checkin'");
+  const input=[{sourceRow:1,mark:'BREAK',bales:90,confirmed:false,warehouse:'Supply Chain Mgmt - HOUSTON',warehouseCode:'913054',loadSource:'source_load'},
+   {sourceRow:2,mark:'KEEP',bales:90,confirmed:false,warehouse:'Supply Chain Mgmt - HOUSTON',warehouseCode:'913054',loadSource:'source_load'},
+   {sourceRow:3,mark:'GIN',bales:90,confirmed:false,warehouse:'Outside gin',warehouseCode:'123456',loadSource:'source_load'}];
+  const id=(await db.query("select create_cotton_outbound_booking_draft('HOU','5300','McKinney','BUNGE','HOU-TEST','',3,270,'test.xlsx',$1::jsonb) id",[JSON.stringify(input)])).rows[0].id;
+  const lines=(await db.query('select * from cotton_outbound_booking_lines where booking_id=$1 order by source_row',[id])).rows;
+  await db.query("insert into warehouse_inventory_lots(mark,terminal,site_code,inventory_status,current_bales,allocated_bales,source_type) values('BREAK','HOU','5300','active',90,0,'break')");
+  await db.query("insert into cotton_outbound_mark_events(booking_id,line_id,action,previous_status,previous_source) values($1,$2,'keep_source','active','source_load')",[id,lines[1].id]);
+  await db.exec(await readFile(new URL('../supabase/migrations/20261109202948_correct_houston_outbound_load_classification.sql',import.meta.url),'utf8'));
+  const changed=(await db.query('select mark,load_source from cotton_outbound_booking_lines where booking_id=$1 order by source_row',[id])).rows;
+  assert.deepEqual(changed.map(r=>r.load_source),['warehouse','source_load','source_load']);
+  assert.equal((await db.query('select current_bales from warehouse_inventory_lots')).rows[0].current_bales,90);
+  assert.equal((await db.query("select count(*)::int n from cotton_outbound_mark_events where changed_by='SCM classification correction'")).rows[0].n,1);
+  const metrics=(await db.query('select missing_marks,source_loads from cotton_outbound_booking_dashboard where id=$1',[id])).rows[0];
+  assert.equal(metrics.missing_marks,0);assert.equal(metrics.source_loads,2);
+  const badges=bookingMarkBadges({load_source:'source_load',warehouse_bales:90,available_bales:90,inbound_bales:0});
+  assert.deepEqual(badges.map(b=>b.label),['Source load','In warehouse']);
+ }finally{await db.close();}
+});
