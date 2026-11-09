@@ -20,7 +20,7 @@ export default async function Page({ searchParams }: {
     <header className={styles.header}>
       <div>
         <p className={styles.eyebrow}>DOMESTIC COTTON</p>
-        <h1>Inbound order importer</h1>
+        <h1>Inbound Cotton Importer</h1>
         <p>Review dispatch rows, warehouse mappings and proposed pickup windows</p>
       </div>
     </header>

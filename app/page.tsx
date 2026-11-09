@@ -46,18 +46,20 @@ export default async function Home() {
           <div className={styles.sectionHeading}><div><h2 id="operations-title">Operations</h2><p>Daily warehouse activity, dispatch and location information.</p></div></div>
           <div className={styles.grid}>
             <ToolCard href="/warehouse" category="Operations" title="Warehouse" description="View check-ins, inventory, outbound bookings and history across all terminals." />
-            {canUseInboundImporter(staff) && <ToolCard href="/bunge-import" category="Operations" title="Inbound Order Importer" description="Review dispatches, warehouse mappings and pickup windows for all three terminals." />}
             <ToolCard href="/cotton-locations" category="Operations" title="Cotton Locations" description="Find pickup hours, tariff documents and fees by location." />
             {canViewLateFees(staff) && <ToolCard href="/late-fees" category="Operations" title="Late Fees" description="Review late-fee candidates, active loads and totals by office." />}
           </div>
         </section>
-        {billing && <section aria-labelledby="billing-title">
+        {(billing || canUseInboundImporter(staff)) && <section aria-labelledby="billing-title">
           <div className={styles.sectionHeading}><div><h2 id="billing-title">Importing &amp; Billing</h2><p>Import reports, create and rate orders, and apply billing details.</p></div></div>
           <div className={styles.grid}>
+            {canUseInboundImporter(staff) && <ToolCard href="/bunge-import" category="Importing" title="Inbound Cotton Importer" description="Review dispatches, warehouse mappings and pickup windows for all three terminals." />}
+            {billing && <>
             <ToolCard href="/ecotton-import" category="Importing" title="eCotton Order Import" description="Review warehouse reports, check duplicates, and create and rate orders." />
             <ToolCard href="/dray-import" category="Importing" title="Savannah Dray Import" description="Match FirstStar carrier pay, review billing and deliver orders." />
             <ToolCard href="/dray-import/dallas" category="Importing" title="Dallas Dray Import" description="Preview planned rail drays from customer booking requests." />
             <ToolCard href="/order-charges" category="Billing" title="Billing Upload" description="Upload billing details and apply charges to SCM orders." />
+            </>}
           </div>
         </section>}
         {admin && <section aria-labelledby="reporting-title">
