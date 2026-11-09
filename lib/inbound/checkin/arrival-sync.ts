@@ -1,12 +1,16 @@
 import { dependencyFetch } from "../../http/dependency.ts";
 import { lookupMcleodGateOrder } from "./mcleod-order-id.ts";
-import { selectMcleodYardStop } from "./yard-stop.ts";
+import { mcleodOrderStops, selectMcleodYardStop } from "./yard-stop.ts";
 import { CHECKIN_SITES } from "./sites.ts";
 import { referenceMatchesInput } from "./reference-match.ts";
-import { formatWarehouseTime } from "./mcleod-time.ts";
+import { warehouseDate } from "./geofence.ts";
+import { formatWarehouseTime, planLiveDeliveryActuals } from "./mcleod-time.ts";
 
 type Snapshot = { orderId: string; stopId: string; company: string; arrival: string;
-  schedule: unknown[]; statuses: unknown[] };
+  schedule: unknown[]; statuses: unknown[];
+  pickups?: { id: string; arrival: string; departure: string }[];
+  pickupFill?: { stopId: string; arrivalDate: string; departureDate: string };
+  phase?: "pickup" | "arrival" };
 const text = (value: unknown) => String(value ?? "").trim();
 function instant(value: unknown) {
   const s = text(value).replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})$/, "$1-$2-$3T$4:$5:$6$7");
@@ -16,10 +20,17 @@ function evidence(order: any, selected: ReturnType<typeof selectMcleodYardStop>)
   return { schedule: [selected.stop.sched_arrive_early ?? null, selected.stop.sched_arrive_late ?? null],
     statuses: [order.status ?? null, selected.movement?.status ?? null, selected.stop.status ?? null] };
 }
+function pickupsConfirmed(order: any, plan: Snapshot) {
+  const stops = mcleodOrderStops(order);
+  return (plan.pickups ?? []).every(p => {
+    const stop = stops.find(s => text(s.id) === p.id);
+    return stop && instant(stop.actual_arrival) === instant(p.arrival) && instant(stop.actual_departure) === instant(p.departure);
+  });
+}
 export function arrivalConfirmed(order: any, row: any, plan: Snapshot) {
   const selected = selectMcleodYardStop(order, row.terminal, row.site_name, row.movement_direction, plan.stopId);
   const after = evidence(order, selected);
-  return text(order.id) === plan.orderId && text(selected.stop.company_id || order.company_id) === plan.company &&
+  return pickupsConfirmed(order, plan) && text(order.id) === plan.orderId && text(selected.stop.company_id || order.company_id) === plan.company &&
     instant(selected.stop.actual_arrival) === instant(plan.arrival) &&
     JSON.stringify(after.schedule) === JSON.stringify(plan.schedule) &&
     JSON.stringify(after.statuses) === JSON.stringify(plan.statuses);
@@ -28,13 +39,14 @@ async function request(path: string, body?: unknown) {
   const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
   const token = process.env.MCLEOD_AUTH_TOKEN;
   if (!base || !token) throw new Error("McLeod connection unavailable");
+  const clearPickup = path.startsWith("/carrierDispatch/clearStop/");
   const response = await dependencyFetch(`${base}${path}`, {
-    method: body ? "PUT" : "GET", cache: "no-store",
+    method: clearPickup ? "POST" : body ? "PUT" : "GET", cache: "no-store",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!response.ok) throw new Error("McLeod did not confirm arrival");
-  return body ? null : response.json();
+  return body || clearPickup ? null : response.json();
 }
 const defaults = { request, lookup: lookupMcleodGateOrder, enabled: () => process.env.MCLEOD_SYNC_ENABLED === "true" };
 
@@ -58,7 +70,7 @@ export async function syncCheckinArrival(db: any, id: string, deps = defaults) {
     // Reconciliation remains available even when writes have been disabled.
     if (["writing", "review"].includes(ledger.status)) {
       attempted = true;
-      if (ledger.status === "writing" && Date.now() - Date.parse(ledger.attempted_at) < 60000) return { status: "writing" };
+      if (ledger.status === "writing" && Date.now() - Date.parse(ledger.attempted_at) < (ledger.snapshot?.pickupFill ? 120000 : 60000)) return { status: "writing" };
       if (!ledger.snapshot) return { status: "review" };
       const current = await deps.request(`/orders/${encodeURIComponent(ledger.snapshot.orderId)}`);
       if (arrivalConfirmed(current, row, ledger.snapshot)) {
@@ -90,11 +102,51 @@ export async function syncCheckinArrival(db: any, id: string, deps = defaults) {
         .eq("checkin_id", id).eq("status", "pending");
       return { status: "review" };
     }
+    if (row.movement_direction === "delivery") {
+      if (!checked.pickupMovementVerified || !checked.pickupBackfillVerified)
+        throw new Error("Pickup movement or backfill prerequisites could not be verified");
+      const actuals = planLiveDeliveryActuals({
+        receivedDate: warehouseDate(new Date(row.checked_in_at), site.terminal), terminal: site.terminal,
+        checkedInAt: new Date(row.checked_in_at), verifiedAt: new Date(row.checked_in_at),
+        pickups: checked.pickupStops, delivery: selected.stop,
+      });
+      plan.pickups = checked.pickupStops.map(p => ({ id: p.id,
+        arrival: p.id === actuals.pickup.stopId ? actuals.pickup.arrivalDate : p.actual_arrival,
+        departure: p.id === actuals.pickup.stopId ? actuals.pickup.departureDate : p.actual_departure }));
+      if (!actuals.pickup.skipped) {
+        const pickup = mcleodOrderStops(order).find(p => text(p.id) === actuals.pickup.stopId);
+        if (!pickup || (pickup.company_id && text(pickup.company_id) !== company) ||
+            (pickup.order_id && text(pickup.order_id) !== plan.orderId)) throw new Error("Pickup identity differs");
+        plan.pickupFill = actuals.pickup;
+        plan.phase = "pickup";
+      }
+    }
     const claim = await db.rpc("claim_inbound_arrival", { p_id: id, p_revision: row.updated_at, p_snapshot: plan });
     if (claim.error || claim.data !== true) return { status: "pending" };
     attempted = true;
+    if (plan.pickupFill) {
+      const pickup = plan.pickupFill;
+      const parameters = new URLSearchParams({ arrivalDate: pickup.arrivalDate, departureDate: pickup.departureDate });
+      await deps.request(`/carrierDispatch/clearStop/${encodeURIComponent(pickup.stopId)}?${parameters}`);
+      const current = await deps.request(`/orders/${encodeURIComponent(plan.orderId)}`);
+      const selectedAfter = selectMcleodYardStop(current, site.terminal, site.siteName, "delivery", plan.stopId);
+      const afterEvidence = evidence(current, selectedAfter);
+      // A cleared pickup may advance its movement, but must not finish or
+      // alter the receiving stop. Confirm the pickup before posting arrival.
+      if (text(current.id) !== plan.orderId || !pickupsConfirmed(current, plan) ||
+          text(selectedAfter.stop.actual_arrival) !== text(checked.actualArrival) || text(selectedAfter.stop.actual_departure) ||
+          JSON.stringify(afterEvidence.schedule) !== JSON.stringify(plan.schedule) ||
+          afterEvidence.statuses[2] !== plan.statuses[2]) throw new Error("Pickup backfill was not confirmed");
+      const verified = await deps.lookup(plan.orderId, site.terminal, site.siteName, "delivery", plan.stopId, current);
+      if (verified.completion || !verified.pickupMovementVerified) throw new Error("Delivery changed during pickup backfill");
+      plan.statuses = afterEvidence.statuses;
+      plan.phase = "arrival";
+      const checkpoint = await db.from("inbound_arrival_sync").update({ snapshot: plan }).eq("checkin_id", id).eq("status", "writing")
+        .select("checkin_id").maybeSingle();
+      if (checkpoint.error || !checkpoint.data) throw new Error("Pickup confirmation could not be saved");
+    }
     if (!checked.actualArrival) {
-      // No departure, schedule, completion, billing or movement fields are sent.
+      // The receiving stop gets arrival only, never departure or completion.
       await deps.request("/stop/update", { __type: "stop", company_id: company, id: plan.stopId, actual_arrival: plan.arrival });
     }
     const after = await deps.request(`/orders/${encodeURIComponent(plan.orderId)}`);
