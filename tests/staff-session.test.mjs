@@ -135,3 +135,24 @@ test("accounting opens billing and warehouse pages and is redirected away from f
   const policy=s.load("lib/auth/policy.ts");
   assert.equal(policy.validInvite({name:"Accounting",email:"accounting@example.test",role:"accounting",terminal:"HOU"}).terminal,null);
 });
+
+
+test("Houston operators can open every operational gate sheet at both Houston sites",async()=>{
+ const middleware=scenario({profile:{role:"operator",terminal:"HOU"}}).load("middleware.ts").middleware;
+ for(const site of ["5300","4331"])for(const view of ["line","domestic","containers","history"]){
+  const path=`/warehouse/gate/hou/${site}/${view}`;
+  assert.equal((await middleware(new NextRequest("https://scm.example.test"+path))).headers.get("x-middleware-next"),"1",path);
+ }
+ for(const path of ["/warehouse/gate","/warehouse/gate/sav/175/line","/warehouse/gate/dal/1/domestic","/admin/users","/pnl"]){
+  const result=await middleware(new NextRequest("https://scm.example.test"+path));
+  assert.equal(new URL(result.headers.get("location")).pathname,"/warehouse",path);
+ }
+});
+test("read-only roles can view operational gate sheets without opening QR setup",async()=>{
+ for(const role of ["viewer","accounting"]){
+  const middleware=scenario({profile:{role,terminal:null}}).load("middleware.ts").middleware;
+  for(const view of ["line","domestic","containers","history"])
+   assert.equal((await middleware(new NextRequest(`https://scm.example.test/warehouse/gate/hou/5300/${view}`))).headers.get("x-middleware-next"),"1",`${role} ${view}`);
+  assert.equal((await middleware(new NextRequest("https://scm.example.test/warehouse/gate"))).headers.get("location"),"https://scm.example.test/");
+ }
+});

@@ -52,8 +52,11 @@ export function billingRequest(path: string, method: string) {
 export function canAccessStaffPage(staff: Staff, path: string) {
   if (staff.role === "admin") return true;
   const warehouse = (path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/")) &&
-    !(path === "/warehouse/gate" || path.startsWith("/warehouse/gate/"));
-  if (staff.role === "accounting") return path === "/" || warehouse || path === "/order-charges" || path === "/late-fees" || path.startsWith("/late-fees/") ||
+    path !== "/warehouse/gate";
+  // Gate includes operational sheets as well as the admin-only QR setup index.
+  const accountingWarehouse = warehouse && (!path.startsWith("/warehouse/gate/") ||
+    /^\/warehouse\/gate\/(?:hou|sav|dal)\/[^/]+\/(?:line|domestic|containers|history)\/?$/i.test(path));
+  if (staff.role === "accounting") return path === "/" || accountingWarehouse || path === "/order-charges" || path === "/late-fees" || path.startsWith("/late-fees/") ||
     ["/ecotton-import", "/dray-import", "/dray-import/dallas", "/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path);
   return warehouse || ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path) ||
     path === "/" && staff.role === "viewer" ||

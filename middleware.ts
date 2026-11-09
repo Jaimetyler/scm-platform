@@ -15,7 +15,7 @@ export async function middleware(req: NextRequest) {
     if (!canAccessStaffPage(staff, path))
       return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
     if (staff.role === "operator") {
-      const routeTerminal = path.match(/^\/(?:warehouse\/(?:outbound|inventory|gate)|inbound\/checkin)\/(hou|sav)\//i)?.[1]?.toUpperCase();
+      const routeTerminal = path.match(/^\/(?:warehouse\/(?:outbound|inventory|gate)|inbound\/checkin)\/(hou|sav|dal)\//i)?.[1]?.toUpperCase();
       const queryTerminal = req.nextUrl.searchParams.get("terminal")?.toUpperCase();
       if (routeTerminal && routeTerminal !== staff.terminal || queryTerminal && queryTerminal !== "ALL" && queryTerminal !== staff.terminal)
         return session.finish(NextResponse.redirect(new URL(staffHome(staff), req.url)));
