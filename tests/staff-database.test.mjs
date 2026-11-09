@@ -46,3 +46,24 @@ test("first admin bootstrap is repeatable while pending and refuses a second ide
     assert.equal((await db.query("select has_function_privilege('authenticated','scm_bootstrap_staff(text,text)','execute') granted")).rows[0].granted,false);
   }finally{await db.close();}
 });
+
+test("accounting can be invited and assigned by admins, without gaining user administration",async()=>{
+ const db=new PGlite();try{
+  await db.exec("create role anon; create role authenticated; create role service_role;");
+  await db.exec(sql("042_staff_accounts.sql"));
+  await db.exec("create view v_pnl_monthly_entity_totals as select 1 as total; grant select on v_pnl_monthly_entity_totals to anon,authenticated;");
+  await db.exec(sql("20261109134055_accounting_staff_role.sql"));
+  const grants=(await db.query("select has_table_privilege('authenticated','v_pnl_monthly_entity_totals','select') as signed_in,has_table_privilege('anon','v_pnl_monthly_entity_totals','select') as anonymous,has_table_privilege('service_role','v_pnl_monthly_entity_totals','select') as server")).rows[0];
+  assert.deepEqual(grants,{signed_in:false,anonymous:false,server:true});
+  const admin=(await db.query("insert into scm_staff(email,name,role,status) values('admin@example.test','Admin','admin','active') returning *")).rows[0];
+  const invite=(await db.query("select * from scm_manage_staff($1,'invite',null,'accounts@example.test','Accounts','accounting',null)",[admin.id])).rows[0];
+  assert.equal(invite.role,'accounting');assert.equal(invite.terminal,null);
+  await db.query("select * from scm_accept_staff($1,gen_random_uuid(),'accounts@example.test')",[invite.id]);
+  await assert.rejects(db.query("select * from scm_manage_staff($1,'invite',null,'bad@example.test','Bad','admin',null)",[invite.id]));
+  const second=(await db.query("insert into scm_staff(email,name,role,status) values('second@example.test','Second','admin','active') returning *")).rows[0];
+  const changed=(await db.query("select * from scm_manage_staff($1,'access',$2,null,null,'accounting',null)",[admin.id,second.id])).rows[0];
+  assert.equal(changed.role,'accounting');
+  await assert.rejects(db.query("insert into scm_staff(email,name,role,terminal) values('scoped@example.test','Scoped','accounting','HOU')"));
+  await assert.rejects(db.query("insert into scm_staff(email,name,role) values('unknown@example.test','Unknown','unknown')"));
+ }finally{await db.close();}
+});

@@ -161,3 +161,28 @@ test("large booking upload authorization is terminal-scoped and denies read-only
   assert.equal((await call('/api/warehouse/outbound/uploads', 'POST', {terminal:'DAL'})).status, 403);
   assert.equal((await call('/api/warehouse/outbound/uploads', 'POST', {terminal:'HOU'}, viewer)).status, 403);
 });
+
+test("accounting can bill and read all warehouses, but cannot change operations or read financial reports", async () => {
+  const accounting = {...viewer, role:"accounting"};
+  for (const [path,method] of [
+    ["/api/order-charges/preview","POST"],["/api/order-charges/apply","POST"],
+    ["/api/late-fees/dallas","GET"],["/api/late-fees/savannah","GET"],
+    ["/api/late-fees/savannah/monthly-preview","POST"],["/api/late-fees/savannah/weekly-preview","POST"],
+    ["/api/late-fees/savannah/import-candidates","POST"],["/api/late-fees/savannah/sync","POST"],
+    ["/api/late-fees/savannah/sync-all","POST"],["/api/late-fees/dallas/sync","POST"],
+    ["/api/auth/me","GET"],
+  ]) assert.equal((await call(path,method,undefined,accounting)).status,200,path);
+  for (const terminal of ["HOU","SAV","DAL"]) {
+    const result=await call(`/api/warehouse/domestic-queue?terminal=${terminal}`,"GET",undefined,accounting);
+    assert.equal(result.status,200);assert.equal(new URL(result.body.url).searchParams.get("terminal"),terminal);
+  }
+  for (const path of ["/api/warehouse/domestic-queue",`/api/inbound/checkin/rows/${id}`,"/api/warehouse/outbound/uploads","/api/warehouse/outbound/bookings","/api/cotton-locations/review","/api/bunge-import","/api/ecotton-import","/api/admin/users","/api/pnl/summary","/api/reporting/business-intelligence","/api/order-charges/cleanup-wrong-dal-codes","/api/order-charges/future","/api/late-fees/debug"]) {
+    for (const method of ["GET","POST","PATCH","DELETE"]) {
+      if(method==="GET" && ["/api/warehouse/domestic-queue","/api/warehouse/outbound/bookings"].includes(path))continue;
+      const result=await call(path,method,undefined,accounting);
+      assert.equal(result.status,403,`${method} ${path}`);assert.equal(result.ran,false);
+    }
+  }
+  assert.equal((await call("/api/order-charges/apply","POST",{},accounting,{origin:false})).status,403);
+  assert.equal((await call("/api/order-charges/apply","POST",{},{...accounting,status:"disabled"})).status,403);
+});

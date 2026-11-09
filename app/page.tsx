@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { canUseBilling, canUseInboundImporter } from "@/lib/auth/policy";
 import { requireStaffPage } from "@/lib/auth/page";
 
 const LOGO_SRC = "/scm-logo.png";
@@ -6,6 +7,7 @@ const LOGO_SRC = "/scm-logo.png";
 export default async function Home() {
   const staff = await requireStaffPage();
   const admin = staff.role === "admin";
+  const billing = canUseBilling(staff);
   return (
     <main style={{ maxWidth: 1320, margin: "0 auto" }}>
       {/* TOP PILL ONLY */}
@@ -66,7 +68,7 @@ export default async function Home() {
             color: "#e5e7eb",
           }}
         >
-          {admin ? "Internal Operations" : "Dispatch Operations"}
+          {admin ? "Internal Operations" : staff.role === "accounting" ? "Accounting" : "Dispatch Operations"}
         </div>
       </section>
 
@@ -78,8 +80,8 @@ export default async function Home() {
           gap: 20,
         }}
       >
-        <Link href="/bunge-import" style={cardStylePrimary}><h2>Inbound Order Importer</h2><p>Review Savannah, Dallas and Houston dispatches, warehouse mappings and pickup windows.</p></Link>
-        <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>Find tariff documents and record pickup hours and fees by location.</p></Link>
+        {canUseInboundImporter(staff) && <Link href="/bunge-import" style={cardStylePrimary}><h2>Inbound Order Importer</h2><p>Review Savannah, Dallas and Houston dispatches, warehouse mappings and pickup windows.</p></Link>}
+        {staff.role !== "accounting" && <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>Find tariff documents and record pickup hours and fees by location.</p></Link>}
         {admin && <>
         <Link href="/dray-import" style={cardStylePrimary}><h2>Savannah Dray Import</h2><p>Match FirstStar carrier pay, review billing and deliver orders.</p></Link>
         <Link href="/dray-import/dallas" style={cardStylePrimary}><h2>Dallas Dray Import</h2><p>Preview planned rail drays from Bunge booking requests.</p></Link>
@@ -117,16 +119,16 @@ export default async function Home() {
           <div style={{ marginTop: 16, color: "#67e8f9", fontSize: 13, fontWeight: 700 }}>Open warehouse dashboard →</div>
         </Link>
 
-        {admin && <>
+        {billing && <>
         <Link href="/late-fees" style={cardStyle}>
           <div style={cardTitle}>Late Fees</div>
           <div style={cardDesc}>Review late fee candidates and totals</div>
         </Link>
 
-        <Link href="/ecotton-import" style={cardStylePrimary}>
+        {admin && <Link href="/ecotton-import" style={cardStylePrimary}>
           <div style={cardTitle}>eCotton Order Import</div>
           <div style={cardDesc}>Review warehouse reports, check duplicates, and create and rate orders</div>
-        </Link>
+        </Link>}
 
         <Link href="/order-charges" style={cardStylePrimary}>
           <div style={cardTitle}>Billing Upload</div>

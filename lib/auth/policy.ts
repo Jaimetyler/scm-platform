@@ -1,4 +1,4 @@
-export type Staff = { id: string; email: string; name: string; role: "admin" | "operator" | "viewer";
+export type Staff = { id: string; email: string; name: string; role: "admin" | "operator" | "viewer" | "accounting";
   terminal: "HOU" | "SAV" | "DAL" | null; status: "pending" | "active" | "disabled"; user_id: string | null };
 export class AccessError extends Error {
   status: number;
@@ -29,7 +29,30 @@ export function validInvite(value: Record<string, unknown>) {
   const role = String(value.role ?? "");
   const terminal = role === "operator" ? String(value.terminal ?? "").toUpperCase() : null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !name || name.length > 100 ||
-      !["admin", "operator", "viewer"].includes(role) || role === "operator" && !["HOU", "SAV", "DAL"].includes(terminal))
+      !["admin", "operator", "viewer", "accounting"].includes(role) || role === "operator" && !["HOU", "SAV", "DAL"].includes(terminal))
     throw new AccessError("Enter a name, email, role, and an operator terminal.", 400);
   return { email, name, role: role as Staff["role"], terminal: terminal as Staff["terminal"] };
+}
+
+export function canUseBilling(staff: Staff | null) {
+  return staff?.status === "active" && (staff.role === "admin" || staff.role === "accounting");
+}
+// Exact billing operations; maintenance/debug and future endpoints stay admin-only.
+export function billingRequest(path: string, method: string) {
+  if (method === "GET") return ["/api/late-fees/dallas", "/api/late-fees/savannah"].includes(path);
+  return method === "POST" && [
+    "/api/order-charges/preview", "/api/order-charges/apply",
+    "/api/late-fees/savannah/monthly-preview", "/api/late-fees/savannah/weekly-preview",
+    "/api/late-fees/savannah/import-candidates", "/api/late-fees/savannah/sync",
+    "/api/late-fees/savannah/sync-all", "/api/late-fees/dallas/sync",
+  ].includes(path);
+}
+export function canAccessStaffPage(staff: Staff, path: string) {
+  if (staff.role === "admin") return true;
+  const warehouse = (path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/")) &&
+    !(path === "/warehouse/gate" || path.startsWith("/warehouse/gate/"));
+  if (staff.role === "accounting") return path === "/" || warehouse || path === "/order-charges" || path === "/late-fees" || path.startsWith("/late-fees/");
+  return warehouse || ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path) ||
+    path === "/" && staff.role === "viewer" ||
+    ["/bunge-import", "/cotton-import"].includes(path) && canUseInboundImporter(staff);
 }

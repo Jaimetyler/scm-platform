@@ -90,7 +90,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
       </nav>}
     </header>}
     <div className={visible ? "warehouse-page" : undefined}>
-      {visible && staff && staff.role !== "admin" && (staff.role === "viewer" || location.terminal !== staff.terminal) &&
+      {visible && staff && staff.role !== "admin" && (staff.role === "viewer" || staff.role === "accounting" || location.terminal !== staff.terminal) &&
         <p className="staff-readonly">Read-only warehouse view. {staff.role === "operator" ? `You can update records in ${staff.terminal === "HOU" ? "Houston" : staff.terminal === "DAL" ? "Dallas" : "Savannah"}.` : "Operational changes require a warehouse operator."}</p>}
       {visible && <div className="warehouse-breadcrumb" aria-label="Current warehouse context">{locationLabel(location)}
         {returnTo && <> / <Link href={returnTo}>← Back to booking list</Link></>}

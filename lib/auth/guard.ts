@@ -1,6 +1,6 @@
 import { DependencyError } from "../http/dependency";
 import { NextRequest, NextResponse } from "next/server";
-import { AccessError, canUseInboundImporter, isWrite, requireActive, requireTerminal, warehouseReadPath, type Staff } from "./policy";
+import { AccessError, billingRequest, canUseInboundImporter, isWrite, requireActive, requireTerminal, warehouseReadPath, type Staff } from "./policy";
 import { requireSameOrigin, staffDatabase, staffSession } from "./session";
 
 const identities = new WeakMap<object, Staff>();
@@ -24,6 +24,10 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   const path = new URL(req.url).pathname.replace(/\/$/, "");
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
+  if (staff.role === "accounting") {
+    if (billingRequest(path, req.method) || ["GET", "HEAD"].includes(req.method) && warehouseReadPath(path) || path === "/api/auth/me" && req.method === "GET") return;
+    throw new AccessError("Accounting access allows billing tools and read-only warehouse operations.");
+  }
   if (canUseInboundImporter(staff) && (
     path === "/api/bunge-import" && ["GET", "POST"].includes(req.method) ||
     ["/api/cotton-import/upload", "/api/cotton-import/preflight"].includes(path) && req.method === "POST"
