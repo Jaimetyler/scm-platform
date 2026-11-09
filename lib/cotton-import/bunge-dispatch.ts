@@ -1,5 +1,5 @@
 export type DispatchLine = { row: number; mark: string; salesOrder: string; bales: number; weight?: number; warehouse: string; rtl: string; usdaWarehouseCode: string | null };
-export type DispatchOrder = { mark: string; salesOrder: string; bales: number; pickups: DispatchLine[] };
+export type DispatchOrder = { mark: string; salesOrder: string; bales: number; bookingNumber?: string; pickups: DispatchLine[] };
 const str = (v: unknown) => String(v ?? "").trim();
 export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
   const header = rows.findIndex(r => str(r[0]).toUpperCase() === "MARK" && str(r[1]).toUpperCase() === "SO");

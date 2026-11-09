@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
 import {equipmentNotes,type EquipmentPolicy} from "@/lib/cotton-locations/equipment";
-export type PickupLine={sheet:string;row:number;mark:string;so:string;bales:number;weight:number|null;warehouse:string;warehouseCode:string;address:string[];rtl:string|null};
+export type PickupLine={bookingNumber?:string;sheet:string;row:number;mark:string;so:string;bales:number;weight:number|null;warehouse:string;warehouseCode:string;address:string[];rtl:string|null};
 export type Location={id:string;mcleod_code:string;prev_code:string|null;name:string;address:string|null;city:string|null;state:string|null;timezone:string|null};
 export type Schedule={location_id:string;weekday:number|null;open_time:string|null;close_time:string|null;checkin_cutoff:string|null;verified:boolean|null;appointment_required:boolean|null;effective_from:string|null;effective_to:string|null;created_at:string;source_reference:string|null};
 export type Proposal={equipment:string;key:string;so:string;mark:string;blnum:string;bales:number;customerId:string;revenue:string;destination:string;pickups:{location:Location|null;warehouseCode:string;warehouse:string;bales:number;rtl:string|null;sourceRows:string[];address:string[];hours:Schedule|null;issues:string[]}[];issues:string[]};

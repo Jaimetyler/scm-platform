@@ -23,12 +23,14 @@ export function parseOlamWorkbook(workbook: XLSX.WorkBook) {
     let name = "";
     let address = "";
     let code = "";
+    let bookingNumber = "";
     for (const [i, row] of rows.slice(0, index).entries()) {
       if (header(row[0]) === "CARRIER") carrier = clean(row[1]);
       if (header(row[0]) === "DESTINATION") {
         name = clean(row[1]);
         address = clean(rows[i + 1]?.[1]);
       }
+      if (["BOOKING", "BOOKINGNO", "BOOKINGNUMBER"].includes(header(row[0]))) bookingNumber = clean(row[1]);
       if (header(row[0]) === "DESTCODE") code = clean(row[1]);
     }
     destinations.add([name, address, code].filter(Boolean).join(" · "));
@@ -56,7 +58,9 @@ export function parseOlamWorkbook(workbook: XLSX.WorkBook) {
           !Number.isSafeInteger(Number(bales)) || Number(bales) <= 0 || !warehouse || !/^\d{6}$/.test(warehouseCode)) {
         throw Error(`${sheet} row ${rowNumber}: invalid mark, SO, bale count or warehouse.`);
       }
-      lines.push({ sheet, row: rowNumber, mark, so, bales: Number(bales), warehouse, warehouseCode,
+      const bookingColumn = ["BOOKING", "BOOKINGNO", "BOOKINGNUMBER"].find(key => headings.includes(key));
+      const rowBooking = bookingColumn ? clean(get(bookingColumn)) : bookingNumber;
+      lines.push({ ...(rowBooking ? { bookingNumber: rowBooking } : {}), sheet, row: rowNumber, mark, so, bales: Number(bales), warehouse, warehouseCode,
         weight: clean(get("WEIGHT")) ? Number(get("WEIGHT")) : null, address: [],
         rtl: dispatchDate(get("READYCONFIRMEDLOADRTL")) });
     }

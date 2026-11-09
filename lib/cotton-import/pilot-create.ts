@@ -6,7 +6,7 @@ type Draft = ReturnType<typeof draftHoustonOrder>;
 export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston") {
   const stops = draft.order.stops;
   if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight ||
-      (region === "houston" && stops.at(-1)?.location_id !== "SUPPBAT1") ||
+      (region === "houston" && draft.order.customer_id === "BUNGOMNE" && stops.at(-1)?.location_id !== "SUPPBAT1") ||
       stops.some(stop => !stop.timezone)) return null;
   return {
     ...draft.order,
@@ -30,6 +30,7 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
     "order_type_id", "order_mode", "ordered_by", "equipment_type_id", "blnum", "consignee_refno",
     "collection_method", "rate_type"] as const;
   const mismatches: string[] = fields.filter(field => String(actual[field] ?? "").trim() !== expected[field]);
+  if (expected.booking_no_sucm && String(actual.booking_no_sucm ?? "").trim() !== expected.booking_no_sucm) mismatches.push("booking_no_sucm");
   if (expected.weight !== undefined && Number(actual.weight) !== expected.weight) mismatches.push("weight");
   if (expected.otherCharges?.length) {
     const charges = actual.otherCharges ?? actual.other_charges;
@@ -73,7 +74,7 @@ export function isArrivalFormatRejection(salesOrder: string, audit: {
 
 export function matchCorrectedSchedule(payload: Payload, example: Record<string, unknown>): Payload {
   if (example?.id !== "0829475" || String(example.ordered_by ?? "").trim() !== "2601887" ||
-      example.customer_id !== payload.customer_id || example.blnum !== "TA004 89 BALES" ||
+      example.customer_id !== "BUNGOMNE" || example.blnum !== "TA004 89 BALES" ||
       !Array.isArray(example.stops) || example.stops.length !== 2)
     throw Error("McLeod order 0829475 could not be verified as the schedule reference.");
   const pickup = example.stops.find(stop => Number(stop?.order_sequence) === 1);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
-import { inboundTerminal, terminalDeliveryCode, OLAM_CUSTOMER, olamDeliveryCode, SCM_DELIVERY_LOCATIONS } from "@/lib/bunge/destinations";
+import { inboundTerminal, terminalDeliveryCode, OLAM_CUSTOMER, olamDeliveryCode, SCM_DELIVERY_LOCATIONS, cottonReceivingHours } from "@/lib/bunge/destinations";
 import { staffActor, staffProfile, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { readActiveDeliveryLocation, readDeliveryLocation } from "@/lib/bunge/delivery-server";
@@ -24,36 +24,46 @@ export const maxDuration = 120;
 
 async function preflight(req: NextRequest) {
   const form = await req.formData();
-  const olam = form.get("action") === "preflight-olam";
+  const olamRequested = form.get("action") === "preflight-olam";
   const create = form.get("action") === "create-pilot";
   const reconcile = form.get("action") === "reconcile-pilot";
   const canRecover = staffProfile(req)?.role === "admin";
   if (reconcile && !canRecover) return NextResponse.json({ ok: false, error: "Administrator access is required to reopen an order." }, { status: 403 });
   const pilotEnabled = process.env.BUNGE_IMPORT_WRITES_ENABLED === "true" ||
     process.env.BUNGE_UNITED_AG_PILOT_ENABLED === "true";
-  if ((create || reconcile) && !pilotEnabled) throw Error("The Houston pilot is disabled.");
+  if ((create || reconcile) && !pilotEnabled) throw Error("Live cotton order creation is disabled.");
   const terminal = inboundTerminal(form.get("terminal") ?? "houston");
   if (!terminal) throw Error("Unknown inbound location.");
   const houston = terminal.id === "houston";
-  if (!olam && terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
-  const destination = olam ? olamDeliveryCode(form.get("destination")) : terminalDeliveryCode(terminal.id, form.get("destination"));
   const file = form.get("file");
   const requested = requestedEquipment(form.get("equipment"));
   const salesOrder = String(form.get("salesOrder") ?? "").trim();
-  const format = olam ? /\.(xlsb|xlsx|xls)$/i : houston ? /\.xlsx?$/i : /\.(xlsx|xls|csv)$/i;
-  if (!(file instanceof File) || !format.test(file.name) || file.size === 0 ||
-      file.size > (houston && !olam ? 2_000_000 : 3 * 1024 * 1024) || !/^\d{5,}$/.test(salesOrder))
-    throw new Error("Select one sales order and upload its original dispatch workbook.");
+  if (!(file instanceof File) || !/\.(xlsb|xlsx|xls|csv)$/i.test(file.name) || !file.size ||
+      file.size > 3 * 1024 * 1024 || !/^\d{5,}$/.test(salesOrder))
+    throw Error("Select one sales order and upload its original dispatch workbook (up to 3 MB).");
+  const bytes = await file.arrayBuffer();
+  const workbook = XLSX.read(bytes, { type: "array", cellDates: false });
+  const parsedOlam = parseOlamWorkbook(workbook);
+  const olam = parsedOlam !== null;
+  if (olamRequested && !olam) throw Error("Upload the original OLAM dispatch workbook.");
+  if (form.get("customerId") && form.get("customerId") !== (olam ? OLAM_CUSTOMER : "BUNGOMNE"))
+    throw Error("The uploaded workbook customer does not match the reviewed customer.");
+  if (!olam && /\.xlsb$/i.test(file.name)) throw Error("XLSB uploads must be original OLAM load lists.");
+  if (!olam && houston && file.size > 2_000_000) throw Error("Houston Bunge workbook exceeds 2 MB.");
+  if (!olam && terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
+  const destination = olam ? olamDeliveryCode(form.get("destination") || parsedOlam.destination) : terminalDeliveryCode(terminal.id, form.get("destination"));
+  if (olam && SCM_DELIVERY_LOCATIONS.some(location => location.code === destination) &&
+      !SCM_DELIVERY_LOCATIONS.some(location => location.code === destination && location.terminal === terminal.id))
+    throw Error("Choose an SCM delivery location in the selected inbound region.");
 
   const db = staffDatabase();
   const locations = await db.from("cotton_location_master")
     .select("id,mcleod_code,prev_code,name,timezone,active").limit(5000);
   if (locations.error || !locations.data) throw new Error("Location master unavailable.");
-  const bytes = await file.arrayBuffer();
   let workbookDestination: { name: string; address: string[] } | undefined;
   const { source, proposal } = (() => {
     if (olam) {
-      const parsed = parseOlamWorkbook(XLSX.read(bytes, { type: "array", cellDates: false }));
+      const parsed = parsedOlam;
       if (!parsed) throw Error("Upload the original OLAM dispatch workbook.");
       return regionalOrder(parsed.lines, salesOrder, destination, terminal.revenue, locations.data, OLAM_CUSTOMER);
     }
@@ -99,24 +109,9 @@ async function preflight(req: NextRequest) {
     ...scheduleForPickup(schedules.data as CottonSchedule[], stop.locationId, stop.scheduledDate, stop.locationCode),
   }));
   const response = { ok: true, canCreate: false, pilotBuild: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7), salesOrder, blnum: proposal.blnum, windows, equipment };
-  if (olam) {
-    const scmDelivery = SCM_DELIVERY_LOCATIONS.some(location => location.code === destination);
-    const [duplicates, delivery] = await Promise.all([
-      nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate), OLAM_CUSTOMER),
-      scmDelivery ? readDeliveryLocation(destination) : readActiveDeliveryLocation(destination),
-    ]);
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
-    const blockers = [
-      duplicates.length ? "An existing McLeod order matches this load." : null,
-      windows.some(window => window.originalRtlDate < today) ? "Pickup dates are historical." : null,
-      windows.some(window => window.status !== "ready") ? "Pickup schedule requires review." : null,
-      !equipment.code ? equipment.reason || "Equipment requires review." : null,
-      source.pickups.some(line => !line.weight || !Number.isFinite(line.weight) || line.weight <= 0)
-        ? "Every pickup needs a valid weight." : null,
-      !scmDelivery ? "Confirm receiving hours for this Merih location before live creation." : null,
-    ].filter(Boolean);
-    return NextResponse.json({ ...response, delivery, duplicates, blockers, previewOnly: true });
-  }
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: terminal.id === "savannah" ? "America/New_York" : "America/Chicago" }).format(new Date());
+  if (windows.some(window => window.originalRtlDate < today))
+    return NextResponse.json({ ...response, reason: "Historical pickup dates are for preview only." });
   if (!equipment.code) return NextResponse.json({ ...response, reason: equipment.reason || "Equipment requires review." });
   if (windows.some(window => window.status !== "ready"))
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
@@ -131,10 +126,11 @@ async function preflight(req: NextRequest) {
   const originalPickups = source.pickups.map(line => ({
     row: line.row, mark: line.mark, salesOrder: line.salesOrder, bales: line.bales,
     warehouse: line.warehouse, usdaWarehouseCode: line.usdaWarehouseCode, originalRtl: line.rtl,
-    ...(!houston ? { weight: line.weight ?? null } : {}),
+    ...(!houston || olam ? { weight: line.weight ?? null } : {}),
   }));
   const hashSource = (destinationCode: string, legacy = false) => createHash("sha256").update(JSON.stringify({
     salesOrder, blnum: proposal.blnum, destination: destinationCode,
+    ...(olam ? { customerId: OLAM_CUSTOMER, bookingNumber: source.bookingNumber ?? null } : {}),
     originalPickups: legacy ? originalPickups.map(line => ({ ...line, usdaWarehouseCode: null })) : originalPickups,
   })).digest("hex");
   const sourceHash = hashSource(proposal.deliveryLocation);
@@ -145,8 +141,10 @@ async function preflight(req: NextRequest) {
     throw new Error("Existing audit record conflicts with this dispatch.");
 
   const [duplicates, delivery, policies] = await Promise.all([
-    nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate)),
-    readDeliveryLocation(proposal.deliveryLocation),
+    nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate), proposal.customerId),
+    SCM_DELIVERY_LOCATIONS.some(location => location.code === proposal.deliveryLocation)
+      ? readDeliveryLocation(proposal.deliveryLocation)
+      : readActiveDeliveryLocation(proposal.deliveryLocation).then(location => ({ ...location, receivingHours: cottonReceivingHours(proposal.deliveryLocation) })),
     readPickupPolicies(db, pickupIds),
   ]);
   if (duplicates.length)
@@ -164,7 +162,7 @@ async function preflight(req: NextRequest) {
   const saved = await findAudit();
   if (saved.error || !saved.data || !sameSource(saved.data))
     throw new Error("Audit record read-back could not verify the selected dispatch.");
-  const canReconcile = canRecover && pilotEnabled && salesOrder === "2601730" && proposal.blnum === "C0437 90 BALES" &&
+  const canReconcile = !olam && canRecover && pilotEnabled && salesOrder === "2601730" && proposal.blnum === "C0437 90 BALES" &&
     saved.data.destination_code === "SUPPBAT1" && proposal.deliveryLocation === "SUPPBAT1" &&
     saved.data.status === "creation_uncertain" && saved.data.mcleod_order_id === null &&
     saved.data.error_message === "McLeod create returned HTTP 406." &&
@@ -183,8 +181,8 @@ async function preflight(req: NextRequest) {
     return NextResponse.json({ ...response, auditStatus: "previewed", reconciled: true,
       reason: "The original rejection is preserved and the order was reopened." });
   }
-  const arrivalRetry = isArrivalFormatRejection(salesOrder, saved.data);
-  const correctedRetry = arrivalRetry || isMissingCollectionMethodRejection(salesOrder, saved.data);
+  const arrivalRetry = !olam && isArrivalFormatRejection(salesOrder, saved.data);
+  const correctedRetry = arrivalRetry || !olam && isMissingCollectionMethodRejection(salesOrder, saved.data);
   if (!correctedRetry && (saved.data.status !== "previewed" || saved.data.mcleod_order_id)) {
     let comparison: Record<string, unknown> | undefined;
     if (salesOrder === "2601730" && saved.data.status === "creation_uncertain") {
@@ -221,7 +219,7 @@ async function preflight(req: NextRequest) {
         reason: cause instanceof Error ? cause.message : "The corrected McLeod schedule could not be verified." });
     }
   }
-  const createBlock = !pilotEnabled ? "Live pilot is disabled on this deployment."
+  const createBlock = !pilotEnabled ? "Live cotton order creation is disabled on this deployment."
     : !payload ? "Live creation requires complete weight and a verified pickup schedule. Houston creation requires Baytown."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;
@@ -229,7 +227,7 @@ async function preflight(req: NextRequest) {
   const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id, auditVersion: saved.data.updated_at })).digest("hex") : null;
   if (create) {
     if (!canCreate || !payload || form.get("reviewToken") !== reviewToken)
-      throw Error("Run a fresh preflight for the approved Houston pilot order and review the draft before creating.");
+      throw Error("Run a fresh preflight and review the order before creating.");
     const base = process.env.MCLEOD_BASE_URL;
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw Error("McLeod create connection is unavailable.");

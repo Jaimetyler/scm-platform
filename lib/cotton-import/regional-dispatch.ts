@@ -11,9 +11,11 @@ export function regionalOrder(lines: PickupLine[], salesOrder: string, destinati
     throw Error("Selected order requires one mark, one or two pickups, and mapped warehouse codes and dates.");
   const distinct = new Set(matches.map(line => `${line.warehouseCode}|${line.rtl}`));
   if (distinct.size !== matches.length) throw Error("Repeated pickup location and date require review.");
+  const bookings = [...new Set(matches.map(line => line.bookingNumber).filter(Boolean))];
+  if (bookings.length > 1) throw Error("Selected order has conflicting booking numbers.");
   const bales = matches.reduce((sum, line) => sum + line.bales, 0);
   const source: DispatchOrder = {
-    salesOrder, mark, bales,
+    salesOrder, mark, bales, ...(bookings[0] ? { bookingNumber: bookings[0] } : {}),
     pickups: matches.map(line => ({
       row: line.row, mark, salesOrder, bales: line.bales, warehouse: line.warehouse,
       rtl: line.rtl!, usdaWarehouseCode: line.warehouseCode, weight: line.weight ?? undefined,

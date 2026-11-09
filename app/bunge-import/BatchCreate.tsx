@@ -10,11 +10,12 @@ type Preflight = {
   canCreate?: boolean; reviewToken?: string; mcleodOrderId?: string | null;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
 };
-async function requestPreflight(input: DispatchInput, salesOrder: string, terminal: InboundTerminal, reviewToken?: string): Promise<Preflight> {
+async function requestPreflight(input: DispatchInput, salesOrder: string, terminal: InboundTerminal, reviewToken?: string, destination?: string, customerId?: string): Promise<Preflight> {
   const form = new FormData();
   form.set("file", input.file);
   form.set("equipment", input.equipment);
-  form.set("destination", input.destination);
+  form.set("destination", destination ?? input.destination);
+  if (customerId) form.set("customerId", customerId);
   form.set("salesOrder", salesOrder);
   form.set("terminal", terminal);
   if (reviewToken) {
@@ -25,15 +26,16 @@ async function requestPreflight(input: DispatchInput, salesOrder: string, termin
   return response.json();
 }
 
-export default function BatchCreate({ terminal, submission, orders, onBusy }: {
+export default function BatchCreate({ terminal, submission, orders, onBusy, destination, customerId, disabled = false }: {
   terminal: InboundTerminal; submission: DispatchInput; orders: string[]; onBusy: (busy: boolean) => void;
+  destination?: string; customerId?: string; disabled?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<{ so: string; outcome: string }[]>([]);
   const [batchCurrent, setBatchCurrent] = useState("");
 
   async function createBatch() {
-    if (busy) return;
+    if (busy || disabled) return;
     if (!window.confirm("Create eligible orders from this workbook in live McLeod? Each order will be checked for duplicates first.")) return;
     setBusy(true);
     onBusy(true);
@@ -43,12 +45,12 @@ export default function BatchCreate({ terminal, submission, orders, onBusy }: {
     try {
       for (const so of new Set(orders)) {
         setBatchCurrent(so);
-        const review = await requestPreflight(submission, so, terminal);
+        const review = await requestPreflight(submission, so, terminal, undefined, destination, customerId);
         if (!review.canCreate || !review.reviewToken) {
           report(so, `Skipped · ${review.error || review.reason || "Preflight did not allow creation."}`);
           continue;
         }
-        const created = await requestPreflight(submission, so, terminal, review.reviewToken);
+        const created = await requestPreflight(submission, so, terminal, review.reviewToken, destination, customerId);
         if (created.ok && created.auditStatus === "verified" && created.mcleodOrderId) {
           report(so, `Created and verified · SCM order #${created.mcleodOrderId}`);
           continue;
@@ -67,8 +69,8 @@ export default function BatchCreate({ terminal, submission, orders, onBusy }: {
 
   return <>
       <div className={layout.actions}>
-        <button type="button" disabled={busy} onClick={() => void createBatch()}>
-          Create all eligible orders
+        <button type="button" disabled={busy || disabled || !orders.length || (customerId === "OLAMRITX" && !destination)} onClick={() => void createBatch()}>
+          Create eligible orders in McLeod
         </button>
         <span>Checks each order for duplicates before creating it.</span>
       </div>

@@ -95,3 +95,9 @@ export function olamDeliveryCode(value: unknown) {
   if (!match) throw Error("Choose a Merih or SCM delivery location.");
   return match.code;
 }
+
+export function cottonReceivingHours(code: string) {
+ if (code === "MERIBATX" || code === "MERIBAT2")
+  return { open: "07:00", close: "15:00", method: "FCFS" as const, timezone: "America/Chicago" };
+ return scmReceivingHours(code);
+}

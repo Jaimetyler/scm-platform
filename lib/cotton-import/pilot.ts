@@ -1,4 +1,4 @@
-import { defaultDeliveryDate, SCM_DELIVERY_LOCATIONS, scmReceivingHours } from "../bunge/destinations.ts";
+import { defaultDeliveryDate, SCM_DELIVERY_LOCATIONS, OLAM_CUSTOMER, cottonReceivingHours } from "../bunge/destinations.ts";
 import type { CottonOrderPreview } from "./preview.ts";
 import type { McLeodCottonEquipmentCode } from "./equipment.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
@@ -12,10 +12,13 @@ export function draftHoustonOrder(
   equipmentCode: McLeodCottonEquipmentCode,
 ) {
   const destination = SCM_DELIVERY_LOCATIONS.find(location => location.code === preview.deliveryLocation);
-  if (preview.customerId !== "BUNGOMNE" || !destination ||
-      preview.revenueCode !== (destination.terminal === "dallas" ? "DAVIS" : "MAIN") ||
+  const olam = preview.customerId === OLAM_CUSTOMER;
+  const externalOlam = olam && ["MERIBATX", "MERIBAT2"].includes(preview.deliveryLocation);
+  if ((!olam && preview.customerId !== "BUNGOMNE") ||
+      (!destination && !externalOlam) ||
+      (destination && preview.revenueCode !== (destination.terminal === "dallas" ? "DAVIS" : "MAIN")) ||
       windows.length !== preview.pickupStops.length)
-    throw new Error("The order draft requires the matching Bunge terminal profile.");
+    throw new Error("The order draft requires the matching cotton customer and terminal profile.");
 
   const pickups = preview.pickupStops.map((pickup, index) => {
     const { early, late } = windows[index];
@@ -48,7 +51,7 @@ export function draftHoustonOrder(
     throw Error("Order weight exceeds the McLeod weight field.");
   const deliveryDate = defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
-  const receiving = scmReceivingHours(preview.deliveryLocation);
+  const receiving = cottonReceivingHours(preview.deliveryLocation);
 
   // Keep local times explicit until their McLeod encoding is confirmed.
   return {
@@ -61,6 +64,7 @@ export function draftHoustonOrder(
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
       order_type_id: "FSC", order_mode: "T", ordered_by: order.salesOrder,
       equipment_type_id: equipmentCode,
+      ...(olam && order.bookingNumber ? { booking_no_sucm: order.bookingNumber } : {}),
       ...(weight === null ? {} : { weight }),
       ...(pickups.length === 2 ? { otherCharges: [{
         __type: "other_charge", __name: "otherCharges", company_id: "TMS",
