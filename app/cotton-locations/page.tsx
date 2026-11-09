@@ -20,7 +20,7 @@ function formatHour(time:string|null){
 }
 export default function CottonLocationsPage(){
  const staff=useStaff();
- const admin=staff?.role==="admin", canWrite=staff?.status==="active";
+ const admin=staff?.role==="admin", canWrite=staff?.status==="active"&&staff.role!=="accounting";
  const selectionVersion=useRef(0);
  const [rows,setRows]=useState<Location[]>([]);
  const [selected,setSelected]=useState<Location|null>(null);

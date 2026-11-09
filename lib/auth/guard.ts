@@ -25,8 +25,15 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
   if (staff.role === "accounting") {
+    // Dallas dray previews use private file staging; no warehouse record is created.
+    if (path === "/api/warehouse/outbound/uploads" && req.method === "POST") {
+      const body = await req.clone().json().catch(() => null);
+      if (body?.terminal === "DAL") return;
+      throw new AccessError("Accounting booking uploads are limited to Dallas dray imports.");
+    }
+    if (req.method === "GET" && ["/api/cotton-locations", "/api/cotton-locations/policies", "/api/cotton-locations/outreach", "/api/cotton-locations/outreach/documents", "/api/cotton-locations/outreach/equipment"].includes(path)) return;
     if (billingRequest(path, req.method) || ["GET", "HEAD"].includes(req.method) && warehouseReadPath(path) || path === "/api/auth/me" && req.method === "GET") return;
-    throw new AccessError("Accounting access allows billing tools and read-only warehouse operations.");
+    throw new AccessError("Accounting access allows importing, billing, and read-only warehouse and cotton location information.");
   }
   if (canUseInboundImporter(staff) && (
     path === "/api/bunge-import" && ["GET", "POST"].includes(req.method) ||

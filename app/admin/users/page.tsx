@@ -50,6 +50,6 @@ export default function UsersPage() {
         if (confirm(`${user.status === "pending" ? "Cancel the invitation for" : "Deactivate"} ${user.email}?`)) void action({action:"disable",id:user.id},"Access disabled.");
       }}>{user.status === "pending" ? "Cancel invite" : "Deactivate"}</button>}</td>
     </tr>)}</tbody></table></div>
-    <p style={{marginTop:20}}>Administrator accounts can access financial modules, settings, and all terminals. Operators can update only their assigned terminal. Accounting can use billing tools and view warehouse operations across terminals, with no financial reports or user administration. Deactivation blocks subsequent staff requests.</p>
+    <p style={{marginTop:20}}>Administrator accounts can access financial modules, settings, and all terminals. Operators can update only their assigned terminal. Accounting can use eCotton and dray importing and billing tools, and view warehouse operations and cotton locations across terminals, with no financial reports or user administration. Deactivation blocks subsequent staff requests.</p>
   </main>;
 }

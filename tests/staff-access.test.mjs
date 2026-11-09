@@ -127,7 +127,7 @@ test("operator reads are restricted by query AND saved record ownership",async()
   assert.equal((await call("/api/warehouse/domestic-queue?terminal=HOU","GET",undefined,sav)).status,403);
 });
 
-test("eCotton import previews and execution require an active admin and same-origin writes", async()=>{
+test("eCotton import denies operators and viewers and requires same-origin writes", async()=>{
   const path="/api/ecotton-import";
   for(const staff of [hou,viewer]) for(const method of ["GET","POST"]){
     const result=await call(path,method,method==="POST"?{action:"execute"}:undefined,staff);
@@ -176,7 +176,7 @@ test("accounting can bill and read all warehouses, but cannot change operations 
     const result=await call(`/api/warehouse/domestic-queue?terminal=${terminal}`,"GET",undefined,accounting);
     assert.equal(result.status,200);assert.equal(new URL(result.body.url).searchParams.get("terminal"),terminal);
   }
-  for (const path of ["/api/warehouse/domestic-queue",`/api/inbound/checkin/rows/${id}`,"/api/warehouse/outbound/uploads","/api/warehouse/outbound/bookings","/api/cotton-locations/review","/api/bunge-import","/api/ecotton-import","/api/admin/users","/api/pnl/summary","/api/reporting/business-intelligence","/api/order-charges/cleanup-wrong-dal-codes","/api/order-charges/future","/api/late-fees/debug"]) {
+  for (const path of ["/api/warehouse/domestic-queue",`/api/inbound/checkin/rows/${id}`,"/api/warehouse/outbound/uploads","/api/warehouse/outbound/bookings","/api/cotton-locations/review","/api/bunge-import","/api/admin/users","/api/pnl/summary","/api/reporting/business-intelligence","/api/order-charges/cleanup-wrong-dal-codes","/api/order-charges/future","/api/late-fees/debug"]) {
     for (const method of ["GET","POST","PATCH","DELETE"]) {
       if(method==="GET" && ["/api/warehouse/domestic-queue","/api/warehouse/outbound/bookings"].includes(path))continue;
       const result=await call(path,method,undefined,accounting);
@@ -185,4 +185,28 @@ test("accounting can bill and read all warehouses, but cannot change operations 
   }
   assert.equal((await call("/api/order-charges/apply","POST",{},accounting,{origin:false})).status,403);
   assert.equal((await call("/api/order-charges/apply","POST",{},{...accounting,status:"disabled"})).status,403);
+});
+
+
+test("accounting can use the complete eCotton and dray workflows and view cotton locations",async()=>{
+ const accounting={...viewer,role:"accounting"};
+ for(const path of ["/api/ecotton-import","/api/dray-import"]){
+  assert.equal((await call(path,"GET",undefined,accounting)).status,200);
+  for(const action of ["preview","execute","delivery-preview","deliver","reconcile-delivery","recheck","reconcile","repair-created"])
+   assert.equal((await call(path,"POST",{action},accounting)).status,200,`${path} ${action}`);
+ }
+ for(const [path,method] of [["/api/dray-import/dallas","POST"],["/api/dray-import/bols","GET"],["/api/dray-import/bols","POST"],["/api/dray-import/bols/imaging","POST"]]){
+  assert.equal((await call(path,method,undefined,accounting)).status,200,path);
+  for(const staff of [hou,viewer,{...accounting,status:"disabled"}])assert.equal((await call(path,method,undefined,staff)).status,403,path);
+ }
+ for(const path of ["/api/ecotton-import","/api/dray-import","/api/dray-import/bols/imaging"])
+  assert.equal((await call(path,"POST",{},accounting,{origin:false})).status,403);
+ assert.equal((await call("/api/warehouse/outbound/uploads","POST",{terminal:"DAL"},accounting)).status,200);
+ assert.equal((await call("/api/warehouse/outbound/uploads","POST",{terminal:"HOU"},accounting)).status,403);
+ for(const path of ["/api/cotton-locations","/api/cotton-locations/policies","/api/cotton-locations/outreach","/api/cotton-locations/outreach/documents","/api/cotton-locations/outreach/equipment"]){
+  assert.equal((await call(path,"GET",undefined,accounting)).status,200,path);
+  for(const method of ["POST","PATCH","DELETE"])assert.equal((await call(path,method,{},accounting)).status,403,path);
+ }
+ for(const path of ["/api/dray-import/future","/api/ecotton-import/future","/api/cotton-locations/review"])
+  assert.equal((await call(path,"POST",{},accounting)).status,403,path);
 });

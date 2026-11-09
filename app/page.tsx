@@ -81,10 +81,12 @@ export default async function Home() {
         }}
       >
         {canUseInboundImporter(staff) && <Link href="/bunge-import" style={cardStylePrimary}><h2>Inbound Order Importer</h2><p>Review Savannah, Dallas and Houston dispatches, warehouse mappings and pickup windows.</p></Link>}
-        {staff.role !== "accounting" && <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>Find tariff documents and record pickup hours and fees by location.</p></Link>}
-        {admin && <>
+        <Link href="/cotton-locations" style={cardStylePrimary}><h2>Cotton Locations</h2><p>View tariff documents, pickup hours and fees by location.</p></Link>
+        {billing && <>
         <Link href="/dray-import" style={cardStylePrimary}><h2>Savannah Dray Import</h2><p>Match FirstStar carrier pay, review billing and deliver orders.</p></Link>
         <Link href="/dray-import/dallas" style={cardStylePrimary}><h2>Dallas Dray Import</h2><p>Preview planned rail drays from Bunge booking requests.</p></Link>
+        </>}
+        {admin && <>
         <Link href="/pnl" style={cardStyleLocked}>
           <div
             style={{
@@ -125,10 +127,10 @@ export default async function Home() {
           <div style={cardDesc}>Review late fee candidates and totals</div>
         </Link>
 
-        {admin && <Link href="/ecotton-import" style={cardStylePrimary}>
+        <Link href="/ecotton-import" style={cardStylePrimary}>
           <div style={cardTitle}>eCotton Order Import</div>
           <div style={cardDesc}>Review warehouse reports, check duplicates, and create and rate orders</div>
-        </Link>}
+        </Link>
 
         <Link href="/order-charges" style={cardStylePrimary}>
           <div style={cardTitle}>Billing Upload</div>

@@ -39,9 +39,11 @@ export function canUseBilling(staff: Staff | null) {
 }
 // Exact billing operations; maintenance/debug and future endpoints stay admin-only.
 export function billingRequest(path: string, method: string) {
-  if (method === "GET") return ["/api/late-fees/dallas", "/api/late-fees/savannah"].includes(path);
+  if (method === "GET") return ["/api/late-fees/dallas", "/api/late-fees/savannah", "/api/ecotton-import", "/api/dray-import", "/api/dray-import/bols"].includes(path);
   return method === "POST" && [
     "/api/order-charges/preview", "/api/order-charges/apply",
+    "/api/ecotton-import", "/api/dray-import", "/api/dray-import/dallas",
+    "/api/dray-import/bols", "/api/dray-import/bols/imaging",
     "/api/late-fees/savannah/monthly-preview", "/api/late-fees/savannah/weekly-preview",
     "/api/late-fees/savannah/import-candidates", "/api/late-fees/savannah/sync",
     "/api/late-fees/savannah/sync-all", "/api/late-fees/dallas/sync",
@@ -51,7 +53,8 @@ export function canAccessStaffPage(staff: Staff, path: string) {
   if (staff.role === "admin") return true;
   const warehouse = (path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/")) &&
     !(path === "/warehouse/gate" || path.startsWith("/warehouse/gate/"));
-  if (staff.role === "accounting") return path === "/" || warehouse || path === "/order-charges" || path === "/late-fees" || path.startsWith("/late-fees/");
+  if (staff.role === "accounting") return path === "/" || warehouse || path === "/order-charges" || path === "/late-fees" || path.startsWith("/late-fees/") ||
+    ["/ecotton-import", "/dray-import", "/dray-import/dallas", "/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path);
   return warehouse || ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path) ||
     path === "/" && staff.role === "viewer" ||
     ["/bunge-import", "/cotton-import"].includes(path) && canUseInboundImporter(staff);

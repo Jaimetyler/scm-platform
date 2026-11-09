@@ -128,9 +128,9 @@ test("dispatchers can open the platform home while operators land at their wareh
 test("accounting opens billing and warehouse pages and is redirected away from financial and admin pages",async()=>{
   const s=scenario({profile:{role:"accounting",terminal:null}});
   const middleware=s.load("middleware.ts").middleware;
-  for(const path of ["/","/order-charges","/late-fees","/late-fees/dallas","/late-fees/savannah/monthly","/warehouse","/warehouse/outbound","/inbound/checkin/hou/5300"])
+  for(const path of ["/","/order-charges","/late-fees","/late-fees/dallas","/late-fees/savannah/monthly","/warehouse","/warehouse/outbound","/inbound/checkin/hou/5300","/ecotton-import","/dray-import","/dray-import/dallas","/cotton-locations","/cotton-locations/outreach","/cotton-locations/policies"])
     assert.equal((await middleware(new NextRequest("https://scm.example.test"+path))).headers.get("x-middleware-next"),"1",path);
-  for(const path of ["/pnl","/reporting/business-intelligence","/admin/users","/bunge-import","/ecotton-import","/warehouse/gate","/warehouse/gate/hou/5300/diagnostics","/cotton-locations"])
+  for(const path of ["/pnl","/reporting/business-intelligence","/admin/users","/bunge-import","/warehouse/gate","/warehouse/gate/hou/5300/diagnostics"])
     assert.equal((await middleware(new NextRequest("https://scm.example.test"+path))).headers.get("location"),"https://scm.example.test/",path);
   const policy=s.load("lib/auth/policy.ts");
   assert.equal(policy.validInvite({name:"Accounting",email:"accounting@example.test",role:"accounting",terminal:"HOU"}).terminal,null);
