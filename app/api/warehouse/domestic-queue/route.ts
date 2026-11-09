@@ -1,3 +1,4 @@
+import { warehouseDayRange } from "@/lib/warehouse/day-activity";
 import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { randomUUID } from "node:crypto";
 import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
@@ -23,8 +24,9 @@ import { cottonShortage, shortageAcknowledged, acknowledgeShortage } from "@/lib
 export const runtime = "nodejs";
 const QUEUE_FIELDS = "id,terminal,site_name,checkin_source,updated_at,checked_in_at,physical_departed_at,local_receiving_only,driver_name,driver_phone,trucking_company,movement_direction,material_type,reference_number,destination,shipper,matched_order_id,warehouse_location,equipment_type,comment_1,mark,bol_bc,bale_count,expected_bale_count,driver_reported_bales,shortage_acknowledged_at,shortage_acknowledged_by,shortage_expected_bales,shortage_received_bales,shortage_note,customer_notified_at,customer_notified_by,draft_status,bol_photo_path,yard_status,yard_called_at,yard_in_door_at,yard_work_started_at,yard_completed_at,site_code,matched_stop_id,mcleod_lookup_status,mcleod_lookup_attempt_id,mcleod_lookup_failure_code,mcleod_lookup_failed_at,mcleod_lookup_has_known_match,mcleod_processing_phase,processing_error,outside_carrier_override_at,outside_carrier_override_by,outside_carrier_override_reason";
 function queueRow(row: Record<string, any>) {
+  const number = Array.isArray(row.arrival_number) ? row.arrival_number[0] : row.arrival_number;
   const arrival = Array.isArray(row.arrival_sync) ? row.arrival_sync[0] : row.arrival_sync;
-  return { arrival_sync_status: arrival?.status ?? null, arrival_sync_error: arrival?.error ?? null, ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
+  return { ...(row.arrival_number !== undefined ? { queue_number: number?.queue_number ?? null, queue_day: number?.queue_day ?? null } : {}), arrival_sync_status: arrival?.status ?? null, arrival_sync_error: arrival?.error ?? null, ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
       .map(key => [key, row[key]])),
     has_bol_photo: Boolean(row.bol_photo_path),
     outside_carrier_override_eligible: outsideCarrierOverrideEligible(row),
@@ -90,7 +92,7 @@ async function GETHandler(req: NextRequest) {
       const id = searchParams.get("id") || "";
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         return NextResponse.json({ ok: false, error: "Invalid arrival identifier" }, { status: 400 });
-      const result = await database().from("inbound_checkin_rows").select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error)`)
+      const result = await database().from("inbound_checkin_rows").select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error),arrival_number:warehouse_arrival_numbers(queue_day,queue_number)`)
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
       if (result.error) return databaseFailure(result);
@@ -98,13 +100,23 @@ async function GETHandler(req: NextRequest) {
       return NextResponse.json({ ok: true, row: queueRow(result.data) }, { headers: { "Cache-Control": "no-store" } });
     }
     const line = searchParams.get("view") === "line";
-    const { data, error } = await database().from("inbound_checkin_rows")
-      .select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error)`)
-      .eq("terminal", terminal).eq("site_code", siteCode)
-      .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"])
-      .gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString())
-      .order("checked_in_at", { ascending: false }).limit(line ? 500 : 200);
-    if (error) throw error;
+    const daily = searchParams.get("view") === "day";
+    const day = warehouseDayRange(new Date(), terminal as "SAV" | "HOU" | "DAL");
+    const data: Record<string, any>[] = [];
+    // Page through the whole day's sheet; include older trucks still in the yard.
+    for (let offset = 0; ; offset += 1000) {
+      let query = database().from("inbound_checkin_rows")
+        .select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error),arrival_number:warehouse_arrival_numbers(queue_day,queue_number)`)
+        .eq("terminal", terminal).eq("site_code", siteCode)
+        .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"]);
+      if (daily) query = query.or(`and(checked_in_at.gte.${day.start},checked_in_at.lt.${day.end}),and(physical_departed_at.gte.${day.start},physical_departed_at.lt.${day.end}),and(yard_completed_at.gte.${day.start},yard_completed_at.lt.${day.end}),and(checked_in_at.lt.${day.start},yard_status.in.(waiting,called,in_door,working))`);
+      else query = query.gte("checked_in_at", new Date(Date.now() - 30 * 86400000).toISOString());
+      query = query.order("checked_in_at", { ascending: false });
+      const result = await (daily ? query.order("id", { ascending: false }).range(offset, offset + 999) : query.limit(line ? 500 : 200));
+      if (result.error) throw result.error;
+      data.push(...(result.data ?? []));
+      if (!daily || (result.data?.length ?? 0) < 1000) break;
+    }
     const displayRows = await enrichDisplayCarriers(data ?? [], line);
     return NextResponse.json({ ok: true, rows: displayRows.map(row => ({ ...queueRow(row), carrier_code: row.carrier_code, scm_carrier: row.scm_carrier })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

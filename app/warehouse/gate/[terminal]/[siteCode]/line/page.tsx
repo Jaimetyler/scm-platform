@@ -1,4 +1,5 @@
 "use client";
+import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
@@ -20,6 +21,7 @@ import { cottonShortage, type ShortageFields } from "@/lib/inbound/checkin/short
 
 type Status = "waiting" | "called" | "in_door" | "working";
 type Arrival = ShortageFields & OutsideCarrierRow & {
+  queue_number?: number | null; queue_day?: string | null;
   arrival_sync_status?: string | null; arrival_sync_error?: string | null;
   id: string; checked_in_at: string; physical_departed_at?: string | null; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
@@ -299,7 +301,7 @@ export default function DomesticLinePage() {
             aria-label={row.id === requestedArrival ? "Requested arrival" : undefined}
             style={{ outline: row.id === requestedArrival ? "2px solid #fbbf24" : undefined,
               background: row.id === requestedArrival ? "rgba(251,191,36,.12)" : row.id === nextWaitingId ? "rgba(34,211,238,.12)" : undefined }}>
-            <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+            <td style={cell}>{row.queue_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
               {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}</td>
             <td style={cell}>{time(row.checked_in_at)}</td>
             <td style={cell}>{row.material_type === "cotton" ? "Cotton" : row.material_type === "lumber" ? "Lumber" : "Other"}</td>

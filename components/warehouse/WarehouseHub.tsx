@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { TERMINAL_NAMES } from "@/lib/inbound/checkin/sites";
 import { canUseInboundImporter } from "@/lib/auth/policy";
 import { useStaff } from "@/components/auth/StaffSession";
@@ -8,8 +9,10 @@ import { availableCheckinViews, sitesForLocation, workspaceHref, type WarehouseS
 
 export default function WarehouseHub({ section = "overview" }: { section?: WarehouseSection }) {
   const staff = useStaff();
+  const requestedView = useSearchParams().get("view");
+  const view = ["line", "cotton", "domestic", "containers"].includes(requestedView || "") ? requestedView as "line" | "cotton" | "domestic" | "containers" : undefined;
   const { location, ready } = useWarehouseWorkspace();
-  const sites = sitesForLocation(location).filter((site) => section !== "inventory" || site.materials.includes("cotton"));
+  const sites = sitesForLocation(location).filter((site) => (section !== "inventory" || site.materials.includes("cotton")) && (section !== "checkins" || !view || availableCheckinViews({terminal: site.terminal, siteCode: site.siteCode}).some(item => item.key === view)));
 
   if (section !== "overview") {
     const titles = { overview: "Operations", checkins: "Check-in sheets", inventory: "Inventory / Marks", outbound: "Outbound bookings", history: "Check-in history" };
@@ -19,7 +22,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
         : section === "history" ? "Choose a warehouse to search completed or removed check-ins and export the results."
         : "Choose a warehouse to open its check-in sheet."}</p>
       {!ready ? <p>Loading your workspace…</p> : sites.length ? <div className="warehouse-hub-grid">{sites.map((site) =>
-        <Link key={`${site.terminal}:${site.siteCode}`} href={workspaceHref(section, { terminal: site.terminal, siteCode: site.siteCode })} className="warehouse-hub-card">
+        <Link key={`${site.terminal}:${site.siteCode}`} href={workspaceHref(section, { terminal: site.terminal, siteCode: site.siteCode }, view)} className="warehouse-hub-card">
           <strong>{site.siteName}</strong>
           {section !== "checkins" && <span>{section === "history" ? "Completed and removed arrivals" : "Cotton inventory"}</span>}
           <span className="warehouse-hub-action">Open →</span>

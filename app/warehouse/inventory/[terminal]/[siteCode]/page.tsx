@@ -2,6 +2,7 @@
 import { useCanWrite } from "@/components/auth/StaffSession";
 
 import Link from "next/link";
+import BreakMarkImport from "@/components/warehouse/BreakMarkImport";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -12,6 +13,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { availableBales, type InventoryStatus, type ReceiptStatus } from "@/lib/warehouse/inventory";
 
 type InventoryRow = {
+  source_type: string; shipping_order: string | null;
   id: string;
   updated_at: string;
   received_date: string | null;
@@ -163,6 +165,7 @@ export default function WarehouseInventoryPage() {
         </>}
       />
 
+      <BreakMarkImport key={`${site.terminal}:${site.siteCode}`} terminal={site.terminal} siteCode={site.siteCode} onImported={loadInventory} />
       <div style={statsStyle}>
         <Stat label="Active lots" value={summary.total_lots} />
         <Stat label="Current bales" value={summary.current_bales} />
@@ -237,7 +240,7 @@ function InventoryTableRows(props: {
   const canWrite = useCanWrite(props.terminal);
   return <>
     <tr style={{ background: row.inventory_status === "on_hold" ? "rgba(245,158,11,.05)" : undefined }}>
-      <td style={tdStyle}><strong>{row.mark}</strong><small style={subStyle}>{row.customer}</small></td>
+      <td style={tdStyle}><strong>{row.mark}</strong>{row.source_type === "break" && <small style={{ ...subStyle, color: "#67e8f9" }}>Break mark · reconciliation pending{row.shipping_order ? ` · SO ${row.shipping_order}` : ""}</small>}<small style={subStyle}>{row.customer}</small></td>
       <td style={tdStyle}>{row.received_date || "—"}<small style={subStyle}>B/C {row.bol_bc ?? "—"}</small></td>
       <td style={numberCellStyle}>{row.original_bales}</td>
       <td style={numberCellStyle}>{row.current_bales}</td>

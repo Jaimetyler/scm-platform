@@ -1,4 +1,5 @@
 "use client";
+import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
@@ -18,6 +19,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 type Status = "waiting" | "called" | "in_door" | "working";
 type YardStatus = Status | "completed" | "cancelled" | null;
 type Row = {
+  queue_number?: number | null; queue_day?: string | null; yard_completed_at?: string | null; physical_departed_at?: string | null;
   id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null; trucking_company: string | null;
   movement_direction: string; material_type: string; reference_number: string;
   destination: string | null; shipper: string | null; matched_order_id: string | null;
@@ -89,7 +91,7 @@ export default function DomesticQueuePage() {
     requestKey: `${site?.terminal}:${site?.siteCode}`, load: async (signal) => {
       if (!site) return;
       try {
-        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode });
+        const query = new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode, view: "day" });
         const response = await fetch(`/api/warehouse/domestic-queue?${query}`, { cache: "no-store", signal });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || "Could not load arrivals");
@@ -319,7 +321,7 @@ export default function DomesticQueuePage() {
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Checked in · {active.length} in yard</td></tr>}
             {active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
-              <td style={cell}>{index + 1}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+              <td style={cell}>{row.queue_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
                 {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
               <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
@@ -381,6 +383,18 @@ export default function DomesticQueuePage() {
             {active.length === 0 && <tr className="domestic-details"><td colSpan={10} style={{ padding: "32px 16px", textAlign: "center", color: "#94a3b8" }}>
               No lumber or other freight is currently checked in. Use New check-in to add a truck.
             </td></tr>}
+            {recent.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Completed / removed today · {recent.length}</td></tr>}
+            {recent.slice().reverse().map(row => <tr key={row.id}>
+              <td style={cell}>{row.queue_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}</td>
+              <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
+              <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
+              <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>
+              <td style={cell}>{row.reference_number || row.mark || "—"}{row.matched_order_id && <div><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
+              <td style={cell}>{row.shipper || "—"}</td>
+              <td style={cell}>{row.trucking_company || "—"}<div>{row.driver_name}</div></td>
+              <td style={cell}>{row.destination || "—"}</td><td style={cell}>{row.comment_1 || "—"}</td>
+              <td style={cell}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}{(row.physical_departed_at || row.yard_completed_at) && <div>{time((row.physical_departed_at || row.yard_completed_at)!, site.terminal)}</div>}</td>
+            </tr>)}
             </tbody>
           </table>
         </div>}

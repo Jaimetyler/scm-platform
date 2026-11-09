@@ -73,6 +73,9 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
     const form = await req.clone().formData();
     requireTerminal(staff, form.get("terminal")); return;
   }
+  if (path === "/api/warehouse/inventory/break-marks" && req.method === "POST") {
+    const body = await req.clone().json(); requireTerminal(staff, body.terminal); return;
+  }
   const inbound = path.match(/^\/api\/inbound\/checkin\/rows\/([^/]+)$/);
   const inventory = path.match(/^\/api\/warehouse\/inventory\/([^/]+)$/);
   const booking = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)(?:\/(?:containers|rollover|lines(?:\/[^/]+(?:\/rollover)?)?))?$/);

@@ -221,3 +221,12 @@ test("dispatchers can view Late Fees without importing, syncing, billing or fina
  for(const staff of [hou,{...viewer,status:"disabled"}])
   assert.equal((await call("/api/late-fees/dallas","GET",undefined,staff)).status,403);
 });
+
+test("break-mark preview and import require a writer in the selected terminal", async()=>{
+ for(const action of ['preview','import']) {
+  assert.equal((await call('/api/warehouse/inventory/break-marks','POST',{terminal:'HOU',action})).status,200);
+  assert.equal((await call('/api/warehouse/inventory/break-marks','POST',{terminal:'SAV',action})).status,403);
+  assert.equal((await call('/api/warehouse/inventory/break-marks','POST',{terminal:'HOU',action},viewer)).status,403);
+  assert.equal((await call('/api/warehouse/inventory/break-marks','POST',{terminal:'HOU',action},{...viewer,role:'accounting'})).status,403);
+ }
+});
