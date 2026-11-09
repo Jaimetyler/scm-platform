@@ -210,3 +210,14 @@ test("accounting can use the complete eCotton and dray workflows and view cotton
  for(const path of ["/api/dray-import/future","/api/ecotton-import/future","/api/cotton-locations/review"])
   assert.equal((await call(path,"POST",{},accounting)).status,403,path);
 });
+
+test("dispatchers can view Late Fees without importing, syncing, billing or financial report access",async()=>{
+ for(const path of ["/api/late-fees/dallas","/api/late-fees/savannah"])
+  assert.equal((await call(path,"GET",undefined,viewer)).status,200,path);
+ for(const path of ["/api/late-fees/savannah/import-candidates","/api/late-fees/savannah/monthly-preview","/api/late-fees/savannah/weekly-preview","/api/late-fees/savannah/sync","/api/late-fees/savannah/sync-all","/api/late-fees/dallas/sync","/api/order-charges/apply","/api/late-fees/future"])
+  assert.equal((await call(path,"POST",{},viewer)).status,403,path);
+ for(const path of ["/api/late-fees/debug","/api/pnl/summary","/api/reporting/business-intelligence"])
+  assert.equal((await call(path,"GET",undefined,viewer)).status,403,path);
+ for(const staff of [hou,{...viewer,status:"disabled"}])
+  assert.equal((await call("/api/late-fees/dallas","GET",undefined,staff)).status,403);
+});

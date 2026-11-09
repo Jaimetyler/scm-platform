@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useStaff } from "@/components/auth/StaffSession";
+import { canUseBilling } from "@/lib/auth/policy";
 import { useEffect, useMemo, useState } from "react";
 
 export default function SavannahLateFeesPage() {
@@ -66,6 +68,7 @@ function OfficeLateFeesPage({
   officeTitle: string;
   apiPath: string;
 }) {
+  const canImport = canUseBilling(useStaff());
   const [rows, setRows] = useState<LateFeeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +252,7 @@ function OfficeLateFeesPage({
         </p>
       </div>
 
-      <div style={{ marginBottom: 20, paddingTop: 8 }}>
+      {canImport && <div style={{ marginBottom: 20, paddingTop: 8 }}>
         <Link
           href="/late-fees/savannah/import"
           style={{
@@ -266,7 +269,7 @@ function OfficeLateFeesPage({
         >
           Import FlowLogix CSV
         </Link>
-      </div>
+      </div>}
 
       {note ? (
         <div

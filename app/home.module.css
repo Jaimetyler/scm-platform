@@ -38,9 +38,38 @@
   font-weight: 700;
   letter-spacing: -.025em;
 }
+.sections {
+  display: grid;
+  gap: 36px;
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.sectionHeading::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(148, 163, 184, .15);
+}
+.sectionHeading h2 {
+  margin: 0 0 6px;
+  color: #f1f5f9;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.sectionHeading p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.5;
+}
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
   gap: 20px;
 }
 .card {

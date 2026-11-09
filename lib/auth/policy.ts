@@ -34,6 +34,12 @@ export function validInvite(value: Record<string, unknown>) {
   return { email, name, role: role as Staff["role"], terminal: terminal as Staff["terminal"] };
 }
 
+export function canViewLateFees(staff: Staff | null) {
+  return staff?.status === "active" && ["admin", "accounting", "viewer"].includes(staff.role);
+}
+export function lateFeeReadPage(path: string) {
+  return ["/late-fees", "/late-fees/dallas", "/late-fees/savannah"].includes(path);
+}
 export function canUseBilling(staff: Staff | null) {
   return staff?.status === "active" && (staff.role === "admin" || staff.role === "accounting");
 }
@@ -58,7 +64,7 @@ export function canAccessStaffPage(staff: Staff, path: string) {
     /^\/warehouse\/gate\/(?:hou|sav|dal)\/[^/]+\/(?:line|domestic|containers|history)\/?$/i.test(path));
   if (staff.role === "accounting") return path === "/" || accountingWarehouse || path === "/order-charges" || path === "/late-fees" || path.startsWith("/late-fees/") ||
     ["/ecotton-import", "/dray-import", "/dray-import/dallas", "/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path);
-  return warehouse || ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path) ||
+  return canViewLateFees(staff) && lateFeeReadPage(path) || warehouse || ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path) ||
     path === "/" && staff.role === "viewer" ||
     ["/bunge-import", "/cotton-import"].includes(path) && canUseInboundImporter(staff);
 }

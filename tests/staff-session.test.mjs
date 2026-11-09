@@ -156,3 +156,11 @@ test("read-only roles can view operational gate sheets without opening QR setup"
   assert.equal((await middleware(new NextRequest("https://scm.example.test/warehouse/gate"))).headers.get("location"),"https://scm.example.test/");
  }
 });
+
+test("dispatcher home tools are reachable while Late Fee imports and reports stay restricted",async()=>{
+ const middleware=scenario({profile:{role:"viewer",terminal:null}}).load("middleware.ts").middleware;
+ for(const path of ["/","/warehouse","/bunge-import","/cotton-locations","/late-fees","/late-fees/dallas","/late-fees/savannah"])
+  assert.equal((await middleware(new NextRequest("https://scm.example.test"+path))).headers.get("x-middleware-next"),"1",path);
+ for(const path of ["/late-fees/savannah/import","/late-fees/savannah/monthly","/late-fees/savannah/weekly","/order-charges","/pnl","/reporting/business-intelligence"])
+  assert.equal((await middleware(new NextRequest("https://scm.example.test"+path))).headers.get("location"),"https://scm.example.test/",path);
+});
