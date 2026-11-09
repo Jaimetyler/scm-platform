@@ -6,16 +6,16 @@ import {parseBungeWorkbook,buildPreview} from "@/lib/bunge/preview";
 import {pickupMonthRanges} from "@/lib/bunge/duplicate-window";
 import {nonVoidBlnumMatches} from "@/lib/bunge/duplicates";
 import {vendor} from "@/lib/dray/server";
-import {SCM_DELIVERY_LOCATIONS,deliveryCode,inboundTerminal,terminalDeliveryCode,OLAM_CUSTOMER,olamDeliveryCode} from "@/lib/bunge/destinations";
+import {COTTON_DELIVERY_LOCATIONS,cottonTerminalDeliveryCode,deliveryCode,inboundTerminal,OLAM_CUSTOMER} from "@/lib/bunge/destinations";
 import {parseOlamWorkbook} from "@/lib/bunge/olam";
-import {readActiveDeliveryLocation,readDeliveryLocation} from "@/lib/bunge/delivery-server";
+import {readCottonDeliveryLocation} from "@/lib/bunge/delivery-server";
 export const dynamic="force-dynamic";
 export const maxDuration=120;
 export const GET=withStaffAccess(async(req:NextRequest)=>{
  const requested=req.nextUrl.searchParams.get("terminal"), terminal=inboundTerminal(requested);
  if(requested&&!terminal)return NextResponse.json({ok:false,error:"Unknown inbound location."},{status:400});
- const options=SCM_DELIVERY_LOCATIONS.filter(l=>!terminal||l.terminal===terminal.id);
- const results=await Promise.allSettled(options.map(l=>readDeliveryLocation(l.code)));
+ const options=COTTON_DELIVERY_LOCATIONS.filter(l=>!terminal||l.terminal===terminal.id);
+ const results=await Promise.allSettled(options.map(l=>readCottonDeliveryLocation(l.code)));
  const locations=results.flatMap(r=>r.status==="fulfilled"?[r.value]:[]);
  const unavailable=options.filter((_,i)=>results[i].status==="rejected").map(l=>l.code);
  if(!locations.length)return NextResponse.json({ok:false,error:"SCM delivery locations could not be verified. Retry the location list."},{status:503});
@@ -36,10 +36,9 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  if(!olam&&/\.xlsb$/i.test(file.name))throw Error("XLSB uploads must be original OLAM load lists.");
  if(!olam&&terminal?.id==="houston")
    return NextResponse.json({ok:true,useHoustonBungePreview:true},{headers:{"Cache-Control":"private, no-store"}});
- const override=form.get("olamDestination");
- const destination=olam
-   ? override ? olamDeliveryCode(override) : olam.destination
-   : terminal?terminalDeliveryCode(terminal.id,form.get("destination")):deliveryCode(form.get("destination"));
+ const destination=terminal
+   ? cottonTerminalDeliveryCode(terminal.id,form.get("destination"))
+   : deliveryCode(form.get("destination"));
  const customerId=olam?OLAM_CUSTOMER:"BUNGOMNE";
  const equipment=String(form.get("equipment")||"unknown");if(!["unknown","auto","van","flatbed","VT"].includes(equipment))throw Error("Choose van, flatbed or equipment not selected.");
  const parsed=olam??parseBungeWorkbook(workbook);const requested=form.get("revenue")||"auto";
@@ -47,7 +46,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const revenue=terminal?.revenue ?? (requested==="auto"?(parsed.destinations.some(d=>/DALLAS|DESOTO/i.test(d))?"DAVIS":"MAIN"):requested as "MAIN"|"DAVIS");
  const db=staffDatabase();const [locations,schedules,delivery,equipmentPolicies]=await Promise.all([
  db.from("cotton_location_master").select("id,mcleod_code,prev_code,name,address,city,state,timezone").limit(3000),
- db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),destination ? SCM_DELIVERY_LOCATIONS.some(l=>l.code===destination) ? readDeliveryLocation(destination) : readActiveDeliveryLocation(destination) : null,db.from("cotton_location_equipment").select("*").limit(3000)]);
+ db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),destination ? readCottonDeliveryLocation(destination) : null,db.from("cotton_location_equipment").select("*").limit(3000)]);
  if(locations.error||schedules.error||equipmentPolicies.error)throw Error("Location schedules unavailable. Please retry.");
  return NextResponse.json({ok:true,filename:file.name,customerId,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,equipment,proposals:buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[],customerId),previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:"Preview failed"},{status:400})}

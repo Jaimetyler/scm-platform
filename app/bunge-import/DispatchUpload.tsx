@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { SCM_DELIVERY_LOCATIONS, terminalDeliveryCode, type DeliveryLocation, type InboundTerminal } from "@/lib/bunge/destinations";
+import { COTTON_DELIVERY_LOCATIONS, cottonTerminalDeliveryCode, type DeliveryLocation, type InboundTerminal } from "@/lib/bunge/destinations";
 import { requestedEquipment, type EquipmentOption } from "@/lib/cotton-import/equipment";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
@@ -14,7 +14,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [equipment, setEquipment] = useState<EquipmentOption>("auto");
-  const [destination, setDestination] = useState(() => terminal === "dallas" ? "" : terminalDeliveryCode(terminal, null));
+  const [destination, setDestination] = useState(() => terminal === "dallas" ? "" : cottonTerminalDeliveryCode(terminal, null));
   const [locations, setLocations] = useState<DeliveryLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -48,7 +48,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
 
   return <form className={styles.guide} onSubmit={event => {
     event.preventDefault();
-    if (file && !busy && !loading) onPreview({ file, equipment, destination });
+    if (file && selected && !busy && !loading) onPreview({ file, equipment, destination });
   }}>
     <h2>Upload dispatch</h2>
     <p>Bunge or OLAM · OLAM Excel, up to 3 MB · Bunge {houston ? "XLSX or XLS, up to 2 MB" : "XLSX, XLS or CSV, up to 3 MB and 250 pickup rows"}.</p>
@@ -59,16 +59,16 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
           setFile(event.target.files?.[0] ?? null);
           onChange();
         }} />
-      <label>Bunge delivery location <select value={destination} disabled={busy || loading} onChange={event => {
+      <label>Delivery location <select value={destination} disabled={busy || loading} onChange={event => {
         setDestination(event.target.value);
         onChange();
       }}>
-        {!selected && <option value={destination} disabled>{loading ? "Loading delivery locations…" : destination ? `${destination} unavailable — choose a location` : "Choose a Dallas delivery location"}</option>}
+        {!selected && <option value={destination} disabled>{loading ? "Loading delivery locations…" : destination ? `${destination} unavailable — choose a location` : "Choose a delivery location"}</option>}
         {locations.map(location => <option key={location.code} value={location.code}>
-          {SCM_DELIVERY_LOCATIONS.find(entry => entry.code === location.code)?.label ?? location.name} · {location.address}, {location.city} ({location.code})
+          {COTTON_DELIVERY_LOCATIONS.find(entry => entry.code === location.code)?.label ?? location.name} · {location.address}, {location.city} ({location.code})
         </option>)}
       </select></label>
-      <button type="submit" disabled={busy || loading || !file}>{busy ? "Working…" : "Preview dispatch"}</button>
+      <button type="submit" disabled={busy || loading || !file || !selected}>{busy ? "Working…" : "Preview dispatch"}</button>
     </div>
     {selectedLocation && <p>Receiving hours · {selectedLocation.receivingHours.open}–{selectedLocation.receivingHours.close} local · {selectedLocation.receivingHours.method}</p>}
     {error && <p role="alert" className={styles.error}>{error}</p>}

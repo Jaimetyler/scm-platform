@@ -40,13 +40,6 @@ export function resolveCottonLocation(
   const location = candidates[0];
   if (!location.active)
     throw new CottonLocationResolutionError(`Inactive location: ${key}`);
-  if (!location.timezone)
-    throw new CottonLocationResolutionError(`Missing timezone for location: ${key}`);
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: location.timezone });
-  } catch {
-    throw new CottonLocationResolutionError(`Invalid timezone for location: ${key}`);
-  }
   return location;
 }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { terminalDeliveryCode } from "@/lib/bunge/destinations";
+import { cottonTerminalDeliveryCode } from "@/lib/bunge/destinations";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
@@ -15,8 +15,7 @@ export const maxDuration = 60;
 
 async function upload(req: NextRequest) {
   const form = await req.formData();
-  const destination = terminalDeliveryCode("houston", form.get("destination"));
-  if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw new Error("Choose a Houston delivery location.");
+  const destination = cottonTerminalDeliveryCode("houston", form.get("destination"));
   const file = form.get("file");
   const equipment = requestedEquipment(form.get("equipment"));
   if (!(file instanceof File))

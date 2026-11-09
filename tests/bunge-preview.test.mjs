@@ -179,3 +179,12 @@ test('original OLAM workbook yields the expected order preview', { skip: !proces
  assert.ok(proposals.every(order => order.customerId === 'OLAMRITX' && order.destination === 'MERIBAT2'));
  assert.deepEqual([...new Set(proposals.flatMap(order => order.pickups.map(stop => stop.warehouseCode)))], ['940015', '928532']);
 });
+
+test('cotton delivery options are scoped by terminal rather than customer',()=>{
+ const {COTTON_DELIVERY_LOCATIONS,cottonTerminalDeliveryCode,cottonReceivingHours}=load('lib/bunge/destinations.ts');
+ for(const terminal of ['houston','savannah','dallas'])for(const option of COTTON_DELIVERY_LOCATIONS){
+  if(option.terminal===terminal)assert.equal(cottonTerminalDeliveryCode(terminal,option.code),option.code);
+  else assert.throws(()=>cottonTerminalDeliveryCode(terminal,option.code),/selected inbound region/);
+ }
+ for(const code of ['MERIBATX','MERIBAT2'])assert.deepEqual(cottonReceivingHours(code),{open:'07:00',close:'15:00',method:'FCFS',timezone:'America/Chicago'});
+});

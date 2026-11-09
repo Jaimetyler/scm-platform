@@ -19,7 +19,7 @@ export type CottonOrderPreview = {
   blnum: string;
   commodity: "COTTON";
   deliveryLocation: string;
-  pickupStops: { locationId: string; locationCode: string; timezone: string; scheduledDate: string; scheduledTime: string | null }[];
+  pickupStops: { locationId: string; locationCode: string; timezone: string | null; scheduledDate: string; scheduledTime: string | null }[];
   requiresScheduleReview: boolean;
 };
 
@@ -51,7 +51,7 @@ export function buildCottonOrderPreview(input: CottonImportInput, locations: rea
     const scheduledTime = pickup.scheduledTime?.trim() || null;
     if (scheduledTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(scheduledTime))
       throw new Error("Invalid scheduled pickup time");
-    return { locationId: location.id, locationCode: location.mcleod_code, timezone: location.timezone!, scheduledDate: date(pickup.scheduledDate), scheduledTime };
+    return { locationId: location.id, locationCode: location.mcleod_code, timezone: location.timezone, scheduledDate: date(pickup.scheduledDate), scheduledTime };
   });
   return { customerId, revenueCode: input.revenueCode, blnum, commodity: "COTTON",
     deliveryLocation: input.deliveryLocation ?? "SAVAGAG2", pickupStops,

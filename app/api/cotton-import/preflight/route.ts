@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
-import { inboundTerminal, terminalDeliveryCode, OLAM_CUSTOMER, olamDeliveryCode, SCM_DELIVERY_LOCATIONS, cottonReceivingHours } from "@/lib/bunge/destinations";
+import { inboundTerminal, cottonTerminalDeliveryCode, OLAM_CUSTOMER, SCM_DELIVERY_LOCATIONS, cottonReceivingHours } from "@/lib/bunge/destinations";
 import { staffActor, staffProfile, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { readActiveDeliveryLocation, readDeliveryLocation } from "@/lib/bunge/delivery-server";
@@ -51,10 +51,7 @@ async function preflight(req: NextRequest) {
   if (!olam && /\.xlsb$/i.test(file.name)) throw Error("XLSB uploads must be original OLAM load lists.");
   if (!olam && houston && file.size > 2_000_000) throw Error("Houston Bunge workbook exceeds 2 MB.");
   if (!olam && terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
-  const destination = olam ? olamDeliveryCode(form.get("destination") || parsedOlam.destination) : terminalDeliveryCode(terminal.id, form.get("destination"));
-  if (olam && SCM_DELIVERY_LOCATIONS.some(location => location.code === destination) &&
-      !SCM_DELIVERY_LOCATIONS.some(location => location.code === destination && location.terminal === terminal.id))
-    throw Error("Choose an SCM delivery location in the selected inbound region.");
+  const destination = cottonTerminalDeliveryCode(terminal.id, form.get("destination") || parsedOlam?.destination);
 
   const db = staffDatabase();
   const locations = await db.from("cotton_location_master")
@@ -77,7 +74,6 @@ async function preflight(req: NextRequest) {
         throw Error("Historical pickup dates are for preview only.");
       return regionalOrder(parsed.lines, salesOrder, destination, terminal.revenue, locations.data);
     }
-    if (destination !== "SUPPBAT1" && destination !== "SUPPPAT1") throw Error("Choose a Houston delivery location.");
     const workbook = XLSX.read(bytes, { type: "array" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     if (!sheet) throw Error("Workbook has no first worksheet.");
@@ -220,7 +216,7 @@ async function preflight(req: NextRequest) {
     }
   }
   const createBlock = !pilotEnabled ? "Live cotton order creation is disabled on this deployment."
-    : !payload ? "Live creation requires complete weight and a verified pickup schedule. Houston creation requires Baytown."
+    : !payload ? "Live creation requires complete weight and a verified pickup schedule. Choose a delivery location in the selected terminal."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
     : null;
   const canCreate = createBlock === null;

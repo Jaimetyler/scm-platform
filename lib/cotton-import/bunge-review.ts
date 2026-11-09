@@ -1,3 +1,4 @@
+import { cottonTerminalDeliveryCode } from "../bunge/destinations.ts";
 import { resolveCottonWarehouseName, resolveCottonLocation, type CottonLocation } from "./location-resolution.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
 import { buildCottonOrderPreview, type CottonOrderPreview } from "./preview.ts";
@@ -13,8 +14,9 @@ export function previewBungeDispatchOrders(
   orders: readonly DispatchOrder[],
   destinationKind: "SAVANNAH" | "DALLAS_2" | "HOUSTON",
   locations: readonly CottonLocation[],
-  houstonDelivery: "SUPPBAT1" | "SUPPPAT1" = "SUPPBAT1",
+  houstonDelivery: string = "SUPPBAT1",
 ): DispatchOrderReview[] {
+  if (destinationKind === "HOUSTON") cottonTerminalDeliveryCode("houston", houstonDelivery);
   return orders.map(order => {
     try {
       if (destinationKind === "DALLAS_2")

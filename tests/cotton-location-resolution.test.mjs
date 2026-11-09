@@ -22,9 +22,9 @@ test("current and previous codes resolve to the same approved location", () => {
 test("current code takes precedence over previous-code aliases", () => {
   assert.equal(resolveCottonLocation("NEW-A", [...locations, { ...locations[1], id: "c", prev_code: "NEW-A" }]).id, "a");
 });
-test("unknown, ambiguous, inactive and missing timezone block creation", () => {
+test("unknown, ambiguous and inactive locations block creation", () => {
   assert.throws(() => resolveCottonLocation("missing", locations), /Unknown/);
   assert.throws(() => resolveCottonLocation("OLD-A", [...locations, { ...locations[1], id: "c", prev_code: "OLD-A" }]), /Ambiguous/);
   assert.throws(() => resolveCottonLocation("OLD-A", [{ ...locations[0], active: false }]), /Inactive/);
-  assert.throws(() => resolveCottonLocation("NEW-A", [{ ...locations[0], timezone: null }]), /Missing timezone/);
+  assert.equal(resolveCottonLocation("NEW-A", [{ ...locations[0], timezone: null }]).id, "a");
 });

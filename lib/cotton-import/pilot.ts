@@ -13,9 +13,9 @@ export function draftHoustonOrder(
 ) {
   const destination = SCM_DELIVERY_LOCATIONS.find(location => location.code === preview.deliveryLocation);
   const olam = preview.customerId === OLAM_CUSTOMER;
-  const externalOlam = olam && ["MERIBATX", "MERIBAT2"].includes(preview.deliveryLocation);
+  const externalDelivery = ["MERIBATX", "MERIBAT2"].includes(preview.deliveryLocation);
   if ((!olam && preview.customerId !== "BUNGOMNE") ||
-      (!destination && !externalOlam) ||
+      (!destination && !externalDelivery) ||
       (destination && preview.revenueCode !== (destination.terminal === "dallas" ? "DAVIS" : "MAIN")) ||
       windows.length !== preview.pickupStops.length)
     throw new Error("The order draft requires the matching cotton customer and terminal profile.");

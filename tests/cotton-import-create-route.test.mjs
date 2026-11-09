@@ -11,7 +11,7 @@ const reference={id:'0829475',ordered_by:'2601887',customer_id:'BUNGOMNE',blnum:
  {order_sequence:2,stop_type:'SO',location_id:'SUPPBAT1'}]};
 function scenario(options={}){
  let audit=null,payload=null,writes=0;const duplicateCustomers=[];
- const location={id:'loc',mcleod_code:'MOODGAT3',prev_code:'858056',name:'Moody',active:true,timezone:'America/Chicago'};
+ const location={id:'loc',mcleod_code:'MOODGAT3',prev_code:'858056',name:'Moody',active:true,timezone:options.localOnly?null:'America/Chicago'};
  const db={from(table){let mutation=null;
   const q={select(){return this},eq(){return this},in(){return this},is(){return this},limit(){return this},
    async upsert(value){audit={id:'audit',mcleod_order_id:null,error_message:null,reviewed_payload:null,updated_at:'2026-01-01',...value};return {error:null}},
@@ -43,10 +43,10 @@ function scenario(options={}){
 process.env.BUNGE_IMPORT_WRITES_ENABLED='true';process.env.MCLEOD_BASE_URL='https://mcleod.example.test';process.env.MCLEOD_AUTH_TOKEN='test';
 test('Bunge and OLAM create with fresh preflight and read-back across all three terminals',async()=>{
  for(const customer of ['BUNGOMNE','OLAMRITX'])for(const [terminal,scm] of [['houston','SUPPBAT1'],['dallas','SCMDDETX'],['savannah','SAVAGAG2']]){
-  const s=scenario(),destination=customer==='OLAMRITX'?'MERIBAT2':scm;
+  const s=scenario(),destination=scm;
   await s.withVendor(async()=>{const review=await s.call(customer,terminal,destination);assert.equal(review.canCreate,true,JSON.stringify(review));assert.ok(review.reviewToken);assert.equal(s.writes,0);
    const created=await s.call(customer,terminal,destination,review.reviewToken);assert.equal(created.ok,true,JSON.stringify(created));assert.equal(created.auditStatus,'verified');assert.equal(s.writes,1);assert.equal(s.payload.customer_id,customer);assert.equal(s.payload.revenue_code_id,terminal==='dallas'?'DAVIS':'MAIN');assert.equal(s.payload.stops.at(-1).location_id,destination);assert.ok(s.duplicateCustomers.every(c=>c===customer));
-   if(customer==='OLAMRITX'){assert.equal(s.payload.booking_no_sucm,'BOOK123');assert.match(s.payload.stops.at(-1).sched_arrive_late,/150000/)}
+   if(customer==='OLAMRITX'){assert.equal(s.payload.booking_no_sucm,'BOOK123');assert.match(s.payload.stops.at(-1).sched_arrive_late,destination==='SUPPBAT1'?/200000/:/150000/)}
    const again=await s.call(customer,terminal,destination,review.reviewToken);assert.equal(again.canCreate,false);assert.equal(s.writes,1);
   })
  }
@@ -54,4 +54,21 @@ test('Bunge and OLAM create with fresh preflight and read-back across all three 
 test('duplicates, failed lookups, mismatched destinations and stale tokens never create',async()=>{
  for(const options of [{duplicate:true},{lookupError:true}]){const s=scenario(options);await s.withVendor(async()=>{const r=await s.call('OLAMRITX','houston','MERIBAT2');assert.equal(r.canCreate,false);assert.equal(s.writes,0)})}
  const s=scenario();await s.withVendor(async()=>{const review=await s.call('OLAMRITX','houston','MERIBAT2');assert.equal(review.canCreate,true);const bad=await s.call('OLAMRITX','houston','MERIBATX',review.reviewToken);assert.equal(bad.canCreate,false);assert.equal(s.writes,0);const cross=await s.call('OLAMRITX','dallas','SAVAGAG2');assert.equal(cross.canCreate,false);assert.equal(s.writes,0)})
+});
+
+
+test('one terminal destination list works for both customers and preserves local pickup clocks without a timezone',async()=>{
+ for(const customer of ['BUNGOMNE','OLAMRITX'])for(const destination of ['SUPPPAT1','MERIBATX','MERIBAT2']){
+  const s=scenario({localOnly:true});await s.withVendor(async()=>{
+   const review=await s.call(customer,'houston',destination);assert.equal(review.canCreate,true,JSON.stringify(review));
+   const created=await s.call(customer,'houston',destination,review.reviewToken);assert.equal(created.ok,true,JSON.stringify(created));
+   assert.equal(s.payload.stops[0].sched_arrive_early,'20261113080000-0500');
+   assert.equal(s.payload.stops[0].sched_arrive_late,'20261113150000-0500');
+   assert.equal(s.payload.stops.at(-1).location_id,destination);
+  });
+ }
+ const s=scenario();await s.withVendor(async()=>{
+  for(const terminal of ['savannah','dallas'])assert.equal((await s.call('OLAMRITX',terminal,'MERIBAT2')).canCreate,false);
+  assert.equal(s.writes,0);
+ });
 });

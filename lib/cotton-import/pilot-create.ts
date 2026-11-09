@@ -1,3 +1,4 @@
+import { cottonTerminalDeliveryCode } from "../bunge/destinations.ts";
 import { warehouseWallTime } from "../inbound/checkin/mcleod-time.ts";
 import type { draftHoustonOrder } from "./pilot.ts";
 
@@ -5,9 +6,8 @@ type Draft = ReturnType<typeof draftHoustonOrder>;
 
 export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston") {
   const stops = draft.order.stops;
-  if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight ||
-      (region === "houston" && draft.order.customer_id === "BUNGOMNE" && stops.at(-1)?.location_id !== "SUPPBAT1") ||
-      stops.some(stop => !stop.timezone)) return null;
+  try { cottonTerminalDeliveryCode(region, stops.at(-1)?.location_id); } catch { return null; }
+  if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight) return null;
   return {
     ...draft.order,
     collection_method: "T",

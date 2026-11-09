@@ -55,7 +55,6 @@ export function buildPreview(lines:PickupLine[],locations:Location[],schedules:S
  const line=part[0],matches=line.warehouseCode?locations.filter(l=>norm(l.prev_code)===line.warehouseCode||l.mcleod_code===line.warehouseCode):[];const location=matches.length===1?matches[0]:null;const stopIssues:string[]=[];
  if(!line.warehouseCode)stopIssues.push("No unique warehouse code in source workbook.");else if(!location)stopIssues.push(matches.length?"Warehouse code matches multiple locations.":"Warehouse code is not mapped.");
  if(!line.rtl)stopIssues.push("RTL date missing.");
- if(location&&!location.timezone)stopIssues.push("Location timezone must be confirmed before scheduling.");
  const weekday=line.rtl?new Date(line.rtl+"T12:00:00Z").getUTCDay():null;
  const eligible=location&&line.rtl?schedules.filter(s=>s.location_id===location.id&&(s.weekday==null||s.weekday===weekday)&&(!s.effective_from||s.effective_from<=line.rtl!)&&(!s.effective_to||s.effective_to>=line.rtl!)).sort((a,b)=>b.created_at.localeCompare(a.created_at)):[];
  const hours=eligible[0]||null;

@@ -1,4 +1,4 @@
-import {deliveryCode,scmReceivingHours,type DeliveryLocation} from "./destinations";
+import {deliveryCode,scmReceivingHours,cottonReceivingHours,COTTON_DELIVERY_LOCATIONS,type DeliveryLocation} from "./destinations";
 export async function readDeliveryLocation(code:string):Promise<DeliveryLocation>{
  deliveryCode(code);
  return {...await readActiveDeliveryLocation(code),receivingHours:scmReceivingHours(code)};
@@ -12,4 +12,9 @@ export async function readActiveDeliveryLocation(code:string):Promise<Omit<Deliv
  if(!res.ok)throw Error("Unable to verify selected delivery location in McLeod.");
  const row=await res.json();if(row?.id!==code||row.company_id!=="TMS"||[false,"N"].includes(row.is_active))throw Error("Selected delivery location is unavailable or inactive.");
  return {code,name:row.name||code,address:row.address1||"",address2:row.address2||"",city:row.city_name||"",state:row.state||"",zip:row.zip_code||""};
+}
+
+export async function readCottonDeliveryLocation(code: string): Promise<DeliveryLocation> {
+ if (!COTTON_DELIVERY_LOCATIONS.some(location => location.code === code)) throw Error("Choose a cotton delivery location.");
+ return { ...await readActiveDeliveryLocation(code), receivingHours: cottonReceivingHours(code) };
 }

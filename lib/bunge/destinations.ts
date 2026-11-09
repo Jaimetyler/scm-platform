@@ -101,3 +101,15 @@ export function cottonReceivingHours(code: string) {
   return { open: "07:00", close: "15:00", method: "FCFS" as const, timezone: "America/Chicago" };
  return scmReceivingHours(code);
 }
+
+export const COTTON_DELIVERY_LOCATIONS = [
+ ...SCM_DELIVERY_LOCATIONS,
+ { terminal: "houston", code: "MERIBATX", label: "Merih — Cedar Blvd" },
+ { terminal: "houston", code: "MERIBAT2", label: "Merih 2 — Sutton Road" },
+] as const;
+export function cottonTerminalDeliveryCode(terminal: InboundTerminal, value: unknown): string {
+ const options = COTTON_DELIVERY_LOCATIONS.filter(location => location.terminal === terminal);
+ const code = value == null ? options[0]?.code : value;
+ if (!options.some(location => location.code === code)) throw Error("Choose a delivery location in the selected inbound region.");
+ return String(code);
+}
