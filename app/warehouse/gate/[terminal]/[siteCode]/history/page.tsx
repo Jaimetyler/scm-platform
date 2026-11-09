@@ -18,7 +18,7 @@ import { Fragment } from "react";
 type Row = ShortageFields & {
   updated_at: string;
   id: string; checked_in_at: string; yard_completed_at: string | null; yard_status: string;
-  driver_name: string | null; driver_phone: string | null; movement_direction: string | null;
+  driver_name: string | null; driver_phone: string | null; trucking_company: string | null; movement_direction: string | null;
   material_type: string; reference_number: string | null; mark: string | null;
   shipper: string | null; matched_order_id: string | null; draft_status: string;
   destination: string | null; checkin_source: string | null;
@@ -85,7 +85,7 @@ export default function DomesticHistoryPage() {
     </details>
     <PlatformPanel>
       <form onSubmit={apply} style={{ display: "flex", gap: 12, padding: "14px 16px", borderRadius: 10, background: "rgba(30,41,59,.36)", border: "1px solid rgba(148,163,184,.12)", flexWrap: "wrap", alignItems: "end", marginBottom: 18 }}>
-        <label style={label}>Search driver, reference, mark, customer, or SCM order number
+        <label style={label}>Search driver, trucking company, reference, mark, customer, or SCM order number
           <input value={search} onChange={(event) => setSearch(event.target.value)} style={input} /></label>
         <label style={label}>From arrival date<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} style={input} /></label>
         <label style={label}>Through arrival date<input type="date" value={through} onChange={(event) => setThrough(event.target.value)} style={input} /></label>
@@ -97,18 +97,19 @@ export default function DomesticHistoryPage() {
       </form>
       {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
       {loading ? <p>Loading history…</p> : rows.length === 0 ? <p>No matching check-ins.</p> :
-        <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse", color: "#e2e8f0" }}>
-          <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver / source", "Reference / mark", "Customer", "SCM order / processing"].map((name) =>
+        <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 1250, borderCollapse: "collapse", color: "#e2e8f0" }}>
+          <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver / source", "Trucking company", "Reference / mark", "Customer", "SCM order / processing"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{rows.map((row) => <Fragment key={row.id}><tr>
             <td style={cell}>{time(row.checked_in_at)}</td><td style={cell}>{time(row.yard_completed_at)}</td>
             <td style={cell}><span style={statusStyle(row.yard_status)}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}</span></td><td style={cell}>{row.material_type}</td>
             <td style={cell}>{row.movement_direction || "—"}</td><td style={cell}>{row.driver_name || "Staff entry"}<span className="row-secondary">{row.checkin_source === "driver_qr" ? "Driver QR" : "Staff"}</span></td>
+            <td style={cell}>{row.trucking_company?.trim() || "—"}</td>
             <td style={cell}>{row.reference_number || row.mark || "—"}
               {row.has_bol_photo && <div style={{ marginTop: 5 }}><PaperworkPhotoLink checkinId={row.id} /></div>}</td>
             <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.matched_order_id ? <>#{row.matched_order_id}<span className="row-secondary">{row.draft_status === "delivery_blocked" ? "Receiving complete · Delivery blocked" : row.draft_status === "processed" ? "Processed in McLeod" : "Checked in"}</span></> : "—"}</td>
-          </tr>{row.draft_status === "delivery_blocked" && <tr><td colSpan={9} style={cell}><ShortageNotice row={row} complete onAction={async (action: ShortageAction) => {
+          </tr>{row.draft_status === "delivery_blocked" && <tr><td colSpan={10} style={cell}><ShortageNotice row={row} complete onAction={async (action: ShortageAction) => {
               const response = await fetch(`/api/inbound/checkin/rows/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: row.updated_at, ...action }) });
               const result = await response.json();
               if (!response.ok || !result.ok) throw new Error(result.error || "Could not record notification");

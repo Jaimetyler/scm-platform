@@ -87,7 +87,7 @@ async function GETHandler(req: NextRequest) {
         query = query.lt("checked_in_at", warehouseMidnight(end.toISOString().slice(0, 10), terminal));
       }
       if (search) query = query.or([
-        "driver_name", "driver_phone", "reference_number", "mark", "shipper", "destination", "matched_order_id",
+        "driver_name", "driver_phone", "trucking_company", "reference_number", "mark", "shipper", "destination", "matched_order_id",
       ].map((field) => `${field}.ilike.%${search}%`).join(","));
       return query.order("checked_in_at", { ascending: false });
     };
