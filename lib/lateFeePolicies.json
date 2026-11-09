@@ -74,10 +74,13 @@
     "description": "Bulloch Gin 7:30-3:00PM.",
     "late_load_grace_days": 1,
     "avoidable_fee": false,
-    "amount": 5,
+    "amount": 75,
     "fee_type": "PER_DAY",
     "early_loading_fee_type": "PER_BALE_ONE_TIME",
-    "early_loading_fee_amount": 3
+    "early_loading_fee_amount": 5,
+    "early_loading_grace_days": 0,
+    "policy_notes": "$75.00 per mark per day; Early pickup of marks (no grace) $5.00/bale. Late pick-up of marks has one grace day, then $75.00 per mark per day. Loads must be picked up within 5 days; after the 5th day bales are restocked and the customer pays the late fee plus a restocking fee ($5.00/bale return-to-stock).",
+    "source_reference": "2026 list for SCM.csv | Seam 228002 | received 2026-11-09"
   },
   {
     "mcleod_code": "BURKJAFL",
@@ -826,8 +829,11 @@
     "avoidable_fee": false,
     "amount": 4,
     "fee_type": "PER_BALE_ONE_TIME",
-    "early_loading_fee_type": "NOT_ALLOWED",
-    "early_loading_fee_amount": 0
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 4,
+    "early_loading_grace_days": 0,
+    "policy_notes": "$4.00/bale (late or early pickup), 2 day max; beyond 2 days negotiated. Form line: 'Late pick up fee (per bale) or early pick up fee (per bale), 2 day max. Anything late or early beyond 2 days will be negotiated. 4.00'. Grace period and per-day vs one-time basis not stated. SCM instruction: preserve existing 2-calendar-day late-pickup grace and existing one-time rate basis. Customer wording covers up to two days early/late; beyond two days negotiated.",
+    "source_reference": "2026 list for SCM.csv | Seam 313510 | received 2026-11-09"
   },
   {
     "mcleod_code": "PLANVIGA",
@@ -836,8 +842,11 @@
     "avoidable_fee": false,
     "amount": 4,
     "fee_type": "PER_BALE_ONE_TIME",
-    "early_loading_fee_type": "NOT_ALLOWED",
-    "early_loading_fee_amount": 0
+    "early_loading_fee_type": "PER_BALE_ONE_TIME",
+    "early_loading_fee_amount": 4,
+    "early_loading_grace_days": 0,
+    "policy_notes": "$4.00/bale (late or early pickup), 2 day max. A $4.00 per bale late pick-up or early pick-up fee applies for up to 2 days; anything late or early beyond 2 days will be negotiated. SCM instruction: preserve existing 2-calendar-day late-pickup grace and existing one-time rate basis. Customer wording covers up to two days early/late; beyond two days negotiated.",
+    "source_reference": "2026 list for SCM.csv | Seam 347750 | received 2026-11-09"
   },
   {
     "mcleod_code": "PLAZCEAL",
@@ -1364,40 +1373,48 @@
     "description": "Moody Compress #1 8-3pm out Van only",
     "late_load_grace_days": 0,
     "avoidable_fee": false,
-    "amount": 4,
+    "amount": 5,
     "fee_type": "PER_BALE_ONE_TIME",
     "early_loading_fee_type": "",
-    "early_loading_fee_amount": 0
+    "early_loading_fee_amount": 0,
+    "policy_notes": "$5.00/bale (late pickup fee 'per operational needs'); plus additional storage up to one month. Item 20 late pickup fee $5.00/bale 'per operational needs'. Rule 20(b): owner must pick up staged bales on the scheduled date; storage continues to accrue and additional storage up to one month is assessed; cotton not picked up within 10 days after scheduled date is returned to stock with $8.50/bale restocking.",
+    "source_reference": "2026 list for SCM.csv | Seam 858053 | received 2026-11-09"
   },
   {
     "mcleod_code": "MOODGAT2",
     "description": "Moody Compress #2 8-3PM outbound",
     "late_load_grace_days": 0,
     "avoidable_fee": false,
-    "amount": 4,
+    "amount": 5,
     "fee_type": "PER_BALE_ONE_TIME",
     "early_loading_fee_type": "",
-    "early_loading_fee_amount": 0
+    "early_loading_fee_amount": 0,
+    "policy_notes": "$5.00/bale late pickup fee ('per operational needs'); plus continued storage and additional storage up to one month. Owner must pick up staged bales on the scheduled date; otherwise storage continues and additional storage charges up to one month are assessed, plus $5.00/bale late pickup fee. Cotton not picked up within 10 days after scheduled date is returned to stock at $8.50/bale restocking.",
+    "source_reference": "2026 list for SCM.csv | Seam 858054 | received 2026-11-09"
   },
   {
     "mcleod_code": "MOODGAT4",
     "description": "Moody Compress #3",
     "late_load_grace_days": 0,
     "avoidable_fee": false,
-    "amount": 4,
+    "amount": 5,
     "fee_type": "PER_BALE_ONE_TIME",
     "early_loading_fee_type": "",
-    "early_loading_fee_amount": 0
+    "early_loading_fee_amount": 0,
+    "policy_notes": "$5.00/bale ('per operational needs'); plus storage continues and additional storage up to one month. Owner must pick up staged bales on the scheduled date; otherwise a $5.00/bale late pickup fee (per operational needs) applies, storage continues and additional storage charges up to one month are assessed. Not picked up within 10 days after scheduled date: returned to stock with $8.50/bale restocking.",
+    "source_reference": "2026 list for SCM.csv | Seam 858055 | received 2026-11-09"
   },
   {
     "mcleod_code": "MOODGAT3",
     "description": "Moody Compress #4",
     "late_load_grace_days": 0,
     "avoidable_fee": false,
-    "amount": 4,
+    "amount": 5,
     "fee_type": "PER_BALE_ONE_TIME",
     "early_loading_fee_type": "",
-    "early_loading_fee_amount": 0
+    "early_loading_fee_amount": 0,
+    "policy_notes": "$5.00/bale ('per operational needs'); plus storage continues and additional storage up to one month. Owner must pick up staged bales on the scheduled date; otherwise a $5.00/bale late pickup fee (per operational needs) applies, storage continues and additional storage charges up to one month are assessed. Not picked up within 10 days after scheduled date: returned to stock with $8.50/bale restocking.",
+    "source_reference": "2026 list for SCM.csv | Seam 858056 | received 2026-11-09"
   },
   {
     "mcleod_code": "SOUTGATX",
