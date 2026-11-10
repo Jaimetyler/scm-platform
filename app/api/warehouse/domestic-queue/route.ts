@@ -151,7 +151,7 @@ async function POSTHandler(req: NextRequest) {
       const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName, direction as "pickup" | "delivery", String(body.selectedStopId || "") || undefined);
       const order = yardOrder; matchedStopId = yardOrder.stopId;
       if (yardOrder.direction !== direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
-      if (yardOrder.completion) {
+      if (yardOrder.completion && !yardOrder.completion.checkinAllowed) {
         return NextResponse.json({ ok: false, error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
       }
       if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
@@ -680,7 +680,7 @@ async function PATCHHandler(req: NextRequest) {
         const site = CHECKIN_SITES.find((item) => item.terminal === terminal && item.siteCode === siteCode)!;
         const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName, existing.movement_direction, String(body.selectedStopId || "") || undefined);
         const order = yardOrder; matchedStopId = yardOrder.stopId;
-        if (yardOrder.completion) return NextResponse.json({ ok: false,
+        if (yardOrder.completion && !yardOrder.completion.checkinAllowed) return NextResponse.json({ ok: false,
           error: yardOrder.completion.message, completion: yardOrder.completion }, { status: 409 });
         if (yardOrder.direction !== existing.movement_direction) return NextResponse.json({ ok: false, error: "This order belongs to a different move at this yard" }, { status: 409 });
         if (order.materialType === "cotton") return NextResponse.json({ ok: false, error: "Use the Cotton grid for this order" }, { status: 409 });
@@ -729,3 +729,4 @@ async function PATCHHandler(req: NextRequest) {
 export const GET = withStaffAccess(GETHandler);
 export const POST = withStaffAccess(POSTHandler);
 export const PATCH = withStaffAccess(PATCHHandler);
+

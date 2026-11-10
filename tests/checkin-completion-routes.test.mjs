@@ -199,8 +199,8 @@ test("cotton lookup also accepts an empty alternate-reference result", async () 
   }, (url) => url.searchParams.has("orders.consignee_refno") ? [order] : null);
 });
 
-test("staff create rejects completed and status-only closed orders before database write", async () => {
-  for (const order of [fixture(), fixture({ closed: false, orderStatus: "Closed" })]) {
+test("staff create rejects historical and cancelled orders before database write", async () => {
+  for (const order of [fixture(), fixture({ closed: false, orderStatus: "Cancelled" })]) {
     await withMcleod(order, async () => {
       const { POST } = load("app/api/warehouse/domestic-queue/route.ts");
       const response = await POST({ json: async () => ({ terminal: "HOU", siteCode: "5300", movementDirection: "pickup",
@@ -248,10 +248,10 @@ test("driver reference and direct-ID lookups show the company; submit rejects co
   });
 });
 
-test("cotton verification rejects a Closed status without a departure", async () => {
+test("cotton verification permits a recent Closed status without a departure", async () => {
   await withMcleod(fixture({ cotton: true, closed: false, orderStatus: "Closed" }), async () => {
     const { verifyCottonOrder } = load("lib/inbound/checkin/verify-cotton-order.ts");
-    await assert.rejects(verifyCottonOrder("0824528", "TESTMARK", 88, true), /closed out/);
+    assert.equal(await verifyCottonOrder("0824528", "TESTMARK", 88, true), 88);
   });
 });
 
@@ -504,4 +504,30 @@ test('Earlier cotton contains only rows missing confirmed bales or warehouse loc
     if(oldUrl===undefined)delete process.env.SUPABASE_URL;else process.env.SUPABASE_URL=oldUrl;
     if(oldKey===undefined)delete process.env.SUPABASE_SERVICE_ROLE_KEY;else process.env.SUPABASE_SERVICE_ROLE_KEY=oldKey;
   }
+});
+
+
+
+test("recent delivered cotton matches remain selectable and exact-mark verification accepts existing actuals",async()=>{
+ for(const actualDeparture of ["",new Date().toISOString()]){
+  const o=fixture({cotton:true,closed:false,orderStatus:"Delivered"});o.status="D";o.stops[0].actual_departure=actualDeparture;
+  await withMcleod(o,async()=>{
+   const {GET}=load("app/api/inbound/checkin/cotton-match/route.ts");const response=await GET({nextUrl:new URL("https://scm.test/?terminal=HOU&siteCode=5300&mark=TESTMARK")});
+   const body=await response.json();assert.equal(response.status,200,JSON.stringify(body));assert.equal(body.matches[0].completion.checkinAllowed,true);
+   const {verifyCottonOrder}=load("lib/inbound/checkin/verify-cotton-order.ts");assert.equal(await verifyCottonOrder(o.id,"TESTMARK",88,true),88);
+   await assert.rejects(verifyCottonOrder(o.id,"WRONG",88,true),/exact cotton mark/);
+   const result=await driverLookupHelpers.lookupDriverReference(o.id,"HOU","Houston 5300","delivery");assert.equal(result.matches[0].selectable,true);
+   assert.equal(driverLookupHelpers.publicDriverMatch(result.matches[0]).completion.checkinAllowed,true);
+  });
+ }
+});
+test("delivered driver lookup still refuses an existing platform check-in",async()=>{
+ const o=fixture({closed:false,orderStatus:"Delivered"});
+ await withMcleod(o,async()=>{
+  const gate={terminal:"HOU",site_code:"5300",site_name:"Houston 5300",latitude:1,longitude:1};
+  const q={select(){return this},eq(){return this},or(){return this},async maybeSingle(){return {data:gate}},async limit(){return {data:[{id:"EXISTING"}]}}};
+  const {POST}=load("app/api/gate/check-in/[token]/route.ts",{"@supabase/supabase-js":{createClient:()=>({from:()=>q})}});
+  const response=await POST(new Request("https://scm.test/",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"lookupOrder",orderId:o.id,referenceNumber:"2168418",movementDirection:"pickup"})}),{params:Promise.resolve({token:"12345678-1234-4234-8234-123456789012"})});
+  assert.equal(response.status,409);assert.match((await response.json()).error,/already checked in/);
+ });
 });

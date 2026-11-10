@@ -244,7 +244,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
     const result = await response.json().catch(() => ({}));
     if (requestId !== lookupRequest.current) return;
     if (result.code === "SELECTION_REQUIRED") throw new Error(requireFreshSelection());
-    if (result.completion) {
+    if (result.completion && !result.completion.checkinAllowed) {
       setCompletedMatches([{ ...match, completion: result.completion }]);
       updateLookupStatus("closed");
       throw new Error(result.error || result.completion.message || "This load is already closed in McLeod. Please speak with warehouse staff.");
@@ -314,8 +314,8 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
       if (result.status !== "matches" || !found.length || found.some((match) => !match.orderId || !match.stopId)) {
         throw new Error("Could not confirm the load search. Try again or speak with warehouse staff.");
       }
-      const active = found.filter((match) => !match.completion);
-      setCompletedMatches(found.filter((match) => match.completion));
+      const active = found.filter((match) => !(match.completion && !match.completion.checkinAllowed));
+      setCompletedMatches(found.filter((match) => match.completion && !match.completion.checkinAllowed));
       if (!active.length) {
         updateLookupStatus("closed");
         setOrderMessage("This load is already closed in McLeod. Please speak with warehouse staff.");
@@ -329,7 +329,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
   }
 
   async function chooseReferenceMatch(match: ReferenceMatch) {
-    if (submitInFlight.current || lookupStatusRef.current !== "ambiguous" || match.completion || match.selectable !== true ||
+    if (submitInFlight.current || lookupStatusRef.current !== "ambiguous" || match.completion && !match.completion.checkinAllowed || match.selectable !== true ||
         !referenceMatchesRef.current.includes(match)) return;
     const requestId = ++lookupRequest.current;
     const snapshot = formRef.current;
@@ -525,7 +525,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
 
         {form.checkinType === "domestic" && requiresPickupAgreement(site.terminal, form.movementDirection) && <PickupAgreement value={agreement} onChange={value => { agreementContext.current = JSON.stringify({ language, form: formRef.current }); agreementRef.current = value; setAgreement(value); }} language={language} />}
 
-        {completedMatches.map((match) => match.completion ?
+        {completedMatches.map((match) => match.completion && !match.completion.checkinAllowed ?
           <CompletedOrderNotice key={`${match.orderId}:${match.stopId}`} orderId={match.orderId} completion={match.completion} language={language} /> : null)}
         {form.checkinType ? <button type="submit" disabled={submitting || (form.checkinType === "domestic" && !["matched", "no_match"].includes(lookupStatus))}
           style={{ ...buttonStyle, opacity: submitting || lookingUp ? .65 : 1 }}>
@@ -616,3 +616,4 @@ const errorStyle: React.CSSProperties = { color: "#fca5a5", lineHeight: 1.5 };
 const errorBoxStyle: React.CSSProperties = { marginTop: 16, padding: 12, borderRadius: 10, color: "#fecaca", background: "rgba(127,29,29,.34)", border: "1px solid rgba(248,113,113,.3)", lineHeight: 1.4 };
 const noticeStyle: React.CSSProperties = { marginTop: 12, padding: 12, borderRadius: 10, color: "#fde68a", background: "rgba(120,53,15,.25)", border: "1px solid rgba(251,191,36,.25)", fontSize: 13, lineHeight: 1.45 };
 const privacyStyle: React.CSSProperties = { margin: "12px 0 0", color: "#64748b", fontSize: 11, textAlign: "center", lineHeight: 1.4 };
+

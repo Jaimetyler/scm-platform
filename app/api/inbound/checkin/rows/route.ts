@@ -223,7 +223,7 @@ async function POSTHandler(req: NextRequest) {
     const pickup = body?.movementDirection === "pickup";
     if (pickup && !matchedOrderId) return NextResponse.json({ ok: false, error: "Select the McLeod pickup order before checking in." }, { status: 400 });
     const pickupOrder = pickup ? await lookupMcleodGateOrder(matchedOrderId, site.terminal, site.siteName, "pickup") : null;
-    if (pickupOrder && (pickupOrder.materialType !== "cotton" || pickupOrder.completion ||
+    if (pickupOrder && (pickupOrder.materialType !== "cotton" || pickupOrder.completion && !pickupOrder.completion.checkinAllowed ||
       ![pickupOrder.mark, pickupOrder.reference.replace(/\s+\d+\s+(?:BALES?|B\/?C)$/i, "")].some(value => normalizeKey(value) === normalizeKey(mark)))) {
       return NextResponse.json({ ok: false, error: pickupOrder.completion?.message || "The McLeod pickup does not match this cotton mark." }, { status: 409 });
     }
@@ -304,3 +304,4 @@ async function POSTHandler(req: NextRequest) {
 
 export const GET = withStaffAccess(GETHandler);
 export const POST = withStaffAccess(POSTHandler);
+

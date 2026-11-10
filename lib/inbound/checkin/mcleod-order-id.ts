@@ -4,10 +4,11 @@ import { dependencyFetch, DependencyError } from "../../http/dependency.ts";
 export type McleodCompletion = {
   kind: "pickup" | "delivery" | "closed" | "cancelled";
   message: string; completedAt: string; location: string;
-  carrierName: string; carrierCode: string;
+  carrierName: string; carrierCode: string; checkinAllowed?: boolean;
 };
 
-// A closed order is a search result, but never a selectable new arrival.
+// Completion evidence is retained for write protection. A recent non-cancelled
+// order may still arrive physically after a tracking provider marked it delivered.
 export async function describeMcleodCompletion(
   order: Record<string, any>, stop: Record<string, any> | undefined,
   direction: string, signal?: AbortSignal,
@@ -15,10 +16,10 @@ export async function describeMcleodCompletion(
   const text = (value: unknown) => String(value ?? "").trim();
   const status = text(order.__statusDescr || order.status);
   const departed = text(stop?.actual_departure);
-  const cancelled = /^(cancelled|canceled)$/i.test(status);
+  const cancelled = /^(cancelled|canceled|void|V)$/i.test(status) || /^(V)$/i.test(text(order.status));
   const closed = /^(delivered|completed|closed|D)$/i.test(status);
   if (!departed && !cancelled && !closed) return null;
-  const kind = departed ? (direction === "pickup" ? "pickup" : "delivery") : cancelled ? "cancelled" : "closed";
+  const kind = cancelled ? "cancelled" : departed ? (direction === "pickup" ? "pickup" : "delivery") : "closed";
   const message = kind === "pickup" ? "Pickup already completed in McLeod" :
     kind === "delivery" ? "Delivery already completed in McLeod" :
     kind === "cancelled" ? "Order cancelled in McLeod" : "Order already closed out in McLeod";
@@ -53,7 +54,13 @@ export async function describeMcleodCompletion(
     }
   }
   const location = stop?.location && typeof stop.location === "object" ? stop.location : {};
-  return { kind, message, completedAt: departed, carrierName, carrierCode,
+  const scheduled = text(stop?.sched_arrive_early || stop?.sched_arrive_late || order.ordered_date);
+  const parts = scheduled.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  const day = parts ? Date.UTC(Number(parts[1]), Number(parts[2])-1, Number(parts[3])) : NaN;
+  const validDate = parts && new Date(day).getUTCFullYear() === Number(parts[1]) &&
+    new Date(day).getUTCMonth()+1 === Number(parts[2]) && new Date(day).getUTCDate() === Number(parts[3]);
+  const checkinAllowed = !cancelled && Boolean(validDate) && Math.abs(day - Date.now()) <= 45 * 86400000;
+  return { kind, message, completedAt: departed, carrierName, carrierCode, ...(checkinAllowed ? {checkinAllowed:true} : {}),
     location: [location.name || stop?.location_name, location.address1 || location.address || stop?.address,
       location.city_name || stop?.city_name, location.state || stop?.state].map(text).filter(Boolean).join(", ") };
 }
@@ -174,4 +181,5 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
       .map((item: Record<string, unknown>) => ({ id: String(item.id ?? ""),
         actual_arrival: String(item.actual_arrival ?? ""), actual_departure: String(item.actual_departure ?? "") })) };
 }
+
 

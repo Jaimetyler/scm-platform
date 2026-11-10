@@ -90,7 +90,7 @@ async function GETHandler(request: NextRequest) {
         if (candidates.length !== 1 || !value(candidates[0].id)) return null;
         const stop = candidates[0];
         const completion = await describeMcleodCompletion(order, stop, "pickup");
-        if (completion) return null;
+        if (completion && !completion.checkinAllowed) return null;
         const movement = Array.isArray(order.movements) ? order.movements.find(item =>
           value(stop.movement_id) ? value(item.id) === value(stop.movement_id) :
           Array.isArray(item.stops) && item.stops.some((nested: Record<string, unknown>) => value(nested.id) === value(stop.id))) : undefined;
@@ -103,7 +103,7 @@ async function GETHandler(request: NextRequest) {
       const delivery = stops.find(stop => stop.stop_type === "SO" && (terminal !== "DAL" || !!site && stopAtScmYard(stop, site.siteName, "DAL")));
       if (terminal === "DAL" && !delivery) return null;
       match.completion = await describeMcleodCompletion(order, delivery, "delivery");
-      const eligibility = currentCottonOrder(order);
+      const eligibility = currentCottonOrder(order, undefined, true);
       if (!eligibility.eligible && !match.completion) {
         if (!eligibility.historical) eligibilityWarning = eligibility.reason;
         return null;
@@ -145,3 +145,4 @@ async function GETHandler(request: NextRequest) {
 }
 
 export const GET = withStaffAccess(GETHandler);
+

@@ -98,3 +98,12 @@ test("yard lookup returns a closed result even when the scheduled date is old", 
     if (oldToken === undefined) delete process.env.MCLEOD_AUTH_TOKEN; else process.env.MCLEOD_AUTH_TOKEN = oldToken;
   }
 });
+
+
+
+test("recent tracking completion permits check-in but retains completion evidence",async()=>{
+ const stop={stop_type:"SO",sched_arrive_early:new Date().toISOString(),actual_departure:new Date().toISOString()};
+ const completion=await describeMcleodCompletion({status:"D",__statusDescr:"Delivered"},stop,"delivery");
+ assert.equal(completion.checkinAllowed,true);assert.equal(completion.kind,"delivery");assert.equal(completion.completedAt,stop.actual_departure);
+ for(const status of ["Cancelled","Void","V"]){const blocked=await describeMcleodCompletion({status,__statusDescr:status},stop,"delivery");assert.equal(blocked.kind,"cancelled");assert.notEqual(blocked.checkinAllowed,true);}
+});
