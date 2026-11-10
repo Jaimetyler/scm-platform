@@ -217,13 +217,13 @@ export default function WorkloadCharts({
     {
       label: firstLabel,
       points: first,
-      color: "#5176c5",
+      color: "#818cf8",
       dashed: true,
     },
     {
       label: secondLabel,
       points: second,
-      color: "#008b82",
+      color: "#22d3ee",
       dashed: false,
     },
   ];
@@ -349,11 +349,9 @@ export default function WorkloadCharts({
           role="img"
           aria-label={`${title}: ${metricLabels[metric]}`}
         >
-          <title>
-            {title} — {metricLabels[metric]}
-          </title>
+          <title>{`${title} — ${metricLabels[metric]}`}</title>
           <desc>
-            Blue dashed line: {firstLabel}. Teal solid line: {secondLabel}.
+            Indigo dashed line: {firstLabel}. Cyan solid line: {secondLabel}.
             Exact values are available in the monthly table below.
           </desc>
 
@@ -367,13 +365,13 @@ export default function WorkloadCharts({
                   x2={width - right}
                   y1={y(value)}
                   y2={y(value)}
-                  stroke="#e1e8ee"
+                  stroke="#26334a"
                 />
                 <text
                   x={left - 10}
                   y={y(value) + 4}
                   textAnchor="end"
-                  fill="#5e7282"
+                  fill="#94a3b8"
                   fontSize="12"
                 >
                   {format(value, metric, true)}
@@ -388,7 +386,7 @@ export default function WorkloadCharts({
               x2={width - right}
               y1={y(0)}
               y2={y(0)}
-              stroke="#8799a6"
+              stroke="#64748b"
               strokeDasharray="4 4"
             />
           )}
@@ -400,7 +398,7 @@ export default function WorkloadCharts({
               y={height - 12}
               textAnchor="middle"
               fontSize="12"
-              fill="#5e7282"
+              fill="#94a3b8"
             >
               {month}
             </text>
@@ -425,10 +423,7 @@ export default function WorkloadCharts({
                       r="4"
                       fill={line.color}
                     >
-                      <title>
-                        {months[index]} · {line.label}:{" "}
-                        {format(value, metric)}
-                      </title>
+                      <title>{`${months[index]} · ${line.label}: ${format(value, metric)}`}</title>
                     </circle>
                   ),
               )}

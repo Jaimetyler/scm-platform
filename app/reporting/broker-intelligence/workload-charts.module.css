@@ -1,24 +1,26 @@
 .section { margin:28px 0; }
 .heading { display:flex; align-items:center; justify-content:space-between; gap:18px; margin:22px 0 12px; flex-wrap:wrap; }
-.heading h2,.heading h3 { margin:0; color:#183247; }
-.heading p,.note { color:#526b7b; font-size:13px; line-height:1.6; }
+.heading h2,.heading h3 { margin:0; color:#e2e8f0; }
+.heading p,.note { color:#94a3b8; font-size:13px; line-height:1.6; }
 .heading label { display:grid; gap:6px; font-size:12px; font-weight:600; }
-.heading select { background:white; color:#183247; border:1px solid #cbd8df; border-radius:8px; padding:10px; }
+.heading select { background:rgba(15,23,42,.58); color:#e2e8f0; border:1px solid rgba(148,163,184,.22); border-radius:8px; padding:10px; }
 .heading .checkbox { display:flex; align-items:center; gap:8px; }
 .legend { display:flex; flex-wrap:wrap; gap:24px; font-size:12px; font-weight:700; margin-bottom:14px; }
-.first { color:#5176c5; }
-.second { color:#008b82; }
-.card { background:white; border:1px solid #dce5ea; border-radius:14px; padding:20px; min-width:0; }
+.first { color:#818cf8; }
+.second { color:#22d3ee; }
+.card { background:rgba(15,23,42,.58); border:1px solid rgba(148,163,184,.14); border-radius:14px; padding:20px; min-width:0; }
 .cardHeader { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .cardHeader h3 { font-size:17px; margin:0; }
-.cardHeader button { border:1px solid #cbd8df; background:#f5fafb; border-radius:7px; padding:7px 10px; color:#007b82; cursor:pointer; }
-.totals { color:#526b7b; font-size:12px; }
+.cardHeader button { border:1px solid rgba(148,163,184,.22); background:#111c2e; border-radius:7px; padding:7px 10px; color:#67e8f9; cursor:pointer; }
+.totals { color:#94a3b8; font-size:12px; }
 .svg { display:block; width:100%; height:auto; }
 .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 .selected { margin-top:18px; }
 .card details { margin-top:8px; font-size:12px; overflow-x:auto; }
-.card summary { cursor:pointer; color:#007b82; }
+.card summary { cursor:pointer; color:#67e8f9; }
 .card table { width:100%; }
 @media(min-width:1700px) { .grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media(max-width:850px) { .grid { grid-template-columns:1fr; } .card { padding:14px; } }
 
+
+.cardHeader button:focus-visible,.heading select:focus-visible { outline:2px solid #67e8f9; outline-offset:3px; }
