@@ -65,6 +65,7 @@ export default async function Home() {
         {admin && <section aria-labelledby="reporting-title">
           <div className={styles.sectionHeading}><div><h2 id="reporting-title">Reporting</h2><p>Financial performance and business analysis.</p></div></div>
           <div className={styles.grid}>
+            <ToolCard href="/reporting/broker-intelligence" category="Reporting" title="Broker Intelligence" description="Review brokerage team workload, customer assignments, financial contribution and seasonal demand." restricted />
             <ToolCard href="/pnl" category="Reporting" title="Profit & Loss" description="Explore financial results, trends and entity breakdowns." restricted />
             <ToolCard href="/reporting/business-intelligence" category="Reporting" title="SCM Business Intelligence" description="Compare customers, warehouse services and trucking across business units." restricted />
           </div>
@@ -73,3 +74,4 @@ export default async function Home() {
     </main>
   );
 }
+
