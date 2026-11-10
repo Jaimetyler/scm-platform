@@ -4,6 +4,15 @@ function minute(value: unknown) {
   return Math.floor(Date.parse(compact ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}${compact[7]}` : raw) / 60000);
 }
 
+export function canBindCottonRepairStop(checked: Record<string, any>, saved: Record<string, any>, sameCustomer: boolean) {
+  const mark = String(saved.mark ?? "").trim().toUpperCase();
+  return !saved.matched_stop_id && checked.direction === "delivery" && Boolean(checked.stopId) &&
+    (!checked.materialType || checked.materialType === "cotton") && Boolean(mark) &&
+    String(checked.mark ?? "").trim().toUpperCase() === mark &&
+    Number.isSafeInteger(Number(saved.bale_count)) && Number(saved.bale_count) > 0 &&
+    Number(checked.baleCount) === Number(saved.bale_count) && Boolean(checked.customer && saved.shipper) && sameCustomer;
+}
+
 // McLeod rounds clearStop actuals to minutes and may return a different offset.
 export function departureRepairVerified(before: Record<string, any>, after: Record<string, any>, stopId: string, departure: string) {
   if (["id", "revenue_code_id", "customer_id", "consignee_refno", "blnum"].some(field => after[field] !== before[field])) return false;
