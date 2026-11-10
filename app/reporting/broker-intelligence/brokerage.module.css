@@ -1,0 +1,35 @@
+.page { min-height:100vh; background:#f1f5f8; padding:36px clamp(16px,4vw,64px); color:#183247; }
+.header { display:flex; justify-content:space-between; align-items:center; gap:24px; margin-bottom:28px; }
+.header h1 { font-size:clamp(32px,4vw,48px); margin:4px 0 10px; letter-spacing:-1.5px; }
+.header p { color:#526b7b; }
+.eyebrow { text-transform:uppercase; letter-spacing:2px; font-size:12px; font-weight:700; }
+.upload { display:grid; gap:10px; font-size:13px; font-weight:600; max-width:290px; }
+.filters { display:flex; flex-wrap:wrap; gap:12px; align-items:end; margin-bottom:22px; }
+.filters label { display:grid; gap:6px; font-size:12px; font-weight:700; }
+.filters select,.filters input,.filters button,.selection button { background:white; border:1px solid #cbd8df; border-radius:8px; padding:10px; color:#183247; min-height:42px; }
+.filters button,.selection button { cursor:pointer; }
+.cards { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; }
+.card,.panel { background:white; border:1px solid #dce5ea; border-radius:14px; }
+.card { padding:20px; display:grid; gap:10px; }
+.card span { font-size:12px; color:#526b7b; }
+.card strong { font-size:clamp(19px,2vw,28px); }
+.panel { padding:24px; margin-top:22px; }
+.panel h2 { margin:0 0 8px; font-size:21px; }
+.panel p,.note { font-size:13px; color:#526b7b; line-height:1.6; }
+.note { margin:18px 0; }
+.scroll { overflow-x:auto; }
+.page table { width:100%; border-collapse:collapse; font-size:13px; }
+.page th { text-align:right; color:#526b7b; font-size:11px; padding:14px 12px; background:#f5f8fa; }
+.page td { text-align:right; padding:13px 12px; border-bottom:1px solid #edf1f4; white-space:nowrap; }
+.page th:first-child,.page td:first-child { text-align:left; }
+.page td button { border:0; background:transparent; color:#007b82; font-weight:600; text-align:left; cursor:pointer; }
+.months { display:grid; grid-template-columns:1fr 1fr; gap:8px 30px; }
+.month { display:grid; grid-template-columns:64px 1fr 60px; gap:10px; align-items:center; font-size:12px; }
+.month strong { text-align:right; }
+.track { background:#edf3f6; border-radius:4px; height:12px; overflow:hidden; }
+.track div { background:#07888b; height:100%; border-radius:4px; }
+.selection { display:flex; gap:14px; align-items:center; }
+.error { color:#a52b2b; background:#fff0f0; padding:12px; border-radius:8px; }
+@media(max-width:900px) { .cards { grid-template-columns:repeat(2,minmax(0,1fr)); } .header { align-items:start; flex-direction:column; } }
+@media(max-width:600px) { .months { grid-template-columns:1fr; } .panel { padding:16px; } }
+
