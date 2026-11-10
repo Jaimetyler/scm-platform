@@ -116,7 +116,11 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
   const materialType = /\bCOTTON\b/.test(commodity) ? "cotton" : /\bLUMBER\b|\bWOOD\b/.test(commodity) ? "lumber" : /\bOTHER\b|\bFAK\b/.test(commodity) ? "other" : null;
   const blnum = String(order.blnum ?? "").trim().toUpperCase();
   const parsedBlnum = blnum.match(/^(.+?)\s+(\d+)\s+(?:BALES?|B\/?C|BC)$/);
-  const mark = String(order.consignee_refno ?? "").trim().toUpperCase() || parsedBlnum?.[1] || "";
+  // A cotton BLNUM explicitly identifies the mark; the consignee reference may be an SO.
+  const consigneeReference = String(order.consignee_refno ?? "").trim().toUpperCase();
+  const mark = materialType === "cotton"
+    ? parsedBlnum?.[1] || consigneeReference
+    : consigneeReference || parsedBlnum?.[1] || "";
   const baleCount = parsedBlnum?.[2] ?? "";
   const soleUnlistedMovement = order.movements?.length === 1 && !Array.isArray(order.movements[0].stops);
   const deliveries = stops.filter((item: Record<string, unknown>) => item.stop_type === "SO" &&
@@ -170,3 +174,4 @@ export async function lookupMcleodGateOrder(orderId: string, terminal: "SAV" | "
       .map((item: Record<string, unknown>) => ({ id: String(item.id ?? ""),
         actual_arrival: String(item.actual_arrival ?? ""), actual_departure: String(item.actual_departure ?? "") })) };
 }
+
