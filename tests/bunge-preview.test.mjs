@@ -188,3 +188,18 @@ test('cotton delivery options are scoped by terminal rather than customer',()=>{
  }
  for(const code of ['MERIBATX','MERIBAT2'])assert.deepEqual(cottonReceivingHours(code),{open:'07:00',close:'15:00',method:'FCFS',timezone:'America/Chicago'});
 });
+
+
+test('OLAM restores leading zeroes in numeric EWR warehouse codes',()=>{
+ const workbook=XLSX.utils.book_new();XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet([
+ ['', 'Olam America Cotton Company'],['Carrier:','Supply Chain Management LLC'],
+ ['Mark','','SO','Sale','Bales','Weight','Warehouse','Warehouse Name','Ready/Confirmed Load (RTL)'],
+ ['MEBL','',3588157,'TRANSIT',90,44464,52020,'Henry County Gin',46350],
+ ['MEBY','',3588162,'TRANSIT',90,44451,'052020','Henry County Gin',46350],
+ ]),'LoadList');
+ const parsed=parseOlamWorkbook(workbook);assert.deepEqual(parsed.lines.map(l=>l.warehouseCode),['052020','052020']);
+ assert.deepEqual(parsed.lines.map(l=>l.mark),['MEBL','MEBY']);
+ workbook.Sheets.LoadList.G4.v='52020oops';workbook.Sheets.LoadList.G4.t='s';
+ assert.throws(()=>parseOlamWorkbook(workbook),/invalid mark, SO, bale count or warehouse/);
+});
+

@@ -53,7 +53,9 @@ export function parseOlamWorkbook(workbook: XLSX.WorkBook) {
         continue;
       }
       const warehouse = clean(get("WAREHOUSENAME"));
-      const warehouseCode = clean(get("WAREHOUSE"));
+      const rawWarehouseCode = clean(get("WAREHOUSE"));
+      // Excel stores EWR codes as numbers and can drop leading zeroes.
+      const warehouseCode = /^\d{1,6}$/.test(rawWarehouseCode) ? rawWarehouseCode.padStart(6, "0") : rawWarehouseCode;
       if (!/^[A-Z0-9-]{1,30}$/.test(mark) || !/^\d{1,20}$/.test(so) ||
           !Number.isSafeInteger(Number(bales)) || Number(bales) <= 0 || !warehouse || !/^\d{6}$/.test(warehouseCode)) {
         throw Error(`${sheet} row ${rowNumber}: invalid mark, SO, bale count or warehouse.`);
@@ -71,3 +73,4 @@ export function parseOlamWorkbook(workbook: XLSX.WorkBook) {
   return { lines, destinations: [...destinations].filter(Boolean), excluded,
     destination: resolved.size === 1 ? [...resolved][0] : "" };
 }
+
