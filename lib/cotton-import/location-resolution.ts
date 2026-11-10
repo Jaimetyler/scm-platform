@@ -52,6 +52,10 @@ export function resolveCottonWarehouseName(
   if (!name) throw new CottonLocationResolutionError("Missing warehouse name.");
   // Confirmed Bunge Houston dispatch aliases; resolve to the master rather than inventing locations.
   const houstonAliases: Record<string,string> = {
+    "MOODY COMPRESS #01":"MOODGAT1",
+    "MOODY COMPRESS AND WAREHOUSE #01":"MOODGAT1",
+    "MOODY COMPRESS #1":"MOODGAT1",
+    "MOODY COMPRESS AND WAREHOUSE #1":"MOODGAT1",
     "MOODY COMPRESS #03":"MOODGAT4",
     "MOODY COMPRESS AND WAREHOUSE #03":"MOODGAT4",
     "MOODY COMPRESS AND WAREHOUSE #04":"MOODGAT3",
@@ -73,3 +77,4 @@ export function resolveCottonWarehouseName(
     );
   return resolveCottonLocation(candidates[0].mcleod_code, locations);
 }
+
