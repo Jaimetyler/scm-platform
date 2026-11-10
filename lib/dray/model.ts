@@ -20,10 +20,11 @@ export const SAVANNAH_RATES: CustomerRate[] = [
   {name:"Olam Cotton",code:"OLAMRITX",aliases:["Olam Cotton","Olam/Brightfield Cotton"],port:32500,ocean:45000,chassis:9000},
   {name:"Staplcotn",code:"STAPLOMS",aliases:["Stapl","Staplcotn","STAPLCOTN CO OP ASSN"],port:35000,ocean:47500,chassis:13500},
   {name:"Ecom USA",code:"ECOMLOTX",aliases:["Ecom USA, Inc","ECOM USA INC","ECOM USA LLC"],port:35000,ocean:47500,chassis:13500},
-  {name:"Bunge",code:"BUNGOMNE",aliases:["Bunge","Bunge USA Agriculture, LLC","Bunge USA Agriculture, LLC.","Viterra USA Agriculture LLC"],port:35000,ocean:40500,chassis:13500},
+  {name:"Bunge",code:"BUNGOMNE",aliases:["Bunge","Bunge USA Agriculture LLC","Bunge USA Agriculture LLC.","Bunge USA Agriculture, LLC","Bunge USA Agriculture, LLC.","Viterra USA Agriculture LLC"],port:35000,ocean:40500,chassis:13500},
   {name:"Baco Trading",code:"BACOMCTX",aliases:["Baco Trading","Baco Trading, Inc."],port:35000,ocean:47500,chassis:13500},
   {name:"ADM Cotton",code:"ADMCLOTX",aliases:["ADM Cotton"],port:35000,ocean:47500,chassis:13500},
   {name:"Omni Cotton",code:"OMNILOTX",aliases:["OMNI Cotton","OMNICOTTON, INC."],port:35000,ocean:47500,chassis:13500},
   {name:"Toyo Cotton",code:"TOYOLOTX",aliases:["Toyo Cotton","Toyo Cotton Company"],port:35000,ocean:47500,chassis:13500},
   {name:"COFCO Americas",code:"NOBLHOTX",aliases:["COFCO Americas Resources Corp.","COFCO Americans Resources Corp","COFCO Americas Resources Corp"],port:35000,ocean:40500,chassis:13500},
 ];
+
