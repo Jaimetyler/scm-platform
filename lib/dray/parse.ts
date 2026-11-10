@@ -66,7 +66,8 @@ export function parseDrays(csv: string, firstStarRows: unknown[][]) {
     const baseCents = rate && destination ? destination === "SAVOT" ? rate.ocean : rate.port : 0;
     const charges = rate ? [{code:"040",description:"SAV Chassis Charges",units:rate.code === "OLAMRITX" ? 2 : 1,cents:rate.chassis}] : [];
     if (rate?.code === "OLAMRITX") charges.unshift({code:"040",description:"GARDEN CITY TO SAVANNAH PORT",units:1,cents:0});
-    if (rate?.code === "BUNGOMNE") charges.unshift({code:"040",description:"DRAY",units:1,cents:0});
+    // Native Bunge zero DRAY is reconciled in mcleod.ts. Keep the source
+    // invoice stable so re-uploads retain their original ledger fingerprint.
     const customerOrder = row.get("SHIPPERSORDER");
     if (!customerOrder) errors.push("Shipper's Order# is required for Ordered By");
     if (customerOrder && customerOrder.length > 40) errors.push("Shipper's Order# exceeds Ordered By length");

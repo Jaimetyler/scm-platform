@@ -161,7 +161,7 @@ test("Bunge dray report names without a comma retain BUNGOMNE and approved Savan
    const i=parseDrays(csv([source({Shipper:shipper,"Pickup Point":port})]),first()).invoices[0];
    assert.equal(i.customerId,"BUNGOMNE");assert.deepEqual(i.inputErrors,[]);
    assert.equal(i.baseCents,base);assert.equal(i.cents,total);
-   assert.equal(i.charges.length,2);assert.equal(i.charges[1].cents,13500);assert.deepEqual(i.charges[0],{code:"040",description:"DRAY",units:1,cents:0});
+   assert.equal(i.charges.length,1);assert.equal(i.charges[0].cents,13500);assert.equal(expectedCharges(i,PROFILE).filter(c=>c.descr==="DRAY"&&c.amount===0).length,1);
   }
  }
 });
@@ -177,4 +177,12 @@ test("Bunge native zero DRAY supports carrier repair on legacy invoices without 
 test("Bunge approval still blocks nonzero DRAY charges",()=>{
  const i=parseDrays(csv([source({Shipper:"Bunge USA Agriculture LLC"})]),first()).invoices[0];const o=order(i);o.otherCharges.find(c=>c.descr==="DRAY").amount=1;
  assert.throws(()=>billingNormalizationPayload(o,i,PROFILE,o.id),/Unexpected billing charge/);
+});
+
+
+test("Bunge report reuploads retain the original source invoice while expected billing includes native zero DRAY",()=>{
+ const i=parseDrays(csv([source({Shipper:"Bunge USA Agriculture LLC"})]),first()).invoices[0];
+ assert.deepEqual(i.charges,[{code:"040",description:"SAV Chassis Charges",units:1,cents:13500}]);
+ const saved=structuredClone(i);expectedCharges(i,PROFILE);buildPayload(i,PROFILE);assert.deepEqual(i,saved);
+ const changedPay={...i,carrierCents:i.carrierCents+100};assert.notEqual(JSON.stringify(changedPay),JSON.stringify(i));
 });
