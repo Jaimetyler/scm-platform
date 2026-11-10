@@ -233,7 +233,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     let orderId = clean(body?.orderId, 60).toUpperCase();
     const driverLookupInput = String(body?.driverLookupInput ?? (body?.referenceNumber || orderId)).trim();
     let destination = clean(body?.destination, 200).toUpperCase();
-    const mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
+    let mark = materialType === "cotton" ? clean(body?.mark).toUpperCase() : null;
     const bolBaleCount = materialType === "cotton"
       ? positiveInteger(body?.bolBaleCount ?? body?.bolBC)
       : null;
@@ -373,6 +373,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       }
       movementDirection = order.direction;
       referenceNumber = order.reference;
+      if (materialType === "cotton" && order.mark) mark = order.mark;
       if (order.direction === "pickup") destination ||= order.destination;
       truckingCompany = order.carrierName || truckingCompany;
       matchedCustomer = order.customer;
@@ -498,3 +499,4 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed", ...(error instanceof YardStopError ? { code: error.code } : {}) }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }
+

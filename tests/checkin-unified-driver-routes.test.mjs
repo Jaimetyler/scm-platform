@@ -369,3 +369,27 @@ test('Savannah gate never saves Houston agreement even if a client sends one', a
   assert.equal(result.response.status,200,JSON.stringify(result.body));assert.equal(writes.length,1);assert.equal(writes[0].pickup_agreement,null);assert.equal(writes[0].terminal,'SAV');
  },undefined,{gate:{...gate,terminal:'SAV',site_code:'1601',site_name:'Savannah 1601'}});
 });
+
+
+test('matched cotton check-ins save McLeod mark when the driver enters an SO or SCM order number', async () => {
+ for (const input of ['2603045','92157']) for (const multipart of [false,true]) {
+  const order=fixture('92157',{commodity_id:'COTTON',blnum:'B1001 90 BALES',consignee_refno:'2603045',
+    stops:[{id:'SO1',movement_id:'M1',stop_type:'SO',sched_arrive_early:new Date().toISOString(),location:{name:'SCM Houston 5300'}}]});
+  await withFixture({92157:order},input==='2603045'?[order]:[],async({writes,send})=>{
+   const result=await send({...submit,materialType:'cotton',movementDirection:'delivery',selectedStopId:'SO1',referenceNumber:input,driverLookupInput:input,mark:input,bolBaleCount:90,balesOnTruck:90},multipart);
+   assert.equal(result.response.status,200,JSON.stringify(result.body));
+   assert.equal(writes[0].mark,'B1001');
+   assert.equal(writes[0].reference_number,'2603045');
+   assert.equal(writes[0].driver_lookup_input,input);
+   assert.equal(writes[0].matched_order_id,'92157');
+  });
+ }
+});
+
+test('unmatched cotton arrivals retain the entered mark',async()=>{
+ await withFixture({},[],async({writes,send})=>{
+  const result=await send({...submit,orderId:'',selectedStopId:'',materialType:'cotton',movementDirection:'delivery',referenceNumber:'MANUAL-MARK',driverLookupInput:'MANUAL-MARK',mark:'MANUAL-MARK',bolBaleCount:90,balesOnTruck:90});
+  assert.equal(result.response.status,200,JSON.stringify(result.body));
+  assert.equal(writes[0].mark,'MANUAL-MARK');assert.equal(writes[0].matched_order_id,null);
+ });
+});
