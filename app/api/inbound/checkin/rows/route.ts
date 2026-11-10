@@ -152,7 +152,9 @@ async function GETHandler(req: NextRequest) {
         }
       }
     }
-    const openCarryover = carryoverRows.filter((row) => !recoveredIds.has(row.id));
+    const openCarryover = carryoverRows.filter((row) =>
+      !recoveredIds.has(row.id) && (row as CheckinRow & { yard_status?: string }).yard_status !== "cancelled" &&
+      (!(Number(row.bale_count) > 0) || !row.warehouse_location?.trim()));
     const displayRows = await backfillTruckingCompanies((viewCarryover ? openCarryover : (data ?? [])) as (CheckinRow & {
       matched_order_id: string | null; trucking_company: string | null })[], false);
     return NextResponse.json({

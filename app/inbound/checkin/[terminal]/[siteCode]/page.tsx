@@ -1002,7 +1002,7 @@ export default function SiteCheckinPage() {
     <main style={{ maxWidth: "100%", padding: "0 16px" }}>
       <PlatformPageHeader
         title={`${site.siteName} Check-In`}
-        subtitle={viewCarryover ? "Earlier cotton check-ins needing review" : "Cotton arrivals · enter confirmed bales and location to finish a delivery"}
+        subtitle={viewCarryover ? "Earlier cotton check-ins missing bales or location" : "Cotton arrivals · enter confirmed bales and location to finish a delivery"}
 
       />
 
@@ -1018,7 +1018,7 @@ export default function SiteCheckinPage() {
               {failedCount > 0 ? ` · ${failedCount} need attention` : ""}
             </div>
             {carryover.count > 0 && <div role="status" style={{ ...summaryStyle, color: "#fbbf24" }}>
-              {carryover.count} earlier row{carryover.count === 1 ? "" : "s"} need review
+              {carryover.count} earlier row{carryover.count === 1 ? "" : "s"} need bales or location
               {carryover.missingLocation > 0 ? ` · ${carryover.missingLocation} missing location` : ""}
               {carryover.missingBales > 0 ? ` · ${carryover.missingBales} missing bales` : ""}
             </div>}

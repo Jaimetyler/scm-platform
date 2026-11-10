@@ -468,3 +468,40 @@ test("DeSoto lumber lookup accepts a DAVIS pickup with McLeod location-code evid
     assert.equal(result.matches[0].orderId, order.id);
   });
 });
+
+test('Earlier cotton contains only rows missing confirmed bales or warehouse location, excluding completed details and removed arrivals', async () => {
+  const base={material_type:'cotton',received_date:'2026-10-27',draft_status:'checked_in',yard_status:'waiting',mark:'FIXTURE',bale_count:90,warehouse_location:'D7'};
+  const older=[
+    {...base,id:'complete'},
+    {...base,id:'complete-but-failed',draft_status:'failed'},
+    {...base,id:'already-checked-out',yard_status:'completed'},
+    {...base,id:'missing-bales',bale_count:null},
+    {...base,id:'missing-location',warehouse_location:null},
+    {...base,id:'blank-location',warehouse_location:'   '},
+    {...base,id:'zero-bales',bale_count:0},
+    {...base,id:'removed',yard_status:'cancelled',bale_count:null,warehouse_location:null},
+  ];
+  const db={from(table){
+    assert.equal(table,'inbound_checkin_rows');
+    let previous=false;
+    const q={select(){return this;},eq(){return this;},lt(){previous=true;return this;},in(){return this;},order(){return this;},limit(){return this;},then(resolve){return Promise.resolve({data:previous?older:[{...base,id:'today-complete',received_date:'2026-11-10'}],error:null}).then(resolve);}};
+    return q;
+  }};
+  const {GET}=load('app/api/inbound/checkin/rows/route.ts',{
+    '@supabase/supabase-js':{createClient:()=>db},
+    '@/lib/inbound/checkin/backfill-trucking-company':{backfillTruckingCompanies:async rows=>rows},
+  });
+  const oldUrl=process.env.SUPABASE_URL,oldKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
+  process.env.SUPABASE_URL='https://fixture.test';process.env.SUPABASE_SERVICE_ROLE_KEY='fixture';
+  try {
+    for(const view of ['carryover','today']) {
+      const response=await GET(new Request(`https://fixture.test/api/inbound/checkin/rows?terminal=HOU&siteCode=5300&materialType=cotton&date=2026-11-10&view=${view}`));
+      const result=await response.json();assert.equal(response.status,200,JSON.stringify(result));
+      assert.equal(result.carryoverCount,4);assert.equal(result.carryoverMissingBales,2);assert.equal(result.carryoverMissingLocation,2);
+      assert.deepEqual(result.rows.map(row=>row.id),view==='carryover'?['missing-bales','missing-location','blank-location','zero-bales']:['today-complete']);
+    }
+  } finally {
+    if(oldUrl===undefined)delete process.env.SUPABASE_URL;else process.env.SUPABASE_URL=oldUrl;
+    if(oldKey===undefined)delete process.env.SUPABASE_SERVICE_ROLE_KEY;else process.env.SUPABASE_SERVICE_ROLE_KEY=oldKey;
+  }
+});
