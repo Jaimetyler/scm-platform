@@ -40,3 +40,16 @@ export function reconcilableCottonOrder(order: Record<string, any>, arrival: unk
     stops: stops.map((stop: Record<string, any>) => stop === delivery ? { ...stop, actual_departure: null } : stop) }, arrival).eligible;
 }
 
+// A delivered order may still need its final departure. This exception is only
+// consumed by the claimed live-checkout path, never by driver matching.
+export function repairableCottonDeparture(order: Record<string, any>, arrival: unknown) {
+  const stops = Array.isArray(order.stops) ? order.stops : [];
+  const deliveries = stops.filter((stop: Record<string, any>) => stop.stop_type === "SO");
+  const pickups = stops.filter((stop: Record<string, any>) => stop.stop_type === "PU");
+  return String(order.status ?? "").trim().toUpperCase() === "D" &&
+    !/cancelled|canceled|void/i.test(String(order.__statusDescr ?? "")) &&
+    deliveries.length === 1 && Boolean(deliveries[0].actual_arrival) && !deliveries[0].actual_departure &&
+    pickups.length === 1 && Boolean(pickups[0].actual_arrival && pickups[0].actual_departure) &&
+    currentCottonOrder(order, arrival, true).eligible;
+}
+

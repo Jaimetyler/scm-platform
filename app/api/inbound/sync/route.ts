@@ -4,10 +4,11 @@ import { McleodLookupIncompleteError } from "@/lib/inbound/checkin/lookup-failur
 import { withStaffAccess, staffProfile } from "@/lib/auth/guard";
 import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { lookupMcleodGateOrder } from "@/lib/inbound/checkin/mcleod-order-id";
-import { currentCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
+import { currentCottonOrder, repairableCottonDeparture } from "@/lib/inbound/checkin/current-cotton-order";
 import { NextRequest, NextResponse } from "next/server";
 import { buildPreview } from "@/lib/mcleod/inbound/buildPreview";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
+import { departureRepairVerified } from "@/lib/inbound/checkin/departure-repair";
 import { planLiveDeliveryActuals } from "@/lib/inbound/checkin/mcleod-time";
 import { resolveCustomer } from "@/lib/mcleod/inbound/resolveCustomer";
 import { expectedCustomerId, isOutsideCarrierNoMatch } from "@/lib/inbound/checkin/match-outcome";
@@ -324,7 +325,7 @@ async function POSTHandler(req: NextRequest) {
         shipper: saved.shipper, bolBC: String(saved.bol_bc ?? ""), balesUnloaded: saved.bale_count,
         expectedBaleCount: saved.expected_bale_count, location: saved.warehouse_location,
         sourceSheet: saved.sub_location, terminal: saved.terminal, siteCode: saved.site_code,
-        equipmentType: saved.equipment_type, checkedInAt: saved.checked_in_at, verifiedAt: saved.verified_at };
+        equipmentType: saved.equipment_type, checkedInAt: saved.checked_in_at, verifiedAt: saved.physical_departed_at ?? saved.verified_at };
       if (staffProfile(req)?.role === "operator" && staffProfile(req)?.terminal !== row.terminal) {
         return validationFailure({ error: "This check-in belongs to another terminal", reason: "STAFF_TERMINAL_MISMATCH" }, 403);
       }
@@ -338,6 +339,7 @@ async function POSTHandler(req: NextRequest) {
     try {
       preview = (await buildPreview([row], {
         strictSearch: row.source === "live_checkin",
+        allowMissingDepartureRepair: Boolean(liveAttempt?.saved.matched_order_id && liveAttempt?.saved.matched_stop_id && liveAttempt?.saved.physical_departed_at),
         ...(liveAttempt?.saved.matched_order_id ? { preferredOrderId: String(liveAttempt.saved.matched_order_id) } : {}),
         ...(liveAttempt ? { onKnownMatch: async () => {
           const attempt = liveAttempt!;
@@ -424,9 +426,10 @@ async function POSTHandler(req: NextRequest) {
       }
     }
 
+    const departureRepair = Boolean(liveAttempt?.saved.matched_order_id && liveAttempt?.saved.matched_stop_id && liveAttempt?.saved.physical_departed_at && repairableCottonDeparture(order, row.receivedDate));
     if (row.source === "live_checkin") {
       const eligibility = currentCottonOrder(order, row.receivedDate);
-      if (!eligibility.eligible) return validationFailure({ error: eligibility.reason, reason: "HISTORICAL_OR_UNVERIFIED_ORDER", matchedOrderId: preview.matchedOrderId });
+      if (!eligibility.eligible && !departureRepair) return validationFailure({ error: eligibility.reason, reason: "HISTORICAL_OR_UNVERIFIED_ORDER", matchedOrderId: preview.matchedOrderId });
     }
     const rowMark = resolveRowMark(row, preview);
     const orderMark = resolveOrderMark(order, preview);
@@ -472,7 +475,7 @@ async function POSTHandler(req: NextRequest) {
       });
     }
 
-    if (order.status === "D") {
+    if (order.status === "D" && !departureRepair) {
       return NextResponse.json({
         ok: true,
         skipped: true,
@@ -565,6 +568,24 @@ async function POSTHandler(req: NextRequest) {
           movementId: movement.id, plannedActions, row,
         });
       }
+      if (departureRepair && (!plannedActions.pickup.skipped || !movement.id ||
+          delivery.id !== liveAttempt?.saved.matched_stop_id ||
+          order.movements?.length !== 1 ||
+          delivery.movement_id && delivery.movement_id !== movement.id)) {
+        return validationFailure({ error: "Delivered-order departure needs a verified single movement and unchanged pickup actuals", reason: "DEPARTURE_REPAIR_CONFLICT" });
+      }
+      if (departureRepair) {
+        const fresh = await getOrder(preview.matchedOrderId);
+        const freshDelivery = fresh.stops?.find((stop: McleodStop) => stop.id === delivery.id);
+        const freshPickup = fresh.stops?.find((stop: McleodStop) => stop.id === pickup.id);
+        if (!repairableCottonDeparture(fresh, row.receivedDate) ||
+            ["id", "customer_id", "revenue_code_id", "blnum", "consignee_refno"].some(field => fresh[field] !== order[field]) ||
+            fresh.movements?.length !== 1 || fresh.movements[0].id !== movement.id ||
+            freshDelivery?.actual_arrival !== delivery.actual_arrival || freshDelivery?.location_id !== delivery.location_id ||
+            freshPickup?.actual_arrival !== pickup.actual_arrival || freshPickup?.actual_departure !== pickup.actual_departure) {
+          return validationFailure({ error: "McLeod changed before the departure repair; refresh and review", reason: "DEPARTURE_REPAIR_CONFLICT" });
+        }
+      }
       // Persist before the first pickup/backfill OR delivery write. Even a timeout
       // or lost response after this point can never become an outside-carrier offer.
       await persistLivePhase("write_pending", preview.matchedOrderId);
@@ -580,6 +601,12 @@ async function POSTHandler(req: NextRequest) {
       }
       const deliveryRes = await clearCarrierStop(delivery.id,
         plannedActions.delivery.arrivalDate, plannedActions.delivery.departureDate);
+      if (departureRepair && deliveryRes.ok) {
+        const after = await getOrder(preview.matchedOrderId);
+        if (!departureRepairVerified(order, after, delivery.id!, plannedActions.delivery.departureDate)) {
+          return NextResponse.json({ ok: false, error: "Departure repair read-back is incomplete; review McLeod before retrying", reason: "DEPARTURE_REPAIR_UNCERTAIN", matchedOrderId: preview.matchedOrderId }, { status: 409 });
+        }
+      }
       return NextResponse.json({
         ok: deliveryRes.ok,
         error: deliveryRes.ok ? undefined : "Failed to clear delivery stop",

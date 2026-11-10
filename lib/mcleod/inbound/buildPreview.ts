@@ -1,5 +1,5 @@
 import { McleodLookupIncompleteError } from "@/lib/inbound/checkin/lookup-failure";
-import { currentCottonOrder, reconcilableCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
+import { currentCottonOrder, reconcilableCottonOrder, repairableCottonDeparture } from "@/lib/inbound/checkin/current-cotton-order";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -402,7 +402,7 @@ function buildProposed(candidate: SearchCandidate | null) {
   };
 }
 
-export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string; includeCompletedForReconciliation?: boolean } = {}): Promise<PreviewResult[]> {
+export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string; includeCompletedForReconciliation?: boolean; allowMissingDepartureRepair?: boolean } = {}): Promise<PreviewResult[]> {
   console.log("BUILD_PREVIEW_LOADED", BUILD_PREVIEW_VERSION);
 
   const results: PreviewResult[] = [];
@@ -474,7 +474,7 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
       if (candidate.orderId !== orderId || candidate.revenueCode !== "MAIN" || !verified.exactMark) {
         throw new McleodLookupIncompleteError("Saved SCM order does not verify against the cotton mark or MAIN revenue code; review before processing.", true, ["saved order verification conflict"]);
       }
-      if (!eligibility.eligible && !(options.includeCompletedForReconciliation && reconcilableCottonOrder(order, row.receivedDate))) {
+      if (!eligibility.eligible && !(options.includeCompletedForReconciliation && reconcilableCottonOrder(order, row.receivedDate)) && !(options.allowMissingDepartureRepair && repairableCottonDeparture(order, row.receivedDate))) {
         const delivered = /delivered|completed|closed|^D$/i.test(String(order.__statusDescr ?? order.status ?? "").trim());
         const delivery = Array.isArray(order.stops) ? order.stops.find((stop: Record<string, any>) => stop.stop_type === "SO") : null;
         const reason = delivered && (!delivery?.actual_arrival || !delivery?.actual_departure)
