@@ -30,10 +30,10 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
   if (site?.terminal === "DAL" && (!deliveryStop || !stopAtScmYard(deliveryStop, site.siteName, "DAL")))
     throw new Error("The cotton delivery is assigned to a different Dallas yard.");
   const completion = await describeMcleodCompletion(order, deliveryStop, "delivery");
-  if (completion) throw new Error(completion.message);
-  const eligibility = currentCottonOrder(order);
+  if (completion && !completion.checkinAllowed) throw new Error(completion.message);
+  const eligibility = currentCottonOrder(order, undefined, true);
   if (!eligibility.eligible) throw new Error(eligibility.reason);
-  if (forNewCheckin) {
+  if (forNewCheckin && !completion?.checkinAllowed) {
     const delivery = (Array.isArray(order.stops) ? order.stops : [])
       .find((stop: { stop_type?: string }) => stop.stop_type === "SO");
     if (String(delivery?.actual_departure ?? "").trim())
@@ -41,3 +41,4 @@ export async function verifyCottonOrder(orderId: string, mark: string, bolBC: nu
   }
   return parsed ? Number(parsed[2]) : null;
 }
+

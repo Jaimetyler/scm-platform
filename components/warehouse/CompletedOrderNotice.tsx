@@ -25,6 +25,9 @@ export default function CompletedOrderNotice({ orderId, completion, language = "
     <div>{completion.kind === "cancelled" ? t("Cancellation time unavailable") : completionTime(completion.completedAt)
       .replace("McLeod local time", language === "es" ? "hora local de McLeod" : "McLeod local time")
       .replace("Completion time unavailable", t("Completion time unavailable"))}</div>
-    <div style={{ marginTop: 4 }}>{t("This order cannot be checked in again. Contact warehouse staff if the record needs correction.")}</div>
+    <div style={{ marginTop: 4 }}>{completion.checkinAllowed
+      ? (language === "es" ? "Puede registrar la llegada. La entrega registrada en McLeod se conservará." : "Check-in is allowed. McLeod already shows completion; its recorded delivery will be preserved.")
+      : t("This order cannot be checked in again. Contact warehouse staff if the record needs correction.")}</div>
   </div>;
 }
+

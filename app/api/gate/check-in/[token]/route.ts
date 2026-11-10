@@ -192,7 +192,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         { orderId, stopId });
       const match = selectDriverMatch(result, orderId, stopId, body?.explicitSelection === true || body?.explicitSelection === "true");
       const order = match.order;
-      if (order.completion) return NextResponse.json({ ok: false,
+      if (order.completion && !order.completion.checkinAllowed) return NextResponse.json({ ok: false,
         error: order.completion.message, completion: publicDriverCompletion(order.completion) }, { status: 409 });
       const { data: checkedIn, error: checkError } = await database().from("inbound_checkin_rows")
         .select("id").eq("terminal", gate.terminal).eq("site_code", gate.site_code)
@@ -353,7 +353,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       } else throw error;
     }
     if (!provisionalLookup && !orderId && lookup && !lookup.allowUnmatched) {
-      const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion);
+      const completed = lookup.matches.length > 0 && lookup.matches.every(match => match.order.completion && !match.order.completion.checkinAllowed);
       return NextResponse.json({ ok: false, code: "SELECTION_REQUIRED", error: completed ? "This load is already completed. Please speak with warehouse staff." :
         "Select and confirm your load before checking in. Look it up again.",
         ...(completed ? { completion: publicDriverCompletion(lookup.matches[0].order.completion!) } : {}) }, { status: 409 });
@@ -363,7 +363,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       const order = match.order;
       orderId = match.orderId;
       matchedStopId = order.stopId;
-      if (order.completion) return NextResponse.json({ ok: false,
+      if (order.completion && !order.completion.checkinAllowed) return NextResponse.json({ ok: false,
         error: order.completion.message, completion: publicDriverCompletion(order.completion) }, { status: 409 });
       if (order.materialType && materialType !== order.materialType) {
         return NextResponse.json({ ok: false, error: `McLeod commodity is ${order.commodity}. Check the material selection.` }, { status: 409 });
@@ -382,7 +382,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
         const date = String(order.orderDate ?? "").trim();
         const iso = date.replace(/^(\d{4})(\d{2})(\d{2}).*/, "$1-$2-$3").slice(0, 10);
         const age = Math.abs(Date.parse(iso) - Date.parse(warehouseDate(checkedInAt, gate.terminal)));
-        if (!date || !Number.isFinite(age) || age > 45 * 86400000 || /delivered|completed|cancelled|canceled/i.test(order.orderStatus))
+        if (!date || !Number.isFinite(age) || age > 45 * 86400000 || /cancelled|canceled|void/i.test(order.orderStatus))
           return NextResponse.json({ ok: false, error: "This cotton order is historical or has no current delivery date. Please speak with warehouse staff." }, { status: 409 });
       }
     }
@@ -499,4 +499,5 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Driver check-in failed", ...(error instanceof YardStopError ? { code: error.code } : {}) }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
 }
+
 

@@ -106,11 +106,11 @@ export async function lookupDriverReference(input: string, terminal: "SAV" | "HO
       const order = await lookupMcleodGateOrder(candidate.orderId, terminal, siteName, direction, selectedStop, raw, signal);
       const date = order.orderDate.match(/^(\d{4})(\d{2})(\d{2})/);
       const scheduled = date ? Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3])) : Date.parse(order.orderDate);
-      if (!order.completion && Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 86400000) {
+      if (!(order.completion && !order.completion.checkinAllowed) && Number.isFinite(scheduled) && scheduled < Date.now() - 45 * 86400000) {
         blocked.push(new YardStopError("A matching order is historical. Please speak with warehouse staff.", "HISTORICAL_ORDER"));
         return null;
       }
-      return { orderId: candidate.orderId, stopId: order.stopId, matchedBy: candidate.paths, order, selectable: !order.completion } as DriverLookupMatch;
+      return { orderId: candidate.orderId, stopId: order.stopId, matchedBy: candidate.paths, order, selectable: !(order.completion && !order.completion.checkinAllowed) } as DriverLookupMatch;
     } catch (error) {
       if (error instanceof YardStopError && error.code === "YARD_STOP_NOT_FOUND") {
         blocked.push(error);
@@ -123,7 +123,7 @@ export async function lookupDriverReference(input: string, terminal: "SAV" | "HO
   const matches = [...new Map(resolved.filter((value): value is DriverLookupMatch => value !== null)
     .map(value => [`${key(value.orderId)}\u0000${value.stopId}`, value])).values()];
   if (!matches.length && blocked.length) throw blocked[0];
-  const active = matches.filter(value => !value.order.completion);
+  const active = matches.filter(value => !(value.order.completion && !value.order.completion.checkinAllowed));
   if (active.length > 1) {
     // Company + driver identity is the only driver-facing discriminator.
     // Identical or missing identities require the office, not an order-number guess.
@@ -173,16 +173,17 @@ export function publicDriverMatch(match: DriverLookupMatch) {
 }
 export function publicDriverCompletion(completion: NonNullable<DriverLookupMatch["order"]["completion"]>) {
   return { kind: completion.kind, message: completion.message, completedAt: completion.completedAt,
-    location: completion.location, carrierName: completion.carrierName, carrierCode: "" };
+    location: completion.location, carrierName: completion.carrierName, carrierCode: "", ...(completion.checkinAllowed ? {checkinAllowed:true} : {}) };
 }
 
 export function selectDriverMatch(result: Awaited<ReturnType<typeof lookupDriverReference>>, orderId: string, stopId?: string, explicitSelection = false) {
   const matches = result.matches.filter(match => key(match.orderId) === key(orderId) && (!stopId || match.stopId === stopId));
   if (matches.length !== 1) throw new YardStopError("Your selected load no longer matches the entered reference or SCM order number. Look it up again.", "STALE_ORDER_SELECTION");
   const match = matches[0];
-  if (!match.order.completion && !match.selectable)
+  if (!(match.order.completion && !match.order.completion.checkinAllowed) && !match.selectable)
     throw new YardStopError("These loads have the same or incomplete trucking company and driver details. Please contact the office to identify your load.", "AMBIGUOUS_DRIVER_IDENTITY");
-  if (!match.order.completion && result.selectionRequired && !explicitSelection)
+  if (!(match.order.completion && !match.order.completion.checkinAllowed) && result.selectionRequired && !explicitSelection)
     throw new YardStopError("More than one load now matches. Look it up again and confirm your trucking company and driver details.", "SELECTION_REQUIRED");
   return match;
 }
+
