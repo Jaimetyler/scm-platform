@@ -57,7 +57,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
       if (requested && requested.toLowerCase() !== "all") requireTerminal(staff, requested);
       if (path === "/api/warehouse/domestic-queue/match" && new URL(req.url).searchParams.has("id"))
         requireTerminal(staff, await recordTerminal(db, "inbound_checkin_rows", new URL(req.url).searchParams.get("id")));
-      const savedBooking = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)(?:\/(?:export|container-info))?$/);
+      const savedBooking = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)(?:\/(?:export|container-info|planning-info))?$/);
       const savedRow = path.match(/^\/api\/(?:warehouse\/checkin-bol|inbound\/checkin\/rows)\/([^/]+)(?:\/dispatcher)?$/);
       if (savedBooking) requireTerminal(staff, await recordTerminal(db, "cotton_outbound_bookings", savedBooking[1]));
       if (savedRow) requireTerminal(staff, await recordTerminal(db, "inbound_checkin_rows", savedRow[1]));
