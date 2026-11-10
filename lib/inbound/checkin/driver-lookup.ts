@@ -4,6 +4,8 @@ import { extractSearchOrders } from "../../mcleod/inbound/search-response.ts";
 import { lookupMcleodGateOrder } from "./mcleod-order-id.ts";
 import { mcleodOrderStops, YardStopError } from "./yard-stop.ts";
 import { CHECKIN_SITES } from "./sites.ts";
+import { referenceMatchesInput } from "./reference-match.ts";
+import { searchReferenceOrders } from "./reference-search.ts";
 
 const text = (value: unknown) => String(value ?? "").trim();
 const key = (value: unknown) => text(value).toUpperCase();
@@ -19,7 +21,9 @@ export type DriverLookupMatch = {
 
 /** One input, two independent strategies. Never infer its meaning from numeric shape.
  * Both strategies and every candidate must finish before a confirmed no-match is safe.
- * At most 21 distinct detail requests, four at once, under one 20-second deadline. */
+ * At most 20 reference pages of 5 raw rows, one exact-ID search, and 21 distinct
+ * detail requests (20 true reference IDs + one exact ID), four at once. Search,
+ * body consumption, details, and optional enrichment share a 20-second deadline. */
 export async function lookupDriverReference(input: string, terminal: "SAV" | "HOU", siteName: string,
   direction: "pickup" | "delivery", selection?: { orderId: string; stopId?: string }) {
   const originalInput = text(input);
@@ -33,58 +37,64 @@ export async function lookupDriverReference(input: string, terminal: "SAV" | "HO
   if (!base || !token) throw unavailable();
   const controller = new AbortController();
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]);
-  const missing = Symbol("confirmed absent or invalid ID syntax");
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
   try {
-  const read = async (path: string, missingAllowed = false) => {
+  const read = async (path: string) => {
     try {
       signal.throwIfAborted();
       const response = await dependencyFetch(`${base}${path}`, { headers, cache: "no-store", signal });
-      if (missingAllowed && response.status === 404) return missing;
       if (!response.ok) throw unavailable();
       return await response.json();
     } catch { throw unavailable(); }
   };
   const field = direction === "pickup" ? "blnum" : "consignee_refno";
-  const query = new URLSearchParams({ [`orders.${field}`]: `*${reference}*`, recordLength: "200" });
-  const [direct, searchPayload] = await Promise.all([
-    validId(reference) ? read(`/orders/${encodeURIComponent(reference)}`, true) : Promise.resolve(missing),
-    read(`/orders/search?${query}`),
+  type Candidate = { orderId: string; paths: DriverLookupMatch["matchedBy"] };
+  const readExactIds = async () => {
+    if (!validId(reference)) return [];
+    // Discover IDs through the documented exact-field search contract. The
+    // absence status/body of GET /orders/{id} is not assumed for arbitrary input.
+    const query = new URLSearchParams({ "orders.id": reference, recordLength: "2" });
+    const exactIds = extractSearchOrders(await read(`/orders/search?${query}`));
+    // A unique exact ID can yield zero or one row. Unexpected IDs/duplicates or
+    // malformed search data are uncertainty, never permission for outside freight.
+    if (!exactIds || exactIds.length > 1 || exactIds.some(item => !item || typeof item !== "object" ||
+      Array.isArray(item) || typeof (item as any).id !== "string" || key((item as any).id) !== reference ||
+      typeof (item as any).revenue_code_id !== "string" || !text((item as any).revenue_code_id)))
+      throw unavailable();
+    return exactIds as Record<string, any>[];
+  };
+  // Exact-ID and reference searches stay independent. A whole-field reference
+  // match never suppresses other orders with the same whole token in a list.
+  const [exactIds, referenceRows] = await Promise.all([
+    readExactIds(), searchReferenceOrders(read, field, reference, signal),
   ]);
-  const search = extractSearchOrders(searchPayload);
-  if (!search) throw new DependencyError("McLeod returned an unexpected search response. Please try again; this is not a confirmed no-match.");
-  if (search.length >= 200)
-    throw new YardStopError("Too many possible orders. Enter a longer reference or ask warehouse staff.", "TOO_MANY_MATCHES");
-  if (search.some(item => !item || typeof item !== "object" || !validId(text((item as any).id)) ||
-    !text((item as any).revenue_code_id) || !text((item as any)[field])))
-    throw new DependencyError("McLeod returned incomplete search details. Please try again or ask warehouse staff; this is not a confirmed no-match.");
+  const candidates = new Map<string, Candidate>(referenceRows.map(row =>
+    [key(row.id), { orderId: text(row.id), paths: ["reference"] }]));
   const validateOrder = (order: any, expectedId: string) => {
-    if (!order || typeof order !== "object" || Array.isArray(order) || key(order.id) !== key(expectedId) || !text(order.revenue_code_id))
+    if (!order || typeof order !== "object" || Array.isArray(order) || typeof order.id !== "string" ||
+      key(order.id) !== key(expectedId) || typeof order.revenue_code_id !== "string" || !text(order.revenue_code_id))
       throw unavailable();
     return order as Record<string, any>;
   };
-  if (direct !== missing) validateOrder(direct, reference);
-  const candidates = new Map<string, { orderId: string; paths: DriverLookupMatch["matchedBy"]; raw?: Record<string, any> }>();
-  for (const item of search as Record<string, any>[]) {
-    if (!key(item[field]).includes(reference)) continue;
-    const id = text(item.id);
-    candidates.set(key(id), { orderId: id, paths: ["reference"] });
-  }
-  if (candidates.size > 20)
-    throw new YardStopError("Too many possible orders. Enter a longer reference or ask warehouse staff.", "TOO_MANY_MATCHES");
-  if (direct !== missing) {
-    const prior = candidates.get(reference);
-    candidates.set(reference, { orderId: text(direct.id), paths: prior ? ["scm_order", "reference"] : ["scm_order"], raw: direct });
+  if (exactIds.length === 1) {
+    const id = text(exactIds[0].id);
+    const prior = candidates.get(key(id));
+    candidates.set(key(id), { orderId: id, paths: prior ? ["scm_order", "reference"] : ["scm_order"] });
   }
   const blocked: YardStopError[] = [];
-  const resolved = await mapLimit([...candidates.values()], 4, async candidate => {
-    const raw = candidate.raw || validateOrder(await read(`/orders/${encodeURIComponent(candidate.orderId)}`), candidate.orderId);
+  // Offset pagination is not a snapshot: sorting/overlap checks cannot detect
+  // every concurrent insert/delete. Every selected lookup/submission reruns this
+  // search and rehydrates its order/stop; no earlier lookup grants authorization.
+  const orderedCandidates = [...candidates.values()].sort((left, right) =>
+    key(left.orderId) < key(right.orderId) ? -1 : key(left.orderId) > key(right.orderId) ? 1 : 0);
+  const resolved = await mapLimit(orderedCandidates, 4, async candidate => {
+    const raw = validateOrder(await read(`/orders/${encodeURIComponent(candidate.orderId)}`), candidate.orderId);
+    // A changed search/detail snapshot is not proof that the submitted input has no match.
+    if (candidate.paths.includes("reference") && (typeof raw[field] !== "string" || !referenceMatchesInput(raw[field], reference))) throw unavailable();
     if (key(raw.revenue_code_id) !== "MAIN") {
       blocked.push(new YardStopError("A matching order is not eligible for this SCM freight check-in. Please speak with warehouse staff.", "NOT_MAIN_ORDER"));
       return null;
     }
-    // A changed search/detail snapshot is not proof that the submitted input has no match.
-    if (candidate.paths.includes("reference") && !key(raw[field]).includes(reference)) throw unavailable();
     if (!text(raw[field]) || !text(raw.customer?.name ?? raw.customer_name ?? raw.customer_id)) throw unavailable();
     // An empty/partial detail response cannot prove that an alternative candidate
     // belongs elsewhere. Never silently turn unknown yard evidence into a unique match.

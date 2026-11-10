@@ -3,6 +3,7 @@ import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import PollingStatus from "@/components/warehouse/PollingStatus";
 import { useCanWrite } from "@/components/auth/StaffSession";
 
+import { checkoutNeedsReview, OutsideCarrierMarker, type OutsideCarrierRow } from "@/components/warehouse/OutsideCarrierReview";
 import CompletedOrderNotice from "@/components/warehouse/CompletedOrderNotice";
 import type { McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
 import Link from "next/link";
@@ -17,7 +18,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 
 type Status = "waiting" | "called" | "in_door" | "working";
 type YardStatus = Status | "completed" | "cancelled" | null;
-type Row = {
+type Row = OutsideCarrierRow & {
   id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null; trucking_company: string | null;
   movement_direction: string; material_type: string; reference_number: string;
   destination: string | null; shipper: string | null; matched_order_id: string | null;
@@ -161,7 +162,7 @@ export default function DomesticQueuePage() {
   useEffect(() => () => { Object.values(draftTimers.current).forEach(window.clearTimeout); }, []);
 
   async function transition(row: Row & { yard_status: Status }, to: "checkout" | "cancelled") {
-    if (!site || editingId !== row.id) return;
+    if (!site || !canWrite || working || editingId !== row.id || checkoutNeedsReview(row)) return;
     if (to === "cancelled" && !window.confirm(`Remove ${row.driver_name || row.reference_number} from the domestic queue?`)) return;
     setNotice("");
     setWorking(row.id);
@@ -349,6 +350,7 @@ export default function DomesticQueuePage() {
                 disabled={!canWrite || editingId !== row.id}
                 onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
               <td style={cell}><strong style={statusPill}>{LABEL[row.yard_status]}</strong>
+                {checkoutNeedsReview(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>McLeod status needs review. Keep this arrival active until any pending update is reconciled.</div>}
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
                   <button style={button} onClick={() => toggleDetails(row.id)} aria-expanded={expandedIds.has(row.id)}>
                     {expandedIds.has(row.id) ? "Less" : "Details"}</button>
@@ -357,8 +359,8 @@ export default function DomesticQueuePage() {
                       setEditingId(row.id); setExpandedIds((current) => new Set(current).add(row.id));
                     }}>Edit</button> : <>
                     <button disabled={working === row.id || matchWorking === row.id} style={button} onClick={() => setEditingId(null)}>Close edit</button>
-                    <button disabled={!canWrite || working === row.id} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
-                    <button disabled={!canWrite || working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
+                    <button disabled={!canWrite || working === row.id || checkoutNeedsReview(row)} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
+                    <button disabled={!canWrite || working === row.id || checkoutNeedsReview(row)} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
                   </>}
                 </div></td>
             </tr>{expandedIds.has(row.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
@@ -440,6 +442,10 @@ export default function DomesticQueuePage() {
         </div>
       </form>
     </div>)}
+    {!loadError && !loading && recent.filter((row) => row.outside_carrier_override_at && row.mcleod_lookup_status === "unresolved").map((row) => <p key={row.id}>
+      <Link href={`/warehouse/checkin/${row.id}`} style={{ color: "#67e8f9" }}>{row.reference_number} · {row.driver_name || "Staff entry"}</Link>
+      <OutsideCarrierMarker row={row} />
+    </p>)}
     {!loadError && !loading && recent.length > 0 && <p style={{ ...muted, marginTop: 14 }}>
       {recent.length} completed or removed check-ins · <Link href={`/warehouse/gate/${site.terminalSlug}/${site.siteCode}/history`} style={{ color: "#67e8f9" }}>View history and export</Link>
     </p>}

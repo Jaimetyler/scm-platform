@@ -72,8 +72,19 @@ async function scenario(options, run) {
   };
   const preview = { status: "Matched", matchedOrderId: "ORDER1", candidateCount: 1,
     resolvedCustomer: { customerId: "C1" }, parsedBlnum: { mark: "MARK1", count: "88" } };
+  const attemptId = "22222222-2222-4222-8222-222222222222";
+  let cottonRecord;
+  const syncDatabase = { from: () => {
+    let update, filters = [];
+    return { update(value) { update = value; return this; }, eq(key, value) { filters.push([key, value]); return this; },
+      select() { return this; }, async maybeSingle() {
+        if (!cottonRecord || filters.some(([key,value]) => cottonRecord[key] !== value)) return { data: null };
+        Object.assign(cottonRecord, update); return { data: { ...cottonRecord } };
+      } };
+  } };
   const sync = load("app/api/inbound/sync/route.ts", {
     "@/lib/mcleod/inbound/buildPreview": { buildPreview: async () => [preview] },
+    "@supabase/supabase-js": { createClient: () => syncDatabase },
   });
   const checkin = { id: "12345678-1234-4234-8234-123456789012", terminal: "HOU", site_code: "5300",
     material_type: "lumber", movement_direction: "delivery", matched_order_id: "ORDER1", matched_stop_id: "SO1", reference_number: "MARK1",
@@ -84,7 +95,12 @@ async function scenario(options, run) {
     "@supabase/supabase-js": { createClient: () => ({ from: () => query }) },
   });
   const post = async () => {
-    const response = await sync.POST({ json: async () => ({ row }) });
+    cottonRecord ??= { id: checkin.id, draft_status: "processing", material_type: "cotton", movement_direction: "delivery",
+      mcleod_lookup_attempt_id: attemptId, mcleod_lookup_status: "pending", mcleod_processing_phase: "lookup",
+      received_date: row.receivedDate, terminal: row.terminal, site_code: "5300", mark: row.mark, shipper: row.shipper,
+      bol_bc: row.bolBC, bale_count: row.balesUnloaded, expected_bale_count: row.expectedBaleCount,
+      checked_in_at: row.checkedInAt, verified_at: row.verifiedAt };
+    const response = await sync.POST({ json: async () => ({ row, checkinId: checkin.id, lookupAttemptId: attemptId }) });
     return { status: response.status, body: await response.json() };
   };
   const checkout = async () => {
@@ -138,11 +154,13 @@ test("pickup failure prevents cotton delivery posting", async () => {
   });
 });
 
-test("retry after delivery failure does not rewrite completed pickup", async () => {
+test("replayed cotton attempt after delivery failure cannot issue another write", async () => {
   await scenario({ failDeliveryOnce: true }, async ({ post, writes }) => {
     assert.equal((await post()).body.ok, false);
-    assert.equal((await post()).body.ok, true);
-    assert.deepEqual(writes.map((w) => w.id), ["PU1", "SO1", "SO1"]);
+    const replay = await post();
+    assert.equal(replay.status, 409);
+    assert.equal(replay.body.reason, "CHECKIN_ATTEMPT_CHANGED");
+    assert.deepEqual(writes.map((w) => w.id), ["PU1", "SO1"]);
   });
 });
 

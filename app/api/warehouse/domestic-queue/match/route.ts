@@ -1,12 +1,13 @@
 import { DependencyError, dependencyFetch } from "@/lib/http/dependency";
 import { mapLimit } from "@/lib/http/map-limit";
-import { YardStopError } from "@/lib/inbound/checkin/yard-stop";
+import { mcleodOrderStops, YardStopError } from "@/lib/inbound/checkin/yard-stop";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { lookupMcleodGateOrder, type McleodCompletion } from "@/lib/inbound/checkin/mcleod-order-id";
+import { referenceMatchesInput } from "@/lib/inbound/checkin/reference-match";
+import { searchReferenceOrders } from "@/lib/inbound/checkin/reference-search";
 
 export const runtime = "nodejs";
 
@@ -27,8 +28,18 @@ function orderDay(value: unknown) {
 function named(value: unknown) {
   return value && typeof value === "object" ? text((value as Record<string, unknown>).name) : "";
 }
+function hasLocationEvidence(stop: Record<string, any>) {
+  const location = stop.location && typeof stop.location === "object" ? stop.location : {};
+  const name = text(location.name || stop.location_name).toUpperCase();
+  if (!name) return false;
+  if (!/\bSCM\b|SUPPLY CHAIN|SAVANNAH WAREHOUSE|HOUSTON WAREHOUSE/.test(name)) return true;
+  const address = [name, location.address, location.address1, location.address2, stop.address].map(text).join(" ");
+  return CHECKIN_SITES.some(site => new RegExp(`(^|\\D)${site.siteCode}(\\D|$)`).test(address));
+}
 
 async function GETHandler(req: NextRequest) {
+  const controller = new AbortController();
+  let signal: AbortSignal | undefined;
   try {
     const params = new URL(req.url).searchParams;
     const id = text(params.get("id"));
@@ -53,27 +64,37 @@ async function GETHandler(req: NextRequest) {
     if (!configuredSite) {
       return NextResponse.json({ ok: false, error: "Unknown warehouse site" }, { status: 400 });
     }
-    if (reference.length < 3 || reference.length > 200 || !["pickup", "delivery"].includes(direction)) {
+    if (reference.length < 3 || reference.length > 200 || /[\u0000-\u001f*?]/.test(reference) || !["pickup", "delivery"].includes(direction)) {
       return NextResponse.json({ ok: false, error: "Reference or direction is missing" }, { status: 400 });
     }
     const field = direction === "pickup" ? "blnum" : "consignee_refno";
     const base = process.env.MCLEOD_BASE_URL?.replace(/\/+$/, "");
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw new Error("McLeod connection is not configured");
-    async function search(searchField: string) {
-      const searchParams = new URLSearchParams({ [`orders.${searchField}`]: `*${reference.replace(/\*/g, "")}*`, recordLength: "200" });
-      const response = await dependencyFetch(`${base}/orders/search?${searchParams}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
-      });
-      if (!response.ok) throw new DependencyError(`McLeod search failed (${response.status}). Please try again.`);
-      const results = extractSearchOrders(await response.json());
-      if (!results) throw new Error("McLeod returned an unexpected search response");
-      if (results.length >= 200) throw new Error("Too many possible orders. Use a longer reference number.");
-      return results;
+    // Both reference fields, page bodies, hydration, and enrichment share one
+    // deadline. Never return a partial search as a complete staff match list.
+    signal = AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]);
+    async function read(path: string) {
+      try {
+        signal!.throwIfAborted();
+        const response = await dependencyFetch(`${base}${path}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store", signal,
+        });
+        if (!response.ok) throw new DependencyError(path.startsWith("/orders/search?")
+          ? `McLeod search failed (${response.status}). Please try again.`
+          : "McLeod order verification is temporarily unavailable.");
+        const result = await response.json();
+        signal!.throwIfAborted();
+        return result;
+      } catch (error) {
+        if (error instanceof DependencyError) throw error;
+        throw new DependencyError("The complete SCM lookup is temporarily unavailable. Please try again or ask warehouse staff.");
+      }
     }
-    const fields = !id && params.get("strictDirection") !== "1"
+    const fields: ("blnum" | "consignee_refno")[] = !id && params.get("strictDirection") !== "1"
       ? [field, field === "blnum" ? "consignee_refno" : "blnum"] : [field];
-    const resultSets = await Promise.all(fields.map(async (searchField) => ({ field: searchField, results: await search(searchField) })));
+    const resultSets = await Promise.all(fields.map(async (searchField) => ({ field: searchField,
+      results: await searchReferenceOrders(read, searchField, reference, signal!) })));
     const matches = new Map<string, { orderId: string; customerId: string; customerName: string; value: string;
       materialType: "lumber" | "other" | null; destination: string; direction: string;
       carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
@@ -83,7 +104,7 @@ async function GETHandler(req: NextRequest) {
       const value = text(order[set.field]);
       const orderId = text(order.id);
       if (!orderId || !value) throw new DependencyError("McLeod returned incomplete order identity or reference details. Please try again.");
-      if (!value.toUpperCase().includes(reference)) continue;
+      if (!referenceMatchesInput(value, reference)) continue;
       if (!text(order.revenue_code_id)) throw new DependencyError("McLeod search omitted the revenue code. Cannot verify this order.");
       if (text(order.revenue_code_id).toUpperCase() !== "MAIN") continue;
       const matchDirection = set.field === "blnum" ? "pickup" : "delivery";
@@ -100,30 +121,38 @@ async function GETHandler(req: NextRequest) {
         carrierName: "", carrierCode: "", orderDate: "", orderStatus: "", driverName: "", driverPhone: "",
       });
     }
-    if (matches.size > 20) throw new Error("Too many matching orders. Enter a longer reference number.");
+    if (matches.size > 20) throw new YardStopError("Too many matching orders. Enter a longer reference number.", "TOO_MANY_MATCHES");
     const cutoff = Date.now() - 45 * 24 * 60 * 60 * 1000;
     const orderRequests = new Map<string, Promise<Record<string, any>>>();
     async function fullOrder(orderId: string) {
-      if (!orderRequests.has(orderId)) orderRequests.set(orderId, (async () => {
-        const response = await dependencyFetch(`${base}/orders/${encodeURIComponent(orderId)}`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, cache: "no-store",
-        });
-        if (!response.ok) throw new DependencyError("McLeod order verification is temporarily unavailable.");
-        return response.json();
-      })());
+      if (!orderRequests.has(orderId)) orderRequests.set(orderId, read(`/orders/${encodeURIComponent(orderId)}`));
       return orderRequests.get(orderId)!;
     }
     const verified = await mapLimit([...matches.values()], 4, async (match) => {
       const matchedField = match.direction === "pickup" ? "blnum" : "consignee_refno";
       const order = await fullOrder(match.orderId);
+      if (!order || typeof order !== "object" || Array.isArray(order) ||
+          text(order.id).toUpperCase() !== match.orderId.toUpperCase() || !text(order.revenue_code_id)) {
+        throw new DependencyError("McLeod returned incomplete or changed order identity details. Please try again.");
+      }
+      if (text(order.revenue_code_id).toUpperCase() !== "MAIN") return null;
+      // A changed reference or incomplete stop evidence is uncertainty, not proof
+      // that this candidate belongs elsewhere or that the search found no match.
+      if (!referenceMatchesInput(order[matchedField], reference) ||
+          !text(order.customer?.name ?? order.customer_name ?? order.customer_id)) {
+        throw new DependencyError("McLeod order details changed or are incomplete. Please try again.");
+      }
+      const stops = mcleodOrderStops(order);
+      if (!stops.length || stops.some(stop => !text(stop.id) || !text(stop.stop_type) ||
+          ["PU", "SO"].includes(stop.stop_type) && !hasLocationEvidence(stop))) {
+        throw new DependencyError("McLeod returned incomplete stop details. Please try again.");
+      }
       let yardOrder;
-      try { yardOrder = await lookupMcleodGateOrder(match.orderId, configuredSite.terminal, configuredSite.siteName, match.direction as "pickup" | "delivery", undefined, order); }
+      try { yardOrder = await lookupMcleodGateOrder(match.orderId, configuredSite.terminal, configuredSite.siteName, match.direction as "pickup" | "delivery", undefined, order, signal); }
       catch (error) { if (error instanceof YardStopError && error.code === "YARD_STOP_NOT_FOUND") return null; throw error; }
       match.stopId = yardOrder.stopId; match.movementId = yardOrder.movementId;
       if (yardOrder.direction !== match.direction) return null;
       match.completion = yardOrder.completion;
-      if (text(order.revenue_code_id).toUpperCase() !== "MAIN" ||
-          !text(order[matchedField]).toUpperCase().includes(reference)) return null;
       const customer = order.customer as Record<string, unknown> | undefined;
       const commodity = order.commodity as Record<string, unknown> | string | undefined;
       const commodityName = text((typeof commodity === "object" ? commodity?.description : commodity) || order.commodity_description || order.commodity_id).toUpperCase();
@@ -139,9 +168,14 @@ async function GETHandler(req: NextRequest) {
       match.driverName = yardOrder.driverName; match.driverPhone = yardOrder.driverPhone;
       return match;
     });
+    signal.throwIfAborted();
     return NextResponse.json({ ok: true, reference, matches: verified.filter((match) => match !== null) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not search McLeod" }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500 });
+    const failure = signal?.aborted ? new DependencyError("The complete SCM lookup is temporarily unavailable. Please try again or ask warehouse staff.") : error;
+    return NextResponse.json({ ok: false, error: failure instanceof Error ? failure.message : "Could not search McLeod" },
+      { status: failure instanceof DependencyError ? 503 : failure instanceof YardStopError ? 409 : 500 });
+  } finally {
+    controller.abort();
   }
 }
 

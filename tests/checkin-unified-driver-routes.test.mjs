@@ -15,7 +15,7 @@ function fixture(id = '92157', extra = {}) {
     commodity_id: 'LUMBER', movements: [{ id: 'M1', carrier_name: 'Actual Trucking', override_driver_nm: 'Known Driver', override_drvr_cell: '555-555-1234' }],
     stops: [{ id: 'PU1', movement_id: 'M1', stop_type: 'PU', sched_arrive_early: new Date().toISOString(), location: { name: 'SCM Houston 5300' } }], ...extra };
 }
-function route(writes, { locationOk = true } = {}) {
+function route(writes, { locationOk = true, gate: configuredGate = gate } = {}) {
   const modules = {
     'next/server': { NextResponse: Response },
     '@/lib/inbound/checkin/driver-lookup': driverLookup,
@@ -28,7 +28,7 @@ function route(writes, { locationOk = true } = {}) {
     '@supabase/supabase-js': { createClient: () => ({ from(table) {
       let write;
       return { select() { return this; }, eq() { return this; }, or() { return this; },
-        limit: async () => ({ data: [] }), maybeSingle: async () => ({ data: gate }),
+        limit: async () => ({ data: [] }), maybeSingle: async () => ({ data: configuredGate }),
         insert(value) { write = value; writes.push(value); return this; }, single: async () => ({ data: { ...write } }) };
     } }) },
   };
@@ -46,8 +46,17 @@ async function withFixture(orders, search, run, override, options = {}) {
   const writes = [], calls = [];
   globalThis.fetch = async (url, init) => {
     assert.ok(!init?.method || init.method === 'GET'); const path = new URL(url); calls.push(path);
-    if (override) { const response = await override(path); if (response !== undefined) return response; }
-    if (path.pathname === '/orders/search') return Response.json(typeof search === 'function' ? search(path) : search);
+    if (override) { const response = await override(path, init); if (response !== undefined) return response; }
+    if (path.pathname === '/orders/search') {
+      if (path.searchParams.has('orders.id')) {
+        const id = path.searchParams.get('orders.id');
+        assert.equal(path.searchParams.get('recordLength'), '2');
+        assert.ok(!/[*?]/.test(id));
+        const order = Object.values(orders).find(order => String(order.id).trim().toUpperCase() === id.toUpperCase());
+        return Response.json(order ? [order] : null);
+      }
+      return Response.json(typeof search === 'function' ? search(path) : search);
+    }
     const order = orders[decodeURIComponent(path.pathname.split('/').pop())];
     return order ? Response.json(order) : Response.json(null, { status: 404 });
   };
@@ -169,7 +178,10 @@ test('genuine confirmed no-match permits the existing paperwork flow after a fre
     const result = await send({ ...submit, orderId: '', selectedStopId: '', referenceNumber: 'unknown', driverLookupInput: 'unknown' });
     assert.equal(result.response.status, 200); assert.equal(writes[0].matched_order_id, null); assert.equal(writes[0].matched_stop_id, null);
     assert.equal(writes[0].reference_number, 'UNKNOWN'); assert.equal(writes[0].driver_lookup_input, 'unknown');
-    assert.equal(calls.filter(url => url.pathname === '/orders/search').length, 2);
+    assert.equal(calls.filter(url => url.pathname === '/orders/search').length, 4);
+    assert.equal(calls.filter(url => url.searchParams.has('orders.id')).length, 2);
+    assert.equal(calls.filter(url => url.searchParams.has('orders.blnum')).length, 2);
+    assert.ok(calls.every(url => url.pathname === '/orders/search'));
   });
 });
 
@@ -196,4 +208,114 @@ test('a unique result that becomes ambiguous at detail or submit requires a deli
     const confirmed = await send({ ...submit, explicitSelection: true });
     assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.body)); assert.equal(writes.length, 1);
   });
+});
+
+for (const site of CHECKIN_SITES) {
+  test(`${site.siteName}: unknown numeric input permits outside pickup and delivery for every configured material`, async () => {
+    const configuredGate = { ...gate, terminal: site.terminal, site_code: site.siteCode, site_name: site.siteName };
+    for (const emptyId of [null, []]) for (const emptyReference of [null, []]) {
+      await withFixture({}, emptyReference, async ({ send, writes, calls }) => {
+        for (const materialType of site.materials) for (const movementDirection of ['pickup', 'delivery']) {
+          const context = `${site.siteCode} ${materialType} ${movementDirection} ID=${JSON.stringify(emptyId)} reference=${JSON.stringify(emptyReference)}`;
+          const before = calls.length, beforeWrites = writes.length;
+          const lookup = await send({ action: 'lookupReference', referenceNumber: '4040451', movementDirection });
+          assert.equal(lookup.response.status, 200, context);
+          assert.equal(lookup.body.status, 'no_match', context);
+          assert.equal(lookup.body.allowUnmatched, true, context);
+          assert.deepEqual(lookup.body.matches, [], context);
+          const result = await send({ ...submit, materialType, movementDirection, orderId: '', selectedStopId: '',
+            referenceNumber: '4040451', driverLookupInput: '4040451', mark: 'OUTSIDE MARK', bolBaleCount: 10,
+          });
+          assert.equal(result.response.status, 200, `${context}: ${JSON.stringify(result.body)}`);
+          assert.equal(writes.length, beforeWrites + 1, context);
+          const write = writes.at(-1);
+          assert.equal(write.terminal, site.terminal); assert.equal(write.site_code, site.siteCode);
+          assert.equal(write.material_type, materialType); assert.equal(write.movement_direction, movementDirection);
+          assert.equal(write.matched_order_id, null); assert.equal(write.matched_stop_id, null);
+          assert.equal(write.shipper, null); assert.equal(write.reference_number, '4040451');
+          assert.equal(write.driver_lookup_input, '4040451'); assert.equal(write.checkin_source, 'driver_qr');
+          assert.equal(write.trucking_company, 'Entered Company');
+          const requestCalls = calls.slice(before);
+          assert.equal(requestCalls.length, 4, 'Lookup and submit each perform two fresh searches');
+          assert.ok(requestCalls.every(url => url.pathname === '/orders/search'), 'Never point-read an unknown input');
+          assert.equal(requestCalls.filter(url => url.searchParams.get('orders.id') === '4040451' && url.searchParams.get('recordLength') === '2').length, 2);
+          const field = movementDirection === 'pickup' ? 'orders.blnum' : 'orders.consignee_refno';
+          assert.equal(requestCalls.filter(url => url.searchParams.get(field) === '*4040451*').length, 2);
+        }
+      }, async url => url.searchParams.has('orders.id') ? Response.json(emptyId) : undefined, { gate: configuredGate });
+    }
+  });
+}
+
+test('numeric reference-only pickup and delivery preserve the matched order and hydrate it only once', async () => {
+  for (const movementDirection of ['pickup', 'delivery']) {
+    const order = fixture('OTHER', { blnum: '92157', consignee_refno: '92157' });
+    order.stops[0].stop_type = movementDirection === 'pickup' ? 'PU' : 'SO';
+    await withFixture({ OTHER: order }, [order], async ({ send, writes, calls }) => {
+      const result = await send({ ...submit, orderId: 'OTHER', movementDirection });
+      assert.equal(result.response.status, 200, JSON.stringify(result.body));
+      assert.equal(writes.length, 1); assert.equal(writes[0].matched_order_id, 'OTHER');
+      assert.equal(writes[0].matched_stop_id, 'PU1'); assert.equal(writes[0].reference_number, '92157');
+      assert.equal(calls.filter(url => url.pathname === '/orders/OTHER').length, 1);
+      assert.ok(!calls.some(url => url.pathname === '/orders/92157'));
+    });
+  }
+});
+
+test('invalid search evidence and HTTP 400/404/500 remain retryable 503 and never permit outside submission', async () => {
+  for (const strategy of ['orders.id', 'orders.blnum']) {
+    for (const failure of [400, 404, 500, 'json', 'wrapper-null', 'error-envelope']) {
+      await withFixture({}, null, async ({ send, writes }) => {
+        for (const action of ['lookupReference', 'submit']) {
+          const result = await send({ ...submit, action, orderId: '', selectedStopId: '',
+            driverLookupInput: '9999999', referenceNumber: '9999999' });
+          assert.equal(result.response.status, 503, `${strategy} ${failure} ${action}: ${JSON.stringify(result.body)}`);
+          assert.equal(result.response.headers.get('Retry-After'), '10');
+          assert.equal(result.body.ok, false); assert.notEqual(result.body.allowUnmatched, true);
+        }
+        assert.equal(writes.length, 0);
+      }, async url => {
+        if (!url.searchParams.has(strategy)) return undefined;
+        if (failure === 'json') return new Response('bad JSON');
+        if (failure === 'wrapper-null') return Response.json({ orders: null });
+        if (failure === 'error-envelope') return Response.json({ error: 'upstream failed' });
+        return Response.json(null, { status: failure });
+      });
+    }
+  }
+});
+
+test('an exact-ID search hit whose detail disappears fails closed for selected and outside submissions', async () => {
+  await withFixture({ 92157: fixture() }, [], async ({ send, writes }) => {
+    for (const orderId of ['92157', '']) {
+      const result = await send({ ...submit, orderId });
+      assert.equal(result.response.status, 503, JSON.stringify(result.body));
+      assert.equal(result.response.headers.get('Retry-After'), '10');
+    }
+    assert.equal(writes.length, 0);
+  }, async url => url.pathname === '/orders/92157' ? Response.json(null, { status: 404 }) : undefined);
+});
+
+test('a stalled search body reaches the aggregate deadline and never authorizes an outside submission', async () => {
+  const originalTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = milliseconds => originalTimeout(milliseconds === 20_000 ? 10 : milliseconds);
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    for (const strategy of ['orders.id', 'orders.blnum']) {
+      let aborted = false;
+      await withFixture({}, null, async ({ send, writes }) => {
+        const result = await send({ ...submit, orderId: '', selectedStopId: '',
+          driverLookupInput: '9999999', referenceNumber: '9999999' });
+        assert.equal(result.response.status, 503, JSON.stringify(result.body));
+        assert.equal(result.response.headers.get('Retry-After'), '10');
+        assert.equal(aborted, true); assert.equal(writes.length, 0);
+      }, async (url, init) => {
+        if (!url.searchParams.has(strategy)) return undefined;
+        return { ok: true, status: 200, json: () => new Promise((resolve, reject) => {
+          if (init.signal.aborted) { aborted = true; reject(init.signal.reason); }
+          else init.signal.addEventListener('abort', () => { aborted = true; reject(init.signal.reason); }, { once: true });
+        }) };
+      });
+    }
+  } finally { clearTimeout(keepAlive); AbortSignal.timeout = originalTimeout; }
 });

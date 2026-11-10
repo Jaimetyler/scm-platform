@@ -21,3 +21,13 @@ test("unknown shapes still fail instead of being counted as no orders", () => {
     assert.equal(extractSearchOrders(payload), null);
   }
 });
+
+test("error or partial-result envelopes cannot authorize complete lookup or outside classification", () => {
+  for (const rows of [[], [{ id: "FIXTURE" }]]) for (const payload of [
+    { orders: rows, error: "lookup failed" }, { orders: rows, success: false },
+    { orders: rows, hasMore: true }, { orders: rows, total: 500 },
+    { data: { orders: rows, errors: ["partial"] } },
+    { data: { response: { rows, partial: true } } },
+    { orders: rows, results: rows },
+  ]) assert.equal(extractSearchOrders(payload), null);
+});
