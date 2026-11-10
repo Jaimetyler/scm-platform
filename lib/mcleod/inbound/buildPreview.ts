@@ -1,5 +1,5 @@
 import { McleodLookupIncompleteError } from "@/lib/inbound/checkin/lookup-failure";
-import { currentCottonOrder, reconcilableCottonOrder } from "@/lib/inbound/checkin/current-cotton-order";
+import { currentCottonOrder, reconcilableCottonOrder, repairableCottonDeparture } from "@/lib/inbound/checkin/current-cotton-order";
 import type { InboundExcelRow } from "@/lib/mcleod/inbound/types";
 import { CUSTOMER_XREF } from "@/lib/mcleod/inbound/xref";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -402,7 +402,7 @@ function buildProposed(candidate: SearchCandidate | null) {
   };
 }
 
-export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string; includeCompletedForReconciliation?: boolean } = {}): Promise<PreviewResult[]> {
+export async function buildPreview(rows: InboundExcelRow[], options: { strictSearch?: boolean; onKnownMatch?: () => Promise<void>; preferredOrderId?: string; includeCompletedForReconciliation?: boolean; allowMissingDepartureRepair?: boolean } = {}): Promise<PreviewResult[]> {
   console.log("BUILD_PREVIEW_LOADED", BUILD_PREVIEW_VERSION);
 
   const results: PreviewResult[] = [];
@@ -471,8 +471,16 @@ export async function buildPreview(rows: InboundExcelRow[], options: { strictSea
       };
       const [verified] = enrichCandidates([candidate], targetMark, targetBales);
       const eligibility = currentCottonOrder(order, row.receivedDate);
-      if (candidate.orderId !== orderId || candidate.revenueCode !== "MAIN" || !verified.exactMark || !eligibility.eligible) {
-        throw new McleodLookupIncompleteError("Saved SCM order does not verify against the cotton mark, revenue code, or current order date; review before processing.", true, ["saved order verification conflict"]);
+      if (candidate.orderId !== orderId || candidate.revenueCode !== "MAIN" || !verified.exactMark) {
+        throw new McleodLookupIncompleteError("Saved SCM order does not verify against the cotton mark or MAIN revenue code; review before processing.", true, ["saved order verification conflict"]);
+      }
+      if (!eligibility.eligible && !(options.includeCompletedForReconciliation && reconcilableCottonOrder(order, row.receivedDate)) && !(options.allowMissingDepartureRepair && repairableCottonDeparture(order, row.receivedDate))) {
+        const delivered = /delivered|completed|closed|^D$/i.test(String(order.__statusDescr ?? order.status ?? "").trim());
+        const delivery = Array.isArray(order.stops) ? order.stops.find((stop: Record<string, any>) => stop.stop_type === "SO") : null;
+        const reason = delivered && (!delivery?.actual_arrival || !delivery?.actual_departure)
+          ? "McLeod marks this order Delivered, but its delivery stop is missing an actual arrival or departure. Review the delivery timestamps in McLeod before retrying checkout."
+          : eligibility.reason;
+        throw new McleodLookupIncompleteError(`SCM order ${orderId}: ${reason}`, true, ["saved order delivery verification conflict"]);
       }
       results.push({ row, resolvedCustomer, candidateCount: 1, status: "Matched",
         matchedOrderId: orderId, reason: "Verified saved SCM order by exact ID and mark",

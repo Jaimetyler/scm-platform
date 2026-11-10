@@ -484,7 +484,7 @@ async function PATCHHandler(req: NextRequest) {
         const { data: prepared, error: prepareError } = await sb.from("inbound_checkin_rows")
           .update({ mark, shipper: customer, bol_bc: bolBC, bale_count: baleCount,
             warehouse_location: location, equipment_type: equipment, verified: true,
-            verified_at: departure.toISOString(), draft_status: shortage ? "delivery_blocked" : localOnly ? "checked_in" : "ready", processing_error: null,
+            verified_at: row.physical_departed_at || departure.toISOString(), physical_departed_at: row.physical_departed_at || departure.toISOString(), draft_status: shortage ? "delivery_blocked" : localOnly ? "checked_in" : "ready", processing_error: null,
             ...(localOnly ? { local_receiving_only: true, physical_departed_at: row.physical_departed_at || departure.toISOString(),
               yard_status: "completed", yard_completed_at: row.yard_completed_at || departure.toISOString(), yard_updated_by: user(req) }
               : !shortage ? { mcleod_processing_phase: "lookup" } : {}), ...acknowledgement,
@@ -507,7 +507,9 @@ async function PATCHHandler(req: NextRequest) {
             return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "McLeod verification unavailable",
               row: queueRow(prepared) }, { status: 409 });
           }
-          if (verifiedOrder.actualDeparture || verifiedOrder.completion) {
+          const canRepairDeparture = verifiedOrder.actualArrival && !verifiedOrder.actualDeparture &&
+            /^(D|Delivered)$/i.test(verifiedOrder.orderStatus) && verifiedOrder.completion?.kind !== "cancelled";
+          if ((verifiedOrder.actualDeparture || verifiedOrder.completion) && !canRepairDeparture) {
             if (!verifiedOrder.actualArrival || !verifiedOrder.actualDeparture)
               return NextResponse.json({ ok: false,
                 error: "McLeod says completed but the selected delivery stop lacks both actual timestamps. Staff review required.",
