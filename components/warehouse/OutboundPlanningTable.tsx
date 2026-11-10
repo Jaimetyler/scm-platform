@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { warehouseNow, type DashboardBooking } from "@/lib/warehouse/outbound/dashboard";
 import type { PlanningInfo } from "@/lib/warehouse/outbound/planning-info";
+import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
 import styles from "./OutboundPlanningTable.module.css";
 
 type SortKey = "customer" | "booking_number" | "erd" | "cutoff" | "planned_containers" | "missing_marks";
@@ -73,7 +74,7 @@ export default function OutboundPlanningTable({ bookings, returnTo, now }: {
           <td><Link className={styles.booking} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}>{item.booking_number}</Link></td>
           <td className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
           <td className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>
-          <td>{item.return_location || "—"}</td>
+          <td>{bookingReturnLocationLabel(item.return_location, item.return_location_code)}</td>
           <td className={styles.alerts}>{pulled ? pulled.carriers.join(", ") || (pulled.matchedOrders && !pulled.unknownCarriers ? "No carrier assigned" : "Not verified") : "—"}</td>
           <td className={styles.alerts}>
             {!!item.missing_marks && <span className={styles.hold}>{item.missing_marks} inventory marks missing</span>}
