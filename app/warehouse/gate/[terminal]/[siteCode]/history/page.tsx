@@ -106,14 +106,14 @@ export default function DomesticHistoryPage() {
       {error && <p role="alert" style={{ color: "#fecaca" }}>{error}</p>}
       {loading ? <p>Loading history…</p> : rows.length === 0 ? <p>No matching check-ins.</p> :
         <div style={{ overflowX: "auto" }}><table className="domestic-table" style={{ width: "100%", minWidth: 1250, borderCollapse: "collapse", color: "#e2e8f0" }}>
-          <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver / source", "Trucking company", "Reference / mark", "Customer", "SCM order / processing"].map((name) =>
+          <thead><tr>{["Arrived", "Checked out", "Status", "Material", "Move", "Driver / source", "Trucking company", "Mark / reference", "Customer", "SCM order / processing"].map((name) =>
             <th key={name} style={heading}>{name}</th>)}</tr></thead>
           <tbody>{rows.map((row) => <Fragment key={row.id}><tr>
             <td style={cell}>{time(row.checked_in_at)}</td><td style={cell}>{time(row.yard_completed_at)}</td>
             <td style={cell}><span style={statusStyle(row.yard_status)}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}</span></td><td style={cell}>{row.material_type}</td>
             <td style={cell}>{row.movement_direction || "—"}</td><td style={cell}>{row.driver_name || "Staff entry"}<span className="row-secondary">{row.checkin_source === "driver_qr" ? "Driver QR" : "Staff"}</span></td>
             <td style={cell}>{row.trucking_company?.trim() || "—"}</td>
-            <td style={cell}>{row.reference_number || row.mark || "—"}
+            <td style={cell}>{row.material_type === "cotton" ? row.mark || "—" : row.reference_number || row.mark || "—"}
               {row.has_bol_photo && <div style={{ marginTop: 5 }}><PaperworkPhotoLink checkinId={row.id} /></div>}</td>
             <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.matched_order_id ? <>#{row.matched_order_id}<span className="row-secondary">{row.draft_status === "delivery_blocked" ? "Receiving complete · Delivery blocked" : row.draft_status === "processed" ? "Processed in McLeod" : "Checked in"}</span></> : "—"}</td>
