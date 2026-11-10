@@ -8,6 +8,10 @@ function approved(i: Invoice): DrayInvoice {
   if (!Array.isArray(d.inputErrors) || d.inputErrors.length || !d.destination || d.carrierCents == null || d.carrierCents <= 0)
     throw new Error("Dray source, customer, port and carrier pay must be resolved before processing.");
   if (!d.customerOrder) throw new Error("Shipper's Order# is missing; refresh this import from the original report.");
+  // Apply the approved zero DRAY line to saved Bunge invoices too, so orders
+  // blocked before this rule can finish through the existing repair workflow.
+  if (d.customerId === "BUNGOMNE" && !d.charges.some(c => c.code === "040" && c.description === "DRAY"))
+    return {...d, charges:[{code:"040",description:"DRAY",units:1,cents:0},...d.charges]};
   return d;
 }
 function routeMatches(order: any, d: DrayInvoice, p: Profile) {
@@ -21,7 +25,7 @@ function projection(order: any, d: DrayInvoice, p: Profile) {
     movements:order.movements?.map(m=>({...m,override_paye_rate:0,override_pay_rate:0,override_pay_amt:0}))};
 }
 export function buildPayload(i: Invoice, p: Profile) {
-  const d = approved(i), payload = ecotton.buildPayload(i,p);
+  const d = approved(i), payload = ecotton.buildPayload(d,p);
   // McLeod applies customer billing defaults during create. Supplying the same
   // nested charge here duplicates that default. Reconcile actual lines after create.
   const {otherCharges: _charges, ...base} = payload;
@@ -30,7 +34,7 @@ export function buildPayload(i: Invoice, p: Profile) {
     stops:payload.stops.map(s=>({...s,location_id:s.stop_type === "PU" ? p.location : d.destination})),
     movements:payload.movements.map(m=>({...m,override_paye_rate:d.carrierCents!/100,override_pay_rate:d.carrierCents!/100,override_pay_amt:d.carrierCents!/100}))};
 }
-export function expectedCharges(i: Invoice,p: Profile) {return ecotton.buildPayload(i,p).otherCharges;}
+export function expectedCharges(i: Invoice,p: Profile) {return ecotton.buildPayload(approved(i),p).otherCharges;}
 
 /** Only trim exact surplus copies of approved lines; unrelated charges block. */
 export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,expectedId: string,allowReferences=false) {
@@ -60,7 +64,7 @@ export function identityMatches(order: any, i: Invoice, p: Profile) {
   return routeMatches(order,d,p) && ecotton.identityMatches(projection(order,d,p),i,p);
 }
 export function verifyRatedOrder(order: any, i: Invoice, p: Profile): string[] {
-  const d = approved(i), errors = ecotton.verifyRatedOrder(projection(order,d,p),i,p);
+  const d = approved(i), errors = ecotton.verifyRatedOrder(projection(order,d,p),d,p);
   if (!routeMatches(order,d,p)) errors.push("Warehouse / port route differs");
   if (String(order.planning_comment ?? "").trim() !== d.fileNumber) errors.push("File number differs from source");
   if (String(order.ordered_by ?? "").trim() !== d.customerOrder) errors.push("Ordered By differs from source");
@@ -106,3 +110,4 @@ export function movementUpdatePayload(order: any, i: Invoice, p: Profile, expect
   if (m.override_type && normalize(m.override_type)!=="F" || m.override_units!=null && String(m.override_units).trim()!=="" && Number(m.override_units)!==1) throw new Error("Movement payment method differs");
   return {__type:"movement",company_id:"TMS",id:m.id,override_payee_id:p.payee,override_type:"F",override_units:1,override_paye_rate:d.carrierCents/100,override_pay_rate:d.carrierCents/100,override_pay_amt:d.carrierCents/100};
 }
+
