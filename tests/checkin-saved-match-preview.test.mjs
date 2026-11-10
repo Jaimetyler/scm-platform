@@ -91,3 +91,28 @@ test('downstream live sync still guards customer, saved stop, and warehouse befo
   assert.ok(source.indexOf('CUSTOMER_MISMATCH') < source.indexOf('await persistLivePhase("write_pending"'));
   assert.ok(source.indexOf('KNOWN_STOP_CONFLICT') < source.indexOf('await persistLivePhase("write_pending"'));
 });
+
+test('delivered saved order without delivery departure reports the actual blocker', async()=> {
+  const delivered={...baseOrder,status:'D',__statusDescr:'Delivered',stops:[{...baseOrder.stops[0],actual_arrival:'2026-10-15T09:00:00'}]};
+  await simulate(delivered, options=>assert.rejects(buildPreview([row],options), /missing an actual arrival or departure/));
+});
+test('completed saved identity is available only for explicit read-only reconciliation', async()=> {
+  const delivered={...baseOrder,status:'D',__statusDescr:'Delivered',stops:[{...baseOrder.stops[0],actual_arrival:'2026-10-15T09:00:00',actual_departure:'2026-10-15T10:00:00'}]};
+  await simulate(delivered, options=>assert.rejects(buildPreview([row],options), /already delivered or closed/));
+  const {outcome}=await simulate(delivered, options=>buildPreview([row],{...options,includeCompletedForReconciliation:true}));
+  assert.equal(outcome[0].status,'Matched');
+});
+
+test('missing departure repair is opt-in and requires current delivered order with completed pickup', async()=> {
+ const delivered={...baseOrder,status:'D',__statusDescr:'Delivered',stops:[
+  {id:'PU',stop_type:'PU',actual_arrival:'2026-10-15T07:00:00-05:00',actual_departure:'2026-10-15T08:00:00-05:00'},
+  {...baseOrder.stops[0],actual_arrival:'2026-10-15T09:00:00-05:00'}]};
+ const {outcome}=await simulate(delivered, options=>buildPreview([row],{...options,allowMissingDepartureRepair:true}));
+ assert.equal(outcome[0].status,'Matched');
+ for (const change of [
+  {status:'V',__statusDescr:'Voided'},
+  {stops:[{...delivered.stops[0],actual_departure:null},delivered.stops[1]]},
+  {stops:[delivered.stops[0],{...delivered.stops[1],actual_arrival:null}]},
+  {stops:[delivered.stops[0],{...delivered.stops[1],sched_arrive_early:'2026-01-01'}]},
+ ]) await simulate({...delivered,...change}, options=>assert.rejects(buildPreview([row],{...options,allowMissingDepartureRepair:true})));
+});
