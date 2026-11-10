@@ -28,6 +28,22 @@ test("Savannah Bunge dispatch resolves two pickup codes but requires schedule re
  assert.deepEqual(result[0].preview.pickupStops.map(s=>s.locationCode),["FUNSTGA","BCTGIGA"]);
  assert.equal(result[0].preview.requiresScheduleReview,true);
 });
+
+test("Moody #1 dispatch names resolve against the annotated active master record",()=>{
+ const moody={id:"moody-1",mcleod_code:"MOODGAT1",prev_code:"858053",name:"Moody Compress #1 8-3pm out Van only",timezone:"America/Chicago",active:true};
+ const other={id:"moody-3",mcleod_code:"MOODGAT4",prev_code:"858055",name:"Moody Compress #3",timezone:"America/Chicago",active:true};
+ for(const warehouse of ["Moody Compress #1","Moody Compress #01","Moody Compress and Warehouse #1","  moody compress and warehouse #01  "]) {
+  for(const usdaWarehouseCode of [null,"858053"]) {
+   const dispatch=[{mark:"TEST1",salesOrder:"2609999",bales:90,pickups:[{row:1,mark:"TEST1",salesOrder:"2609999",bales:90,warehouse,rtl:"11/16/26",usdaWarehouseCode}]}];
+   const result=previewBungeDispatchOrders(dispatch,"HOUSTON",[moody,other])[0];
+   assert.equal(result.status,"review_required",result.reason);
+   assert.equal(result.preview.pickupStops[0].locationCode,"MOODGAT1");
+   const conflict=structuredClone(dispatch);conflict[0].pickups[0].usdaWarehouseCode="858055";
+   assert.match(previewBungeDispatchOrders(conflict,"HOUSTON",[moody,other])[0].reason,/conflicts/);
+   assert.match(previewBungeDispatchOrders(dispatch,"HOUSTON",[{...moody,active:false},other])[0].reason,/Inactive/);
+  }
+ }
+});
 test("unknown warehouse and Dallas destination fail closed",()=>{
  assert.equal(previewBungeDispatchOrders(orders,"DALLAS_2",locations)[0].status,"blocked");
  assert.match(previewBungeDispatchOrders(orders,"DALLAS_2",locations)[0].reason,/destination/);
@@ -60,3 +76,4 @@ test("Houston dispatch USDA codes and actual Moody warehouse labels resolve toge
  conflict[0].pickups[0].usdaWarehouseCode="858056";
  assert.equal(previewBungeDispatchOrders(conflict,"HOUSTON",houstonLocations)[0].status,"blocked");
 });
+
