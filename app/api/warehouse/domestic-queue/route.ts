@@ -1,3 +1,4 @@
+import { canBindCottonRepairStop } from "@/lib/inbound/checkin/departure-repair";
 import { warehouseDayRange } from "@/lib/warehouse/day-activity";
 import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { randomUUID } from "node:crypto";
@@ -509,6 +510,23 @@ async function PATCHHandler(req: NextRequest) {
           }
           const canRepairDeparture = verifiedOrder.actualArrival && !verifiedOrder.actualDeparture &&
             /^(D|Delivered)$/i.test(verifiedOrder.orderStatus) && verifiedOrder.completion?.kind !== "cancelled";
+          // Identity correction can retain the exact order while clearing the
+          // previous stop selection. Bind only the freshly verified delivery
+          // at this warehouse, after checking the saved cotton identity.
+          if (canRepairDeparture && !prepared.matched_stop_id) {
+            if (!canBindCottonRepairStop(verifiedOrder, prepared,
+                resolveCustomer(String(verifiedOrder.customer ?? "")).canonicalCustomer === resolveCustomer(String(prepared.shipper ?? "")).canonicalCustomer)) {
+              return NextResponse.json({ ok: false, error: "Corrected order does not verify against the receiving mark, bales, customer, and delivery stop. Review before checkout." }, { status: 409 });
+            }
+            const bound = await sb.from("inbound_checkin_rows")
+              .update({ matched_stop_id: verifiedOrder.stopId, mcleod_lookup_has_known_match: true })
+              .eq("id", id).eq("updated_at", prepared.updated_at)
+              .eq("matched_order_id", prepared.matched_order_id).is("matched_stop_id", null)
+              .eq("draft_status", "ready").eq("mcleod_processing_phase", "lookup")
+              .select("id").maybeSingle();
+            if (bound.error) return databaseFailure(bound, true);
+            if (!bound.data) return NextResponse.json({ ok: false, error: "Receiving changed while verifying the corrected delivery stop. Refresh before checkout." }, { status: 409 });
+          }
           if ((verifiedOrder.actualDeparture || verifiedOrder.completion) && !canRepairDeparture) {
             if (!verifiedOrder.actualArrival || !verifiedOrder.actualDeparture)
               return NextResponse.json({ ok: false,
