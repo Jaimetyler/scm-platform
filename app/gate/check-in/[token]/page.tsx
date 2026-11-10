@@ -467,8 +467,8 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
         {error ? <div ref={errorRef} role="alert" style={errorBoxStyle}>{te(error)}</div> : null}
 
         <div style={choiceGridStyle}>
-          {site?.containers && <Choice selected={form.checkinType === "container"} title={t("Container / Drayage")} detail={t("Join the driver line")} onClick={() => change("checkinType", "container")} />}
-          <Choice selected={form.checkinType === "domestic"} title={t("Domestic Freight")} detail={t("Pickup or delivery")} onClick={() => change("checkinType", "domestic")} />
+          {site?.containers && <Choice selected={form.checkinType === "container"} title={t("SCMI Drivers")} detail={t("Join the driver line")} onClick={() => change("checkinType", "container")} />}
+          <Choice selected={form.checkinType === "domestic"} title={t("Pickup or Delivery")} onClick={() => change("checkinType", "domestic")} />
         </div>
 
         {form.checkinType ? <div style={gridStyle}>
@@ -580,10 +580,10 @@ export default function DriverCheckinPage() {
   </div>;
 }
 
-function Choice({ selected, title, detail, onClick }: { selected: boolean; title: string; detail: string; onClick: () => void }) {
+function Choice({ selected, title, detail, onClick }: { selected: boolean; title: string; detail?: string; onClick: () => void }) {
   return <button type="button" onClick={onClick} style={{ ...choiceStyle, borderColor: selected ? "#67e8f9" : "rgba(148,163,184,.3)", background: selected ? "rgba(8,145,178,.18)" : "#0b1220" }}>
     <strong style={{ fontSize: 17, color: "#f8fafc" }}>{title}</strong>
-    <span style={{ color: "#94a3b8", fontSize: 13 }}>{detail}</span>
+    {detail && <span style={{ color: "#94a3b8", fontSize: 13 }}>{detail}</span>}
   </button>;
 }
 

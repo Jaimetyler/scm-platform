@@ -109,7 +109,7 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
     dispose() { for (const slot of slots) slot?.cleanup?.(); },
   };
   await flush();
-  await api.click('Domestic FreightPickup or delivery');
+  await api.click('Pickup or Delivery');
   await api.change('Pickup or delivery? *', 'pickup');
   await api.change(label, '0824528');
   return api;
@@ -363,7 +363,7 @@ test('company choices display at most the last four phone digits if the response
 
 test('container check-in remains independent of domestic lookup authorization', async t => {
   const h = await mount(); t.after(h.dispose);
-  await h.click('Container / DrayageJoin the driver line');
+  await h.click('SCMI DriversJoin the driver line');
   await h.change('Driver name *', 'Container Driver');
   assert.equal(h.submitButton.props.disabled, false);
   await h.submit();
