@@ -91,3 +91,14 @@ test('downstream live sync still guards customer, saved stop, and warehouse befo
   assert.ok(source.indexOf('CUSTOMER_MISMATCH') < source.indexOf('await persistLivePhase("write_pending"'));
   assert.ok(source.indexOf('KNOWN_STOP_CONFLICT') < source.indexOf('await persistLivePhase("write_pending"'));
 });
+
+test('delivered saved order without delivery departure reports the actual blocker', async()=> {
+  const delivered={...baseOrder,status:'D',__statusDescr:'Delivered',stops:[{...baseOrder.stops[0],actual_arrival:'2026-10-15T09:00:00'}]};
+  await simulate(delivered, options=>assert.rejects(buildPreview([row],options), /missing an actual arrival or departure/));
+});
+test('completed saved identity is available only for explicit read-only reconciliation', async()=> {
+  const delivered={...baseOrder,status:'D',__statusDescr:'Delivered',stops:[{...baseOrder.stops[0],actual_arrival:'2026-10-15T09:00:00',actual_departure:'2026-10-15T10:00:00'}]};
+  await simulate(delivered, options=>assert.rejects(buildPreview([row],options), /already delivered or closed/));
+  const {outcome}=await simulate(delivered, options=>buildPreview([row],{...options,includeCompletedForReconciliation:true}));
+  assert.equal(outcome[0].status,'Matched');
+});
