@@ -17,11 +17,14 @@ const PRIVATE_DRIVER_FIELDS = new Set([
 // but driver identity, contact information, documents, and exact GPS evidence
 // stay behind the authenticated warehouse details page.
 export function publicCheckinRow<T extends Record<string, unknown>>(row: T) {
+  const arrival = Array.isArray(row.arrival_number) ? row.arrival_number[0] : row.arrival_number;
+  const number = arrival as { queue_day?: string; queue_number?: number; freight_number?: number } | undefined;
   return {
+    ...(arrival !== undefined ? { queue_day: number?.queue_day ?? null, queue_number: number?.queue_number ?? null, freight_number: number?.freight_number ?? null } : {}),
     has_pickup_agreement: Boolean(row.pickup_agreement),
     has_bol_photo: Boolean(row.bol_photo_path),
     ...Object.fromEntries(
-    Object.entries(row).filter(([key]) => !PRIVATE_DRIVER_FIELDS.has(key))
+    Object.entries(row).filter(([key]) => key !== "arrival_number" && !PRIVATE_DRIVER_FIELDS.has(key))
     ),
   };
 }

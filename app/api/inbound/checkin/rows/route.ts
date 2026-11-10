@@ -100,7 +100,7 @@ async function GETHandler(req: NextRequest) {
 
     let query = sb
       .from("inbound_checkin_rows")
-      .select("*")
+      .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)")
       .eq("terminal", terminal)
       .eq("site_code", siteCode);
 
@@ -121,7 +121,7 @@ async function GETHandler(req: NextRequest) {
     let carryoverRows: CheckinRow[] = [];
     if (date && materialType === "cotton") {
       const { data: older, error: olderError } = await sb.from("inbound_checkin_rows")
-        .select("*").eq("terminal", terminal).eq("site_code", siteCode)
+        .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)").eq("terminal", terminal).eq("site_code", siteCode)
         .eq("material_type", "cotton").lt("received_date", date)
         .in("draft_status", ["checked_in", "ready", "failed", "delivery_blocked"])
         .order("received_date", { ascending: false }).limit(1000);
@@ -266,7 +266,7 @@ async function POSTHandler(req: NextRequest) {
     const { data, error } = await sb
       .from("inbound_checkin_rows")
       .insert(insertPayload)
-      .select("*")
+      .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)")
       .single();
 
     if (error) {
@@ -274,7 +274,7 @@ async function POSTHandler(req: NextRequest) {
       // browser line returns it instead of making a duplicate check-in.
       if (error.code === "23505" && clientId) {
         const { data: existing } = await sb.from("inbound_checkin_rows")
-          .select("*").eq("id", clientId).eq("terminal", terminal)
+          .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)").eq("id", clientId).eq("terminal", terminal)
           .eq("site_code", site_code).single();
         if (existing) { await syncCheckinArrival(sb, existing.id); return NextResponse.json({ ok: true, row: publicCheckinRow(existing) }); }
       }

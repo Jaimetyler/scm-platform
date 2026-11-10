@@ -30,6 +30,7 @@ import ShortageNotice, { type ShortageAction } from "@/components/warehouse/Shor
 
 type CheckinRow = ShortageFields & {
   id: string;
+  freight_number?: number | null;
   client_id?: string;
   created_at: string;
   checked_in_at?: string | null;
@@ -206,7 +207,7 @@ function formatArrivalTime(row: CheckinRow): string {
 function orderCheckinRows(rows: CheckinRow[]): CheckinRow[] {
   const saved = rows.filter((row) => !row.id.startsWith("local-"));
   const blank = rows.filter((row) => row.id.startsWith("local-"));
-  saved.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  saved.sort((a, b) => Date.parse(a.checked_in_at || a.created_at) - Date.parse(b.checked_in_at || b.created_at) || a.id.localeCompare(b.id));
   return [...saved, ...blank];
 }
 
@@ -1063,7 +1064,7 @@ export default function SiteCheckinPage() {
                   <Fragment key={row.client_id ?? row.id}>
                   <tr data-checkin-id={row.id}
                     style={{ background: index % 2 ? "rgba(30,41,59,0.18)" : undefined, ...rowTone(row) }}>
-                    <td style={rowNumberCellStyle}>{index + 1}
+                    <td style={rowNumberCellStyle}>{row.freight_number ?? (row.checked_in_at || row.id.startsWith("local-") ? "—" : index + 1)}
                       {row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
                       {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}
                     </td>

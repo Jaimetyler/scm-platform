@@ -19,7 +19,7 @@ import { getCheckinSite } from "@/lib/inbound/checkin/sites";
 type Status = "waiting" | "called" | "in_door" | "working";
 type YardStatus = Status | "completed" | "cancelled" | null;
 type Row = {
-  queue_number?: number | null; queue_day?: string | null; yard_completed_at?: string | null; physical_departed_at?: string | null;
+  queue_number?: number | null; freight_number?: number | null; queue_day?: string | null; yard_completed_at?: string | null; physical_departed_at?: string | null;
   id: string; updated_at: string; checked_in_at: string; driver_name: string | null; driver_phone: string | null; trucking_company: string | null;
   movement_direction: string; material_type: string; reference_number: string;
   destination: string | null; shipper: string | null; matched_order_id: string | null;
@@ -295,8 +295,10 @@ export default function DomesticQueuePage() {
   }
 
   if (!site || !site.materials.includes("lumber")) return <main><PlatformPageHeader title="Domestic Queue Not Found" /></main>;
-  const active = rows.filter((row): row is Row & { yard_status: Status } => row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working").reverse();
-  const recent = rows.filter((row) => !active.some((item) => item.id === row.id));
+  const active = rows.filter((row): row is Row & { yard_status: Status } => !row.physical_departed_at && (row.yard_status === "waiting" || row.yard_status === "called" || row.yard_status === "in_door" || row.yard_status === "working")).reverse();
+  const activeIds = new Set(active.map((row) => row.id));
+  const recent = rows.filter((row) => !activeIds.has(row.id));
+  const sheet = rows.slice().sort((a, b) => Date.parse(a.checked_in_at) - Date.parse(b.checked_in_at) || a.id.localeCompare(b.id));
   const counts = Object.keys(LABEL).map((status) => `${active.filter((row) => row.yard_status === status).length} ${LABEL[status as Status].toLowerCase()}`);
   return <main style={{ width: "100%", maxWidth: "100%", margin: "0 auto", padding: "0 16px", boxSizing: "border-box" }}>
     <PlatformPageHeader title={`${site.siteName} Check-In`}
@@ -320,8 +322,22 @@ export default function DomesticQueuePage() {
             <thead><tr>{["#", "Arrival", "Move", "Material", "Reference / order", "Customer", "Company / driver", "Destination", "Notes", "Status / action"].map((label) =>
               <th key={label} style={heading}>{label}</th>)}</tr></thead>
             <tbody>{active.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Checked in · {active.length} in yard</td></tr>}
-            {active.map((row, index) => <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
-              <td style={cell}>{row.queue_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
+            {sheet.map((row, index) => {
+              const isActive = activeIds.has(row.id);
+              if (!isActive) return <tr key={row.id}>
+                <td style={cell}>{row.freight_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}</td>
+                <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
+                <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
+                <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>
+                <td style={cell}>{row.reference_number || row.mark || "—"}{row.matched_order_id && <div><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
+                <td style={cell}>{row.shipper || "—"}</td>
+                <td style={cell}>{row.trucking_company || "—"}<div>{row.driver_name}</div></td>
+                <td style={cell}>{row.destination || "—"}</td><td style={cell}>{row.comment_1 || "—"}</td>
+                <td style={cell}><strong style={statusPill}>{row.yard_status === "cancelled" ? "Removed" : "Checked out"}</strong>{(row.physical_departed_at || row.yard_completed_at) && <div>{time((row.physical_departed_at || row.yard_completed_at)!, site.terminal)}</div>}</td>
+              </tr>;
+              const activeRow = row as Row & { yard_status: Status };
+              return <Fragment key={row.id}><tr style={{ background: editingId === row.id ? "rgba(34,211,238,.06)" : index % 2 ? "rgba(30,41,59,.18)" : undefined }}>
+              <td style={cell}>{row.freight_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}{row.matched_order_id && <div style={{ marginTop: 3 }}><ScmOrderBadge orderId={row.matched_order_id} /></div>}
                 {row.has_bol_photo && <div style={{ marginTop: 4 }}><PaperworkPhotoLink checkinId={row.id} compact /></div>}</td>
               <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
               <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
@@ -350,7 +366,7 @@ export default function DomesticQueuePage() {
                 defaultValue={row.comment_1 ?? ""} placeholder="Notes"
                 disabled={!canWrite || editingId !== row.id}
                 onBlur={(event) => void saveField(row, "comment_1", event.target.value)} style={sheetInput} /></td>
-              <td style={cell}><strong style={statusPill}>{LABEL[row.yard_status]}</strong>
+              <td style={cell}><strong style={statusPill}>{LABEL[activeRow.yard_status]}</strong>
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 6 }}>
                   <button style={button} onClick={() => toggleDetails(row.id)} aria-expanded={expandedIds.has(row.id)}>
                     {expandedIds.has(row.id) ? "Less" : "Details"}</button>
@@ -359,8 +375,8 @@ export default function DomesticQueuePage() {
                       setEditingId(row.id); setExpandedIds((current) => new Set(current).add(row.id));
                     }}>Edit</button> : <>
                     <button disabled={working === row.id || matchWorking === row.id} style={button} onClick={() => setEditingId(null)}>Close edit</button>
-                    <button disabled={!canWrite || working === row.id} style={primary} onClick={() => void transition(row, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
-                    <button disabled={!canWrite || working === row.id} style={danger} onClick={() => void transition(row, "cancelled")}>Remove</button>
+                    <button disabled={!canWrite || working === row.id} style={primary} onClick={() => void transition(activeRow, "checkout")}>{working === row.id ? "Checking out…" : "Check out"}</button>
+                    <button disabled={!canWrite || working === row.id} style={danger} onClick={() => void transition(activeRow, "cancelled")}>Remove</button>
                   </>}
                 </div></td>
             </tr>{expandedIds.has(row.id) && <tr style={{ background: "#132337" }}><td colSpan={10} style={detailCell}>
@@ -379,22 +395,10 @@ export default function DomesticQueuePage() {
                     {" · "}{formatOrderDate(match.orderDate)} · {match.orderStatus || "Status unavailable"}</span>
                 </button>)}
               </div>
-            </td></tr>}</Fragment>)}
-            {active.length === 0 && <tr className="domestic-details"><td colSpan={10} style={{ padding: "32px 16px", textAlign: "center", color: "#94a3b8" }}>
+            </td></tr>}</Fragment>; })}
+            {sheet.length === 0 && <tr className="domestic-details"><td colSpan={10} style={{ padding: "32px 16px", textAlign: "center", color: "#94a3b8" }}>
               No lumber or other freight is currently checked in. Use New check-in to add a truck.
             </td></tr>}
-            {recent.length > 0 && <tr className="domestic-details"><td colSpan={10} style={sectionCell}>Completed / removed today · {recent.length}</td></tr>}
-            {recent.slice().reverse().map(row => <tr key={row.id}>
-              <td style={cell}>{row.queue_number ?? "—"}{row.queue_day && row.queue_day !== warehouseDate(new Date(), site.terminal) && <small style={{ display: "block", color: "#94a3b8" }}>{row.queue_day}</small>}</td>
-              <td style={cell}>{time(row.checked_in_at, site.terminal)}</td>
-              <td style={cell}>{row.movement_direction === "pickup" ? "Pickup" : "Delivery"}</td>
-              <td style={cell}>{row.material_type === "lumber" ? "Lumber" : "Other"}</td>
-              <td style={cell}>{row.reference_number || row.mark || "—"}{row.matched_order_id && <div><ScmOrderBadge orderId={row.matched_order_id} /></div>}</td>
-              <td style={cell}>{row.shipper || "—"}</td>
-              <td style={cell}>{row.trucking_company || "—"}<div>{row.driver_name}</div></td>
-              <td style={cell}>{row.destination || "—"}</td><td style={cell}>{row.comment_1 || "—"}</td>
-              <td style={cell}>{row.yard_status === "cancelled" ? "Removed" : "Completed"}{(row.physical_departed_at || row.yard_completed_at) && <div>{time((row.physical_departed_at || row.yard_completed_at)!, site.terminal)}</div>}</td>
-            </tr>)}
             </tbody>
           </table>
         </div>}

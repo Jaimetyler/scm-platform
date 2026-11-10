@@ -100,7 +100,7 @@ async function PATCHHandler(
 
     const { data: existing, error: existingError } = await sb
       .from("inbound_checkin_rows")
-      .select("*")
+      .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)")
       .eq("id", id)
       .single();
 
@@ -187,7 +187,7 @@ async function PATCHHandler(
         .eq("id", id)
         .eq("updated_at", existing.updated_at)
         .eq("draft_status", "processed")
-        .select("*")
+        .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)")
         .maybeSingle();
       if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
       if (!data) return NextResponse.json({ ok: false, error: "Row changed while editing. Reload to review it." }, { status: 409 });
@@ -314,7 +314,7 @@ async function PATCHHandler(
       .eq("updated_at", existing.updated_at)
       .eq("yard_status", existing.yard_status)
       .in("draft_status", ["draft", "checked_in", "ready", "failed", "delivery_blocked"])
-      .select("*")
+      .select("*,arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)")
       .maybeSingle();
 
     if (error) {

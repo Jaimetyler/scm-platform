@@ -26,7 +26,7 @@ const QUEUE_FIELDS = "id,terminal,site_name,checkin_source,updated_at,checked_in
 function queueRow(row: Record<string, any>) {
   const number = Array.isArray(row.arrival_number) ? row.arrival_number[0] : row.arrival_number;
   const arrival = Array.isArray(row.arrival_sync) ? row.arrival_sync[0] : row.arrival_sync;
-  return { ...(row.arrival_number !== undefined ? { queue_number: number?.queue_number ?? null, queue_day: number?.queue_day ?? null } : {}), arrival_sync_status: arrival?.status ?? null, arrival_sync_error: arrival?.error ?? null, ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
+  return { ...(row.arrival_number !== undefined ? { queue_number: number?.queue_number ?? null, freight_number: number?.freight_number ?? null, queue_day: number?.queue_day ?? null } : {}), arrival_sync_status: arrival?.status ?? null, arrival_sync_error: arrival?.error ?? null, ...Object.fromEntries(QUEUE_FIELDS.split(",").filter(key => key !== "bol_photo_path")
       .map(key => [key, row[key]])),
     has_bol_photo: Boolean(row.bol_photo_path),
     outside_carrier_override_eligible: outsideCarrierOverrideEligible(row),
@@ -92,7 +92,7 @@ async function GETHandler(req: NextRequest) {
       const id = searchParams.get("id") || "";
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         return NextResponse.json({ ok: false, error: "Invalid arrival identifier" }, { status: 400 });
-      const result = await database().from("inbound_checkin_rows").select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error),arrival_number:warehouse_arrival_numbers(queue_day,queue_number)`)
+      const result = await database().from("inbound_checkin_rows").select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error),arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)`)
         .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", ["cotton", "lumber", "other"]).maybeSingle();
       if (result.error) return databaseFailure(result);
@@ -106,7 +106,7 @@ async function GETHandler(req: NextRequest) {
     // Page through the whole day's sheet; include older trucks still in the yard.
     for (let offset = 0; ; offset += 1000) {
       let query = database().from("inbound_checkin_rows")
-        .select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error),arrival_number:warehouse_arrival_numbers(queue_day,queue_number)`)
+        .select(`${QUEUE_FIELDS},arrival_sync:inbound_arrival_sync(status,error),arrival_number:warehouse_arrival_numbers(queue_day,queue_number,freight_number)`)
         .eq("terminal", terminal).eq("site_code", siteCode)
         .in("material_type", line ? ["cotton", "lumber", "other"] : ["lumber", "other"]);
       if (daily) query = query.or(`and(checked_in_at.gte.${day.start},checked_in_at.lt.${day.end}),and(physical_departed_at.gte.${day.start},physical_departed_at.lt.${day.end}),and(yard_completed_at.gte.${day.start},yard_completed_at.lt.${day.end}),and(checked_in_at.lt.${day.start},yard_status.in.(waiting,called,in_door,working))`);
