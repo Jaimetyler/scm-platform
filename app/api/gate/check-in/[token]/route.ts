@@ -11,6 +11,14 @@ import { cottonShortage } from "@/lib/inbound/checkin/shortage";
 
 export const runtime = "nodejs";
 
+/** A failed read-only search can save a provisional yard arrival, never an SCM
+ * match or permission to write to McLeod. Incomplete search-budget outcomes
+ * are kept distinct from wrong-yard, closed, ambiguous or invalid matches. */
+function provisionalLookupFailure(error: unknown): boolean {
+  return error instanceof DependencyError ||
+    error instanceof YardStopError && error.code === "INCOMPLETE_LOOKUP";
+}
+
 function database() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -157,10 +165,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       try {
         result = await lookupDriverReference(input, gate.terminal, gate.site_name, direction as "pickup" | "delivery");
       } catch (error) {
-        // A McLeod outage is not a verified no-match. Allow cotton delivery paperwork
-        // to proceed as *unverified* outside freight; submission performs a fresh
-        // lookup and never sends McLeod writes on this fallback path.
-        if (direction === "delivery" && error instanceof DependencyError)
+        // Unavailable or bounded/incomplete lookup is not a confirmed no-match.
+        // Allow provisional paperwork for any freight/direction. The final submit
+        // reruns the lookup and records uncertainty without binding an SCM order.
+        // Known wrong-yard, closed, ambiguous and invalid searches remain blocked.
+        if (provisionalLookupFailure(error))
           return NextResponse.json({ ok: true, status: "outside_unverified", matches: [],
             allowUnmatched: true, selectionRequired: false, incomplete: false },
             { headers: { "Cache-Control": "no-store" } });
@@ -339,10 +348,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       lookup = await lookupDriverReference(driverLookupInput, gate.terminal, gate.site_name,
         movementDirection, orderId ? { orderId, stopId: selectedStopId } : undefined);
     } catch (error) {
-      // Only a fresh, server-observed McLeod availability failure can take this
-      // path. Never accept a browser's claimed no-match, a known selected SCM
-      // order, another material, or a pickup as evidence of outside cotton.
-      if (!(error instanceof DependencyError) || orderId || materialType !== "cotton" || movementDirection !== "delivery") throw error;
+      // Never trust a browser claim, selected/known SCM order, or business-rule
+      // rejection. Only fresh server-observed retrieval failures permit a
+      // provisional, unlinked yard arrival for staff reconciliation.
+      if (!provisionalLookupFailure(error) || orderId) throw error;
       provisionalOutside = true;
       lookup = { matches: [], allowUnmatched: true, selectionRequired: false };
     }
@@ -410,7 +419,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       verified: false,
       comment_1: null,
       // Retain the uncertainty; this is NOT a confirmed absence in McLeod.
-      comment_2: provisionalOutside ? "Provisional outside-carrier cotton arrival: McLeod lookup unavailable at driver check-in; warehouse must review before completion." : null,
+      comment_2: provisionalOutside ? "Provisional outside-carrier arrival: McLeod lookup incomplete/unavailable at driver check-in. SCM match not ruled out; staff must reconcile before McLeod processing." : null,
       draft_status: "checked_in",
       processed_at: null,
       checked_in_at: checkedInAt.toISOString(),

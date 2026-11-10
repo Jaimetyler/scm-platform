@@ -42,6 +42,7 @@ export default function DomesticLinePage() {
   const [error, setError] = useState("");
   const [working, setWorking] = useState("");
   const [notice, setNotice] = useState("");
+  const [yardOnlyOfferId, setYardOnlyOfferId] = useState<string | null>(null);
   const [outsideReviewId, setOutsideReviewId] = useState<string | null>(null);
   const [requestedArrival, setRequestedArrival] = useState<string | null>(null);
   const [invalidArrival, setInvalidArrival] = useState(false);
@@ -101,7 +102,7 @@ export default function DomesticLinePage() {
 
   useLayoutEffect(() => {
     setRows([]); setLoading(true); setError(""); setNotice(""); setWorking("");
-    setCottonEditId(null); setCottonFields({}); setOutsideReviewId(null); workingRef.current = "";
+    setCottonEditId(null); setCottonFields({}); setOutsideReviewId(null); setYardOnlyOfferId(null); workingRef.current = "";
     const controller = new AbortController(); operation.current = controller;
     return () => controller.abort();
   }, [site?.terminal, site?.siteCode]);
@@ -169,6 +170,29 @@ export default function DomesticLinePage() {
     setCottonFields((current) => ({ ...current, [id]: { ...current[id], [field]: value } }));
   }
 
+  async function closeYardOnly(row: Arrival & { yard_status: Status }) {
+    if (!site || !canWrite || workingRef.current || yardOnlyOfferId !== row.id ||
+        !["lumber", "other"].includes(row.material_type) || !row.matched_order_id || !row.matched_stop_id ||
+        checkoutNeedsReview(row) || !currentRows.current.some(item => item.id === row.id && item.updated_at === row.updated_at)) return;
+    if (!window.confirm(`Confirm this truck has PHYSICALLY DEPARTED?\n\nSCM order ${row.matched_order_id} will remain linked. No McLeod departure will be posted. This yard-only closure requires later McLeod reconciliation.`)) return;
+    workingRef.current = row.id; setWorking(row.id); setError("");
+    try {
+      const response = await fetch("/api/warehouse/domestic-queue", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "yard_only_close", id: row.id, terminal: site.terminal,
+          siteCode: site.siteCode, expectedUpdatedAt: row.updated_at, departedConfirmed: true }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Yard-only closure could not be verified");
+      setYardOnlyOfferId(null);
+      setNotice("Yard visit closed. McLeod NOT updated; reconcile saved order/stop.");
+      setRows(current => current.map(item => item.id === row.id ? { ...item, ...result.row } : item));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Yard-only closure uncertain. Refresh before another attempt.");
+      setYardOnlyOfferId(null);
+    } finally { workingRef.current = ""; setWorking(""); }
+  }
+
   async function move(row: Arrival & { yard_status: Status }, to: "checkout" | "cancelled" | "retry_lookup", cotton?: CottonFields) {
     const controller = operation.current;
     const fresh = currentRows.current.find((item) => item.id === row.id);
@@ -204,6 +228,9 @@ export default function DomesticLinePage() {
         // A generic or uncertain failure must never leave an older override available.
         setRows((current) => current.map((item) => item.id === row.id ? { ...item, outside_carrier_override_eligible: false } : item));
       }
+      if (!response.ok && to === "checkout" && result.code === "SCM_CHECKOUT_REVIEW" &&
+          ["lumber", "other"].includes(row.material_type) && row.matched_order_id && row.matched_stop_id)
+        setYardOnlyOfferId(row.id);
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not update this arrival");
       setCottonEditId(null);
       setNotice(to === "cancelled" ? "Arrival removed" : `Checked out · ${result.mcleod}`);
@@ -294,6 +321,9 @@ export default function DomesticLinePage() {
                 onClick={() => void move(row, "retry_lookup")}>Retry Search</button> : canPrepareLegacyLookup(row) ? <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId)} style={primary}
                 onClick={() => retrySearch(row)}>Retry Search</button> : <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={primary} onClick={() => row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status)
                 ? openCotton(row) : void move(row, "checkout")}>{working === row.id ? "Checking out…" : row.material_type === "cotton" && row.movement_direction === "delivery" && !["processed", "outside_carrier", "delivery_blocked"].includes(row.draft_status) ? "Finish cotton" : "Check out"}</button>}
+              {yardOnlyOfferId === row.id && ["lumber", "other"].includes(row.material_type) &&
+                row.matched_order_id && row.matched_stop_id && !checkoutNeedsReview(row) &&
+                <button disabled={!canWrite || Boolean(working)} style={button} onClick={() => void closeYardOnly(row)}>Close yard only (no McLeod update)</button>}
               {uncertainIds.has(row.id) && <button disabled={Boolean(working)} style={button} onClick={() => void refreshCottonStatus(row)}>Refresh saved status</button>}
               <button disabled={!canWrite || Boolean(working) || Boolean(outsideReviewId) || checkoutNeedsReview(row)} style={button} onClick={() => void move(row, "cancelled")}>Remove</button>
             </div></td>

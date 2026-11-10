@@ -292,7 +292,7 @@ export default function DriverCheckinPage() {
       const found = result.matches as ReferenceMatch[];
       if (result.status === "outside_unverified" && result.allowUnmatched === true && found.length === 0) {
         updateLookupStatus("outside_unverified");
-        setOrderMessage("McLeod is temporarily unavailable. Cotton deliveries may check in as provisional outside carriers; warehouse staff will review receiving.");
+        setOrderMessage("McLeod could not finish checking this reference. Continue as a provisional outside-carrier arrival; warehouse staff will verify the SCM order before processing.");
         return;
       }
       if (result.status === "no_match" && result.allowUnmatched === true && found.length === 0) {
@@ -341,11 +341,6 @@ export default function DriverCheckinPage() {
     if (form.checkinType === "domestic" && !["matched", "no_match", "outside_unverified"].includes(lookupStatusRef.current)) {
       setError(lookupStatusRef.current === "closed" ? "This order is already closed in McLeod. Please speak with warehouse staff." :
         "Find your load and confirm any match before checking in. If the search cannot finish, speak with warehouse staff.");
-      return;
-    }
-    if (lookupStatusRef.current === "outside_unverified" &&
-        (form.materialType !== "cotton" || form.movementDirection !== "delivery")) {
-      setError("Only cotton deliveries may check in during an incomplete McLeod lookup. Ask warehouse staff about other freight.");
       return;
     }
     const orderReady = lookupStatusRef.current === "matched";
