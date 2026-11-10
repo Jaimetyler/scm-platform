@@ -307,7 +307,7 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.material_type === "cotton" ? "Cotton" : row.material_type === "lumber" ? "Lumber" : "Other"}</td>
             <td style={cell}>{row.movement_direction || "—"}</td>
             <td style={cell}>{row.driver_name || "Staff entry"}
-              {row.checkin_source === "driver_qr" && <Link href={`/warehouse/checkin/${row.id}`} style={{ display: "block", marginTop: 4, color: "#67e8f9", fontSize: 11 }}>Driver details</Link>}</td>
+              <Link href={`/warehouse/checkin/${row.id}`} style={{ display: "block", marginTop: 4, color: "#67e8f9", fontSize: 11 }}>Driver details</Link></td>
             <td style={cell}>{row.trucking_company || "Company not entered"}</td>
             <td style={cell}>{row.reference_number || row.mark || "—"}</td>
             <td style={cell}>{row.shipper || "—"}</td>
