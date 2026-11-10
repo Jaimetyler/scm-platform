@@ -152,3 +152,16 @@ test("billing normalization adds Olam's missing zero invoice line exactly once",
 test("matching native billing is verified without replaying rate or charge writes",async()=>{const h=harness();await processInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");assert.equal(h.writes.filter(w=>w.path==="/orders/updateRow").length,0)});
 
 test("Olam native zero line retains the complete Garden City to Savannah Port wording",()=>{const i=parseDrays(csv([source({Shipper:"Olam Cotton"})]),first()).invoices[0];assert.equal(i.charges[0].description,"GARDEN CITY TO SAVANNAH PORT");assert.equal(i.charges[0].cents,0);assert.equal(billingNormalizationPayload(order(i),i,PROFILE,"ORDER1"),null)});
+
+
+
+test("Bunge dray report names without a comma retain BUNGOMNE and approved Savannah rates",()=>{
+ for(const shipper of ["Bunge USA Agriculture LLC","Bunge USA Agriculture LLC.","Bunge USA Agriculture, LLC."]) {
+  for(const [port,base,total] of [["GPA",35000,48500],["OT",40500,54000]]) {
+   const i=parseDrays(csv([source({Shipper:shipper,"Pickup Point":port})]),first()).invoices[0];
+   assert.equal(i.customerId,"BUNGOMNE");assert.deepEqual(i.inputErrors,[]);
+   assert.equal(i.baseCents,base);assert.equal(i.cents,total);
+   assert.equal(i.charges.length,1);assert.equal(i.charges[0].cents,13500);
+  }
+ }
+});
