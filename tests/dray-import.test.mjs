@@ -169,7 +169,7 @@ test("Bunge dray report names without a comma retain BUNGOMNE and approved Savan
 test("Bunge native zero DRAY supports carrier repair on legacy invoices without another create",async()=>{
  const i=parseDrays(csv([source({Shipper:"Bunge USA Agriculture LLC"})]),first()).invoices[0];i.charges=i.charges.filter(c=>c.description!=="DRAY");
  const h=harness(i);await processInvoice(h.row,h.store,h.vendor);assert.equal(h.row.status,"verified");
- h.row.status="blocked";for(const k of ["override_payee_id","override_type","override_units","override_paye_rate","override_pay_rate","override_pay_amt"])delete h.order.movements[0][k];
+ h.row.status="blocked";h.order.otherCharges.find(c=>c.descr==="DRAY").units=0;for(const k of ["override_payee_id","override_type","override_units","override_paye_rate","override_pay_rate","override_pay_amt"])delete h.order.movements[0][k];
  const charges=structuredClone(h.order.otherCharges);await repairCreatedInvoice(h.row,h.store,h.vendor);
  assert.equal(h.row.status,"verified");assert.equal(h.order.movements[0].override_payee_id,"SCMIRIGA");assert.equal(h.order.movements[0].override_pay_amt,200);
  assert.deepEqual(h.order.otherCharges,charges);assert.equal(h.order.total_charge,485);assert.equal(h.order.otherCharges.filter(c=>c.descr==="DRAY"&&c.amount===0).length,1);assert.equal(h.writes.filter(w=>w.path==="/orders/create").length,1);

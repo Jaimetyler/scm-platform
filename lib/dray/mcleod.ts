@@ -19,8 +19,17 @@ function routeMatches(order: any, d: DrayInvoice, p: Profile) {
     order.stops.filter(s => normalize(s.stop_type) === "PU" && normalize(s.location_id) === p.location).length === 1 &&
     order.stops.filter(s => normalize(s.stop_type) === "SO" && normalize(s.location_id) === d.destination).length === 1;
 }
+// McLeod's native Bunge placeholder has zero units as well as zero amount.
+// Canonicalize for comparison only; retain the actual saved billing line.
+function comparableCharge(c: any, d: DrayInvoice) {
+  return d.customerId === "BUNGOMNE" && normalize(c.charge_id) === "040" &&
+    String(c.descr ?? c.description ?? "").trim() === "DRAY" &&
+    c.units != null && String(c.units).trim() !== "" && Number(c.units) === 0 &&
+    c.amount != null && String(c.amount).trim() !== "" && Number(c.amount) === 0
+      ? {...c, units:1} : c;
+}
 function projection(order: any, d: DrayInvoice, p: Profile) {
-  return {...order, planning_comment:(d.cents/100).toFixed(2), rate:0, ordered_by:p.orderedBy,
+  return {...order, otherCharges:(order.otherCharges ?? order.other_charges)?.map((c:any)=>comparableCharge(c,d)), planning_comment:(d.cents/100).toFixed(2), rate:0, ordered_by:p.orderedBy,
     stops:order.stops?.map(s=>({...s,location_id:p.location})),
     movements:order.movements?.map(m=>({...m,override_paye_rate:0,override_pay_rate:0,override_pay_amt:0}))};
 }
@@ -44,7 +53,7 @@ export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,exp
   if(errors.length || String(order.id)!==expectedId || normalize(order.status)!=="A" || !Array.isArray(order.stops) || order.stops.some(s=>normalize(s.status)!=="A" || s.actual_arrival || s.actual_departure)) throw new Error("Billing setup blocked: "+(errors.join("; ")||"Order progressed or changed"));
   const actual=order.otherCharges??order.other_charges;
   if(!Array.isArray(actual))throw new Error("Billing lines unavailable");
-  const signature=(c:any)=>JSON.stringify([normalize(c.charge_id),String(c.descr??c.description??"").trim(),Number(c.units),Math.round(Number(c.amount)*100)]);
+  const signature=(actual:any)=>{const c=comparableCharge(actual,d);return JSON.stringify([normalize(c.charge_id),String(c.descr??c.description??"").trim(),Number(c.units),Math.round(Number(c.amount)*100)]);};
   const expected=expectedCharges(i,p),remaining=new Map<string,any[]>();
   for(const c of expected){const k=signature(c);remaining.set(k,[...(remaining.get(k)||[]),c]);}
   const approvedKeys=new Set(remaining.keys()),lines:any[]=[];let changed=false;
