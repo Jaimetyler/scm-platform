@@ -236,3 +236,17 @@ test('global warehouse search is read-only and scoped for operators',async()=>{
  assert.equal((await call('/api/warehouse/search?terminal=SAV&q=E1078','GET')).status,403);
  assert.equal((await call('/api/warehouse/search','POST',{terminal:'HOU'})).status,403);
 });
+
+
+
+test("broker snapshot uploads require an active administrator and the configured origin", async () => {
+ const path = "/api/reporting/broker-intelligence";
+ for (const role of ["operator", "viewer", "accounting"]) {
+  const result = await call(path, "POST", {}, {...viewer, role});
+  assert.equal(result.status, 403); assert.equal(result.ran, false);
+ }
+ const admin = {...viewer, role:"admin"};
+ assert.equal((await call(path, "POST", {}, admin)).status, 200);
+ assert.equal((await call(path, "POST", {}, admin, {origin:false})).status, 403);
+ assert.equal((await call(path, "POST", {}, {...admin,status:"disabled"})).status, 403);
+});

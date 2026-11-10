@@ -4,22 +4,7 @@ import { useState } from "react";
 import WorkloadCharts from "./workload-charts";
 import styles from "./brokerage.module.css";
 
-type Row = {
-  month: string;
-  code: string;
-  person: string;
-  customer: string;
-  name: string;
-  loads: number;
-  revenue: number;
-  pay: number;
-  margin: number;
-};
-
-type Snapshot = {
-  version: number;
-  rows: Row[];
-};
+import { validSnapshot, MAX_SNAPSHOT_BYTES, type Row, type Snapshot } from "@/lib/reporting/broker-snapshot";
 
 const primary = ["MAIN", "CNTR", "TERRY", "DDRAY", "DAVIS"];
 const local = ["LOCAL", "HLOCAL", "DLOCAL"];
@@ -68,35 +53,11 @@ function grouped(rows: Row[], key: "person" | "customer") {
     .sort((a, b) => b.loads - a.loads);
 }
 
-function validSnapshot(value: unknown): value is Snapshot {
-  if (!value || typeof value !== "object") return false;
-
-  const data = value as Snapshot;
-
-  return (
-    data.version === 1 &&
-    Array.isArray(data.rows) &&
-    data.rows.length > 0 &&
-    data.rows.every(
-      (row) =>
-        row &&
-        typeof row === "object" &&
-        [row.code, row.person, row.customer, row.name].every(
-          (field) => typeof field === "string",
-        ) &&
-        typeof row.month === "string" &&
-        /^\d{4}-(0[1-9]|1[0-2])$/.test(row.month) &&
-        [row.loads, row.revenue, row.pay, row.margin].every((field) =>
-          Number.isSafeInteger(field),
-        ) &&
-        row.loads >= 0,
-    )
-  );
-}
-
-export default function BrokerageDashboard() {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [error, setError] = useState("");
+export default function BrokerageDashboard({ initialSnapshot = null, savedAt = null, loadError = "" }: { initialSnapshot?: Snapshot | null; savedAt?: string | null; loadError?: string }) {
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(initialSnapshot);
+  const [updatedAt, setUpdatedAt] = useState(savedAt);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(loadError);
   const [scope, setScope] = useState("primary");
   const [start, setStart] = useState("2024-09");
   const [end, setEnd] = useState("2026-08");
@@ -107,9 +68,10 @@ export default function BrokerageDashboard() {
   async function openFile(file?: File) {
     if (!file) return;
 
+    setSaving(true);
     try {
-      if (file.size > 50 * 1024 * 1024) {
-        throw new Error("Choose a snapshot smaller than 50 MB.");
+      if (file.size > MAX_SNAPSHOT_BYTES) {
+        throw new Error("Choose a snapshot smaller than 3 MB.");
       }
 
       const parsed: unknown = JSON.parse(await file.text());
@@ -118,7 +80,14 @@ export default function BrokerageDashboard() {
         throw new Error("This is not a supported brokerage snapshot.");
       }
 
+      const response = await fetch("/api/reporting/broker-intelligence", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshot: parsed, filename: file.name }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to save snapshot.");
       setSnapshot(parsed);
+      setUpdatedAt(result.updatedAt);
       setPerson("");
       setCustomer("");
       setError("");
@@ -126,6 +95,8 @@ export default function BrokerageDashboard() {
       setError(
         cause instanceof Error ? cause.message : "Unable to read file.",
       );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -195,8 +166,9 @@ export default function BrokerageDashboard() {
         </div>
 
         <label className={styles.upload}>
-          Load historical snapshot
+          {saving ? "Saving snapshot…" : snapshot ? "Replace saved snapshot" : "Save historical snapshot"}
           <input
+            disabled={saving}
             type="file"
             accept=".json"
             onChange={(event) => {
@@ -208,6 +180,8 @@ export default function BrokerageDashboard() {
         </label>
       </header>
 
+      {updatedAt && <p className={styles.note}>Shared snapshot · Saved {new Date(updatedAt).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" })} · Available automatically to platform administrators.</p>}
+
       {error && (
         <p role="alert" className={styles.error}>
           {error}
@@ -218,8 +192,8 @@ export default function BrokerageDashboard() {
         <section className={styles.panel}>
           <h2>Start with the historical data</h2>
           <p>
-            Select SCM_Brokerage_Snapshot.json. This version keeps the
-            snapshot in this browser tab; refreshing clears it.
+            Select SCM_Brokerage_Snapshot.json once. The saved data is shared
+            with platform administrators and loads automatically on future visits.
           </p>
           <p>
             Coverage: September 2024–August 2026. Local imports and system
