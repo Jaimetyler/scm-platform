@@ -51,7 +51,7 @@ export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,exp
   for(const c of actual){
     const k=signature(c),needed=remaining.get(k);
     if(needed?.length){needed.pop();lines.push(c);continue;}
-    if(!approvedKeys.has(k))throw new Error("Unexpected billing charge; manual review required: "+String(c.charge_id)+" "+String(c.descr??c.description));
+    if(!approvedKeys.has(k))throw new Error("Unexpected billing charge; manual review required: "+String(c.charge_id)+" "+String(c.descr??c.description)+" (units="+String(c.units)+", amount="+String(c.amount)+")");
     if(!c.id || String(c.order_id)!==expectedId)throw new Error("Duplicate charge identity unavailable");
     lines.push({...c,__deleted:true,__status:"D"});changed=true;
   }
