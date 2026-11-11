@@ -1,0 +1,65 @@
+.panel { container-type: inline-size; border: 1px solid #334155; border-radius: 14px; overflow: hidden; background: #0f172a; }
+.heading { padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.heading strong { font-size: 19px; color: #f1f5f9; }
+.heading p { margin: 5px 0 0; color: #94a3b8; font-size: 12px; }
+.heading > span { color: #cbd5e1; font-size: 13px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 20px 14px; color: #94a3b8; font-size: 11px; }
+.legend span { padding: 3px 6px; border-radius: 4px; }
+.scroll { overflow-y: auto; max-height: 70vh; border-top: 1px solid #334155; }
+.scroll:focus-visible { outline: 2px solid #38bdf8; outline-offset: -2px; }
+.table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.table th { position: sticky; top: 0; z-index: 2; background: #1e293b; color: #cbd5e1; text-align: left; font-size: 11px; letter-spacing: .02em; padding: 10px 6px; overflow-wrap: anywhere; border-bottom: 1px solid #475569; }
+.table th button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.table td { padding: 8px 6px; overflow-wrap: anywhere; border-right: 1px solid #253247; border-bottom: 1px solid #253247; }
+.table tbody tr { background: #0f172a; }
+.table tbody tr:nth-child(even) { background: #142035; }
+.table tbody tr:hover { background: #21344b; }
+.table th:first-child, .table td:first-child { position: sticky; left: 0; background: inherit; border-right: 1px solid #475569; z-index: 1; }
+.table th:first-child { z-index: 3; background: #1e293b; }
+.customer { font-weight: 650; color: #e2e8f0; }
+.booking { color: #7dd3fc; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
+.booking:focus-visible, .table th button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 3px; }
+.number, .count, .shortage, .covered { text-align: center; font-variant-numeric: tabular-nums; }
+.table td.count { color: #bfdbfe; background: #193859; font-size: 17px; font-weight: 750; }
+.table td.scheduled, .scheduled { background: #163d35; color: #a7f3d0; }
+.table td.today, .today { background: #51451c; color: #fef08a; }
+.table td.overdue, .overdue { background: #4e2530; color: #fecdd3; }
+.unknown { color: #94a3b8; }
+.table td.shortage { background: #572632; color: #fecdd3; font-weight: 800; font-size: 16px; }
+.table td.covered { background: #163d35; color: #a7f3d0; font-weight: 750; }
+.alerts span { display: block; margin: 2px 0; font-size: 11px; }
+.hold { color: #fda4af; font-weight: 700; }
+.arrival { color: #fde68a; font-weight: 700; }
+.caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+.pull { border: 1px solid #47657f; border-radius: 6px; padding: 7px 10px; background: #183b54; color: #bae6fd; cursor: pointer; white-space: nowrap; font-weight: 650; }
+.pull:disabled { opacity: .5; cursor: default; }
+
+.table td .pull { max-width: 100%; padding: 6px; white-space: normal; overflow-wrap: anywhere; }
+.table td ul { margin: 5px 0 0; padding: 0; list-style: none; }
+
+@container (max-width: 900px) {
+  .scroll { max-height: none; }
+  .table, .table thead, .table tbody { display: block; }
+  .table colgroup { display: none; }
+  .table thead tr { display: flex; flex-wrap: wrap; background: #1e293b; }
+  .table th, .table th:first-child { position: static; border: 0; }
+  .table th:not(:has(button)) { display: none; }
+  .table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr));
+    gap: 1px;
+    padding: 8px;
+  }
+  .table td, .table td:first-child { position: static; min-width: 0; border: 0; padding: 8px; text-align: left; }
+  .table td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .table td.alerts { grid-column: 1 / -1; }
+  .table td:empty { display: none; }
+}

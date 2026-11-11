@@ -27,3 +27,11 @@ test("date-only cutoffs retain unknown time instead of displaying midnight", () 
   assert.equal(formatBookingDate(values.doc_cutoff, values.doc_cutoff_has_time), "Sep 16, 2026");
   assert.equal(bookingDateInput(values.doc_cutoff, values.doc_cutoff_has_time), "2026-09-16");
 });
+
+test("steamship line edits trim names, allow clearing, and preserve omitted values", () => {
+  assert.equal(normalizeBookingDetails({ steamshipLine: "  MSC  " }).steamship_line, "MSC");
+  assert.equal(normalizeBookingDetails({ steamshipLine: "  " }).steamship_line, null);
+  assert.equal(Object.hasOwn(normalizeBookingDetails({}), "steamship_line"), false);
+  assert.throws(() => normalizeBookingDetails({ steamshipLine: 123 }), /steamship line/i);
+  assert.throws(() => normalizeBookingDetails({ steamshipLine: "A".repeat(201) }), /200 characters/);
+});

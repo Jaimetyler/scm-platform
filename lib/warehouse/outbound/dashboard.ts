@@ -2,6 +2,7 @@ export type DashboardBooking = {
   return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; search_marks?: string[]; search_containers?: string[];
   id: string; booking_number: string; terminal: string; site_code: string; site_name: string; customer: string;
   customer_reference: string | null; requested_bales: number; planned_containers: number | null; status: string;
+  steamship_line?: string | null; loaded_containers?: number;
   erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null;
   doc_cutoff_has_time: boolean; cutoff_has_time: boolean;
   missing_marks?: number; source_loads?: number; held_marks?: number; source_arrivals?: number;

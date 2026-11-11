@@ -15,6 +15,10 @@ export function normalizeBookingDetails(body: Record<string, unknown>) {
   if (body.vessel != null && typeof body.vessel !== "string") throw new Error("Enter a vessel name.");
   const vessel = String(body.vessel ?? "").trim();
   if (vessel.length > 200) throw new Error("Vessel must be 200 characters or fewer.");
+  if (body.steamshipLine !== undefined && typeof body.steamshipLine !== "string")
+    throw new Error("Enter a steamship line name.");
+  const steamshipLine = typeof body.steamshipLine === "string" ? body.steamshipLine.trim() : undefined;
+  if (steamshipLine && steamshipLine.length > 200) throw new Error("Steamship line must be 200 characters or fewer.");
   function cutoffValue(value: unknown, label: string) {
     const hasTime = typeof value === "string" && value.includes("T");
     const parsed = dateValue(value, label, hasTime);
@@ -25,7 +29,8 @@ export function normalizeBookingDetails(body: Record<string, unknown>) {
   if (body.scmFileNumber !== undefined && (typeof body.scmFileNumber !== "string" || body.scmFileNumber.trim().length > 80))
     throw new Error("SCM File # must be 80 characters or fewer.");
   return { ...(body.returnLocation !== undefined ? bookingReturnLocation(body.returnLocation) : {}), ...(body.scmFileNumber !== undefined ? { scm_file_number: String(body.scmFileNumber).trim() || null } : {}), erd: dateValue(body.erd, "ERD"), doc_cutoff: doc.value, doc_cutoff_has_time: doc.hasTime,
-    cutoff: cargo.value, cutoff_has_time: cargo.hasTime, vessel: vessel || null };
+    cutoff: cargo.value, cutoff_has_time: cargo.hasTime, vessel: vessel || null,
+    ...(steamshipLine !== undefined ? { steamship_line: steamshipLine || null } : {}) };
 }
 
 export function bookingDateInput(value: string | null | undefined, withTime = false) {

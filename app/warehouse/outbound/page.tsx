@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState, type SetStateActio
 import { useSearchParams } from "next/navigation";
 import { useWarehouseWorkspace } from "@/components/warehouse/WarehouseWorkspace";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
+import OutboundPlanningTable from "@/components/warehouse/OutboundPlanningTable";
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 import CutoffInput from "@/components/warehouse/CutoffInput";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -15,12 +16,12 @@ import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
 
 type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
-  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
+  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; steamshipLine?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[]; warnings: string[];
   lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
   mismatches: { row: number; warehouse: string }[] };
-type Preferences = { warehouse: string; view: DeadlineView; group: BookingGroup; search: string; basis: "cutoff" | "erd" };
-const defaultPreferences: Preferences = { warehouse: "all", view: "all", group: "schedule", search: "", basis: "cutoff" };
+type Preferences = { warehouse: string; view: DeadlineView; group: BookingGroup; search: string; basis: "cutoff" | "erd"; layout: "cards" | "sheet" };
+const defaultPreferences: Preferences = { warehouse: "all", view: "all", group: "schedule", search: "", basis: "cutoff", layout: "cards" };
 const storageKey = "scm.outbound.dashboard";
 
 const input: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, borderWidth: 1, borderStyle: "solid", borderColor: "#475569", background: "#0f172a", color: "#f8fafc" };
@@ -31,13 +32,13 @@ function dashboardUrl(preferences: Preferences) {
   if (preferences.warehouse === "all") query.set("warehouse", "all");
   else { const [terminal, siteCode] = preferences.warehouse.split(":"); query.set("terminal", terminal); if (siteCode === "all") query.set("warehouse", "all"); else query.set("siteCode", siteCode); }
   query.set("basis", preferences.basis); query.set("view", preferences.view); query.set("group", preferences.group);
-  query.set("q", preferences.search);
+  query.set("q", preferences.search); query.set("layout", preferences.layout);
   return `/warehouse/outbound?${query}`;
 }
 function validPreferences(raw: Partial<Preferences>): Preferences {
   return { warehouse: ["SAV:all", "HOU:all", "DAL:all"].includes(raw.warehouse) || CHECKIN_SITES.some((site) => `${site.terminal}:${site.siteCode}` === raw.warehouse) ? raw.warehouse! : "all",
     view: ["today", "upcoming", "past"].includes(raw.view ?? "") ? raw.view! : "all",
-    group: ["customer", "vessel", "erd"].includes(raw.group ?? "") ? raw.group! : "schedule", search: String(raw.search ?? ""), basis: raw.basis === "erd" ? "erd" : "cutoff" };
+    group: ["customer", "vessel", "erd"].includes(raw.group ?? "") ? raw.group! : "schedule", search: String(raw.search ?? ""), basis: raw.basis === "erd" ? "erd" : "cutoff", layout: raw.layout === "sheet" ? "sheet" : "cards" };
 }
 
 export default function CottonOutboundPage() {
@@ -55,6 +56,7 @@ export default function CottonOutboundPage() {
     ...(queryParams.has("basis") ? { basis: queryParams.get("basis") as Preferences["basis"] } : {}),
     ...(queryParams.has("view") ? { view: queryParams.get("view") as DeadlineView } : {}),
     ...(queryParams.has("group") ? { group: queryParams.get("group") as BookingGroup } : {}),
+    ...(queryParams.has("layout") ? { layout: queryParams.get("layout") as Preferences["layout"] } : {}),
     ...(queryParams.has("q") ? { search: queryParams.get("q") } : {}),
   });
   function setPreferences(update: SetStateAction<Preferences>) {
@@ -64,7 +66,7 @@ export default function CottonOutboundPage() {
     try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* URL state still works. */ }
   }
   useEffect(() => {
-    if (ready && !["basis", "view", "group", "q"].every((key) => queryParams.has(key))) {
+    if (ready && !["basis", "view", "group", "q", "layout"].every((key) => queryParams.has(key))) {
       window.history.replaceState(null, "", dashboardUrl(preferences));
     }
   }, [ready, queryParams, storedPreferences, location.terminal, location.siteCode]);
@@ -85,7 +87,7 @@ export default function CottonOutboundPage() {
   const [lineBales, setLineBales] = useState<Record<string, string>>({});
   const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [warehouseConfirmed, setWarehouseConfirmed] = useState(false);
-  const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "" });
+  const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
   const canWrite = useCanWrite(site?.terminal);
   useEffect(() => {
@@ -140,7 +142,7 @@ export default function CottonOutboundPage() {
       } else {
         if (!result.booking || !Array.isArray(result.booking.lines)) throw new Error("The file could not be read as a booking request.");
         setPreview(result); setDatesConfirmed(false);
-        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "", returnLocation: result.booking.returnLocation ?? "" });
+        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "", returnLocation: result.booking.returnLocation ?? "", steamshipLine: result.booking.steamshipLine ?? "" });
       }
     } catch (reason) {
       if (uploadRequest.current === controller) setImportError(controller.signal.aborted
@@ -165,7 +167,7 @@ export default function CottonOutboundPage() {
   const groups = groupBookings(visible, preferences.group, now);
   const returnTo = encodeURIComponent(dashboardUrl(preferences));
 
-  return <main style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
+  return <main style={{ maxWidth: preferences.layout === "cards" ? 1550 : undefined, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
       actions={<button type="button" style={button} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>} />
 
@@ -206,6 +208,7 @@ export default function CottonOutboundPage() {
         <CutoffInput label="Doc cutoff" value={importDates.docCutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, docCutoff: value })); }} />
         <CutoffInput label="Cutoff" value={importDates.cutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, cutoff: value })); }} />
         <label>Return location<input aria-label="Import return location" maxLength={300} style={input} value={importDates.returnLocation} onChange={event => setImportDates(current => ({ ...current, returnLocation: event.target.value }))} /></label>
+        <label>Steamship line<input aria-label="Import steamship line" maxLength={200} style={input} value={importDates.steamshipLine} onChange={event => setImportDates(current => ({ ...current, steamshipLine: event.target.value }))} /></label>
         <label>Vessel<input aria-label="Import vessel" maxLength={200} style={input} value={importDates.vessel} onChange={(event) => setImportDates((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div>
       {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" || site?.terminal === "DAL" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
@@ -246,16 +249,19 @@ export default function CottonOutboundPage() {
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
       <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : location.terminal === "DAL" ? "Dallas" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
+      <div style={{ display: "flex", gap: 6 }} aria-label="Booking display">
+        {(["cards", "sheet"] as const).map(layout => <button type="button" key={layout} aria-pressed={preferences.layout === layout} style={{ ...button, ...(preferences.layout === layout ? active : {}) }} onClick={() => setPreferences(current => ({ ...current, layout }))}>{layout === "sheet" ? "Planning sheet" : "Cards"}</button>)}
+      </div>
+      {preferences.layout === "cards" && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
         {([{ key: "schedule", label: "By cutoff" }, { key: "erd", label: "By ERD" }, { key: "customer", label: "By customer" }, { key: "vessel", label: "By vessel" }] as const).map((item) =>
           <button key={item.key} type="button" aria-pressed={preferences.group === item.key} style={{ ...button, ...(preferences.group === item.key ? active : {}) }} onClick={() => setPreferences((current) => ({ ...current, group: item.key }))}>{item.label}</button>)}
-      </div>
+      </div>}
       <input aria-label="Search outbound bookings" placeholder="Search file #, booking, customer, mark, container…" value={preferences.search} style={{ ...input, flex: "1 1 280px", maxWidth: 380 }}
         onChange={(event) => setPreferences((current) => ({ ...current, search: event.target.value }))} />
     </div></PlatformPanel>
     {loading || !ready ? <p>Loading outbound bookings…</p> : groups.length === 0 ? <PlatformPanel><p style={{ margin: 0 }}>{bookings.length ? "No bookings match this view." : "No bookings imported yet. Choose a warehouse and import a request to start."}</p>
       {bookings.length > 0 && <button style={{ ...button, marginTop: 12 }} onClick={() => setPreferences((current) => ({ ...current, view: "all", search: "" }))}>Show all bookings at this warehouse</button>}</PlatformPanel> :
-      groups.map(([name, items]) => <section key={name} style={{ marginBottom: 26 }}>
+      preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} style={{ marginBottom: 26 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}><h2 style={{ fontSize: 19, margin: 0 }}>{name}</h2>
           <span style={{ color: "#94a3b8", fontSize: 12 }}>{items.length} bookings · {items.reduce((sum, item) => sum + item.requested_bales, 0).toLocaleString()} bales</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>

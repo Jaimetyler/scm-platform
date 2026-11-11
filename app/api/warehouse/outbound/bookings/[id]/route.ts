@@ -129,6 +129,10 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     const siteCode = String(body?.siteCode ?? "");
     if (!/^[0-9a-f-]{36}$/i.test(id) || !CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton")))
       return NextResponse.json({ ok: false, error: "Unknown booking or warehouse" }, { status: 400 });
+    const destination = body.destinationSiteCode === undefined || body.destinationSiteCode === siteCode ? undefined :
+      CHECKIN_SITES.find(site => site.terminal === "DAL" && site.siteCode === body.destinationSiteCode && site.materials.includes("cotton"));
+    if (body.destinationSiteCode !== undefined && body.destinationSiteCode !== siteCode && (terminal !== "DAL" || !destination))
+      return NextResponse.json({ ok: false, error: "Choose a Dallas cotton warehouse." }, { status: 400 });
     const expectedUpdatedAt = String(body?.expectedUpdatedAt ?? "");
     if (!expectedUpdatedAt || Number.isNaN(Date.parse(expectedUpdatedAt)))
       return NextResponse.json({ ok: false, error: "Reload the booking before editing details" }, { status: 409 });
@@ -138,8 +142,13 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) throw new Error("Missing Supabase environment variables");
-    const { data, error } = await createClient(url, key).from("cotton_outbound_bookings").update(values)
+    const { data, error } = await createClient(url, key).from("cotton_outbound_bookings").update({
+      ...values,
+      ...(destination ? { site_code: destination.siteCode, site_name: destination.siteName } : {}),
+    })
       .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("updated_at", expectedUpdatedAt).select("*").maybeSingle();
+    if (destination && error?.code === "23505")
+      return NextResponse.json({ ok: false, error: `This booking already exists at ${destination.siteName}.` }, { status: 409 });
     if (error) throw error;
     if (!data) return NextResponse.json({ ok: false, error: "This booking changed or is no longer at this warehouse. Reload and review it." }, { status: 409 });
     return NextResponse.json({ ok: true, booking: data });
