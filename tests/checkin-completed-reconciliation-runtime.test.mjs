@@ -15,6 +15,8 @@ test('048 embedded PostgreSQL: completed McLeod reconciliation and safety', asyn
       const sql = readFileSync(new URL(name, migrations), 'utf8').replace('create extension if not exists pgcrypto;', '');
       try { await db.exec(sql); } catch (e) { throw new Error(`${name}: ${e.message}`); }
     }
+    await db.exec(readFileSync(new URL('20261110220805_preserve_verified_departure_repair_fence.sql', migrations), 'utf8'));
+    await db.exec(readFileSync(new URL('20261110221243_preserve_modern_lookup_reconciliation.sql', migrations), 'utf8'));
     const staff = (await db.query(`insert into scm_staff(email,name,role,status,user_id,terminal)
       values ('completed-test@example.test','Fixture','admin','active',gen_random_uuid(),NULL) returning *`)).rows[0];
     const arrival = async (extra={}) => {
@@ -95,6 +97,22 @@ test('048 embedded PostgreSQL: completed McLeod reconciliation and safety', asyn
       assert.equal(await count('warehouse_inventory_lots','source_checkin_id',row.id),0);
       assert.equal(await count('inbound_mcleod_completed_events','checkin_id',row.id),0);
       assert.equal((await db.query('select draft_status,yard_status from inbound_checkin_rows where id=$1',[row.id])).rows[0].draft_status,'failed');
+    });
+    await t.test('verified repair with no old lookup ID can complete, but its write fence cannot be cleared or changed', async () => {
+      const row=await arrival({mcleod_lookup_attempt_id:null,mcleod_processing_phase:'write_pending',mcleod_lookup_has_known_match:true});
+      await assert.rejects(db.query("update inbound_checkin_rows set mcleod_processing_phase='lookup' where id=$1",[row.id]),/uncertain/i);
+      await assert.rejects(db.query("update inbound_checkin_rows set warehouse_location='OTHER' where id=$1",[row.id]),/uncertain/i);
+      await db.query("update inbound_checkin_rows set draft_status='processed',mcleod_processing_phase='complete',yard_status='completed' where id=$1",[row.id]);
+      const saved=(await db.query('select draft_status,mcleod_processing_phase,yard_status from inbound_checkin_rows where id=$1',[row.id])).rows[0];
+      assert.deepEqual(saved,{draft_status:'processed',mcleod_processing_phase:'complete',yard_status:'completed'});
+      assert.equal(await count('warehouse_inventory_lots','source_checkin_id',row.id),1);
+    });
+    await t.test('corrected modern lookup without attempt ID reconciles a verified completed order', async () => {
+      const row=await arrival({mcleod_lookup_attempt_id:null,mcleod_processing_phase:'lookup',mcleod_lookup_has_known_match:true});
+      const result=(await finish(row)).rows[0];
+      assert.equal(result.draft_status,'processed');
+      assert.equal(result.mcleod_processing_phase,'complete');
+      assert.equal(await count('warehouse_inventory_lots','source_checkin_id',row.id),1);
     });
     await t.test('RPC not available to ordinary authenticated users', async () => {
       const result=(await db.query(`select has_function_privilege('authenticated','complete_inbound_mcleod_already_done(uuid,text,text,timestamptz,text,text,uuid,uuid,text,text)','execute') a,
