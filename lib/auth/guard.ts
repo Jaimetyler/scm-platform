@@ -78,7 +78,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   }
   const inbound = path.match(/^\/api\/inbound\/checkin\/rows\/([^/]+)$/);
   const inventory = path.match(/^\/api\/warehouse\/inventory\/([^/]+)$/);
-  const booking = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)(?:\/(?:containers|rollover|lines(?:\/[^/]+(?:\/rollover)?)?))?$/);
+  const booking = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)(?:\/(?:containers|mcleod-documents|rollover|lines(?:\/[^/]+(?:\/rollover)?)?))?$/);
   const creates = ["/api/inbound/checkin/rows", "/api/warehouse/domestic-queue", "/api/warehouse/outbound/bookings"];
   if (!inbound && !inventory && !booking && !creates.includes(path) && path !== "/api/warehouse/container-queue" && path !== "/api/inbound/sync")
     throw new AccessError("This operation requires an administrator.");

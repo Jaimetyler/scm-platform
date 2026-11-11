@@ -28,7 +28,8 @@ type Line = { id: string; source_row: number; mark: string; requested_bales: num
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
-type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; status: string; documentTypes: { id: string; description: string; existing: number }[] };
+type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; status: string; documentTypes: { id: string; description: string }[]; existingImages: { id: string; type: string; description: string; scanDate: string }[] };
+type McLeodUploadResult = { container: string; orderId?: string; file?: string; status: string };
 type E2openDocuments = { bols: string[]; containers: { container: string; inbound: string | null; outbound: string | null }[] };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
@@ -73,6 +74,8 @@ export default function CottonOutboundBookingPage() {
   const [mcleodCheck, setMcleodCheck] = useState<McLeodDocumentCheck | null>(null);
   const [mcleodLoading, setMcleodLoading] = useState("");
   const [mcleodError, setMcleodError] = useState("");
+  const [mcleodSending, setMcleodSending] = useState(false);
+  const [mcleodResults, setMcleodResults] = useState<McLeodUploadResult[]>([]);
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
   const savingRows = useRef(new Set<string>());
@@ -264,6 +267,25 @@ export default function CottonOutboundBookingPage() {
     }
   }
 
+  async function sendMcleodDocuments() {
+    setMcleodSending(true);
+    setMcleodResults([]);
+    setMcleodError("");
+    setMcleodCheck(null);
+    try {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/mcleod-documents`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terminal, siteCode }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not send booking documents.");
+      setMcleodResults(result.results);
+    } catch (error) {
+      setMcleodError(error instanceof Error ? error.message : "Could not send booking documents.");
+    } finally {
+      setMcleodSending(false);
+    }
+  }
+
   function editDetails() {
     if (!booking) return;
     setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
@@ -347,15 +369,28 @@ export default function CottonOutboundBookingPage() {
           <thead><tr><th style={th}>Container</th><th style={th}>Ingate POD</th><th style={th}>Outgate POD</th><th style={th}>McLeod</th></tr></thead>
           <tbody>{e2openDocuments.containers.map((row) => <tr key={row.container}>
             <td style={td}>{row.container}</td><td style={td}>{row.inbound ?? "Missing"}</td><td style={td}>{row.outbound ?? "Missing"}</td>
-            <td style={td}><button type="button" style={button} disabled={Boolean(mcleodLoading || working)}
+            <td style={td}><button type="button" style={button} disabled={Boolean(mcleodLoading || working || mcleodSending)}
               onClick={() => void checkMcleodOrder(row.container)}>{mcleodLoading === row.container ? "Checking…" : "Check SCM order"}</button></td>
           </tr>)}</tbody>
         </table>
+        <button type="button" style={{ ...button, marginTop: 10 }}
+          disabled={mcleodSending || Boolean(mcleodLoading || working) || !e2openDocuments.containers.length || Boolean(Object.keys(pendingEquipment().drafts).length)}
+          onClick={() => void sendMcleodDocuments()}>
+          {mcleodSending ? "Checking and sending…" : "Send booking documents to McLeod"}
+        </button>
         {mcleodError && <p role="alert">{mcleodError}</p>}
+        {mcleodResults.length > 0 && <ul aria-live="polite">{mcleodResults.map((item, index) => (
+          <li key={index}>{[item.container, item.orderId && `SCM order ${item.orderId}`, item.file, item.status].filter(Boolean).join(" · ")}</li>
+        ))}</ul>}
         {mcleodCheck && <div role="status">
           <p><strong>{mcleodCheck.container}</strong> {mcleodCheck.orderId ? `· SCM order ${mcleodCheck.orderId} · ` : "· "}{mcleodCheck.status}</p>
-          {mcleodCheck.documentTypes.length > 0 && <details><summary>McLeod document types and existing counts</summary>
-            <ul>{mcleodCheck.documentTypes.map(type => <li key={type.id}>{type.description} ({type.id}) · {type.existing} existing</li>)}</ul>
+          <details open><summary>Existing McLeod documents</summary>
+            {mcleodCheck.existingImages.length > 0 ? <ul>{mcleodCheck.existingImages.map(image => (
+              <li key={image.id}>{[image.type, image.description, image.scanDate].filter(Boolean).join(" · ")}</li>
+            ))}</ul> : <p>{mcleodCheck.status === "Verified order" ? "No existing documents returned." : "Existing documents unavailable."}</p>}
+          </details>
+          {mcleodCheck.documentTypes.length > 0 && <details><summary>Available McLeod document types</summary>
+            <ul>{mcleodCheck.documentTypes.map(type => <li key={type.id}>{type.description} ({type.id})</li>)}</ul>
           </details>}
         </div>}
         {!e2openDocuments.containers.length && <p>No saved container numbers to check.</p>}

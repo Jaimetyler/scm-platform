@@ -5,8 +5,8 @@ import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 const normalize = (value: unknown) => String(value ?? "").trim().toUpperCase();
 const limit = 20;
 
-export async function checkLdcOrder(booking: string, container: string, mark: string, shippingOrder: string) {
-  const result = { container, mark, orderId: null as string | null, status: "", documentTypes: [] as { id: string; description: string; existing: number }[] };
+export async function findLdcOrder(booking: string, container: string, mark: string, shippingOrder: string) {
+  const result = { container, mark, orderId: null as string | null, status: "" };
   if (!mark || !shippingOrder) return { ...result, status: "Mark or shipping order is missing" };
   const { read } = vendor(true);
   const query = new URLSearchParams({ "orders.blnum": mark, recordLength: String(limit) });
@@ -25,17 +25,24 @@ export async function checkLdcOrder(booking: string, container: string, mark: st
           ["ALLELOTN", "LDCACOTN"].includes(normalize(order.customer_id))) matches.push(id);
     }
     if (matches.length !== 1) return { ...result, status: matches.length ? "Multiple orders match" : "No verified order match" };
-    const orderId = matches[0];
-    try {
-      const imaging = imagingClient();
-      const [types, images] = await Promise.all([imaging.types(orderId), imaging.images(orderId)]);
-      return { ...result, orderId, status: "Verified order", documentTypes: types.map(type => ({
-        ...type, existing: images.filter(image => image.documentTypeId === type.id).length,
-      })) };
-    } catch {
-      return { ...result, orderId, status: "Order verified; imaging information unavailable" };
-    }
+    return { ...result, orderId: matches[0], status: "Verified order" };
   } catch {
     return { ...result, status: "McLeod lookup unavailable" };
   }
+}
+
+export async function checkLdcOrder(booking: string, container: string, mark: string, shippingOrder: string) {
+  const result = await findLdcOrder(booking, container, mark, shippingOrder);
+  const empty = { ...result, documentTypes: [], existingImages: [] };
+  if (!result.orderId) return empty;
+  const imaging = imagingClient();
+  const [types, images] = await Promise.allSettled([imaging.types(result.orderId), imaging.images(result.orderId)]);
+  return {
+    ...result,
+    status: images.status === "fulfilled" ? result.status : "Order verified; existing images unavailable",
+    documentTypes: types.status === "fulfilled" ? types.value : [],
+    existingImages: images.status === "fulfilled" ? images.value.map(image => ({
+      id: image.id, type: image.documentTypeId, description: String(image.descr ?? ""), scanDate: String(image.scanDate ?? ""),
+    })) : [],
+  };
 }
