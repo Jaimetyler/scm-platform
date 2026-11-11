@@ -59,3 +59,9 @@ test("unmapped zero-dollar lines appear in review without posting a charge", () 
   assert.equal(invoice.charges.length, 3);
   assert.equal(invoice.cents, 88000);
 });
+
+test("the Nutrien Account of Bearer uses the eCotton billing customer", () => {
+  const page = invoicePage("41").replace("Olam Cotton", "Nutrien Ag Solutions");
+  const [invoice] = parseGinDirectInvoices([page], tariffs);
+  assert.equal(invoice.customerId, "NUTRSTG1");
+});

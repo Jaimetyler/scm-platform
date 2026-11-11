@@ -79,7 +79,7 @@ export function vendor(readOnly = false): Vendor {
     // Read-only credentials are never passed to a write endpoint.
     if (
       isRead
-        ? !/^(?:\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)|\/customers\/NUTRSTGA$)/.test(path)
+        ? !/^(?:\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)|\/customers\/NUTRSTG1$)/.test(path)
         : !/^(?:\/orders\/(?:create|autorate\/[A-Za-z0-9_-]+)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=0&carrierPay=0)$/.test(
             path,
           )

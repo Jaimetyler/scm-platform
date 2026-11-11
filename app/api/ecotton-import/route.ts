@@ -84,12 +84,12 @@ async function POSTHandler(req: NextRequest) {
       tariffs,
     );
     const v = vendor(true);
-    if (ginDirect && invoices.some((invoice) => invoice.customerId === "NUTRSTGA")) {
-      const customer = await v.read("/customers/NUTRSTGA").catch(() => null);
-      if (customer?.id !== "NUTRSTGA" || customer.company_id !== "TMS" ||
+    if (ginDirect && invoices.some((invoice) => invoice.customerId === "NUTRSTG1")) {
+      const customer = await v.read("/customers/NUTRSTG1").catch(() => null);
+      if (customer?.id !== "NUTRSTG1" || customer.company_id !== "TMS" ||
           !/^NUTRIEN AG SOLUTIONS\b/.test(normalize(customer.name)) ||
           [false, "N"].includes(customer.is_active)) {
-        throw new Error("Could not verify the Nutrien Ag Solutions bill-to account (NUTRSTGA) in McLeod.");
+        throw new Error("Could not verify the Nutrien Ag Solutions bill-to account (NUTRSTG1) in McLeod.");
       }
     }
     const prepared: any[] = new Array(invoices.length);

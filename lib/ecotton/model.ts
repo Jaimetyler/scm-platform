@@ -87,6 +87,8 @@ export const PROFILES: Profile[] = [
   })),
 ];
 const aliases: [string, string][] = [
+  ["Nutrien Ag Solutions", "NUTRSTG1"],
+  ["Nutrien Ag Solutions-Account of Bearer", "NUTRSTG1"],
   ["ADM COTTON", "ADMCLUT1"],
   ["Baco Trading, Inc.", "BACOMCTX"],
   ["COFCO Americans Resources Corp", "COFCMETN"],

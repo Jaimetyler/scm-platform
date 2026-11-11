@@ -57,7 +57,7 @@ export function parseGinDirectInvoices(pages: string[], tariffs: Tariff[]): Invo
       seen.add(normalize(reference));
       const customerName = lines[billTo].replace(/^Bill\s+To\s*:\s*/i, "") || lines[billTo + 1];
       const customerKey = normalize(customerName).replace(/\s*-\s*ACCOUNT OF BEARER$/, "");
-      const customerId = customerKey === "NUTRIEN AG SOLUTIONS" ? "NUTRSTGA" : CUSTOMER_ALIASES.get(customerKey);
+      const customerId = CUSTOMER_ALIASES.get(customerKey);
       if (!customerId) throw new Error(`No approved customer mapping for ${customerName}.`);
       const cents = money(lines[footer].replace(/^Total\s+Invoice\s+Amount\s*:?\s*/i, ""));
       const unpostedZeroTariffs: { tariffId: string; description: string; units: number }[] = [];
