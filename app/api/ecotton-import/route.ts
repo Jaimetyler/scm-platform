@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
-import { PROFILES } from "@/lib/ecotton/model";
+import { PROFILES, normalize } from "@/lib/ecotton/model";
 import { ginDirectProfile, parseGinDirectInvoices } from "@/lib/ecotton/gin-direct";
 import { parseInvoices } from "@/lib/ecotton/parse";
 import {
@@ -84,6 +84,14 @@ async function POSTHandler(req: NextRequest) {
       tariffs,
     );
     const v = vendor(true);
+    if (ginDirect && invoices.some((invoice) => invoice.customerId === "NUTRSTGA")) {
+      const customer = await v.read("/customers/NUTRSTGA").catch(() => null);
+      if (customer?.id !== "NUTRSTGA" || customer.company_id !== "TMS" ||
+          !/^NUTRIEN AG SOLUTIONS\b/.test(normalize(customer.name)) ||
+          [false, "N"].includes(customer.is_active)) {
+        throw new Error("Could not verify the Nutrien Ag Solutions bill-to account (NUTRSTGA) in McLeod.");
+      }
+    }
     const prepared: any[] = new Array(invoices.length);
     let cursor = 0;
     await Promise.all(
