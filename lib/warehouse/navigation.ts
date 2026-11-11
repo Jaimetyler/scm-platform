@@ -71,6 +71,7 @@ export function workspaceHref(section: WarehouseSection, location: WarehouseLoca
   if (section === "outbound") {
     const saved = new URLSearchParams(filters);
     for (const key of ["basis", "view", "group", "q"]) if (saved.has(key)) query.set(key, saved.get(key)!);
+    if (saved.get("bookingStatus") === "history") query.set("bookingStatus", "history");
   }
   const base = section === "overview" ? "/warehouse" : `/warehouse/${section}`;
   return `${base}?${query}`;

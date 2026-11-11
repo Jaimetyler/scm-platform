@@ -44,13 +44,14 @@ export default function CottonOutboundBookingPage() {
   const queryParams = useSearchParams();
   const params = useParams<{ terminal: string; siteCode: string; id: string }>();
   const terminal = String(params.terminal ?? "").toUpperCase();
-  const canWrite = useCanWrite(terminal);
+  const canManage = useCanWrite(terminal);
   const siteCode = String(params.siteCode ?? "");
   const id = String(params.id ?? "");
   const locationOptions = terminal === "DAL" ? CHECKIN_SITES.filter(site => site.terminal === terminal && site.materials.includes("cotton")) : [];
   const requestedReturn = queryParams.get("returnTo");
   const backHref = safeOutboundReturn(requestedReturn) ?? `/warehouse/outbound?terminal=${terminal}&siteCode=${siteCode}`;
   const [booking, setBooking] = useState<Booking | null>(null);
+  const canWrite = canManage && booking?.status === "draft";
   const [containers, setContainers] = useState<Container[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -316,6 +317,31 @@ export default function CottonOutboundBookingPage() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not import booking details"); }
     finally { setWorking(""); if (requestInput.current) requestInput.current.value = ""; }
   }
+  async function changeBookingStatus(lifecycleStatus: "draft" | "archived" | "cancelled") {
+    if (!booking || !canManage || working || mcleodSending || editingDetails) return;
+    if (Object.keys(pendingEquipment().drafts).length) {
+      setError("Finish saving equipment details first.");
+      return;
+    }
+    if (lifecycleStatus === "cancelled" && !window.confirm(`Delete booking ${booking.booking_number} from Active? You can restore it from Booking history.`)) return;
+    if (lifecycleStatus === "archived" && !window.confirm(`Archive booking ${booking.booking_number} as complete?`)) return;
+    setWorking("booking-status"); setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminal, siteCode, expectedUpdatedAt: booking.updated_at, lifecycleStatus }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      const listUrl = new URL(backHref, window.location.origin);
+      listUrl.searchParams.delete("bookingStatus");
+      if (lifecycleStatus === "draft") listUrl.searchParams.set("view", "all");
+      window.location.assign(listUrl.pathname + listUrl.search);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not update booking status.");
+    } finally { setWorking(""); }
+  }
+
   async function saveDetails(event: React.FormEvent) {
     event.preventDefault();
     if (details.destinationSiteCode !== siteCode && Object.keys(pendingEquipment().drafts).length) {
@@ -370,6 +396,10 @@ export default function CottonOutboundBookingPage() {
           <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import booking details</button>
+          {canManage && (booking.status === "draft" ? <>
+            <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("archived")}>Archive completed booking</button>
+            <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("cancelled")}>Delete booking</button>
+          </> : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
         </div></details></>} />
     {canWrite && terminal === "DAL" && bookingChargeCustomer(booking.customer) && <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
     {canWrite && isSavannahE2openBooking(terminal, booking.customer) && <PlatformPanel>
@@ -417,7 +447,7 @@ export default function CottonOutboundBookingPage() {
     </PlatformPanel>}
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
-      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status.replaceAll("_", " ")}</span>
+      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status === "draft" ? "Active" : booking.status === "cancelled" ? "Deleted" : "Archived"}</span>
     </div>
     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center", marginTop: 18 }}>
       <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>

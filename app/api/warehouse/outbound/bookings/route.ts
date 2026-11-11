@@ -17,8 +17,9 @@ function database() {
 }
 async function GETHandler(req: NextRequest) {
   try {
-    const terminal = String(new URL(req.url).searchParams.get("terminal") ?? "").toUpperCase();
-    const siteCode = String(new URL(req.url).searchParams.get("siteCode") ?? "");
+    const params = new URL(req.url).searchParams;
+    const terminal = String(params.get("terminal") ?? "").toUpperCase();
+    const siteCode = String(params.get("siteCode") ?? "");
     const allWarehouses = !terminal && !siteCode;
     if (!allWarehouses && !CHECKIN_SITES.some((site) => site.terminal === terminal && (!siteCode || site.siteCode === siteCode) && site.materials.includes("cotton")))
       return NextResponse.json({ ok: false, error: "Unknown cotton warehouse" }, { status: 400 });
@@ -26,8 +27,10 @@ async function GETHandler(req: NextRequest) {
     query = allWarehouses ? query.or(CHECKIN_SITES.filter((site) => site.materials.includes("cotton"))
       .map((site) => `and(terminal.eq.${site.terminal},site_code.eq.${site.siteCode})`).join(",")) : query.eq("terminal", terminal);
     if (siteCode) query = query.eq("site_code", siteCode);
-    const { data, error } = await query.order("cutoff", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: false }).limit(1000);
+    const history = params.get("bookingStatus") === "history";
+    query = history ? query.in("status", ["archived", "cancelled"]).order("updated_at", { ascending: false })
+      : query.eq("status", "draft").order("cutoff", { ascending: true, nullsFirst: false });
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(1000);
     if (error) throw error;
     return NextResponse.json({ ok: true, bookings: data ?? [], limitReached: data?.length === 1000 });
   } catch (error) {

@@ -27,12 +27,13 @@ const storageKey = "scm.outbound.dashboard";
 const input: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, borderWidth: 1, borderStyle: "solid", borderColor: "#475569", background: "#0f172a", color: "#f8fafc" };
 const button: React.CSSProperties = { ...input, cursor: "pointer", fontWeight: 700 };
 const active: React.CSSProperties = { borderColor: "#38bdf8", background: "rgba(14,165,233,.12)", color: "#e0f2fe" };
-function dashboardUrl(preferences: Preferences) {
+function dashboardUrl(preferences: Preferences, history = false) {
   const query = new URLSearchParams();
   if (preferences.warehouse === "all") query.set("warehouse", "all");
   else { const [terminal, siteCode] = preferences.warehouse.split(":"); query.set("terminal", terminal); if (siteCode === "all") query.set("warehouse", "all"); else query.set("siteCode", siteCode); }
   query.set("basis", preferences.basis); query.set("view", preferences.view); query.set("group", preferences.group);
   query.set("q", preferences.search); query.set("layout", preferences.layout);
+  if (history) query.set("bookingStatus", "history");
   return `/warehouse/outbound?${query}`;
 }
 function validPreferences(raw: Partial<Preferences>): Preferences {
@@ -46,6 +47,7 @@ export default function CottonOutboundPage() {
   const sites = CHECKIN_SITES.filter((site) => site.materials.includes("cotton") && (staff?.role !== "operator" || site.terminal === staff.terminal));
   const { location, ready } = useWarehouseWorkspace();
   const queryParams = useSearchParams();
+  const history = queryParams.get("bookingStatus") === "history";
   const [storedPreferences, setStoredPreferences] = useState(defaultPreferences);
   useEffect(() => {
     try { setStoredPreferences(validPreferences(JSON.parse(localStorage.getItem(storageKey) ?? "{}"))); } catch { /* Optional. */ }
@@ -63,12 +65,12 @@ export default function CottonOutboundPage() {
   function setPreferences(update: SetStateAction<Preferences>) {
     const next = validPreferences(typeof update === "function" ? update(preferences) : update);
     setStoredPreferences(next);
-    window.history.replaceState(null, "", dashboardUrl(next));
+    window.history.replaceState(null, "", dashboardUrl(next, history));
     try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* URL state still works. */ }
   }
   useEffect(() => {
     if (ready && !["basis", "view", "group", "q", "layout"].every((key) => queryParams.has(key))) {
-      window.history.replaceState(null, "", dashboardUrl(preferences));
+      window.history.replaceState(null, "", dashboardUrl(preferences, history));
     }
   }, [ready, queryParams, storedPreferences, location.terminal, location.siteCode]);
   const [bookings, setBookings] = useState<DashboardBooking[]>([]);
@@ -100,20 +102,25 @@ export default function CottonOutboundPage() {
     setWorking(false); setPreview(null); setFile(null); setImportError(""); setDatesConfirmed(false);
     return () => { uploadRequest.current?.abort(); uploadRequest.current = null; };
   }, [location.terminal, location.siteCode]);
-  const list = useCallback(async (quiet = false) => {
+  const list = useCallback(async (signal: AbortSignal, quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const response = await fetch("/api/warehouse/outbound/bookings", { cache: "no-store" });
+      const query = new URLSearchParams();
+      if (location.terminal !== "all") query.set("terminal", location.terminal);
+      if (location.siteCode !== "all") query.set("siteCode", location.siteCode);
+      if (history) query.set("bookingStatus", "history");
+      const response = await fetch(`/api/warehouse/outbound/bookings?${query}`, { cache: "no-store", signal });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      setBookings(result.bookings); setLimitReached(Boolean(result.limitReached));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not load bookings"); }
-    finally { setLoading(false); }
-  }, []);
+      if (!signal.aborted) { setBookings(result.bookings); setLimitReached(Boolean(result.limitReached)); setError(""); }
+    } catch (reason) { if (!signal.aborted) setError(reason instanceof Error ? reason.message : "Could not load bookings"); }
+    finally { if (!signal.aborted) setLoading(false); }
+  }, [history, location.terminal, location.siteCode]);
   useEffect(() => {
-    void list();
-    const timer = window.setInterval(() => void list(true), 30000);
-    return () => window.clearInterval(timer);
+    const controller = new AbortController();
+    void list(controller.signal);
+    const timer = window.setInterval(() => void list(controller.signal, true), 30000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, [list]);
   async function upload(event: FormEvent | React.MouseEvent, save: boolean) {
     event.preventDefault();
@@ -158,15 +165,15 @@ export default function CottonOutboundPage() {
     const value = line.needsBales ? Number(lineBales[String(line.sourceRow)]) : line.bales;
     return sum + (Number.isSafeInteger(value) && value > 0 ? value : 0);
   }, 0) ?? 0;
-  const activeBookings = bookings.filter((item) => item.status === "draft");
-  const warehouseBookings = activeBookings.filter((item) => (location.terminal === "all" || item.terminal === location.terminal) && (location.siteCode === "all" || item.site_code === location.siteCode));
+  const shownBookings = bookings.filter(item => history ? item.status !== "draft" : item.status === "draft");
+  const warehouseBookings = shownBookings.filter((item) => (location.terminal === "all" || item.terminal === location.terminal) && (location.siteCode === "all" || item.site_code === location.siteCode));
   const stats = { all: warehouseBookings.length, today: warehouseBookings.filter((item) => deadlineMatches(item, "today", now, preferences.basis)).length,
     upcoming: warehouseBookings.filter((item) => deadlineMatches(item, "upcoming", now, preferences.basis)).length, past: warehouseBookings.filter((item) => deadlineMatches(item, "past", now, preferences.basis)).length };
   const search = preferences.search.trim().toLowerCase();
-  const visible = warehouseBookings.filter((item) => deadlineMatches(item, preferences.view, now, preferences.basis) && (!search ||
+  const visible = warehouseBookings.filter((item) => (history || deadlineMatches(item, preferences.view, now, preferences.basis)) && (!search ||
     [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, bookingReturnLocationLabel(item.return_location, item.return_location_code), item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
-  const groups = groupBookings(visible, preferences.group, now);
-  const returnTo = encodeURIComponent(dashboardUrl(preferences));
+  const groups = history ? (visible.length ? [["Booking history", visible] as const] : []) : groupBookings(visible, preferences.group, now);
+  const returnTo = encodeURIComponent(dashboardUrl(preferences, history));
 
   return <main style={{ maxWidth: preferences.layout === "cards" ? 1550 : undefined, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
@@ -230,6 +237,11 @@ export default function CottonOutboundPage() {
 
     </div>}
 
+    <div aria-label="Booking status" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <button type="button" aria-pressed={!history} style={{ ...button, ...(!history ? active : {}) }} onClick={() => window.history.replaceState(null, "", dashboardUrl(preferences))}>Active</button>
+      <button type="button" aria-pressed={history} style={{ ...button, ...(history ? active : {}) }} onClick={() => window.history.replaceState(null, "", dashboardUrl(preferences, true))}>Booking history</button>
+    </div>
+    {!history && <>
     {(location.siteCode === "all" || site) && <SourceLoadAlerts terminal={location.terminal === "all" ? undefined : location.terminal} siteCode={location.siteCode === "all" ? undefined : location.siteCode} />}
     <div aria-label="Filter booking dates" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
       {(["cutoff", "erd"] as const).map((basis) => <button key={basis} type="button" style={{ ...button, ...(preferences.basis === basis ? active : {}) }}
@@ -244,25 +256,26 @@ export default function CottonOutboundPage() {
           <strong style={{ fontSize: 32, color: item.tone }}>{loading ? "—" : stats[item.key]}</strong>
         </button>)}
     </div>
+    </>}
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
-    {limitReached && <p style={{ color: "#94a3b8" }}>Showing the first 1,000 bookings ordered by cutoff.</p>}
+    {limitReached && <p style={{ color: "#94a3b8" }}>Showing the first 1,000 bookings {history ? "most recently updated." : "ordered by cutoff."}</p>}
 
 
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
       <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : location.terminal === "DAL" ? "Dallas" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
-      <div style={{ display: "flex", gap: 6 }} aria-label="Booking display">
+      {!history && <div style={{ display: "flex", gap: 6 }} aria-label="Booking display">
         {(["cards", "sheet"] as const).map(layout => <button type="button" key={layout} aria-pressed={preferences.layout === layout} style={{ ...button, ...(preferences.layout === layout ? active : {}) }} onClick={() => setPreferences(current => ({ ...current, layout }))}>{layout === "sheet" ? "Planning sheet" : "Cards"}</button>)}
-      </div>
-      {preferences.layout === "cards" && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
+      </div>}
+      {!history && preferences.layout === "cards" && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
         {([{ key: "schedule", label: "By cutoff" }, { key: "erd", label: "By ERD" }, { key: "customer", label: "By customer" }, { key: "vessel", label: "By vessel" }] as const).map((item) =>
           <button key={item.key} type="button" aria-pressed={preferences.group === item.key} style={{ ...button, ...(preferences.group === item.key ? active : {}) }} onClick={() => setPreferences((current) => ({ ...current, group: item.key }))}>{item.label}</button>)}
       </div>}
       <input aria-label="Search outbound bookings" placeholder="Search file #, booking, customer, mark, container…" value={preferences.search} style={{ ...input, flex: "1 1 280px", maxWidth: 380 }}
         onChange={(event) => setPreferences((current) => ({ ...current, search: event.target.value }))} />
     </div></PlatformPanel>
-    {loading || !ready ? <p>Loading outbound bookings…</p> : groups.length === 0 ? <PlatformPanel><p style={{ margin: 0 }}>{bookings.length ? "No bookings match this view." : "No bookings imported yet. Choose a warehouse and import a request to start."}</p>
-      {bookings.length > 0 && <button style={{ ...button, marginTop: 12 }} onClick={() => setPreferences((current) => ({ ...current, view: "all", search: "" }))}>Show all bookings at this warehouse</button>}</PlatformPanel> :
-      preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} style={{ marginBottom: 26 }}>
+    {loading || !ready ? <p>Loading outbound bookings…</p> : groups.length === 0 ? <PlatformPanel><p style={{ margin: 0 }}>{history ? "No archived or deleted bookings match this view." : bookings.length ? "No bookings match this view." : "No active bookings."}</p>
+      {bookings.length > 0 && (search || !history) && <button style={{ ...button, marginTop: 12 }} onClick={() => setPreferences((current) => ({ ...current, view: "all", search: "" }))}>Show all bookings at this warehouse</button>}</PlatformPanel> :
+      !history && preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} style={{ marginBottom: 26 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}><h2 style={{ fontSize: 19, margin: 0 }}>{name}</h2>
           <span style={{ color: "#94a3b8", fontSize: 12 }}>{items.length} bookings · {items.reduce((sum, item) => sum + item.requested_bales, 0).toLocaleString()} bales</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>
@@ -270,7 +283,7 @@ export default function CottonOutboundPage() {
             style={{ padding: 20, borderRadius: 14, border: "1px solid #334155", background: "rgba(15,23,42,.75)", display: "block" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 21, color: "#f8fafc" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
               <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
-            <p style={{ color: "#cbd5e1", fontSize: 13, margin: "8px 0" }}>{item.customer}</p>
+            <p style={{ color: "#cbd5e1", fontSize: 13, margin: "8px 0" }}>{item.customer}{history ? (item.status === "cancelled" ? " · Deleted" : " · Archived") : ""}</p>
             <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 8px" }}>Booking {item.booking_number} · Ref {item.customer_reference || "—"}</p>
             <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 18px", minHeight: 16 }}>{item.vessel || "Vessel needed"}</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, borderTop: "1px solid #334155", paddingTop: 14 }}>

@@ -136,17 +136,23 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     const expectedUpdatedAt = String(body?.expectedUpdatedAt ?? "");
     if (!expectedUpdatedAt || Number.isNaN(Date.parse(expectedUpdatedAt)))
       return NextResponse.json({ ok: false, error: "Reload the booking before editing details" }, { status: 409 });
+    const lifecycleStatus = body.lifecycleStatus;
+    if (lifecycleStatus !== undefined && !["draft", "archived", "cancelled"].includes(lifecycleStatus))
+      return NextResponse.json({ ok: false, error: "Unknown booking status." }, { status: 400 });
     let values;
-    try { values = normalizeBookingDetails(body); }
+    try { values = lifecycleStatus === undefined ? normalizeBookingDetails(body) : { status: lifecycleStatus }; }
     catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid booking details" }, { status: 400 }); }
     const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) throw new Error("Missing Supabase environment variables");
-    const { data, error } = await createClient(url, key).from("cotton_outbound_bookings").update({
+    let update = createClient(url, key).from("cotton_outbound_bookings").update({
       ...values,
-      ...(destination ? { site_code: destination.siteCode, site_name: destination.siteName } : {}),
+      ...(destination && lifecycleStatus === undefined ? { site_code: destination.siteCode, site_name: destination.siteName } : {}),
     })
-      .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("updated_at", expectedUpdatedAt).select("*").maybeSingle();
+      .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("updated_at", expectedUpdatedAt);
+    update = lifecycleStatus === "draft"
+      ? update.in("status", ["archived", "cancelled"]) : update.eq("status", "draft");
+    const { data, error } = await update.select("*").maybeSingle();
     if (destination && error?.code === "23505")
       return NextResponse.json({ ok: false, error: `This booking already exists at ${destination.siteName}.` }, { status: 409 });
     if (error) throw error;
