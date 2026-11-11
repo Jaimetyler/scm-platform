@@ -26,6 +26,7 @@ export type Invoice = {
   invoiceDate: string;
   shipperId: string;
   warehouseId?: string;
+  unpostedZeroTariffs?: { tariffId: string; description: string; units: number }[];
   customerName: string;
   customerId: string;
   cents: number;

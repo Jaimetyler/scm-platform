@@ -52,3 +52,10 @@ test("Gin Direct blocks mismatched warehouse, unmapped tariff, duplicate number,
   assert.throws(() => parseGinDirectInvoices([page.replace("1,500", "1,501")], tariffs), /Quantity × rate/);
   assert.throws(() => parseGinDirectInvoices([page.replace("880.00", "880.01")], tariffs), /printed invoice total/);
 });
+
+test("unmapped zero-dollar lines appear in review without posting a charge", () => {
+  const [invoice] = parseGinDirectInvoices([invoicePage("41")], tariffs.filter((t) => t.tariff_id !== 3));
+  assert.deepEqual(invoice.unpostedZeroTariffs, [{ tariffId: "003", description: "COMPRESSION", units: 100 }]);
+  assert.equal(invoice.charges.length, 3);
+  assert.equal(invoice.cents, 88000);
+});

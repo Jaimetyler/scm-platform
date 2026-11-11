@@ -60,22 +60,27 @@ export function parseGinDirectInvoices(pages: string[], tariffs: Tariff[]): Invo
       const customerId = customerKey === "NUTRIEN AG SOLUTIONS" ? "NUTRSTGA" : CUSTOMER_ALIASES.get(customerKey);
       if (!customerId) throw new Error(`No approved customer mapping for ${customerName}.`);
       const cents = money(lines[footer].replace(/^Total\s+Invoice\s+Amount\s*:?\s*/i, ""));
-      const charges = lines.slice(table + 1, footer).map((line) => {
+      const unpostedZeroTariffs: { tariffId: string; description: string; units: number }[] = [];
+      const charges = lines.slice(table + 1, footer).flatMap((line) => {
         const fields = line.match(chargeLine);
         if (!fields) throw new Error(`Could not read charge line: ${line}`);
         const [, tariff, description, quantity, rate, total] = fields;
-        const code = codes.get(Number(tariff));
-        if (!code) throw new Error(`Unmapped tariff ${tariff}: ${description}`);
         const units = Number(quantity.replaceAll(",", ""));
         const lineCents = money(total);
         if (!Number.isFinite(units) || units <= 0 || Math.round(units * money(rate)) !== lineCents)
           throw new Error(`Quantity × rate does not match tariff ${tariff} total.`);
-        return { code, description, units, cents: lineCents };
+        const code = codes.get(Number(tariff));
+        if (!code) {
+          if (lineCents !== 0) throw new Error(`Unmapped tariff ${tariff}: ${description}`);
+          unpostedZeroTariffs.push({ tariffId: tariff, description, units });
+          return [];
+        }
+        return [{ code, description, units, cents: lineCents }];
       });
-      if (!charges.length || charges.reduce((sum, charge) => sum + charge.cents, 0) !== cents)
+      if (!(charges.length || unpostedZeroTariffs.length) || charges.reduce((sum, charge) => sum + charge.cents, 0) !== cents)
         throw new Error("Charge totals do not match the printed invoice total.");
       const isoDate = invoiceDate(date);
-      return { reference, mark: isoDate.replaceAll("-", ""), invoiceDate: isoDate, shipperId: "", warehouseId, customerName, customerId, cents, charges };
+      return { reference, mark: isoDate.replaceAll("-", ""), invoiceDate: isoDate, shipperId: "", warehouseId, customerName, customerId, cents, charges, unpostedZeroTariffs };
     } catch (error) {
       throw new Error(`Gin Direct page ${index + 1}: ${(error as Error).message}`);
     }

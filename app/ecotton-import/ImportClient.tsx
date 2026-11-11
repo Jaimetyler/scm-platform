@@ -620,6 +620,9 @@ export default function ImportClient() {
                                 {(c.cents / 100).toFixed(2)}
                               </li>
                             ))}
+                            {opened.order.invoice.unpostedZeroTariffs?.map((line, index) => (
+                              <li key={`unposted-${index}`}>{line.tariffId} — {line.description}: {line.units} · $0.00 (no McLeod charge)</li>
+                            ))}
                           </ul>
                         </section>
                         {!opened.conflict && opened.order.status === "preview_blocked" && (
