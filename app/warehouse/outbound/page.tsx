@@ -187,7 +187,7 @@ export default function CottonOutboundPage() {
       </form>
       {working && <p role="status" style={{ color: "#94a3b8" }}>Processing {file?.name}…</p>}
       {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
-      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge, Olam Dray Dispatch, and ED&F inland drayage exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
+      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge, Olam Dray Dispatch, ED&F inland drayage, and LDC e2open exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
@@ -197,6 +197,9 @@ export default function CottonOutboundPage() {
         <label>Year for the source dates <input aria-label="Source date year" type="number" min="2000" max="2100" style={input} value={dateYear} onChange={event => { setDateYear(event.target.value); setDatesConfirmed(false); }} /></label>
         <button type="button" style={button} disabled={working || !dateYear} onClick={event => void upload(event, false)}>Apply year and review dates</button>
       </div>}
+      {preview.booking.sourceFormat === "ldc" && <label style={{ display: "block", marginBottom: 12 }}>
+        <input type="checkbox" checked={warehouseConfirmed} onChange={event => setWarehouseConfirmed(event.target.checked)} /> These Port Wentworth loads belong to {site?.siteName}.
+      </label>}
       <p>Confirm the sailing dates below, or correct them before importing. Load-by dates do not control the warehouse loading window.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 12, marginBottom: 12 }}>
         <label>ERD<input aria-label="Import ERD" type="date" style={input} value={importDates.erd} onChange={(event) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, erd: event.target.value })); }} /></label>
@@ -213,10 +216,12 @@ export default function CottonOutboundPage() {
       {preview.booking.sourceFormat !== "edf" && preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#94a3b8" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
       {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#94a3b8" }}>{warning}</p>)}
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Container", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
-        {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.needsBales ? <input aria-label={`Bales for ${line.mark} row ${line.sourceRow}`} type="number" min="1" max="1000000" style={{ ...input, width: 100 }} value={lineBales[String(line.sourceRow)] ?? ""} onChange={event => setLineBales(current => ({ ...current, [String(line.sourceRow)]: event.target.value }))} /> : line.bales}</td><td>{line.shippingOrder || "—"}</td><td>{line.containerNumber || "—"}</td><td>{line.warehouse}</td><td>{preview.booking.sourceFormat === "edf" ? (warehouseConfirmed ? "Warehouse load" : "Confirm warehouse") : line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
+        {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.needsBales ? <input aria-label={`Bales for ${line.mark} row ${line.sourceRow}`} type="number" min="1" max="1000000" style={{ ...input, width: 100 }} value={lineBales[String(line.sourceRow)] ?? ""} onChange={event => setLineBales(current => ({ ...current, [String(line.sourceRow)]: event.target.value }))} /> : line.bales}</td><td>{line.shippingOrder || "—"}</td><td>{line.containerNumber || "—"}</td><td>{line.warehouse}</td><td>{preview.booking.warehouseNeedsConfirmation ? (warehouseConfirmed ? "Warehouse load" : "Confirm warehouse") : line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
       <button style={{ ...button, marginTop: 14 }} disabled={!canWrite || working || !datesConfirmed || !!preview.booking.warnings.length ||
-        (preview.booking.sourceFormat === "edf" && (!customerConfirmed || !warehouseConfirmed || preview.booking.needsDateYear || !dateYear || preview.booking.lines.some(line => !Number.isSafeInteger(Number(lineBales[String(line.sourceRow)])) || Number(lineBales[String(line.sourceRow)]) < 1)))} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
+        (preview.booking.warehouseNeedsConfirmation && !warehouseConfirmed) ||
+        (preview.booking.sourceFormat === "edf" && (!customerConfirmed || preview.booking.needsDateYear || !dateYear)) ||
+        preview.booking.lines.some(line => line.needsBales && (!Number.isSafeInteger(Number(lineBales[String(line.sourceRow)])) || Number(lineBales[String(line.sourceRow)]) < 1))} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
     </PlatformPanel>}
 
     </div>}
