@@ -28,6 +28,7 @@ type Line = { id: string; source_row: number; mark: string; requested_bales: num
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
+type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; status: string; documentTypes: { id: string; description: string; existing: number }[] };
 type E2openDocuments = { bols: string[]; containers: { container: string; inbound: string | null; outbound: string | null }[] };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
@@ -69,6 +70,9 @@ export default function CottonOutboundBookingPage() {
   const [e2openDocuments, setE2openDocuments] = useState<E2openDocuments | null>(null);
   const [e2openLoading, setE2openLoading] = useState(false);
   const [e2openError, setE2openError] = useState("");
+  const [mcleodCheck, setMcleodCheck] = useState<McLeodDocumentCheck | null>(null);
+  const [mcleodLoading, setMcleodLoading] = useState("");
+  const [mcleodError, setMcleodError] = useState("");
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
   const savingRows = useRef(new Set<string>());
@@ -124,7 +128,10 @@ export default function CottonOutboundBookingPage() {
         [row.id]: { bookingLineId: persisted.booking_line_id ?? "", containerNumber: persisted.container_number ?? "",
           sealNumber: persisted.seal_number ?? "", chassisNumber: persisted.chassis_number ?? "", notes: persisted.notes ?? "" },
       });
-      if (persisted.container_number !== row.container_number) setE2openDocuments(null);
+      if (persisted.container_number !== row.container_number) {
+        setE2openDocuments(null);
+        setMcleodCheck(null);
+      }
       setMessage(`Container ${row.sequence_no} saved.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save container"); }
     finally { savingRows.current.delete(row.id); setWorking(""); }
@@ -240,6 +247,23 @@ export default function CottonOutboundBookingPage() {
     }
   }
 
+  async function checkMcleodOrder(container: string) {
+    setMcleodLoading(container);
+    setMcleodCheck(null);
+    setMcleodError("");
+    try {
+      const query = new URLSearchParams({ terminal, siteCode, documents: "mcleod", container });
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}?${query}`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not check McLeod.");
+      setMcleodCheck(result);
+    } catch (error) {
+      setMcleodError(error instanceof Error ? error.message : "Could not check McLeod.");
+    } finally {
+      setMcleodLoading("");
+    }
+  }
+
   function editDetails() {
     if (!booking) return;
     setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
@@ -320,11 +344,20 @@ export default function CottonOutboundBookingPage() {
       {e2openDocuments && <div aria-live="polite">
         <p><strong>Warehouse BOLs in SharePoint</strong> {e2openDocuments.bols.join(", ") || "None found"}</p>
         <table>
-          <thead><tr><th style={th}>Container</th><th style={th}>Ingate POD</th><th style={th}>Outgate POD</th></tr></thead>
+          <thead><tr><th style={th}>Container</th><th style={th}>Ingate POD</th><th style={th}>Outgate POD</th><th style={th}>McLeod</th></tr></thead>
           <tbody>{e2openDocuments.containers.map((row) => <tr key={row.container}>
             <td style={td}>{row.container}</td><td style={td}>{row.inbound ?? "Missing"}</td><td style={td}>{row.outbound ?? "Missing"}</td>
+            <td style={td}><button type="button" style={button} disabled={Boolean(mcleodLoading || working)}
+              onClick={() => void checkMcleodOrder(row.container)}>{mcleodLoading === row.container ? "Checking…" : "Check SCM order"}</button></td>
           </tr>)}</tbody>
         </table>
+        {mcleodError && <p role="alert">{mcleodError}</p>}
+        {mcleodCheck && <div role="status">
+          <p><strong>{mcleodCheck.container}</strong> {mcleodCheck.orderId ? `· SCM order ${mcleodCheck.orderId} · ` : "· "}{mcleodCheck.status}</p>
+          {mcleodCheck.documentTypes.length > 0 && <details><summary>McLeod document types and existing counts</summary>
+            <ul>{mcleodCheck.documentTypes.map(type => <li key={type.id}>{type.description} ({type.id}) · {type.existing} existing</li>)}</ul>
+          </details>}
+        </div>}
         {!e2openDocuments.containers.length && <p>No saved container numbers to check.</p>}
       </div>}
     </PlatformPanel>}

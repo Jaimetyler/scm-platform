@@ -1,3 +1,4 @@
+import { checkLdcOrder } from "@/lib/warehouse/outbound/e2open-mcleod";
 import { findE2openDocuments } from "@/lib/sharepoint/e2open-documents";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { staffProfile, withStaffAccess } from "@/lib/auth/guard";
@@ -6,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 export const runtime = "nodejs";
+export const maxDuration = 120;
 async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
@@ -30,7 +32,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id")
       .eq("booking_id", id).order("sequence_no");
     if (containerError) throw containerError;
-    if (params.get("documents") === "e2open") {
+    if (["e2open", "mcleod"].includes(params.get("documents") ?? "")) {
       const staff = staffProfile(req);
       if (!isSavannahE2openBooking(terminal, booking.customer) ||
           !(staff?.role === "admin" || staff?.role === "operator" && staff.terminal === terminal))
@@ -43,6 +45,16 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
         .filter((row) => !row.split_transfer_id && (!row.booking_line_id || activeLineIds.has(row.booking_line_id)))
         .map((row) => String(row.container_number ?? "").trim().toUpperCase())
         .filter((number) => /^[A-Z]{4}\d{7}$/.test(number)))];
+      if (params.get("documents") === "mcleod") {
+        const requested = String(params.get("container") ?? "").trim().toUpperCase();
+        if (!containerNumbers.includes(requested))
+          return NextResponse.json({ error: "Choose a saved container on this booking." }, { status: 400 });
+        const equipment = (containers ?? []).find(row => !row.split_transfer_id && String(row.container_number ?? "").trim().toUpperCase() === requested);
+        const line = (lines ?? []).find(row => row.id === equipment?.booking_line_id && row.line_status === "active");
+        return NextResponse.json(await checkLdcOrder(bookingNumber, requested, line?.mark ?? "", line?.shipping_order ?? ""), {
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
       try {
         return NextResponse.json(await findE2openDocuments(bookingNumber, containerNumbers), {
           headers: { "Cache-Control": "private, no-store" },
