@@ -26,8 +26,8 @@ const add = async (db,id,at,requestId,mark="MARK-B",bales=87,site="984") => db.q
 test("mark badges distinguish check-in, warehouse receipt, combined arrivals, and not received", () => {
   const line = { available_bales: 0, warehouse_bales: 0, inbound_bales: 90, inbound_statuses: ["waiting"] };
   assert.deepEqual(bookingMarkBadges(line).map((b) => b.label), ["Checked in"]);
-  assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87, inbound_bales: 0, inbound_statuses: [] }).map((b) => b.label), ["In warehouse"]);
-  assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87 }).map((b) => b.label), ["In warehouse", "Checked in"]);
+  assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87, inventory_locations: [" B-02 ", "A-01", "B-02", ""], inbound_bales: 0, inbound_statuses: [] }).map((b) => b.label), ["A-01", "B-02"]);
+  assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87 }).map((b) => b.label), ["Location needed", "Checked in"]);
   assert.deepEqual(bookingMarkBadges({ ...line, inbound_bales: 0, inbound_statuses: [] }).map((b) => b.label), ["Not received"]);
   assert.deepEqual(normalizeBookingMark({ mark: " d0178 ", bales: "87", shippingOrder: " SO-123 " }), { mark: "D0178", bales: 87, shippingOrder: "SO-123" });
   for (const body of [{ mark: "", bales: 90 }, { mark: "A", bales: 0 }, { mark: "A", bales: 1.5 }, { mark: "<script>", bales: 90 }]) assert.throws(() => normalizeBookingMark(body));

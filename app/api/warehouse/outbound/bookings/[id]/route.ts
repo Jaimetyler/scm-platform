@@ -94,7 +94,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       const entry = inventory.get(lot.mark) ?? { available: 0, warehouse: 0, locations: new Set<string>() };
       entry.warehouse += Number(lot.current_bales);
       if (lot.inventory_status === "active") entry.available += Math.max(0, lot.current_bales - lot.allocated_bales);
-      if (lot.warehouse_location) entry.locations.add(lot.warehouse_location);
+      if (Number(lot.current_bales) > 0 && lot.warehouse_location) entry.locations.add(lot.warehouse_location);
       inventory.set(lot.mark, entry);
     }
     const requestedByMark = new Map<string, number>();

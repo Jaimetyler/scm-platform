@@ -155,7 +155,7 @@ test('Houston correction repairs generic SCM labels with existing regular/break 
   assert.equal((await db.query("select count(*)::int n from cotton_outbound_mark_events where changed_by='SCM classification correction'")).rows[0].n,1);
   const metrics=(await db.query('select missing_marks,source_loads from cotton_outbound_booking_dashboard where id=$1',[id])).rows[0];
   assert.equal(metrics.missing_marks,0);assert.equal(metrics.source_loads,2);
-  const badges=bookingMarkBadges({load_source:'source_load',warehouse_bales:90,available_bales:90,inbound_bales:0});
-  assert.deepEqual(badges.map(b=>b.label),['Source load','In warehouse']);
+  const badges=bookingMarkBadges({load_source:'source_load',warehouse_bales:90,available_bales:90,inventory_locations:['A-01'],inbound_bales:0});
+  assert.deepEqual(badges.map(b=>b.label),['Source load','A-01']);
  }finally{await db.close();}
 });
