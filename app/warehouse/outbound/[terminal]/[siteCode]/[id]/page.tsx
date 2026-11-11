@@ -324,7 +324,7 @@ export default function CottonOutboundBookingPage() {
       return;
     }
     if (lifecycleStatus === "cancelled" && !window.confirm(`Delete booking ${booking.booking_number} from Active? You can restore it from Booking history.`)) return;
-    if (lifecycleStatus === "archived" && !window.confirm(`Archive booking ${booking.booking_number} as complete?`)) return;
+    if (lifecycleStatus === "archived" && !window.confirm(`Complete booking ${booking.booking_number} and move it to Booking history?`)) return;
     setWorking("booking-status"); setError(""); setMessage("");
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}`, {
@@ -389,6 +389,9 @@ export default function CottonOutboundBookingPage() {
     <PlatformPageHeader title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
       subtitle={`${booking.customer} · ${booking.scm_file_number ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
       actions={<><Link href={backHref} style={button}>← Booking list</Link>
+        {canWrite && <button type="button" style={{ ...button, borderColor: "#15803d", background: "#14532d" }}
+          disabled={Boolean(working) || mcleodSending || editingDetails}
+          onClick={() => void changeBookingStatus("archived")}>Complete booking</button>}
         <details className="booking-actions"><summary style={button}>Actions ▾</summary><div className="booking-actions-menu">
           <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/print`} target="_blank">Print File</Link>
           <a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`}>Export Booking</a>
@@ -396,10 +399,9 @@ export default function CottonOutboundBookingPage() {
           <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import booking details</button>
-          {canManage && (booking.status === "draft" ? <>
-            <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("archived")}>Archive completed booking</button>
+          {canManage && (booking.status === "draft" ?
             <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("cancelled")}>Delete booking</button>
-          </> : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
+          : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
         </div></details></>} />
     {canWrite && terminal === "DAL" && bookingChargeCustomer(booking.customer) && <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
     {canWrite && isSavannahE2openBooking(terminal, booking.customer) && <PlatformPanel>
