@@ -83,20 +83,41 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
       continue;
     }
     try {
-      const [types, orderImages, movementImages, history] = await Promise.all([
+      const [typesResult, orderResult, movementResult, historyResult] = await Promise.allSettled([
         imaging.types(orderId), imaging.images(orderId), imaging.movementImages(movementId),
         db.from("outbound_mcleod_document_uploads").select("id,booking_id,document_slot,receipt,status,pdf_hash,movement_retry_at").eq("mcleod_order", orderId),
       ]);
-      if (history.error) throw history.error;
-      const images = [...orderImages, ...movementImages];
+      const imagingFailure = (step: string, failure: unknown) => {
+        const status = failure instanceof Error && /^McLeod imaging HTTP \d{3}$/.test(failure.message)
+          ? ` (${failure.message})` : "";
+        results.push({ container, orderId, status: `${step} unavailable${status}` });
+      };
+      if (orderResult.status === "rejected") {
+        imagingFailure("Order image list", orderResult.reason);
+        continue;
+      }
+      if (typesResult.status === "rejected") {
+        imagingFailure("McLeod document types", typesResult.reason);
+        continue;
+      }
+      if (historyResult.status === "rejected" || historyResult.value.error || !historyResult.value.data) {
+        results.push({ container, orderId, status: "SCM upload history unavailable" });
+        continue;
+      }
+      if (movementResult.status === "rejected") {
+        imagingFailure("Movement image list", movementResult.reason);
+      }
+      const types = typesResult.value;
+      const history = historyResult.value.data;
+      const images = [...orderResult.value, ...(movementResult.status === "fulfilled" ? movementResult.value : [])];
       const sourceFiles = [
         { slot: "bol", type: "01", name: `${line.mark}.pdf`, folders: ["Sav Cotton Bols", bookingNumber] },
         { slot: "ingate", type: "05", name: `${container}_in.pdf`, folders: ["Savannah Interchanges", "Exports", bookingNumber] },
         { slot: "outgate", type: "05", name: `${container}_out.pdf`, folders: ["Savannah Interchanges", "Exports", bookingNumber] },
       ];
-      const prior = new Map(history.data.map(item => [item.document_slot, item]));
+      const prior = new Map(history.map(item => [item.document_slot, item]));
       const unknownInterchanges = images.some(image => imageTypeMatches(image, "05") &&
-        !history.data.some(item => ["ingate", "outgate"].includes(item.document_slot) && item.receipt === image.id));
+        !history.some(item => ["ingate", "outgate"].includes(item.document_slot) && item.receipt === image.id));
       for (const file of sourceFiles) {
         if (retryBol && file.slot !== "bol") continue;
         const result = { container, orderId, file: file.name };
@@ -111,6 +132,10 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
             if (reconcileError) throw reconcileError;
           }
           results.push({ ...result, status: visible ? "Already verified" : "Prior upload needs read-back review" });
+          continue;
+        }
+        if (movementResult.status === "rejected" && !retryable) {
+          results.push({ ...result, status: "Upload held until movement images can be checked" });
           continue;
         }
         if (retryBol && !retryable) {
