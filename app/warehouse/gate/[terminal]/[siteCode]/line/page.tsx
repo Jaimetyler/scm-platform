@@ -170,25 +170,6 @@ export default function DomesticLinePage() {
     } }));
     setCottonEditId(row.id);
   }
-  async function syncArrival(row: Arrival) {
-    if (!site || !canWrite || workingRef.current || outsideReviewId) return;
-    workingRef.current = row.id; setWorking(row.id); setError("");
-    try {
-      const response = await fetch("/api/warehouse/domestic-queue", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sync_arrival", id: row.id, terminal: site.terminal, siteCode: site.siteCode }),
-        signal: AbortSignal.timeout(30000),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "Could not check arrival status.");
-      setRows(current => current.map(item => item.id === row.id ? { ...item, arrival_sync_status: result.arrival.status } : item));
-      setNotice(result.arrival.status === "synced" ? "Actual arrival confirmed in McLeod." :
-        result.arrival.status === "review" ? "Arrival needs office review. No repeat update was sent." : "Arrival is still pending. The saved check-in time is retained.");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not check arrival status. Refresh the line.");
-    } finally { workingRef.current = ""; setWorking(""); }
-  }
-
   function changeCotton(id: string, field: keyof CottonFields, value: string | boolean) {
     if (!currentCanWrite.current || workingRef.current || outsideReviewId) return;
     setRows((current) => current.map((row) => row.id === id ? { ...row, outside_carrier_override_eligible: false } : row));
@@ -313,13 +294,9 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.scm_carrier && <strong style={{ color: "#86efac", display: "block" }}>SCM carrier</strong>}
               {row.matched_order_id ? <span>SCM order #{row.matched_order_id}</span> : "—"}
-              {row.matched_order_id && row.arrival_sync_status && <small style={{ display: "block", color: row.arrival_sync_status === "synced" ? "#86efac" : "#fde68a", marginTop: 5 }}>
-                {row.arrival_sync_status === "synced" ? "Arrival sent" : row.arrival_sync_status === "pending" ? "Arrival pending" : row.arrival_sync_status === "writing" ? "Sending arrival…" : "Arrival needs review"}
+              {row.matched_order_id && row.arrival_sync_status && <small title={row.arrival_sync_status === "review" ? row.arrival_sync_error || undefined : undefined} style={{ display: "block", color: row.arrival_sync_status === "synced" ? "#86efac" : "#fde68a", marginTop: 5 }}>
+                {row.arrival_sync_status === "synced" ? "Arrival sent" : row.arrival_sync_status === "pending" ? "Arrival saved in SCM" : row.arrival_sync_status === "writing" ? "Verifying McLeod arrival…" : "Arrival needs office review"}
               </small>}
-              {canWrite && row.matched_order_id && ["pending", "writing", "review"].includes(row.arrival_sync_status || "") &&
-                <button type="button" disabled={Boolean(working) || Boolean(outsideReviewId)} style={{ ...button, marginTop: 5 }} onClick={() => void syncArrival(row)}>
-                  {row.arrival_sync_status === "pending" ? "Retry arrival sync" : "Check arrival status"}
-                </button>}
               {row.carrier_code && <small style={{ display: "block", color: "#94a3b8" }}>Carrier {row.carrier_code}</small>}</td>
             <td style={cell}>{LABEL[row.yard_status]}{checkoutNeedsReview(row) && !canRetryInterruptedLookup(row) && !canPrepareLegacyLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>McLeod status needs review. This arrival stays active until any pending update is reconciled.</div>}{canPrepareLegacyLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>This earlier lookup failed before any McLeod update. Retry Search must verify the saved receiving details again.</div>}{canRetryInterruptedLookup(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>Lookup has not finished. Retry Search uses the saved receiving details.</div>}<OutsideCarrierMarker row={row} />{cottonShortage(row) && <div style={{ color: "#fde68a", marginTop: 5 }}>{cottonShortage(row)!.missing} bales short · McLeod delivery blocked{!row.customer_notified_at && " · Notify customer"}</div>}{row.id === nextWaitingId ? <div style={{ color: "#67e8f9", fontSize: 12 }}>Next in line</div> : null}</td>
             <td style={cell}><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>

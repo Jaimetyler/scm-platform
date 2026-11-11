@@ -93,3 +93,20 @@ test('multiple incomplete pickups and receiving-yard pickup are blocked before a
  if(local){p.location=structuredClone(f.order.stops[0].location);p.location_id=f.row.site_code;}else f.order.stops.push({...p,id:'PICKUP2'});
  await syncCheckinArrival(f.db,'row',f.deps);assert.equal(f.writes.length,0);assert.equal(f.pickupWrites.length,0);
 }});
+
+test('minute precision confirms arrival only when the order and stop statuses stay unchanged', async () => {
+ for (const changedStatus of [false, true]) {
+  const f = fixture();
+  const request = f.deps.request;
+  f.deps.request = async (path, body) => {
+   const result = await request(path, body);
+   if (path === '/stop/update') {
+    f.order.stops[0].actual_arrival = f.order.stops[0].actual_arrival.replace(/\d{2}(?=[+-]\d{4}$)/, '00');
+    if (changedStatus) f.order.status = 'D';
+   }
+   return result;
+  };
+  assert.equal((await syncCheckinArrival(f.db, 'row', f.deps)).status, changedStatus ? 'review' : 'synced');
+  assert.equal(f.writes.length, 1);
+ }
+});
