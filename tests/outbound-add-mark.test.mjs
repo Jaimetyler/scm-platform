@@ -27,6 +27,7 @@ test("mark badges distinguish check-in, warehouse receipt, combined arrivals, an
   const line = { available_bales: 0, warehouse_bales: 0, inbound_bales: 90, inbound_statuses: ["waiting"] };
   assert.deepEqual(bookingMarkBadges(line).map((b) => b.label), ["Checked in"]);
   assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87, inventory_locations: [" B-02 ", "A-01", "B-02", ""], inbound_bales: 0, inbound_statuses: [] }).map((b) => b.label), ["A-01", "B-02"]);
+  assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87, inventory_locations: ["A-01"], has_break_inventory: true }).map((b) => b.label), ["Break", "Checked in"]);
   assert.deepEqual(bookingMarkBadges({ ...line, warehouse_bales: 87 }).map((b) => b.label), ["Location needed", "Checked in"]);
   assert.deepEqual(bookingMarkBadges({ ...line, inbound_bales: 0, inbound_statuses: [] }).map((b) => b.label), ["Not received"]);
   assert.deepEqual(normalizeBookingMark({ mark: " d0178 ", bales: "87", shippingOrder: " SO-123 " }), { mark: "D0178", bales: 87, shippingOrder: "SO-123" });

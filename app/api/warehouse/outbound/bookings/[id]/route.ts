@@ -70,7 +70,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
     const transferById = new Map((transfers ?? []).map((transfer) => [transfer.id, transfer]));
     const marks = [...new Set((lines ?? []).map((line) => line.mark))];
     const { data: lots, error: inventoryError } = await sb.from("warehouse_inventory_lots")
-      .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,customer")
+      .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,source_type,customer")
       .eq("terminal", terminal).eq("site_code", siteCode).in("mark", marks).limit(1000);
     if (inventoryError) throw inventoryError;
     const { data: inboundRows, error: inboundError } = await sb.from("inbound_checkin_rows")
@@ -88,13 +88,16 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       if (row.yard_status) entry.statuses.add(row.yard_status);
       inbound.set(mark, entry);
     }
-    const inventory = new Map<string, { available: number; warehouse: number; locations: Set<string> }>();
+    const inventory = new Map<string, { available: number; warehouse: number; locations: Set<string>; hasBreak: boolean }>();
     for (const lot of lots ?? []) {
       if (!["active", "on_hold"].includes(lot.inventory_status)) continue;
-      const entry = inventory.get(lot.mark) ?? { available: 0, warehouse: 0, locations: new Set<string>() };
+      const entry = inventory.get(lot.mark) ?? { available: 0, warehouse: 0, locations: new Set<string>(), hasBreak: false };
       entry.warehouse += Number(lot.current_bales);
       if (lot.inventory_status === "active") entry.available += Math.max(0, lot.current_bales - lot.allocated_bales);
-      if (Number(lot.current_bales) > 0 && lot.warehouse_location) entry.locations.add(lot.warehouse_location);
+      if (Number(lot.current_bales) > 0) {
+        if (lot.warehouse_location) entry.locations.add(lot.warehouse_location);
+        if (lot.source_type === "break") entry.hasBreak = true;
+      }
       inventory.set(lot.mark, entry);
     }
     const requestedByMark = new Map<string, number>();
@@ -114,6 +117,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       warehouse_bales: inventory.get(line.mark)?.warehouse ?? 0,
       inbound_bales: inbound.get(line.mark)?.bales ?? 0,
       inbound_statuses: [...(inbound.get(line.mark)?.statuses ?? [])],
+      has_break_inventory: inventory.get(line.mark)?.hasBreak ?? false,
       inventory_locations: [...(inventory.get(line.mark)?.locations ?? [])],
     })) });
   } catch (error) {

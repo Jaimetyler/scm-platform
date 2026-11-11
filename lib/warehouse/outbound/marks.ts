@@ -1,5 +1,5 @@
 export function bookingMarkBadges(line: {
-  available_bales: number; warehouse_bales?: number; inventory_locations?: string[]; inbound_bales: number; inbound_statuses?: string[]; line_status?: string; load_source?: string; source_arrivals?: unknown[];
+  available_bales: number; warehouse_bales?: number; inventory_locations?: string[]; has_break_inventory?: boolean; inbound_bales: number; inbound_statuses?: string[]; line_status?: string; load_source?: string; source_arrivals?: unknown[];
 }) {
   const badges: { label: string; color: string; background: string; title: string }[] = [];
   if (line.line_status === "cancelled") return [{ label: "Cancelled", color: "#94a3b8", background: "rgba(71,85,105,.16)", title: "Removed from this booking’s active plan; history retained." }];
@@ -12,7 +12,8 @@ export function bookingMarkBadges(line: {
     const locations = [...new Set(line.inventory_locations?.map(location => location.trim()).filter(Boolean))].sort();
     const title = sourceLoad ? "Inventory exists at this warehouse. Review the source-load plan before dispatching."
       : "Receiving completed; this mark has inventory at this warehouse.";
-    for (const label of locations.length ? locations : ["Location needed"])
+    const labels = line.has_break_inventory ? ["Break"] : locations.length ? locations : ["Location needed"];
+    for (const label of labels)
       badges.push({ label, color: "#86efac", background: "rgba(22,163,74,.16)", title });
   }
   if (sourceLoad) {
