@@ -22,6 +22,7 @@ type FormState = {
   driverPhone: string;
   truckingCompany: string;
   trailerNumber: string;
+  equipmentType: string;
   movementDirection: string;
   materialType: string;
   orderId: string;
@@ -34,7 +35,7 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = {
-  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", trailerNumber: "", movementDirection: "", materialType: "",
+  checkinType: "", driverName: "", driverPhone: "", truckingCompany: "", trailerNumber: "", equipmentType: "", movementDirection: "", materialType: "",
   orderId: "", selectedStopId: "", referenceNumber: "", destination: "", mark: "", bolBaleCount: "", balesOnTruck: "",
 };
 
@@ -93,7 +94,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
   const agreementRef = useRef(agreement); agreementRef.current = agreement;
   const agreementContext = useRef("");
   const languageRef = useRef(language); languageRef.current = language;
-  useEffect(() => { setAgreement(value => ({ ...value, language, acknowledged: false, electronicConsent: false })); }, [language, form.driverName, form.driverPhone, form.truckingCompany, form.trailerNumber, form.referenceNumber, form.orderId, form.selectedStopId, form.destination, form.materialType, form.movementDirection, form.checkinType]);
+  useEffect(() => { setAgreement(value => ({ ...value, language, acknowledged: false, electronicConsent: false })); }, [language, form.driverName, form.driverPhone, form.truckingCompany, form.trailerNumber, form.equipmentType, form.referenceNumber, form.orderId, form.selectedStopId, form.destination, form.materialType, form.movementDirection, form.checkinType]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<LookupStatus>("idle");
@@ -356,6 +357,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
         "Find your load and confirm any match before checking in. If the search cannot finish, speak with warehouse staff.");
       return;
     }
+    if (form.checkinType === "domestic" && !form.equipmentType) { setError("Select Van or Flatbed before checking in."); return; }
     const orderReady = lookupStatusRef.current === "matched";
     const explicitSelection = orderReady && explicitSelectionRef.current;
     submitInFlight.current = true;
@@ -381,6 +383,7 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
       request.set("driverPhone", form.driverPhone);
       request.set("truckingCompany", form.truckingCompany);
       request.set("trailerNumber", form.trailerNumber);
+      request.set("equipmentType", form.equipmentType);
       request.set("movementDirection", form.movementDirection);
       request.set("materialType", form.materialType);
       request.set("orderId", orderReady ? form.orderId : "");
@@ -493,6 +496,11 @@ function DriverCheckinForm({ language }: { language: DriverLanguage }) {
           <Field label={t("Mobile number *")} value={form.driverPhone} onChange={(value) => change("driverPhone", value)} autoComplete="tel" inputMode="tel" />
           <Field label={t("Trucking company *")} value={form.truckingCompany} onChange={(value) => change("truckingCompany", value)} />
           <Field label={t(form.movementDirection === "pickup" ? "Trailer number *" : "Trailer number (optional)")} value={form.trailerNumber} onChange={value => change("trailerNumber", value)} optional={form.movementDirection !== "pickup"} maxLength={80} />
+          <label style={labelStyle}>{t("Equipment type *")}
+            <select required value={form.equipmentType} onChange={event => change("equipmentType", event.target.value)} style={inputStyle}>
+              <option value="">{t("Select")}</option><option value="V">{t("Van")}</option><option value="F">{t("Flatbed")}</option>
+            </select>
+          </label>
           <label style={labelStyle}>{t("Material *")}{" "}<select required value={form.materialType} onChange={(event) => change("materialType", event.target.value)} style={inputStyle}>
               <option value="">{t("Select")}</option>
               {site?.materials.includes("cotton") && <option value="cotton">{t("Cotton")}</option>}

@@ -157,6 +157,10 @@ async function POSTHandler(req: NextRequest) {
         driverPhone.length > 40 || truckingCompany.length > 200 || destination.length > 200 || location.length > 120 || notes.length > 500) {
       return NextResponse.json({ ok: false, error: "Enter a valid site, move, material, and reference" }, { status: 400 });
     }
+    const equipment = String(body?.equipmentType ?? "").trim().toUpperCase();
+    if (equipment !== "V" && equipment !== "F") {
+      return NextResponse.json({ ok: false, error: "Select Van or Flatbed before checking in." }, { status: 400 });
+    }
     let matchedStopId: string | null = null;
     if (orderId) {
       const yardOrder = await lookupMcleodGateOrder(orderId, site.terminal, site.siteName, direction as "pickup" | "delivery", String(body.selectedStopId || "") || undefined);
@@ -188,7 +192,7 @@ async function POSTHandler(req: NextRequest) {
       driver_name: driverName || null, driver_phone: driverPhone || null,
       trucking_company: truckingCompany || null,
       destination: direction === "pickup" ? destination || null : null,
-      warehouse_location: location || null, comment_1: notes || null, verified: false,
+      warehouse_location: location || null, equipment_type: equipment, comment_1: notes || null, verified: false,
     }).select("id").single();
     if (error?.code === "23505") return NextResponse.json({ ok: false, error: error.message }, { status: 409 });
     if (error) throw error;

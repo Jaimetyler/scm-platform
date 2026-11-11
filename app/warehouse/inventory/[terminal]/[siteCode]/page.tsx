@@ -26,6 +26,7 @@ type InventoryRow = {
   missing_bales: number;
   warehouse_location: string | null;
   booking_number: string | null;
+  outbound_bookings?: string[];
   inventory_status: InventoryStatus;
   ecotton_receipt_status: ReceiptStatus;
   notes: string | null;
@@ -61,6 +62,8 @@ export default function WarehouseInventoryPage() {
   const siteCode = String(params?.siteCode ?? "");
   const site = useMemo(() => getCheckinSite(terminalSlug, siteCode), [terminalSlug, siteCode]);
 
+  const [showBreakMarks, setBreakMarks] = useState(false);
+  const breakMarks = site?.terminal === "HOU" && showBreakMarks;
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [searchInput, setSearchInput, searchInputReady] = useWarehouseViewState("searchInput", "");
@@ -95,6 +98,7 @@ export default function WarehouseInventoryPage() {
         terminal: site.terminal, siteCode: site.siteCode, status,
         search, page: String(page),
       });
+      if (breakMarks && site.terminal === "HOU") { query.set("source", "break"); query.set("status", "all"); }
       const response = await fetch(`/api/warehouse/inventory?${query}`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Could not load inventory");
@@ -109,7 +113,7 @@ export default function WarehouseInventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [site, status, search, page, viewReady, linkReady]);
+  }, [site, status, search, page, viewReady, linkReady, breakMarks]);
 
   useEffect(() => { void loadInventory(); }, [loadInventory]);
 
@@ -174,23 +178,27 @@ export default function WarehouseInventoryPage() {
         </>}
       />
 
-      <BreakMarkImport key={`${site.terminal}:${site.siteCode}`} terminal={site.terminal} siteCode={site.siteCode} onImported={loadInventory} />
-      <div style={statsStyle}>
+      {site.terminal === "HOU" && <div aria-label="Inventory views" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button type="button" style={smallButtonStyle} aria-pressed={!breakMarks} onClick={() => { setBreakMarks(false); setPage(1); }}>Inventory</button>
+        <button type="button" style={smallButtonStyle} aria-pressed={breakMarks} onClick={() => { setBreakMarks(true); setPage(1); }}>Break marks</button>
+      </div>}
+      {(site.terminal !== "HOU" || breakMarks) && <BreakMarkImport key={`${site.terminal}:${site.siteCode}`} terminal={site.terminal} siteCode={site.siteCode} onImported={loadInventory} sheetEntry={site.terminal === "HOU"} />}
+      {(!breakMarks || site.terminal !== "HOU") && <div style={statsStyle}>
         <Stat label="Active lots" value={summary.total_lots} />
         <Stat label="Current bales" value={summary.current_bales} />
         <Stat label="Available" value={summary.available_bales} tone="green" />
         <Stat label="Allocated" value={summary.allocated_bales} tone="blue" />
         <Stat label="Missing" value={summary.missing_bales} tone={summary.missing_bales ? "red" : "default"} />
         <Stat label="E-Cotton pending" value={summary.pending_receipts} tone={summary.pending_receipts ? "amber" : "default"} />
-      </div>
+      </div>}
 
       <PlatformPanel style={{ padding: 16 }}>
         <form onSubmit={applySearch} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search mark, customer, booking or location" style={{ ...inputStyle, width: 360, maxWidth: "100%" }} />
+            placeholder={breakMarks ? "Search mark or S.O. #" : "Search mark, customer, booking or location"} style={{ ...inputStyle, width: 360, maxWidth: "100%" }} />
           <button type="submit" style={primaryButtonStyle}>Search</button>
           {search ? <button type="button" style={buttonStyle} onClick={() => { setSearchInput(""); setSearch(""); setPage(1); }}>Clear</button> : null}
-          <label style={{ color: "#94a3b8", marginLeft: "auto", fontSize: 13 }}>
+          {!breakMarks && <label style={{ color: "#94a3b8", marginLeft: "auto", fontSize: 13 }}>
             Status&nbsp;
             <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} style={inputStyle}>
               <option value="open">Open inventory</option>
@@ -199,14 +207,23 @@ export default function WarehouseInventoryPage() {
               <option value="closed">Closed</option>
               <option value="all">All</option>
             </select>
-          </label>
+          </label>}
         </form>
         {error ? <div style={errorStyle}>{error}</div> : null}
       </PlatformPanel>
 
       <PlatformPanel style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse", tableLayout: "fixed" }}>
+          {breakMarks && site.terminal === "HOU" ? <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse" }}>
+            <thead><tr>{["Break mark", "S.O. #", "Bale count", "Current bales", "Location", "On booking"].map(label => <th key={label} style={thStyle}>{label}</th>)}</tr></thead>
+            <tbody>{rows.filter(row => row.source_type === "break").map(row => <tr key={row.id}>
+              <td style={tdStyle}><strong>{row.mark}</strong><small style={subStyle}>{row.customer}</small></td>
+              <td style={tdStyle}>{row.shipping_order || "—"}</td><td style={tdStyle}>{row.original_bales}</td>
+              <td style={tdStyle}>{row.current_bales}</td><td style={tdStyle}>{row.warehouse_location || "—"}</td>
+              <td style={tdStyle}>{row.outbound_bookings?.join(", ") || row.booking_number || "—"}</td>
+            </tr>)}
+            {!loading && !rows.length && <tr><td colSpan={6} style={tdStyle}>No break marks match this view.</td></tr>}</tbody>
+          </table> : <table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse", tableLayout: "fixed" }}>
             <colgroup>{[14, 12, 8, 8, 9, 8, 11, 10, 8, 7, 5].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead><tr>
               {['Mark / Customer', 'Received', 'Original', 'Current', 'Available / Alloc.', 'Missing', 'Location', 'Booking #', 'E-Cotton', 'Status', ''].map((label) =>
@@ -223,7 +240,7 @@ export default function WarehouseInventoryPage() {
                 No inventory matches these filters.
               </td></tr> : null}
             </tbody>
-          </table>
+          </table>}
         </div>
         {loading ? <div style={{ padding: 24, color: "#94a3b8" }}>Loading inventory…</div> : null}
         <div style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(148,163,184,.12)" }}>

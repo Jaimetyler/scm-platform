@@ -207,6 +207,8 @@ async function POSTHandler(req: NextRequest) {
         { status: 400 }
       );
     }
+    const equipment = normalizeEquipmentType(body?.equipmentType);
+    if (!equipment) return NextResponse.json({ ok: false, error: "Select Van or Flatbed before checking in." }, { status: 400 });
     const site = CHECKIN_SITES.find(site => site.terminal === terminal && site.siteCode === site_code && site.materials.includes("cotton"));
     if (!site) {
       return NextResponse.json({ ok: false, error: "Cotton check-in is unavailable at this site" }, { status: 400 });
@@ -230,9 +232,6 @@ async function POSTHandler(req: NextRequest) {
     const expectedBales = pickupOrder ? positiveInteger(pickupOrder.baleCount)
       : matchedOrderId ? await verifyCottonOrder(matchedOrderId, mark, positiveInteger(body?.bolBC), true, site) : null;
 
-    const requestedEquipment = normalizeEquipmentType(body?.equipmentType);
-    const defaultEquipment: EquipmentType =
-      requestedEquipment ?? (terminal === "SAV" ? "V" : null);
 
     const insertPayload = {
       ...(clientId ? { id: clientId } : {}),
@@ -255,7 +254,7 @@ async function POSTHandler(req: NextRequest) {
       bol_bc: positiveInteger(body?.bolBC),
       bale_count: positiveInteger(body?.baleCount),
       warehouse_location: cleanText(body?.warehouseLocation).toUpperCase() || null,
-      equipment_type: defaultEquipment,
+      equipment_type: equipment,
       verified: false,
       comment_1: cleanText(body?.comment1) || null,
       comment_2: cleanText(body?.comment2) || null,

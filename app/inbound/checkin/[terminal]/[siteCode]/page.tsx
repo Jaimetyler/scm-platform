@@ -324,7 +324,7 @@ export default function SiteCheckinPage() {
       terminal: site!.terminal, site_code: site!.siteCode, site_name: site!.siteName,
       sub_location: site!.subLocations[0] ?? "MAIN", received_date: warehouseDate(new Date(), site!.terminal),
       mark: null, shipper: null, bol_bc: null, bale_count: null, warehouse_location: null,
-      equipment_type: site!.terminal === "SAV" ? "V" : null, verified: false,
+      equipment_type: null, verified: false,
       comment_1: null, comment_2: null, draft_status: "draft", processed_at: null,
     };
   }
@@ -385,6 +385,7 @@ export default function SiteCheckinPage() {
       setNewError("Enter the mark, customer, and BOL bale count.");
       return;
     }
+    if (!newCheckin.equipment_type) { setNewError("Select Van or Flatbed before checking in."); return; }
     setNewSaving(true);
     setNewError("");
     try {
@@ -1489,7 +1490,7 @@ export default function SiteCheckinPage() {
               <input style={modalInputStyle} value={newCheckin.trucking_company ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, trucking_company: event.target.value })} placeholder="Carrier name" /></label>
             <label style={modalLabelStyle}>Equipment
-              <select style={modalInputStyle} value={newCheckin.equipment_type ?? ""} onChange={(event) =>
+              <select required style={modalInputStyle} value={newCheckin.equipment_type ?? ""} onChange={(event) =>
                 setNewCheckin((current) => current && { ...current, equipment_type: event.target.value as "V" | "F" || null })}>
                 <option value="">Select</option><option value="V">Van</option><option value="F">Flatbed</option>
               </select></label>

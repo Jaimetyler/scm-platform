@@ -92,6 +92,10 @@ export const driverSpanish: Record<string, string> = {
 
 Object.assign(driverSpanish, {
   "Enter the bale quantity, not the cotton mark.": "Ingrese la cantidad de pacas, no la marca del algodón.",
+  "Equipment type *": "Tipo de equipo *",
+  "Van": "Caja seca",
+  "Flatbed": "Plataforma",
+  "Select Van or Flatbed before checking in.": "Selecciona caja seca o plataforma antes de registrarte.",
   "Trailer number *": "Número de remolque *",
   "Trailer number (optional)": "Número de remolque (opcional)",
   "Enter the trailer number before checking in.": "Ingrese el número de remolque antes de registrarse.",

@@ -79,7 +79,7 @@ async function withFixture(orders, search, run, override, options = {}) {
   }
 }
 const acceptance = { version: pickupAgreement.PICKUP_AGREEMENT_VERSION, language: 'en', printedName: 'Entered Driver', trailerNumber: 'TEST-TRAILER', productDescription: 'Test lumber', pickupNumber: '92157', referencePo: 'PO-TEST', acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] };
-const submit = { pickupAgreement: acceptance, clientId: token, checkinType: 'domestic', materialType: 'lumber', movementDirection: 'pickup',
+const submit = { pickupAgreement: acceptance, clientId: token, checkinType: 'domestic', equipmentType: 'F', materialType: 'lumber', movementDirection: 'pickup',
   driverName: 'Entered Driver', driverPhone: '555-555-9999', truckingCompany: 'Entered Company', destination: 'Paperwork Receiver',
   orderId: '92157', selectedStopId: 'PU1', referenceNumber: '92157', driverLookupInput: '92157' };
 
@@ -93,11 +93,23 @@ function assertProvisional(result, writes) {
   assert.equal(row.mcleod_lookup_status, 'unresolved');
   assert.equal(row.mcleod_lookup_failure_code, 'LOOKUP_INCOMPLETE');
   assert.equal(row.draft_status, 'checked_in');
+  assert.equal(row.equipment_type, 'F');
   assert.equal(row.verified, false);
   assert.equal(row.processed_at, null);
   assert.notEqual(row.local_receiving_only, true);
   assert.match(row.comment_1, /Provisional driver check-in/);
 }
+
+test('domestic check-in requires a valid equipment type before it can write an arrival', async () => {
+  await withFixture({}, [], async ({ writes, send }) => {
+    for (const equipmentType of ["", "unknown"]) {
+      const result = await send({ ...submit, equipmentType });
+      assert.equal(result.response.status, 400);
+      assert.match(result.body.error, /Van or Flatbed/);
+    }
+    assert.equal(writes.length, 0);
+  });
+});
 
 test('SCM-only JSON and multipart submissions persist actual order/stop, canonical reference, and original input separately', async () => {
   for (const multipart of [false, true]) {

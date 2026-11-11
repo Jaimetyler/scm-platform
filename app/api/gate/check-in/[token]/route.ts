@@ -45,6 +45,7 @@ async function requestBody(req: NextRequest) {
         driverName: form.get("driverName"),
         driverPhone: form.get("driverPhone"),
         truckingCompany: form.get("truckingCompany"),
+        equipmentType: form.get("equipmentType"),
         trailerNumber: form.get("trailerNumber"),
         movementDirection: form.get("movementDirection"),
         materialType: form.get("materialType"),
@@ -228,6 +229,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
     const materialType = clean(body?.materialType, 20).toLowerCase();
     if (checkinType === "domestic" && !configuredSite.materials.includes(materialType as "cotton" | "lumber" | "other")) {
       return NextResponse.json({ ok: false, error: "This freight type is unavailable at this site" }, { status: 400 });
+    }
+    const equipmentType = clean(body?.equipmentType, 20).toUpperCase();
+    if (checkinType === "domestic" && equipmentType !== "V" && equipmentType !== "F") {
+      return NextResponse.json({ ok: false, error: "Select Van or Flatbed before checking in." }, { status: 400 });
     }
     let referenceNumber = clean(body?.referenceNumber).toUpperCase();
     let orderId = clean(body?.orderId, 60).toUpperCase();
@@ -438,7 +443,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ token:
       bol_bc: bolBaleCount,
       bale_count: null,
       warehouse_location: null,
-      equipment_type: null,
+      equipment_type: equipmentType,
       verified: false,
       comment_1: provisionalLookup ? "Provisional driver check-in: McLeod lookup incomplete or unavailable. Staff must reconcile before any McLeod update." : null,
       comment_2: null,

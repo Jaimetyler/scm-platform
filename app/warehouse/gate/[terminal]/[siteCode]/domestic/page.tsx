@@ -33,11 +33,11 @@ type Match = { orderId: string; stopId?: string; customerId: string; customerNam
   carrierName: string; carrierCode: string; orderDate: string; orderStatus: string;
   driverName: string; driverPhone: string; completion?: McleodCompletion | null };
 type Draft = { id: string; movementDirection: "pickup" | "delivery"; materialType: "lumber" | "other";
-  referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
+  equipmentType: string; referenceNumber: string; customer: string; driverName: string; driverPhone: string; truckingCompany: string;
   destination: string; notes: string; orderId: string; selectedStopId?: string };
 function blankDraft(id: string): Draft {
   return { id, movementDirection: "pickup", materialType: "lumber", referenceNumber: "", customer: "",
-    driverName: "", driverPhone: "", truckingCompany: "", destination: "", notes: "", orderId: "" };
+    equipmentType: "", driverName: "", driverPhone: "", truckingCompany: "", destination: "", notes: "", orderId: "" };
 }
 const LABEL: Record<Status, string> = {
   waiting: "Waiting", called: "Called", in_door: "In door", working: "Loading / Unloading",
@@ -274,6 +274,7 @@ export default function DomesticQueuePage() {
       setError("Enter the reference number before saving this row.");
       return;
     }
+    if (!draft.equipmentType) { setError("Select Van or Flatbed before checking in."); return; }
     if (draftSearching[draft.id]) return;
     if (draftMatches[draft.id]?.length && draftMatches[draft.id].every((match) => match.completion && !match.completion.checkinAllowed)) {
       setError("These orders are already closed in McLeod. Verify the reference with warehouse staff.");
@@ -419,6 +420,10 @@ export default function DomesticQueuePage() {
           <label style={modalLabel}>Move<select style={modalInput} value={draft.movementDirection}
             onChange={(event) => editDraft(draft.id, { movementDirection: event.target.value as Draft["movementDirection"] })}>
             <option value="delivery">Delivery</option><option value="pickup">Pickup</option></select></label>
+          <label style={modalLabel}>Equipment type<select required style={modalInput} value={draft.equipmentType}
+            onChange={event => editDraft(draft.id, { equipmentType: event.target.value })}>
+            <option value="">Select</option><option value="V">Van</option><option value="F">Flatbed</option>
+          </select></label>
           <label style={modalLabel}>Material<select style={modalInput} value={draft.materialType}
             onChange={(event) => editDraft(draft.id, { materialType: event.target.value as Draft["materialType"] })}>
             <option value="lumber">Lumber</option><option value="other">Other / FAK</option></select></label>

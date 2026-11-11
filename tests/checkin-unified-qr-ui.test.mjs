@@ -112,6 +112,7 @@ async function mount(respond = body => body.action === 'lookupReference' ? json(
   await api.click('Pickup or Delivery');
   await api.change('Pickup or delivery? *', 'pickup');
   await api.change(label, '0824528');
+  await api.change('Equipment type *', 'F');
   return api;
 }
 
@@ -119,6 +120,7 @@ test('QR renders one exact-label input, retains pickup/delivery and cotton field
   const h = await mount(); t.after(h.dispose);
   assert.equal(h.nodes(node => node.type === 'input' && node.props.value === '0824528').length, 1);
   assert.equal(h.input(label).props.required, true);
+  assert.equal(h.input('Equipment type *').props.required, true);
   assert.equal(h.input(label).props.onBlur, undefined);
   assert.equal(h.nodes(node => node.type === 'details').length, 0);
   assert.doesNotMatch(h.text(), /Trip Contract|instead\?/);
@@ -178,6 +180,7 @@ test('unique SCM ID or reference uses one lookup flow, preserves typed input and
     assert.equal(body.get('orderId'), '0824528');
     assert.equal(body.get('selectedStopId'), 'STOP-1');
     assert.equal(body.get('driverPhone'), '555-123-8888');
+    assert.equal(body.get('equipmentType'), 'F');
     assert.equal(body.get('mark'), 'TESTMARK');
     assert.equal(body.get('bolBaleCount'), '88');
   }

@@ -204,7 +204,7 @@ test("staff create rejects historical and cancelled orders before database write
     await withMcleod(order, async () => {
       const { POST } = load("app/api/warehouse/domestic-queue/route.ts");
       const response = await POST({ json: async () => ({ terminal: "HOU", siteCode: "5300", movementDirection: "pickup",
-        materialType: "lumber", orderId: "0824528", referenceNumber: "2168418" }) });
+        materialType: "lumber", equipmentType: "V", orderId: "0824528", referenceNumber: "2168418" }) });
       assert.equal(response.status, 409);
       assert.ok((await response.json()).completion);
     });
@@ -236,7 +236,7 @@ test("driver reference and direct-ID lookups show the company; submit rejects co
     for (const action of ["lookupReference", "lookupOrder", "submit"]) {
       const req = new Request("https://scm.test/", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, orderId: "0824528", referenceNumber: "2168418", movementDirection: "pickup",
-          clientId: "12345678-1234-4234-8234-123456789012", checkinType: "domestic", materialType: "lumber",
+          clientId: "12345678-1234-4234-8234-123456789012", checkinType: "domestic", equipmentType: "V", materialType: "lumber",
           driverName: "Test Driver", driverPhone: "5551234567", truckingCompany: "Test Trucking" }) });
       const response = await POST(req, context);
       const body = await response.json();
@@ -336,7 +336,7 @@ test("staff create, staff link, and driver submit persist only a freshly verifie
           "@/lib/inbound/checkin/shortage": { cottonShortage: () => null } };
         const payload = { pickupAgreement: { version: "scm-pickup-2026-10-27-v1", language: "en", printedName: "Driver", trailerNumber: "TEST", productDescription: "Lumber", pickupNumber: "TEST", referencePo: "TEST", acknowledged: true, electronicConsent: true, strokes: [[[.1,.2],[.3,.4],[.5,.2]]] }, terminal: "HOU", siteCode: "5300", movementDirection: "pickup", materialType: "lumber",
           orderId: "0824528", selectedStopId, referenceNumber: "2168418", driverName: "Driver", driverPhone: "555-0100",
-          truckingCompany: "Carrier", destination: "Customer Receiver", clientId: existing.id, checkinType: "domestic" };
+          truckingCompany: "Carrier", destination: "Customer Receiver", clientId: existing.id, checkinType: "domestic", equipmentType: "V" };
         let response;
         if (action === "staff-create") response = await load("app/api/warehouse/domestic-queue/route.ts", overrides).POST({ json: async () => payload });
         else if (action === "staff-link") response = await load("app/api/warehouse/domestic-queue/route.ts", overrides).PATCH({ json: async () => ({ ...payload,
@@ -418,7 +418,7 @@ test('staff-created King Ranch receipts default local-only without a client flag
     '@/lib/inbound/checkin/verify-cotton-order':{verifyCottonOrder:async()=>{throw new Error('Local creation must not search McLeod');}},
   });
   const result=await POST({json:async()=>({terminal:'HOU',siteCode:'5300',siteName:'Houston 5300',
-    receivedDate:'2026-10-27',mark:'LOCALPOLICY',shipper:'KING RANCH',bolBC:90,localReceivingOnly:false})});
+    receivedDate:'2026-10-27',mark:'LOCALPOLICY',shipper:'KING RANCH',bolBC:90,equipmentType:'V',localReceivingOnly:false})});
   assert.equal(result.status,200,JSON.stringify(await result.clone().json()));
   assert.equal(payload.local_receiving_only,true);assert.equal(payload.matched_order_id,null);
   });
@@ -447,7 +447,7 @@ test("Dallas cotton pickup finds an available outbound order scheduled next week
     const { POST } = load("app/api/inbound/checkin/rows/route.ts", { "@supabase/supabase-js": { createClient: () => db } });
     const response = await POST({ json: async () => ({
       terminal: "DAL", siteCode: "SCMDDATX", siteName: "Dallas - 9280", movementDirection: "pickup",
-      mark: "W4221", shipper: "CUSTOMER", bolBC: 88, matchedOrderId: order.id,
+      mark: "W4221", shipper: "CUSTOMER", bolBC: 88, equipmentType: "F", matchedOrderId: order.id,
     }) });
     assert.equal(response.status, 200);
     assert.equal(writes[0].movement_direction, "pickup");

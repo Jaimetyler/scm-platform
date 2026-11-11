@@ -39,12 +39,14 @@ async function GETHandler(req: NextRequest) {
       .eq("terminal", terminal)
       .eq("site_code", siteCode);
 
+    const breakMarks = searchParams.get("source") === "break";
+    if (breakMarks) query = query.eq("source_type", "break");
     if (status === "open") query = query.neq("inventory_status", "closed");
     else if (status !== "all") query = query.eq("inventory_status", status);
     if (search) {
       const term = `%${search}%`;
       query = query.or(
-        `mark.ilike.${term},customer.ilike.${term},booking_number.ilike.${term},warehouse_location.ilike.${term}`
+        `mark.ilike.${term},customer.ilike.${term},booking_number.ilike.${term},warehouse_location.ilike.${term},shipping_order.ilike.${term}`
       );
     }
 
@@ -58,11 +60,26 @@ async function GETHandler(req: NextRequest) {
     if (error) throw error;
     if (summaryResult.error) throw summaryResult.error;
 
+    const bookingsByMark = new Map<string, Set<string>>();
+    if (breakMarks && data?.length) {
+      const { data: lines, error: bookingError } = await sb.from("cotton_outbound_booking_lines")
+        .select("mark, booking:cotton_outbound_bookings!inner(booking_number)")
+        .in("mark", [...new Set(data.map(row => row.mark))]).neq("line_status", "cancelled")
+        .eq("booking.terminal", terminal).eq("booking.site_code", siteCode).eq("booking.status", "draft");
+      if (bookingError) throw bookingError;
+      for (const line of lines ?? []) {
+        const booking = line.booking as unknown as { booking_number: string } | null;
+        if (!booking?.booking_number) continue;
+        const numbers = bookingsByMark.get(line.mark) ?? new Set<string>();
+        numbers.add(booking.booking_number);
+        bookingsByMark.set(line.mark, numbers);
+      }
+    }
     const totalRows = count ?? 0;
     return NextResponse.json({
       ok: true,
       site,
-      rows: data ?? [],
+      rows: breakMarks ? (data ?? []).map(row => ({ ...row, outbound_bookings: [...(bookingsByMark.get(row.mark) ?? [])].sort() })) : data ?? [],
       summary: summaryResult.data?.[0] ?? {
         total_lots: 0, current_bales: 0, allocated_bales: 0,
         available_bales: 0, missing_bales: 0, pending_receipts: 0,
