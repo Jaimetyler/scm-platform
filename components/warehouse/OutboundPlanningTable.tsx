@@ -9,12 +9,12 @@ import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-loca
 import styles from "./OutboundPlanningTable.module.css";
 
 type SortKey = "customer" | "booking_number" | "erd" | "cutoff" | "planned_containers" | "missing_marks";
-const columns: { label: string; key?: SortKey }[] = [
-  { label: "Location" }, { label: "Customer", key: "customer" }, { label: "Book ID" },
-  { label: "Containers", key: "planned_containers" }, { label: "To load" }, { label: "Loaded" }, { label: "SSL" },
-  { label: "Booking #", key: "booking_number" }, { label: "ERD", key: "erd" },
-  { label: "Cutoff", key: "cutoff" }, { label: "Ramp / return" },
-  { label: "Uncovered" }, { label: "Comments / alerts" }, { label: "" },
+const columns: { label: string; width: number; key?: SortKey }[] = [
+  { label: "Location", width: 8 }, { label: "Customer", width: 9, key: "customer" }, { label: "Book ID", width: 7 },
+  { label: "Containers", width: 7, key: "planned_containers" }, { label: "To load", width: 4 }, { label: "Loaded", width: 4 }, { label: "SSL", width: 3 },
+  { label: "Booking #", width: 8, key: "booking_number" }, { label: "ERD", width: 7, key: "erd" },
+  { label: "Cutoff", width: 8, key: "cutoff" }, { label: "Ramp / return", width: 7 },
+  { label: "Uncovered", width: 7 }, { label: "Comments / alerts", width: 13 }, { label: "", width: 8 },
 ];
 
 export default function OutboundPlanningTable({ bookings, activeBookings, returnTo, now }: {
@@ -88,22 +88,23 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
       {dallasBookings.length > 0 && <button className={styles.pull} type="button" disabled={!!refreshing}
         title="Refresh all active Dallas bookings in this location" onClick={() => void refresh(dallasBookings)}>Refresh bookings</button>}</div>
     <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts matched SCM orders with no carrier. Loaded uses warehouse pickup departure.</span></div>
-    <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable booking planning table">
-      <table className={styles.table}>
+    <div className={styles.scroll} tabIndex={0} role="region" aria-label="Booking planning table">
+      <table className={styles.table} role="table">
         <caption className={styles.caption}>Active outbound bookings with warehouse inventory alerts. Sort using column headings.</caption>
-        <thead><tr>{columns.map(column => <th key={column.label} scope="col" aria-sort={column.key && sort.key === column.key ? sort.descending ? "descending" : "ascending" : undefined}>
+        <colgroup>{columns.map(column => <col key={column.label} style={{ width: `${column.width}%` }} />)}</colgroup>
+        <thead role="rowgroup"><tr role="row">{columns.map(column => <th role="columnheader" key={column.label} scope="col" aria-sort={column.key && sort.key === column.key ? sort.descending ? "descending" : "ascending" : undefined}>
           {column.key ? <button type="button" onClick={() => setSort(current => ({ key: column.key!, descending: current.key === column.key ? !current.descending : false }))}>{column.label}{sort.key === column.key ? sort.descending ? " ↓" : " ↑" : " ↕"}</button> : column.label}
         </th>)}</tr></thead>
-        <tbody>{rows.map(item => { const pulled = info[item.id]; return <tr key={item.id}>
-          <td>{item.site_name}</td><td className={styles.customer}>{item.customer}</td><td>{item.customer_reference || "—"}</td>
-          <td className={styles.count}>{item.planned_containers ?? "—"}</td>
-          <td className={styles.number}>{pulled?.loaded != null && item.planned_containers != null ? Math.max(0, item.planned_containers - pulled.loaded) : "—"}</td>
-          <td className={styles.number}>{pulled?.loaded ?? "—"}</td><td title="Steamship line not recorded yet">—</td>
-          <td><Link className={styles.booking} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}>{item.booking_number}</Link></td>
-          <td className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
-          <td className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>
-          <td>{bookingReturnLocationLabel(item.return_location, item.return_location_code)}</td>
-          <td className={!pulled?.complete ? styles.unknown : pulled.uncovered ? styles.shortage : styles.covered}>
+        <tbody role="rowgroup">{rows.map(item => { const pulled = info[item.id]; return <tr role="row" key={item.id}>
+          <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.customer_reference || "—"}</td>
+          <td role="cell" data-label="Containers" className={styles.count}>{item.planned_containers ?? "—"}</td>
+          <td role="cell" data-label="To load" className={styles.number}>{pulled?.loaded != null && item.planned_containers != null ? Math.max(0, item.planned_containers - pulled.loaded) : "—"}</td>
+          <td role="cell" data-label="Loaded" className={styles.number}>{pulled?.loaded ?? "—"}</td><td role="cell" data-label="SSL" title="Steamship line not recorded yet">—</td>
+          <td role="cell" data-label="Booking #"><Link className={styles.booking} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}>{item.booking_number}</Link></td>
+          <td role="cell" data-label="ERD" className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
+          <td role="cell" data-label="Cutoff" className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>
+          <td role="cell" data-label="Ramp / return">{bookingReturnLocationLabel(item.return_location, item.return_location_code)}</td>
+          <td role="cell" data-label="Uncovered" className={!pulled?.complete ? styles.unknown : pulled.uncovered ? styles.shortage : styles.covered}>
             {item.terminal !== "DAL" ? "—" : pulled?.complete ? <details>
               <summary aria-label={`${pulled.uncovered} uncovered orders for booking ${item.booking_number}`}>{pulled.uncovered}</summary>
               {pulled.uncoveredOrderIds.length > 0 ? <ul aria-label="Uncovered SCM order numbers">
@@ -111,7 +112,7 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
               </ul> : <span>All matched orders have a carrier.</span>}
             </details> : "Unknown"}
           </td>
-          <td className={styles.alerts}>
+          <td role="cell" data-label="Comments / alerts" className={styles.alerts}>
             {!!item.missing_marks && <span className={styles.hold}>{item.missing_marks} inventory marks missing</span>}
             {pulled && <span>Matched {pulled.matchedOrders} SCM orders · checked {new Date(pulled.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
             {pulled && !pulled.complete && <span className={styles.arrival}>Coverage incomplete — {pulled.unknownCarriers ? `${pulled.unknownCarriers} carrier assignments unknown` : "review matched order count"}</span>}
@@ -122,7 +123,7 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
             {item.doc_cutoff && <span>Doc cutoff: {formatBookingDate(item.doc_cutoff, item.doc_cutoff_has_time)}</span>}
             {!item.held_marks && !item.source_arrivals && !item.source_loads && !item.doc_cutoff && <span>—</span>}
           </td>
-          <td>{item.terminal === "DAL" && <button className={styles.pull} type="button" disabled={!!refreshing}
+          <td role="cell" data-label="">{item.terminal === "DAL" && <button className={styles.pull} type="button" disabled={!!refreshing}
             onClick={() => void refresh([item])} aria-label={`Refresh booking ${item.booking_number}`}>
             {refreshing === item.id ? "Refreshing…" : "Refresh this booking"}
           </button>}</td>
