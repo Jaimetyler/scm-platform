@@ -25,6 +25,6 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
     const info = await readPlanningInfo(async path => { signal.throwIfAborted(); const value = await read(path); signal.throwIfAborted(); return value; }, booking, site, customer.ids, signal);
     return NextResponse.json({ ok: true, info }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ ok: false, error: "McLeod lookup incomplete. Retry Pull info before using carrier coverage." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: false, error: "McLeod lookup incomplete. Refresh this booking again." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 });

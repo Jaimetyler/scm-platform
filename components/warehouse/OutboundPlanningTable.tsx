@@ -14,34 +14,60 @@ const columns: { label: string; key?: SortKey }[] = [
   { label: "Containers", key: "planned_containers" }, { label: "To load" }, { label: "Loaded" }, { label: "SSL" },
   { label: "Booking #", key: "booking_number" }, { label: "ERD", key: "erd" },
   { label: "Cutoff", key: "cutoff" }, { label: "Ramp / return" },
-  { label: "Carrier" }, { label: "Comments / alerts" }, { label: "Uncovered" }, { label: "" },
+  { label: "Uncovered" }, { label: "Comments / alerts" }, { label: "" },
 ];
 
-export default function OutboundPlanningTable({ bookings, returnTo, now }: {
-  bookings: DashboardBooking[]; returnTo: string; now: Date;
+export default function OutboundPlanningTable({ bookings, activeBookings, returnTo, now }: {
+  bookings: DashboardBooking[]; activeBookings: DashboardBooking[]; returnTo: string; now: Date;
 }) {
   const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "cutoff", descending: false });
   const [info, setInfo] = useState<Record<string, PlanningInfo>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [pulling, setPulling] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
   const pending = useRef<AbortController | null>(null);
+  const dallasBookings = activeBookings.filter(item => item.terminal === "DAL");
+
   useEffect(() => () => { pending.current?.abort(); }, []);
-  async function pull(item: DashboardBooking) {
-    if (pending.current) return;
-    const controller = new AbortController(); pending.current = controller;
-    const timeout = window.setTimeout(() => controller.abort(), 90_000);
-    setPulling(item.id);
-    setInfo(current => { const next = { ...current }; delete next[item.id]; return next; });
-    setErrors(current => ({ ...current, [item.id]: "" }));
+
+  async function refresh(items: DashboardBooking[]) {
+    if (pending.current || !items.length) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    setInfo(current => {
+      const next = { ...current };
+      for (const item of items) delete next[item.id];
+      return next;
+    });
+    setErrors(current => {
+      const next = { ...current };
+      for (const item of items) delete next[item.id];
+      return next;
+    });
     try {
-      const response = await fetch(`/api/warehouse/outbound/bookings/${item.id}/planning-info`, { cache: "no-store", signal: controller.signal });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw Error(result.error || "Could not pull booking info.");
-      setInfo(current => ({ ...current, [item.id]: result.info }));
-    } catch (error) {
-      if (!controller.signal.aborted) setErrors(current => ({ ...current, [item.id]: error instanceof Error ? error.message : "Lookup unavailable." }));
-      else setErrors(current => ({ ...current, [item.id]: "Lookup interrupted. Retry Pull info." }));
-    } finally { window.clearTimeout(timeout); pending.current = null; setPulling(null); }
+      for (const item of items) {
+        if (controller.signal.aborted) break;
+        setRefreshing(item.id);
+        const timeout = AbortSignal.timeout(90_000);
+        try {
+          const response = await fetch(`/api/warehouse/outbound/bookings/${item.id}/planning-info`, {
+            cache: "no-store",
+            signal: AbortSignal.any([controller.signal, timeout]),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw Error(result.error || "Could not refresh booking.");
+          setInfo(current => ({ ...current, [item.id]: result.info }));
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            const message = timeout.aborted ? "Booking refresh timed out."
+              : error instanceof Error ? error.message : "Booking refresh unavailable.";
+            setErrors(current => ({ ...current, [item.id]: message }));
+          }
+        }
+      }
+    } finally {
+      pending.current = null;
+      setRefreshing(null);
+    }
   }
   const rows = [...bookings].sort((a, b) => {
     const left = a[sort.key], right = b[sort.key];
@@ -58,8 +84,10 @@ export default function OutboundPlanningTable({ bookings, returnTo, now }: {
   }
   return <section className={styles.panel} aria-label="Outbound planning sheet">
     <div className={styles.heading}><div><strong>Outbound planning sheet</strong><p>One booking per row · click a booking to open its load plan</p></div>
-      <span>{rows.length} bookings · {rows.reduce((sum, row) => sum + row.requested_bales, 0).toLocaleString()} bales</span></div>
-    <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered = matched SCM orders with no carrier. ? = lookup or order match still needed. Loaded uses warehouse pickup departure.</span></div>
+      <span>{rows.length} bookings · {rows.reduce((sum, row) => sum + row.requested_bales, 0).toLocaleString()} bales</span>
+      {dallasBookings.length > 0 && <button className={styles.pull} type="button" disabled={!!refreshing}
+        title="Refresh all active Dallas bookings in this location" onClick={() => void refresh(dallasBookings)}>Refresh bookings</button>}</div>
+    <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts matched SCM orders with no carrier. Loaded uses warehouse pickup departure.</span></div>
     <div className={styles.scroll} tabIndex={0} role="region" aria-label="Scrollable booking planning table">
       <table className={styles.table}>
         <caption className={styles.caption}>Active outbound bookings with warehouse inventory alerts. Sort using column headings.</caption>
@@ -75,7 +103,14 @@ export default function OutboundPlanningTable({ bookings, returnTo, now }: {
           <td className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
           <td className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>
           <td>{bookingReturnLocationLabel(item.return_location, item.return_location_code)}</td>
-          <td className={styles.alerts}>{pulled ? pulled.carriers.join(", ") || (pulled.matchedOrders && !pulled.unknownCarriers ? "No carrier assigned" : "Not verified") : "—"}</td>
+          <td className={!pulled?.complete ? styles.unknown : pulled.uncovered ? styles.shortage : styles.covered}>
+            {item.terminal !== "DAL" ? "—" : pulled?.complete ? <details>
+              <summary aria-label={`${pulled.uncovered} uncovered orders for booking ${item.booking_number}`}>{pulled.uncovered}</summary>
+              {pulled.uncoveredOrderIds.length > 0 ? <ul aria-label="Uncovered SCM order numbers">
+                {pulled.uncoveredOrderIds.map(id => <li key={id}>{id}</li>)}
+              </ul> : <span>All matched orders have a carrier.</span>}
+            </details> : "Unknown"}
+          </td>
           <td className={styles.alerts}>
             {!!item.missing_marks && <span className={styles.hold}>{item.missing_marks} inventory marks missing</span>}
             {pulled && <span>Matched {pulled.matchedOrders} SCM orders · checked {new Date(pulled.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
@@ -87,9 +122,10 @@ export default function OutboundPlanningTable({ bookings, returnTo, now }: {
             {item.doc_cutoff && <span>Doc cutoff: {formatBookingDate(item.doc_cutoff, item.doc_cutoff_has_time)}</span>}
             {!item.held_marks && !item.source_arrivals && !item.source_loads && !item.doc_cutoff && <span>—</span>}
           </td>
-          <td className={!pulled ? styles.unknown : pulled.uncovered > 0 ? styles.shortage : pulled.complete ? styles.covered : styles.unknown}
-            title={pulled?.complete ? "Confirmed matched orders without a carrier" : "Coverage is not fully verified"}>{pulled ? `${pulled.uncovered}${pulled.complete ? "" : " + ?"}` : "—"}</td>
-          <td><button className={styles.pull} type="button" disabled={!!pulling || item.terminal !== "DAL"} onClick={() => void pull(item)} aria-label={`Pull info for booking ${item.booking_number}`}>{pulling === item.id ? "Pulling…" : "Pull info"}</button></td>
+          <td>{item.terminal === "DAL" && <button className={styles.pull} type="button" disabled={!!refreshing}
+            onClick={() => void refresh([item])} aria-label={`Refresh booking ${item.booking_number}`}>
+            {refreshing === item.id ? "Refreshing…" : "Refresh this booking"}
+          </button>}</td>
         </tr>; })}</tbody>
       </table>
     </div>

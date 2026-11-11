@@ -13,7 +13,7 @@ test('carrierless matched orders count as uncovered; assigned carrier stays cove
   const a = order('1', 'CARRIER1'), b = order('2');
   a.stops[0].actual_departure = '2026-11-10T10:00:00';
   const result = await lookup([a, b]);
-  assert.equal(result.uncovered, 1); assert.deepEqual(result.carriers, ['CARRIER1']);
+  assert.equal(result.uncovered, 1); assert.deepEqual(result.uncoveredOrderIds, ['2']); assert.deepEqual(result.carriers, ['CARRIER1']);
   assert.equal(result.complete, true); assert.equal(result.loaded, 1);
 });
 test('empty results and incomplete planned order count never imply fully covered', async () => {

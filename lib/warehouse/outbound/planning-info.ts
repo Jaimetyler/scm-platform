@@ -4,7 +4,7 @@ import type { CheckinSite } from "../../inbound/checkin/sites.ts";
 
 export type PlanningInfo = {
   checkedAt: string; matchedOrders: number; uncovered: number; unknownCarriers: number;
-  loaded: number | null; carriers: string[]; orderIds: string[]; complete: boolean;
+  loaded: number | null; carriers: string[]; uncoveredOrderIds: string[]; complete: boolean;
 };
 const text = (value: unknown) => String(value ?? "").trim();
 const key = (value: unknown) => text(value).toUpperCase();
@@ -39,7 +39,8 @@ export async function readPlanningInfo(read: (path: string) => Promise<unknown>,
     if (rows.length < 5) { exhausted = true; break; }
   }
   if (!exhausted) throw Error("Too many booking orders to verify completely. Narrow the lookup before using coverage.");
-  let uncovered = 0, unknownCarriers = 0, loaded = 0, loadedKnown = true;
+  const uncoveredOrderIds: string[] = [];
+  let unknownCarriers = 0, loaded = 0, loadedKnown = true;
   const carriers = new Set<string>();
   for (const order of matched) {
     const movements = Array.isArray(order.movements) ? order.movements : [];
@@ -54,13 +55,13 @@ export async function readPlanningInfo(read: (path: string) => Promise<unknown>,
       const code = fields.map(field => text(movement[field])).find(Boolean);
       const named = [movement.carrier, movement.vendor, movement.payee].map(value => text(value?.name)).find(Boolean) || text(movement.carrier_name || movement.vendor_name);
       if (code || named) carriers.add(named || code!);
-      else uncovered++;
+      else uncoveredOrderIds.push(text(order.id));
     }
     if (!Object.hasOwn(pickup, "actual_departure")) loadedKnown = false;
     else if (pickup.actual_departure) loaded++;
   }
   // A successful empty lookup is not evidence that any trucks are uncovered.
   const complete = matched.length > 0 && unknownCarriers === 0 && booking.planned_containers != null && matched.length === booking.planned_containers;
-  return { checkedAt: new Date().toISOString(), matchedOrders: matched.length, uncovered, unknownCarriers,
-    loaded: loadedKnown && complete ? loaded : null, carriers: [...carriers].sort(), orderIds: matched.map(order => text(order.id)), complete };
+  return { checkedAt: new Date().toISOString(), matchedOrders: matched.length, uncovered: uncoveredOrderIds.length, unknownCarriers,
+    loaded: loadedKnown && complete ? loaded : null, carriers: [...carriers].sort(), uncoveredOrderIds, complete };
 }
