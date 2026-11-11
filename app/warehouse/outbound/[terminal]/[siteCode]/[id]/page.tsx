@@ -25,7 +25,7 @@ type Container = { id: string; sequence_no: number; booking_line_id: string | nu
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
   line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string;
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
-type Booking = { return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
+type Booking = { steamship_line?: string | null; return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
@@ -62,7 +62,7 @@ export default function CottonOutboundBookingPage() {
   const [markAction, setMarkAction] = useState<{ line: Line; action: "hold" | "resume" | "cancel" | "warehouse" | "keep_source"; note: string } | null>(null);
   const [actionError, setActionError] = useState("");
   const [editingDetails, setEditingDetails] = useState(false);
-  const [details, setDetails] = useState({ scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "" });
+  const [details, setDetails] = useState({ scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "" });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
@@ -209,7 +209,7 @@ export default function CottonOutboundBookingPage() {
   function editDetails() {
     if (!booking) return;
     setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
-      cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "", returnLocation: booking.return_location ?? "" });
+      cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "", returnLocation: booking.return_location ?? "", steamshipLine: booking.steamship_line ?? "" });
     setEditingDetails(true);
     setImportedDateNotes([]);
   }
@@ -224,10 +224,11 @@ export default function CottonOutboundBookingPage() {
       if (!response.ok) throw new Error(result.error);
       if (result.booking.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${result.booking.bookingNumber}, not ${booking.booking_number}.`);
       const source = result.booking;
-      if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
+      if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.steamshipLine && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
       setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: source.erd ?? bookingDateInput(booking.erd),
         docCutoff: source.docCutoff ?? bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
-        cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "", returnLocation: source.returnLocation || booking.return_location || "" });
+        cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "", returnLocation: source.returnLocation || booking.return_location || "",
+        steamshipLine: source.steamshipLine || booking.steamship_line || "" });
       setImportedDateNotes([...(source.sourceDates ?? []).map(({ label, value }: { label: string; value: string }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`), ...(source.detailNotes ?? [])]);
       setEditingDetails(true); setMessage("Review the imported booking details, then save.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not import booking details"); }
@@ -287,6 +288,7 @@ export default function CottonOutboundBookingPage() {
       <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, booking.doc_cutoff_has_time !== false)}</span>
       <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, booking.cutoff_has_time !== false)}</span>
       <span><strong>Return location</strong> {bookingReturnLocationLabel(booking.return_location, booking.return_location_code)}{booking.return_location_code ? ` · ${booking.return_location_code}` : ""}</span>
+      <span><strong>Steamship line</strong> {booking.steamship_line || "—"}</span>
       {booking.vessel ? <span><strong>Vessel</strong> {booking.vessel}</span> : null}
     </div>
     <input ref={requestInput} type="file" accept=".xlsx,.xlsb" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />
@@ -298,6 +300,7 @@ export default function CottonOutboundBookingPage() {
         <CutoffInput label="Doc cutoff" value={details.docCutoff} onChange={(value) => setDetails((current) => ({ ...current, docCutoff: value }))} />
         <CutoffInput label="Cutoff" value={details.cutoff} onChange={(value) => setDetails((current) => ({ ...current, cutoff: value }))} />
         <label>Return location<input style={input} maxLength={300} value={details.returnLocation} onChange={event => setDetails(current => ({ ...current, returnLocation: event.target.value }))} /></label>
+        <label>Steamship line (SSL)<input style={input} maxLength={200} value={details.steamshipLine} onChange={event => setDetails(current => ({ ...current, steamshipLine: event.target.value }))} /></label>
         <label>Vessel<input style={input} maxLength={200} value={details.vessel} onChange={(event) => setDetails((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div><p style={{ color: "#94a3b8", fontSize: 12 }}>Times are optional and local to {booking.site_name}.</p>
       <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "details" ? "Saving…" : "Save details"}</button>
