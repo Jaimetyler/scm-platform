@@ -90,5 +90,7 @@ export function safeOutboundReturn(value: string | null): string | null {
   if (!value || !value.startsWith("/warehouse/outbound?")) return null;
   // Rebuild from known parameters only; never carry an arbitrary return URL.
   const query = new URLSearchParams(value.slice(value.indexOf("?") + 1));
-  return workspaceHref("outbound", routeLocation("/warehouse/outbound", query) ?? ALL_LOCATIONS, "cotton", query.toString());
+  const href = workspaceHref("outbound", routeLocation("/warehouse/outbound", query) ?? ALL_LOCATIONS, "cotton", query.toString());
+  const layout = query.get("layout");
+  return layout === "cards" || layout === "sheet" ? `${href}&layout=${layout}` : href;
 }

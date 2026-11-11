@@ -56,7 +56,8 @@ export default function CottonOutboundPage() {
     ...(queryParams.has("basis") ? { basis: queryParams.get("basis") as Preferences["basis"] } : {}),
     ...(queryParams.has("view") ? { view: queryParams.get("view") as DeadlineView } : {}),
     ...(queryParams.has("group") ? { group: queryParams.get("group") as BookingGroup } : {}),
-    ...(queryParams.has("layout") ? { layout: queryParams.get("layout") as Preferences["layout"] } : {}),
+    layout: queryParams.get("layout") === "cards" ? "cards"
+      : queryParams.get("layout") === "sheet" || location.terminal === "DAL" ? "sheet" : storedPreferences.layout,
     ...(queryParams.has("q") ? { search: queryParams.get("q") } : {}),
   });
   function setPreferences(update: SetStateAction<Preferences>) {
@@ -177,7 +178,7 @@ export default function CottonOutboundPage() {
         <p style={{ color: "#cbd5e1" }}>Choose the warehouse receiving this booking:</p>
         <div aria-label="Import warehouse" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
           {sites.map((item) => <button key={`${item.terminal}:${item.siteCode}`} type="button" disabled={working} style={button}
-            onClick={() => setPreferences((current) => ({ ...current, warehouse: `${item.terminal}:${item.siteCode}` }))}>{item.siteName}</button>)}
+            onClick={() => setPreferences((current) => ({ ...current, warehouse: `${item.terminal}:${item.siteCode}`, layout: item.terminal === "DAL" ? "sheet" : current.layout }))}>{item.siteName}</button>)}
         </div>
       </div>}
       <form onSubmit={(event) => void upload(event, false)} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>

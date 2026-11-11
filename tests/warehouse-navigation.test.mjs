@@ -30,6 +30,8 @@ test('changing locations preserves outbound filters without retaining old locati
 });
 test('booking return restores the original all-sites scope and filters, allowing a cleared search', () => {
   assert.equal(safeOutboundReturn('/warehouse/outbound?warehouse=all&terminal=SAV&basis=erd&view=today&group=vessel&q='), '/warehouse/outbound?terminal=SAV&warehouse=all&basis=erd&view=today&group=vessel&q=');
+  assert.equal(safeOutboundReturn('/warehouse/outbound?terminal=DAL&layout=cards'), '/warehouse/outbound?terminal=DAL&warehouse=all&layout=cards');
+  assert.equal(safeOutboundReturn('/warehouse/outbound?terminal=DAL&layout=invalid'), '/warehouse/outbound?terminal=DAL&warehouse=all');
   assert.equal(safeOutboundReturn('https://example.com'), null);
   assert.equal(safeOutboundReturn('//example.com'), null);
   assert.equal(safeOutboundReturn('/warehouse/outbound/evil'), null);
