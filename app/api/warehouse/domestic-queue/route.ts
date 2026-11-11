@@ -1,6 +1,6 @@
 import { canBindCottonRepairStop } from "@/lib/inbound/checkin/departure-repair";
 import { warehouseDayRange } from "@/lib/warehouse/day-activity";
-import { syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
+import { reconcileCheckinArrival, syncCheckinArrival } from "@/lib/inbound/checkin/arrival-sync";
 import { randomUUID } from "node:crypto";
 import { configuredLocalReceiving } from "@/lib/inbound/checkin/local-receiving";
 import { outsideCarrierOverrideEligible, canPrepareMcleodLookup } from "@/lib/inbound/checkin/lookup-failure";
@@ -118,6 +118,16 @@ async function GETHandler(req: NextRequest) {
       data.push(...(result.data ?? []));
       if (!daily || (result.data?.length ?? 0) < 1000) break;
     }
+    if (line || daily) {
+      const db = database();
+      const awaitingConfirmation = data.filter(row => row.arrival_sync?.status === "writing" || row.arrival_sync?.[0]?.status === "writing").slice(0, 4);
+      await Promise.all(awaitingConfirmation.map(async row => {
+        const result = await reconcileCheckinArrival(db, row.id);
+        if (result.status === "synced" || result.status === "review") {
+          row.arrival_sync = { status: result.status };
+        }
+      }));
+    }
     const displayRows = await enrichDisplayCarriers(data ?? [], line);
     return NextResponse.json({ ok: true, rows: displayRows.map(row => ({ ...queueRow(row), carrier_code: row.carrier_code, scm_carrier: row.scm_carrier })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -205,7 +215,7 @@ async function PATCHHandler(req: NextRequest) {
         .eq("terminal", terminal).eq("site_code", siteCode).maybeSingle();
       if (saved.error) return databaseFailure(saved);
       if (!saved.data) return NextResponse.json({ ok: false, error: "Arrival not found in this yard." }, { status: 404 });
-      const result = await syncCheckinArrival(db, id);
+      const result = await reconcileCheckinArrival(db, id);
       return NextResponse.json({ ok: true, arrival: result });
     }
     if (body?.action === "process_outside_carrier") {
@@ -313,6 +323,12 @@ async function PATCHHandler(req: NextRequest) {
       }
       if (!row || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || !row.checked_in_at) {
         return NextResponse.json({ ok: false, error: "This arrival has already changed. Refresh the line." }, { status: 409 });
+      }
+      if (body.action === "checkout") {
+        const arrival = await reconcileCheckinArrival(sb, id);
+        if (arrival.status === "writing") {
+          return NextResponse.json({ ok: false, error: "SCM is still verifying McLeod arrival. Check out again after verification finishes." }, { status: 409 });
+        }
       }
       if (body.action === "reconcile_checkout") {
         if (row.mcleod_processing_phase !== "write_pending" || !row.mcleod_lookup_attempt_id ||

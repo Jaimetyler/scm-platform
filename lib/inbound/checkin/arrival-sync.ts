@@ -31,7 +31,7 @@ export function arrivalConfirmed(order: any, row: any, plan: Snapshot) {
   const selected = selectMcleodYardStop(order, row.terminal, row.site_name, row.movement_direction, plan.stopId);
   const after = evidence(order, selected);
   return pickupsConfirmed(order, plan) && text(order.id) === plan.orderId && text(selected.stop.company_id || order.company_id) === plan.company &&
-    instant(selected.stop.actual_arrival) === instant(plan.arrival) &&
+    Math.floor(instant(selected.stop.actual_arrival) / 60000) === Math.floor(instant(plan.arrival) / 60000) &&
     JSON.stringify(after.schedule) === JSON.stringify(plan.schedule) &&
     JSON.stringify(after.statuses) === JSON.stringify(plan.statuses);
 }
@@ -48,10 +48,14 @@ async function request(path: string, body?: unknown) {
   if (!response.ok) throw new Error("McLeod did not confirm arrival");
   return body || clearPickup ? null : response.json();
 }
-const defaults = { request, lookup: lookupMcleodGateOrder, enabled: () => process.env.MCLEOD_SYNC_ENABLED === "true" };
+const defaults = { request, lookup: lookupMcleodGateOrder, enabled: () => process.env.MCLEOD_SYNC_ENABLED === "true" && process.env.MCLEOD_ARRIVAL_AT_CHECKIN_ENABLED === "true" };
 
 /** Only saved server-owned identities/timestamps can reach the vendor. A pending
  * ledger can retry reads; a claimed write can only be reconciled, never replayed. */
+export async function reconcileCheckinArrival(db: any, id: string) {
+  return syncCheckinArrival(db, id, { ...defaults, enabled: () => false });
+}
+
 export async function syncCheckinArrival(db: any, id: string, deps = defaults) {
   let attempted = false;
   try {
@@ -83,7 +87,7 @@ export async function syncCheckinArrival(db: any, id: string, deps = defaults) {
         .eq("checkin_id", id).eq("status", ledger.status);
       return { status: "review" };
     }
-    if (!deps.enabled()) return { status: "pending" };
+    if (!deps.enabled()) return { status: "checkout" };
     if (row.physical_departed_at || !["waiting", "called", "in_door", "working"].includes(row.yard_status) || row.mcleod_processing_phase === "write_pending")
       return { status: "checkout" };
     const order = await deps.request(`/orders/${encodeURIComponent(row.matched_order_id)}`);
@@ -160,7 +164,7 @@ export async function syncCheckinArrival(db: any, id: string, deps = defaults) {
     const status = attempted ? "review" : "pending";
     try { await db.from("inbound_arrival_sync").update({ status,
       error: attempted ? "Arrival response is uncertain. Check arrival status before retrying; no repeat update will be sent."
-        : "Arrival has not been sent. Retry arrival sync when McLeod is available." })
+        : "Arrival is saved in SCM. McLeod arrival will be handled at checkout." })
       .eq("checkin_id", id).eq("status", attempted ? "writing" : "pending"); } catch { /* Durable claim remains fenced. */ }
     return { status };
   }
