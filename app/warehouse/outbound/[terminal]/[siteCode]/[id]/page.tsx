@@ -28,7 +28,7 @@ type Line = { id: string; source_row: number; mark: string; requested_bales: num
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
-type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; status: string; documentTypes: { id: string; description: string }[]; existingImages: { id: string; type: string; description: string; scanDate: string }[] };
+type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; movementId: string | null; movementImagesAvailable: boolean; status: string; documentTypes: { id: string; description: string }[]; existingImages: { id: string; type: string; description: string; scanDate: string; scope: string }[] };
 type McLeodUploadResult = { container: string; orderId?: string; file?: string; status: string };
 type E2openDocuments = { bols: string[]; containers: { container: string; inbound: string | null; outbound: string | null }[] };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
@@ -384,9 +384,11 @@ export default function CottonOutboundBookingPage() {
         ))}</ul>}
         {mcleodCheck && <div role="status">
           <p><strong>{mcleodCheck.container}</strong> {mcleodCheck.orderId ? `· SCM order ${mcleodCheck.orderId} · ` : "· "}{mcleodCheck.status}</p>
+          {mcleodCheck.orderId && <p>Movement {mcleodCheck.movementId ?? "could not be verified"}
+            {mcleodCheck.movementId && !mcleodCheck.movementImagesAvailable ? " · Movement images unavailable" : ""}</p>}
           <details open><summary>Existing McLeod documents</summary>
             {mcleodCheck.existingImages.length > 0 ? <ul>{mcleodCheck.existingImages.map(image => (
-              <li key={image.id}>{[image.type, image.description, image.scanDate].filter(Boolean).join(" · ")}</li>
+              <li key={image.scope + image.id}>{[image.scope, image.type, image.description, image.scanDate].filter(Boolean).join(" · ")}</li>
             ))}</ul> : <p>{mcleodCheck.status === "Verified order" ? "No existing documents returned." : "Existing documents unavailable."}</p>}
           </details>
           {mcleodCheck.documentTypes.length > 0 && <details><summary>Available McLeod document types</summary>

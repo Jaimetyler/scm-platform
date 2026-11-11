@@ -68,17 +68,22 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
       continue;
     }
     const match = await findLdcOrder(bookingNumber, container, line.mark, line.shipping_order ?? "");
-    const orderId = match.orderId;
+    const { orderId, movementId } = match;
     if (!orderId) {
       results.push({ container, status: match.status });
       continue;
     }
+    if (!movementId) {
+      results.push({ container, orderId, status: "No verified current McLeod movement" });
+      continue;
+    }
     try {
-      const [types, images, history] = await Promise.all([
-        imaging.types(orderId), imaging.images(orderId),
+      const [types, orderImages, movementImages, history] = await Promise.all([
+        imaging.types(orderId), imaging.images(orderId), imaging.movementImages(movementId),
         db.from("outbound_mcleod_document_uploads").select("document_slot,receipt,status").eq("mcleod_order", orderId),
       ]);
       if (history.error) throw history.error;
+      const images = [...orderImages, ...movementImages];
       const sourceFiles = [
         { slot: "bol", type: "01", name: `${line.mark}.pdf`, folders: ["Sav Cotton Bols", bookingNumber] },
         { slot: "ingate", type: "05", name: `${container}_in.pdf`, folders: ["Savannah Interchanges", "Exports", bookingNumber] },
@@ -145,9 +150,10 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
         let receipt: string | null = null;
         let status = "uncertain";
         try {
-          receipt = await imaging.upload(orderId, selectedType.id, bytes);
+          receipt = await imaging.upload(orderId, selectedType.id, bytes, movementId);
           status = "staged";
-          if (receiptVisible(await imaging.images(orderId), receipt, file.type)) status = "verified";
+          const readBack = await Promise.allSettled([imaging.images(orderId), imaging.movementImages(movementId)]);
+          if (readBack.some(result => result.status === "fulfilled" && receiptVisible(result.value, receipt!, file.type))) status = "verified";
         } catch { /* A timeout can follow an accepted upload. Preserve the claim. */ }
         const { error: receiptError } = await db.from("outbound_mcleod_document_uploads")
           .update({ status, receipt }).eq("id", claim.id);
