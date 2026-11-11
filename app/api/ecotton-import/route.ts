@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { PROFILES } from "@/lib/ecotton/model";
+import { ginDirectProfile, parseGinDirectInvoices } from "@/lib/ecotton/gin-direct";
 import { parseInvoices } from "@/lib/ecotton/parse";
 import {
   findDuplicates,
@@ -51,18 +52,19 @@ async function POSTHandler(req: NextRequest) {
   const body = await req.json(),
     db = staffDatabase(),
     actor = staffActor(req);
-  if (body.action === "preview") {
-    const profile = PROFILES.find((p) => p.id === body.profileId);
+  if (body.action === "preview" || body.action === "preview-gin-direct") {
+    const ginDirect = body.action === "preview-gin-direct";
+    const profile = ginDirect ? ginDirectProfile(body.pages) : PROFILES.find((p) => p.id === body.profileId);
     if (!profile?.confirmed)
       throw new Error("Select a terminal with confirmed import defaults.");
     if (
-      typeof body.summaryCSV !== "string" ||
-      typeof body.detailCSV !== "string"
+      !ginDirect && (typeof body.summaryCSV !== "string" ||
+      typeof body.detailCSV !== "string")
     )
       throw new Error("Upload both original CSV reports.");
     const [{ data: descriptions, error: de }, { data: tariffs, error: te }] =
       await Promise.all([
-        db
+        ginDirect ? { data: [], error: null } : db
           .from("billing_charge_description_xref")
           .select("normalized_description,tariff_id,active")
           .eq("terminal", profile.terminal)
@@ -74,7 +76,7 @@ async function POSTHandler(req: NextRequest) {
           .eq("active", true),
       ]);
     if (de || te) throw new Error("Terminal billing mappings are unavailable.");
-    const invoices = parseInvoices(
+    const invoices = ginDirect ? parseGinDirectInvoices(body.pages, tariffs) : parseInvoices(
       body.summaryCSV,
       body.detailCSV,
       profile,

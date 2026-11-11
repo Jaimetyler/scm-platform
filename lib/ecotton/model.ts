@@ -25,6 +25,7 @@ export type Invoice = {
   mark: string;
   invoiceDate: string;
   shipperId: string;
+  warehouseId?: string;
   customerName: string;
   customerId: string;
   cents: number;

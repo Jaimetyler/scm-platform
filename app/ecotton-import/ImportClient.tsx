@@ -40,6 +40,9 @@ function displayDeliveryDate(value: string) {
   return m ? `${m[2]}/${m[3]}/${m[1]} ${m[4]}:${m[5]}:${m[6]} (${m[7]}:${m[8]})` : value;
 }
 export default function ImportClient() {
+  const [ginDirect, setGinDirect] = useState(false);
+  const [pdfs, setPdfs] = useState<File[]>([]);
+  const [scanProgress, setScanProgress] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [openedId, setOpenedId] = useState<string | null>(null);
@@ -85,6 +88,7 @@ export default function ImportClient() {
     if (runId) {
       setSaved(data);
       if (data.run?.profile?.id) setProfile(data.run.profile.id);
+      setGinDirect(data.run?.profile?.orderedBy === "GIN DIRECT");
       setDeliveryPreview([]);
     }
     else {
@@ -97,7 +101,9 @@ export default function ImportClient() {
   useEffect(() => {
     refresh()
       .then(() => {
-        const runId = new URLSearchParams(window.location.search).get("run");
+        const params = new URLSearchParams(window.location.search);
+        setGinDirect(params.get("source") === "gin-direct");
+        const runId = params.get("run");
         if (runId) return refresh(runId);
       })
       .catch((e) => setError(e.message));
@@ -113,6 +119,32 @@ export default function ImportClient() {
       setBusy(false);
     }
   }
+  function clearReview() {
+    setSaved(null);
+    setConfirmed(false);
+    setSelected(new Set());
+    setError("");
+  }
+
+  async function previewGinDirect() {
+    await act(async () => {
+      clearReview();
+      setScanProgress("Starting invoice reader…");
+      try {
+        const { readGinDirectPdfs } = await import("@/lib/ecotton/gin-direct-ocr");
+        const pages = await readGinDirectPdfs(pdfs, setScanProgress);
+        setScanProgress("Checking invoice totals, tariff mappings, and duplicates…");
+        const data = await call({ action: "preview-gin-direct", pages });
+        setProfile(data.run.profile.id);
+        setSaved(data);
+        setWrites(data.writesEnabled);
+        await refresh();
+      } finally {
+        setScanProgress("");
+      }
+    });
+  }
+
   const items = saved?.items || [],
     total = items.reduce(
       (sum, item) => sum + Number(item.order.invoice.cents),
@@ -203,10 +235,10 @@ export default function ImportClient() {
         color: "#e2e8f0",
       }}
     >
-      <h1>eCotton Order Import</h1>
+      <h1>{ginDirect ? "Gin Direct Invoice Import" : "eCotton Order Import"}</h1>
       <p>
-        Upload untouched warehouse reports, review duplicate checks, then create
-        and rate orders. Verified Houston orders can then be delivered using their saved scheduled dates.
+        {ginDirect ? "Upload eCotton service invoice PDFs. Each page becomes one order for review, rating, and delivery."
+          : "Upload warehouse reports, review duplicate checks, then create, rate, and deliver eligible orders."}
       </p>
       {!writes && (
         <p role="status" style={{ ...card, borderColor: "#eab308" }}>
@@ -222,7 +254,44 @@ export default function ImportClient() {
           {error}
         </div>
       )}
-      <section style={card}>
+      <div aria-label="Import source">
+        {[false, true].map((pdf) => (
+          <button key={String(pdf)} type="button" style={button} disabled={busy} aria-pressed={ginDirect === pdf}
+            onClick={() => {
+              if (ginDirect === pdf) return;
+              clearReview();
+              setSummary("");
+              setDetail("");
+              setNames({ summary: "", detail: "" });
+              setPdfs([]);
+              setGinDirect(pdf);
+            }}>
+            {pdf ? "Gin Direct PDFs" : "Warehouse reports"}
+          </button>
+        ))}
+      </div>
+      {ginDirect ? (
+        <section style={{ ...card, marginTop: 18 }}>
+          <label htmlFor="gin-direct-pdfs">Invoice PDFs for one warehouse</label>
+          <input id="gin-direct-pdfs" type="file" multiple accept=".pdf,application/pdf" style={field} disabled={busy}
+            onChange={(event) => {
+              clearReview();
+              const files = Array.from(event.target.files ?? []);
+              if (files.some((file) => !/\.pdf$/i.test(file.name) || file.size > 25_000_000)) {
+                setError("Each attachment must be a PDF smaller than 25 MB.");
+                event.target.value = "";
+                setPdfs([]);
+                return;
+              }
+              setPdfs(files);
+            }} />
+          <button type="button" style={button} disabled={busy || !pdfs.length} onClick={previewGinDirect}>
+            Check invoices and duplicates
+          </button>
+          {scanProgress && <p role="status">{scanProgress}</p>}
+        </section>
+      ) : (
+      <section style={{ ...card, marginTop: 18 }}>
         <h2>Warehouse reports</h2>
         <div className={styles.uploadGrid}>
         <div>
@@ -344,9 +413,13 @@ export default function ImportClient() {
           </p>
         )}
       </section>
+      )}
       {saved && (
         <section style={card}>
           <h2>Import review</h2>
+          {saved.run.profile.orderedBy === "GIN DIRECT" && (
+            <p>Warehouse {items[0]?.order.invoice.warehouseId} · Pickup and delivery {saved.run.profile.location} · Ordered by GIN DIRECT · SCMIRIGA carrier pay $0.00</p>
+          )}
           <p>
             {items.length} orders · Expected total ${(total / 100).toFixed(2)} ·{" "}
             {ready.length} eligible to process · {chosen.length} selected
@@ -441,7 +514,7 @@ export default function ImportClient() {
               <thead>
                 <tr>
                   {[
-                    "Reference / mark",
+                    ginDirect ? "Invoice BOL / consignee ref" : "Reference / mark",
                     "Customer",
                     "Invoice date",
                     "Expected",

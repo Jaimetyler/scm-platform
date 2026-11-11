@@ -10,7 +10,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "predev": "node scripts/prepare-gin-direct-ocr.mjs",
+    "prebuild": "node scripts/prepare-gin-direct-ocr.mjs"
   },
   "keywords": [],
   "author": "",
@@ -19,15 +21,19 @@
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.99.2",
+    "@tesseract.js-data/eng": "1.0.0",
     "dotenv": "^17.3.1",
     "fflate": "0.8.2",
     "mssql": "^12.2.1",
     "next": "15.5.27",
     "papaparse": "^5.5.3",
     "pdf-lib": "1.17.1",
+    "pdfjs-dist": "5.4.624",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tesseract.js": "7.0.0",
+    "tesseract.js-core": "7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

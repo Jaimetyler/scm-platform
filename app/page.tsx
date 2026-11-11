@@ -56,6 +56,7 @@ export default async function Home() {
             {canUseInboundImporter(staff) && <ToolCard href="/bunge-import" category="Importing" title="Inbound Cotton Importer" description="Review dispatches, warehouse mappings and pickup windows for all three terminals." />}
             {billing && <>
             <ToolCard href="/ecotton-import" category="Importing" title="eCotton Order Import" description="Review warehouse reports, check duplicates, and create and rate orders." />
+            <ToolCard href="/ecotton-import?source=gin-direct" category="Importing" title="Gin Direct Invoice Import" description="Upload invoice PDFs to create, rate, and deliver eCotton orders." />
             <ToolCard href="/dray-import" category="Importing" title="Savannah Dray Import" description="Match FirstStar carrier pay, review billing and deliver orders." />
             <ToolCard href="/dray-import/dallas" category="Importing" title="Dallas Dray Import" description="Preview planned rail drays from customer booking requests." />
             <ToolCard href="/order-charges" category="Billing" title="Billing Upload" description="Upload billing details and apply charges to SCM orders." />
