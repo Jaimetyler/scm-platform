@@ -94,14 +94,14 @@ export default function CottonOutboundBookingPage() {
 
   function change(row: Container, field: keyof Draft, value: string) {
     if (row.split_transfer_id || lines.find((line) => line.id === row.booking_line_id)?.line_status !== "active" && row.booking_line_id) return;
-    const nextValue = field === "notes" || field === "bookingLineId" ? value : value.toUpperCase();
+    const nextValue = field === "chassisNumber" && terminal === "SAV" && /^\d/.test(value)
+      ? `SCMI${value.toUpperCase()}`
+      : field === "notes" || field === "bookingLineId" ? value : value.toUpperCase();
     const next = { ...drafts[row.id], [field]: nextValue };
     setDrafts((current) => ({ ...current, [row.id]: next }));
     setMessage("");
     if (saveTimers.current[row.id]) window.clearTimeout(saveTimers.current[row.id]);
-    const wasComplete = Boolean(row.container_number && row.seal_number);
-    const isComplete = Boolean(next.containerNumber.trim() && next.sealNumber.trim());
-    if (wasComplete || isComplete) saveTimers.current[row.id] = window.setTimeout(() => void save(row, next), 700);
+    saveTimers.current[row.id] = window.setTimeout(() => void save(row, next), 700);
   }
   async function save(row: Container, draftToSave: Draft) {
     if (row.split_transfer_id || lines.find((line) => line.id === row.booking_line_id)?.line_status !== "active" && row.booking_line_id) return;
@@ -117,7 +117,14 @@ export default function CottonOutboundBookingPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      setContainers((current) => current.map((item) => item.id === row.id ? result.container : item));
+      const persisted: Container = result.container;
+      setContainers((current) => current.map((item) => item.id === row.id ? { ...item, ...persisted } : item));
+      setDrafts((current) => current[row.id] !== draftToSave ? current : {
+        ...current,
+        [row.id]: { bookingLineId: persisted.booking_line_id ?? "", containerNumber: persisted.container_number ?? "",
+          sealNumber: persisted.seal_number ?? "", chassisNumber: persisted.chassis_number ?? "", notes: persisted.notes ?? "" },
+      });
+      if (persisted.container_number !== row.container_number) setE2openDocuments(null);
       setMessage(`Container ${row.sequence_no} saved.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save container"); }
     finally { savingRows.current.delete(row.id); setWorking(""); }
@@ -399,12 +406,10 @@ export default function CottonOutboundBookingPage() {
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#94a3b8" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
-        <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} onFocus={() => {
-          if (terminal === "SAV" && !draft.chassisNumber) change(row, "chassisNumber", "SCMI");
-        }} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
+        <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
-        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
-          {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : row.container_number ? "Saved" : "No container number"}
+        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
+          {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           {canWrite && !locked && <div style={{ marginTop: 6 }}>
             <button type="button" style={{ ...button, padding: "5px 8px", fontSize: 11 }}
               aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
