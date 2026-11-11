@@ -71,6 +71,7 @@ export default function CottonOutboundBookingPage() {
   const [e2openError, setE2openError] = useState("");
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
+  const savingRows = useRef(new Set<string>());
 
   const load = useCallback(async (preserve?: { containers: Record<string, Container>; drafts: Record<string, Draft> }) => {
     try {
@@ -104,6 +105,10 @@ export default function CottonOutboundBookingPage() {
   }
   async function save(row: Container, draftToSave: Draft) {
     if (row.split_transfer_id || lines.find((line) => line.id === row.booking_line_id)?.line_status !== "active" && row.booking_line_id) return;
+    if (savingRows.current.has(row.id)) return;
+    window.clearTimeout(saveTimers.current[row.id]);
+    delete saveTimers.current[row.id];
+    savingRows.current.add(row.id);
     setWorking(row.id); setError(""); setMessage("");
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
@@ -115,7 +120,7 @@ export default function CottonOutboundBookingPage() {
       setContainers((current) => current.map((item) => item.id === row.id ? result.container : item));
       setMessage(`Container ${row.sequence_no} saved.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save container"); }
-    finally { setWorking(""); }
+    finally { savingRows.current.delete(row.id); setWorking(""); }
   }
   function pendingEquipment() {
     const dirty = containers.filter((row) => {
@@ -399,7 +404,12 @@ export default function CottonOutboundBookingPage() {
         }} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && row.container_number && row.seal_number ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
-          {locked ? "Locked" : working === row.id ? "Saving…" : saved && row.container_number && row.seal_number ? "Saved" : draft.containerNumber && draft.sealNumber ? "Auto-saving…" : "Needs container + seal"}
+          {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : row.container_number ? "Saved" : "No container number"}
+          {canWrite && !locked && <div style={{ marginTop: 6 }}>
+            <button type="button" style={{ ...button, padding: "5px 8px", fontSize: 11 }}
+              aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
+              onClick={() => void save(row, draft)}>Save</button>
+          </div>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
