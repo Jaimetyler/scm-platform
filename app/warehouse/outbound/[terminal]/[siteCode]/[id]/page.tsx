@@ -267,14 +267,14 @@ export default function CottonOutboundBookingPage() {
     }
   }
 
-  async function sendMcleodDocuments() {
+  async function sendMcleodDocuments(retryBol?: string) {
     setMcleodSending(true);
     setMcleodResults([]);
     setMcleodError("");
     setMcleodCheck(null);
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/mcleod-documents`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terminal, siteCode }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terminal, siteCode, retryBol }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not send booking documents.");
@@ -391,6 +391,10 @@ export default function CottonOutboundBookingPage() {
               <li key={image.scope + image.id}>{[image.scope, image.type, image.description, image.scanDate].filter(Boolean).join(" · ")}</li>
             ))}</ul> : <p>{mcleodCheck.status === "Verified order" ? "No existing documents returned." : "Existing documents unavailable."}</p>}
           </details>
+          {mcleodCheck.orderId && mcleodCheck.movementId && mcleodCheck.movementImagesAvailable &&
+            !mcleodCheck.existingImages.some(image => /^0*1$/.test(image.type.trim())) &&
+            <button type="button" style={button} disabled={mcleodSending || Boolean(working)}
+              onClick={() => void sendMcleodDocuments(mcleodCheck.container)}>Retry this BOL with movement ID</button>}
           {mcleodCheck.documentTypes.length > 0 && <details><summary>Available McLeod document types</summary>
             <ul>{mcleodCheck.documentTypes.map(type => <li key={type.id}>{type.description} ({type.id})</li>)}</ul>
           </details>}

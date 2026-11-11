@@ -25,7 +25,9 @@ function receiptVisible(images: { id: string; documentTypeId: string; companyId?
 
 export const POST = withStaffAccess(async (req: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
-  const { terminal, siteCode } = await req.json();
+  const { terminal, siteCode, retryBol } = await req.json();
+  if (retryBol !== undefined && (typeof retryBol !== "string" || !/^[A-Z]{4}\d{7}$/.test(retryBol)))
+    return NextResponse.json({ error: "Choose one container to retry its BOL." }, { status: 400 });
   if (terminal !== "SAV" || !/^[0-9a-f-]{36}$/i.test(id))
     return NextResponse.json({ error: "Choose a Savannah booking." }, { status: 400 });
   if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true")
@@ -54,6 +56,8 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
     markCounts.set(mark, (markCounts.get(mark) ?? 0) + 1);
   }
   if (!equipment.length) return NextResponse.json({ error: "No active container rows on this booking." }, { status: 400 });
+  if (retryBol && !equipment.some(row => String(row.container_number ?? "").trim().toUpperCase() === retryBol))
+    return NextResponse.json({ error: "That container is not active on this booking." }, { status: 400 });
   const { read, getDrive } = await connectSharePoint();
   const drive = await getDrive();
   const imaging = imagingClient();
@@ -62,6 +66,7 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
   const results: Result[] = [];
   for (const row of equipment) {
     const container = String(row.container_number ?? "").trim().toUpperCase();
+    if (retryBol && container !== retryBol) continue;
     const line = lineById.get(row.booking_line_id)!;
     if (!/^[A-Z]{4}\d{7}$/.test(container) || !/^[A-Z0-9_-]+$/i.test(line.mark)) {
       results.push({ container: container || line.mark, status: "Needs a valid container and mark" });
@@ -80,7 +85,7 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
     try {
       const [types, orderImages, movementImages, history] = await Promise.all([
         imaging.types(orderId), imaging.images(orderId), imaging.movementImages(movementId),
-        db.from("outbound_mcleod_document_uploads").select("document_slot,receipt,status").eq("mcleod_order", orderId),
+        db.from("outbound_mcleod_document_uploads").select("id,booking_id,document_slot,receipt,status,pdf_hash,movement_retry_at").eq("mcleod_order", orderId),
       ]);
       if (history.error) throw history.error;
       const images = [...orderImages, ...movementImages];
@@ -93,9 +98,12 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
       const unknownInterchanges = images.some(image => imageTypeMatches(image, "05") &&
         !history.data.some(item => ["ingate", "outgate"].includes(item.document_slot) && item.receipt === image.id));
       for (const file of sourceFiles) {
+        if (retryBol && file.slot !== "bol") continue;
         const result = { container, orderId, file: file.name };
         const recorded = prior.get(file.slot);
-        if (recorded) {
+        const retryable = Boolean(retryBol && recorded?.booking_id === id && recorded.status === "uncertain" &&
+          !recorded.receipt && !recorded.movement_retry_at);
+        if (recorded && !retryable) {
           const visible = recorded.receipt && receiptVisible(images, recorded.receipt, file.type);
           if (visible && recorded.status !== "verified") {
             const { error: reconcileError } = await db.from("outbound_mcleod_document_uploads")
@@ -103,6 +111,10 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
             if (reconcileError) throw reconcileError;
           }
           results.push({ ...result, status: visible ? "Already verified" : "Prior upload needs read-back review" });
+          continue;
+        }
+        if (retryBol && !retryable) {
+          results.push({ ...result, status: "No eligible prior BOL attempt to retry" });
           continue;
         }
         if (file.type === "01" && images.some(image => imageTypeMatches(image, "01"))) {
@@ -138,12 +150,23 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
           results.push({ ...result, status: "Invalid or oversized SharePoint PDF" });
           continue;
         }
-        const { data: claim, error: claimError } = await db.from("outbound_mcleod_document_uploads").insert({
-          booking_id: id, mcleod_order: orderId, document_slot: file.slot, document_type: file.type, filename: file.name,
-          pdf_hash: createHash("sha256").update(bytes).digest("hex"), status: "sending", actor,
-        }).select("id").single();
-        if (claimError) {
-          if (claimError.code !== "23505") throw claimError;
+        const pdfHash = createHash("sha256").update(bytes).digest("hex");
+        if (retryable && recorded.pdf_hash !== pdfHash) {
+          results.push({ ...result, status: "SharePoint BOL changed since the first attempt" });
+          continue;
+        }
+        const claimResult = retryable
+          ? await db.from("outbound_mcleod_document_uploads").update({
+            status: "sending", movement_retry_at: new Date().toISOString(),
+            movement_retry_actor: actor, movement_retry_id: movementId,
+          }).eq("id", recorded.id).eq("status", "uncertain").is("receipt", null).is("movement_retry_at", null).select("id").maybeSingle()
+          : await db.from("outbound_mcleod_document_uploads").insert({
+            booking_id: id, mcleod_order: orderId, document_slot: file.slot, document_type: file.type, filename: file.name,
+            pdf_hash: pdfHash, status: "sending", actor,
+          }).select("id").single();
+        if (claimResult.error && claimResult.error.code !== "23505") throw claimResult.error;
+        const claim = claimResult.data;
+        if (!claim) {
           results.push({ ...result, status: "Already claimed or previously sent; check again for read-back" });
           continue;
         }
@@ -154,7 +177,12 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
           status = "staged";
           const readBack = await Promise.allSettled([imaging.images(orderId), imaging.movementImages(movementId)]);
           if (readBack.some(result => result.status === "fulfilled" && receiptVisible(result.value, receipt!, file.type))) status = "verified";
-        } catch { /* A timeout can follow an accepted upload. Preserve the claim. */ }
+        } catch (failure) {
+          // Preserve the claim because an HTTP failure can follow a staged upload.
+          const diagnostic = failure instanceof Error && /^McLeod imaging HTTP \d{3}$/.test(failure.message)
+            ? failure.message : "No usable imaging receipt";
+          results.push({ ...result, status: `Movement ${movementId} · ${diagnostic}` });
+        }
         const { error: receiptError } = await db.from("outbound_mcleod_document_uploads")
           .update({ status, receipt }).eq("id", claim.id);
         if (receiptError) {
