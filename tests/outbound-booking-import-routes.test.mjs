@@ -34,5 +34,9 @@ test('save rejects missing counts/confirmations, then passes original container/
   assert.equal(calls[0].args.p_lines[0].containerNumber,'EGSU1373670');assert.equal(calls[0].args.p_lines[0].mark,'W0282');assert.equal(calls[0].args.p_total_bales,88);
   assert.equal(calls[0].args.p_details.return_location,'Dallas');
   assert.equal(calls[0].args.p_details.return_location_code,null);
+  assert.equal(calls[0].args.p_details.steamship_line,'EVERGREEN');
+  const corrected=await post(request({...fields,lineBales:JSON.stringify({2:88}),steamshipLine:'  Evergreen Marine  '}));
+  assert.equal(corrected.status,200);
+  assert.equal(calls[1].args.p_details.steamship_line,'Evergreen Marine');
  }finally {delete process.env.SUPABASE_URL;delete process.env.SUPABASE_SERVICE_ROLE_KEY;}
 });

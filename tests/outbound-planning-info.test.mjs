@@ -11,15 +11,14 @@ const lookup = (orders, planned = orders.length, override) => readPlanningInfo(o
 
 test('carrierless matched orders count as uncovered; assigned carrier stays covered', async () => {
   const a = order('1', 'CARRIER1'), b = order('2');
-  a.stops[0].actual_departure = '2026-11-10T10:00:00';
   const result = await lookup([a, b]);
   assert.equal(result.uncovered, 1); assert.deepEqual(result.uncoveredOrderIds, ['2']); assert.deepEqual(result.carriers, ['CARRIER1']);
-  assert.equal(result.complete, true); assert.equal(result.loaded, 1);
+  assert.equal(result.complete, true);
 });
 test('empty results and incomplete planned order count never imply fully covered', async () => {
   assert.equal((await lookup([], 2)).complete, false);
   const result = await lookup([order('1')], 2);
-  assert.equal(result.uncovered, 1); assert.equal(result.complete, false); assert.equal(result.loaded, null);
+  assert.equal(result.uncovered, 1); assert.equal(result.complete, false);
 });
 test('unknown movement carrier fields and relay movements stay unverified', async () => {
   const a = order('1'); delete a.movements[0].carrier_id;

@@ -51,12 +51,14 @@ async function POSTHandler(req: NextRequest) {
       cutoff: String(form.get("cutoff") ?? ""), vessel: String(form.get("vessel") ?? ""), returnLocation: String(form.get("returnLocation") ?? booking.returnLocation ?? "") });
     if (booking.warnings.length) return NextResponse.json({ ok: false,
       error: booking.warnings.join(" ") + " Correct the source sheet before importing." }, { status: 409 });
+    const steamshipLine = String(form.get("steamshipLine") ?? booking.steamshipLine ?? "").trim();
+    if (steamshipLine.length > 200) return NextResponse.json({ ok: false, error: "Steamship line must be 200 characters or fewer." }, { status: 400 });
     const { data, error } = await database().rpc("create_cotton_outbound_booking_import", {
       p_terminal: terminal, p_site_code: siteCode, p_site_name: site.siteName,
       p_customer: booking.customer, p_booking_number: booking.bookingNumber,
       p_customer_reference: booking.customerReference, p_containers: booking.containers,
       p_total_bales: booking.totalBales, p_source_filename: source.name.slice(0, 200), p_lines: booking.lines,
-      p_details: { ...sailing, source_format: booking.sourceFormat },
+      p_details: { ...sailing, source_format: booking.sourceFormat, steamship_line: steamshipLine },
     });
     if (error) return NextResponse.json({ ok: false,
       error: error.code === "23505" ? "This booking already exists at this warehouse." : error.message }, { status: error.code === "23505" ? 409 : 400 });

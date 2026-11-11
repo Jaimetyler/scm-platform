@@ -87,7 +87,7 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
       <span>{rows.length} bookings · {rows.reduce((sum, row) => sum + row.requested_bales, 0).toLocaleString()} bales</span>
       {dallasBookings.length > 0 && <button className={styles.pull} type="button" disabled={!!refreshing}
         title="Refresh all active Dallas bookings in this location" onClick={() => void refresh(dallasBookings)}>Refresh bookings</button>}</div>
-    <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts matched SCM orders with no carrier. Loaded uses warehouse pickup departure.</span></div>
+    <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts matched SCM orders with no carrier. Loaded counts containers with a saved container number.</span></div>
     <div className={styles.scroll} tabIndex={0} role="region" aria-label="Booking planning table">
       <table className={styles.table} role="table">
         <caption className={styles.caption}>Active outbound bookings with warehouse inventory alerts. Sort using column headings.</caption>
@@ -98,8 +98,8 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
         <tbody role="rowgroup">{rows.map(item => { const pulled = info[item.id]; return <tr role="row" key={item.id}>
           <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.customer_reference || "—"}</td>
           <td role="cell" data-label="Containers" className={styles.count}>{item.planned_containers ?? "—"}</td>
-          <td role="cell" data-label="To load" className={styles.number}>{pulled?.loaded != null && item.planned_containers != null ? Math.max(0, item.planned_containers - pulled.loaded) : "—"}</td>
-          <td role="cell" data-label="Loaded" className={styles.number}>{pulled?.loaded ?? "—"}</td><td role="cell" data-label="SSL" title="Steamship line not recorded yet">—</td>
+          <td role="cell" data-label="To load" className={styles.number}>{item.loaded_containers != null && item.planned_containers != null ? Math.max(0, item.planned_containers - item.loaded_containers) : "—"}</td>
+          <td role="cell" data-label="Loaded" className={styles.number}>{item.loaded_containers ?? "—"}</td><td role="cell" data-label="SSL">{item.steamship_line || "—"}</td>
           <td role="cell" data-label="Booking #"><Link className={styles.booking} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}>{item.booking_number}</Link></td>
           <td role="cell" data-label="ERD" className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
           <td role="cell" data-label="Cutoff" className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>

@@ -16,7 +16,7 @@ import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
 
 type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
-  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
+  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; steamshipLine?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[]; warnings: string[];
   lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
   mismatches: { row: number; warehouse: string }[] };
@@ -87,7 +87,7 @@ export default function CottonOutboundPage() {
   const [lineBales, setLineBales] = useState<Record<string, string>>({});
   const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [warehouseConfirmed, setWarehouseConfirmed] = useState(false);
-  const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "" });
+  const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
   const canWrite = useCanWrite(site?.terminal);
   useEffect(() => {
@@ -142,7 +142,7 @@ export default function CottonOutboundPage() {
       } else {
         if (!result.booking || !Array.isArray(result.booking.lines)) throw new Error("The file could not be read as a booking request.");
         setPreview(result); setDatesConfirmed(false);
-        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "", returnLocation: result.booking.returnLocation ?? "" });
+        setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "", returnLocation: result.booking.returnLocation ?? "", steamshipLine: result.booking.steamshipLine ?? "" });
       }
     } catch (reason) {
       if (uploadRequest.current === controller) setImportError(controller.signal.aborted
@@ -205,6 +205,7 @@ export default function CottonOutboundPage() {
         <CutoffInput label="Doc cutoff" value={importDates.docCutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, docCutoff: value })); }} />
         <CutoffInput label="Cutoff" value={importDates.cutoff} onChange={(value) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, cutoff: value })); }} />
         <label>Return location<input aria-label="Import return location" maxLength={300} style={input} value={importDates.returnLocation} onChange={event => setImportDates(current => ({ ...current, returnLocation: event.target.value }))} /></label>
+        <label>Steamship line<input aria-label="Import steamship line" maxLength={200} style={input} value={importDates.steamshipLine} onChange={event => setImportDates(current => ({ ...current, steamshipLine: event.target.value }))} /></label>
         <label>Vessel<input aria-label="Import vessel" maxLength={200} style={input} value={importDates.vessel} onChange={(event) => setImportDates((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div>
       {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" || site?.terminal === "DAL" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}

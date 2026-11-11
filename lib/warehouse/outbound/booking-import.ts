@@ -68,7 +68,7 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
     const sourceDates = [{label: "Ramp Cut", value: rampCut}, {label: "Port Cut", value: portCut}].filter((v): v is {label:string;value:string} => !!v.value);
     return { ...base, sourceFormat: "olam", customer: "Olam Agri Americas Inc", bookingNumber: identifier(field("Booking"), "booking number"),
       customerReference: text(field("Sale No")), containers, totalBales, lines, warehouses: [...new Set(lines.map(l => l.warehouse))],
-      returnLocation: text(field("Loaded Return")), loadPort: text(field("Loaded Return")), steamshipLine: text(field("S/S Line")), vessel: text(field("Vessel/Voyage")) || null,
+      returnLocation: text(field("Loaded Return")), loadPort: text(field("Loaded Return")), steamshipLine: text(field("S/S Line")) || text(field("Steamship Line")) || text(field("SSL")), vessel: text(field("Vessel/Voyage")) || null,
       erd: date("1st Avail / ERD")?.slice(0, 10) ?? null, docCutoff: date("Doc Cut"), cutoff: rampCut ?? portCut, sourceDates,
       detailNotes: [`Olam booking reference: ${text(field("Booking Ref"))}. Equipment release: ${text(field("Equip Release"))}.`,
         "Olam source rates are reference information only; no McLeod orders or rates are created.",
