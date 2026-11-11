@@ -201,7 +201,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
   return { ...sailingDetails(sheet, rows), bookingNumber, customerReference, customer,
     loadPort: String(labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
     returnLocation: String(labeledCell(sheet, rows, ["Loaded Return", "Full Return"])?.v ?? labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
-    steamshipLine: String(labeledCell(sheet, rows, ["Ship Line", "Steamship Line"])?.v ?? "").trim(),
+    steamshipLine: String(labeledCell(sheet, rows, ["Ship Line", "Steamship Line", "S/S Line", "SSL"])?.v ?? "").trim(),
     containers, totalBales, lines,
     warehouses: [...new Set(lines.map((line) => line.warehouse))], warehouseDetails, warnings };
 }

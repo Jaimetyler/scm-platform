@@ -48,7 +48,8 @@ async function POSTHandler(req: NextRequest) {
     if (form.get("datesConfirmed") !== "true") return NextResponse.json({ ok: false,
       error: "Review and confirm the sailing dates before importing." }, { status: 400 });
     const sailing = normalizeBookingDetails({ erd: String(form.get("erd") ?? ""), docCutoff: String(form.get("docCutoff") ?? ""),
-      cutoff: String(form.get("cutoff") ?? ""), vessel: String(form.get("vessel") ?? ""), returnLocation: String(form.get("returnLocation") ?? booking.returnLocation ?? "") });
+      cutoff: String(form.get("cutoff") ?? ""), vessel: String(form.get("vessel") ?? ""), returnLocation: String(form.get("returnLocation") ?? booking.returnLocation ?? ""),
+      steamshipLine: String(form.get("steamshipLine") ?? booking.steamshipLine ?? "") });
     if (booking.warnings.length) return NextResponse.json({ ok: false,
       error: booking.warnings.join(" ") + " Correct the source sheet before importing." }, { status: 409 });
     const { data, error } = await database().rpc("create_cotton_outbound_booking_import", {

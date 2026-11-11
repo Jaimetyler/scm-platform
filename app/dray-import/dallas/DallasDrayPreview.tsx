@@ -1,4 +1,5 @@
 "use client";
+import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 
 import { useState, type FormEvent } from "react";
@@ -48,7 +49,7 @@ export default function DallasDrayPreview() {
       <dl className={styles.summary}>
         {([
           ["Customer", preview.customer], ["Customer reference", preview.customerReference],
-          ["Load port / ramp", preview.loadPort], ["McLeod delivery", preview.deliveryLocation],
+          ["Load port / ramp", bookingReturnLocationLabel(preview.loadPort, preview.deliveryLocation)], ["McLeod delivery", preview.deliveryLocation],
           ["Steamship line", preview.steamshipLine], ["Vessel / voyage", preview.vessel],
           ["Containers", preview.containers], ["Total bales", preview.totalBales || "Not supplied"], ["ERD", preview.erd],
           ...preview.sourceDates.map(date => [date.label, date.value]),

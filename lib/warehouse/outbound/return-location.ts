@@ -5,13 +5,17 @@ export function bookingReturnLocation(value: unknown) {
   const key = raw.toUpperCase().replace(/[.,()]/g, "").replace(/\s+/g, " ");
   let code: string | null = null;
   if (["BNSFHATX", "DALLAS BNSF", "BNSF HASLET", "DALLAS RAMP BNSF HASLET", "BNSF ALLIANCE"].includes(key)) code = "BNSFHATX";
-  if (["UNIOWITX", "UP WILMER", "UPRR WILMER", "UNION PACIFIC WILMER", "DIT", "UP DIT", "UP DALLAS INTERMODAL TERMINAL", "DALLAS INTERMODAL TERMINAL", "DALLAS INTERMODAL TERMINAL DIT"].includes(key) ||
+  if (["UNIOWITX", "UP WILMER", "UPRR WILMER", "UNION PACIFIC WILMER", "DIT", "UP DIT", "DALLAS UP - DIT", "DALLAS UP-DIT", "DALLAS UP DIT", "UP DALLAS INTERMODAL TERMINAL", "DALLAS INTERMODAL TERMINAL", "DALLAS INTERMODAL TERMINAL DIT"].includes(key) ||
     /^3701 (?:S|SOUTH) (?:INTERSTATE ?45|I[ -]?45)(?: |$)/.test(key)) code = "UNIOWITX";
   return { return_location: raw || null, return_location_code: code };
 }
 
 export function bookingReturnLocationLabel(location?: string | null, code?: string | null) {
-  if (code === "UNIOWITX") return "UP Wilmer";
-  if (code === "BNSFHATX") return "BNSF Haslet";
+  // Older bookings may have only the original address and no saved location code.
+  const savedCode = code?.trim().toUpperCase();
+  const resolvedCode = savedCode === "UNIOWITX" || savedCode === "BNSFHATX" ? savedCode
+    : bookingReturnLocation(location).return_location_code;
+  if (resolvedCode === "UNIOWITX") return "UP Wilmer";
+  if (resolvedCode === "BNSFHATX") return "BNSF Haslet";
   return location || "Not set";
 }

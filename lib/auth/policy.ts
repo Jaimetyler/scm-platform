@@ -14,7 +14,7 @@ export function requireTerminal(staff: Staff, value: unknown) {
     throw new AccessError("You can update warehouse records only in your assigned terminal.");
 }
 export function warehouseReadPath(path: string) {
-  return /^\/api\/warehouse\/(?:search|domestic-queue(?:\/match)?|domestic-history|container-queue|inventory|checkin-bol\/[^/]+|outbound\/(?:source-arrivals|bookings(?:\/[^/]+(?:\/(?:export|container-info))?)?))$/.test(path) ||
+  return /^\/api\/warehouse\/(?:search|domestic-queue(?:\/match)?|domestic-history|container-queue|inventory|checkin-bol\/[^/]+|outbound\/(?:source-arrivals|bookings(?:\/[^/]+(?:\/(?:export|container-info|planning-info))?)?))$/.test(path) ||
     /^\/api\/inbound\/(?:history|checkin\/(?:cotton-match|rows(?:\/[^/]+\/dispatcher)?))$/.test(path);
 }
 export function canUseInboundImporter(staff: Staff | null) {
