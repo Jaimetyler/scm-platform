@@ -2,13 +2,26 @@ import { createHash } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { staffActor, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
-import { imagingClient, receiptVisible } from "@/lib/dray-bols/imaging";
+import { imagingClient } from "@/lib/dray-bols/imaging";
 import { connectSharePoint } from "@/lib/sharepoint/graph";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { findLdcOrder } from "@/lib/warehouse/outbound/e2open-mcleod";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+function imagingCode(id: string) {
+  const trimmed = id.trim();
+  return /^\d+$/.test(trimmed) ? trimmed.replace(/^0+(?=\d)/, "") : trimmed;
+}
+
+function imageTypeMatches(image: { documentTypeId: string }, type: string) {
+  return imagingCode(image.documentTypeId) === imagingCode(type);
+}
+
+function receiptVisible(images: { id: string; documentTypeId: string; companyId?: string }[], receipt: string, type: string) {
+  return images.some(image => image.id === receipt && imageTypeMatches(image, type) && image.companyId === "TMS");
+}
 
 export const POST = withStaffAccess(async (req: NextRequest, context: { params: Promise<{ id: string }> }) => {
   const { id } = await context.params;
@@ -72,7 +85,7 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
         { slot: "outgate", type: "05", name: `${container}_out.pdf`, folders: ["Savannah Interchanges", "Exports", bookingNumber] },
       ];
       const prior = new Map(history.data.map(item => [item.document_slot, item]));
-      const unknownInterchanges = images.some(image => image.documentTypeId === "05" &&
+      const unknownInterchanges = images.some(image => imageTypeMatches(image, "05") &&
         !history.data.some(item => ["ingate", "outgate"].includes(item.document_slot) && item.receipt === image.id));
       for (const file of sourceFiles) {
         const result = { container, orderId, file: file.name };
@@ -87,7 +100,7 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
           results.push({ ...result, status: visible ? "Already verified" : "Prior upload needs read-back review" });
           continue;
         }
-        if (file.type === "01" && images.some(image => image.documentTypeId === "01")) {
+        if (file.type === "01" && images.some(image => imageTypeMatches(image, "01"))) {
           results.push({ ...result, status: "Existing type 01 BOL" });
           continue;
         }
@@ -99,8 +112,12 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
           results.push({ ...result, status: "Mark is assigned to multiple containers; confirm the BOL manually" });
           continue;
         }
-        if (!types.some(type => type.id === file.type)) {
-          results.push({ ...result, status: `McLeod type ${file.type} unavailable` });
+        const matchingTypes = types.filter(type => imagingCode(type.id) === imagingCode(file.type));
+        const selectedType = matchingTypes.find(type => type.id === file.type) ??
+          (matchingTypes.length === 1 ? matchingTypes[0] : undefined);
+        if (!selectedType) {
+          const available = types.slice(0, 20).map(type => type.id).join(", ") || "none";
+          results.push({ ...result, status: `McLeod type ${file.type} ${matchingTypes.length ? "is ambiguous" : "unavailable"} (returned IDs: ${available})` });
           continue;
         }
         const path = [...file.folders, file.name].map(encodeURIComponent).join("/");
@@ -128,7 +145,7 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
         let receipt: string | null = null;
         let status = "uncertain";
         try {
-          receipt = await imaging.upload(orderId, file.type, bytes);
+          receipt = await imaging.upload(orderId, selectedType.id, bytes);
           status = "staged";
           if (receiptVisible(await imaging.images(orderId), receipt, file.type)) status = "verified";
         } catch { /* A timeout can follow an accepted upload. Preserve the claim. */ }
