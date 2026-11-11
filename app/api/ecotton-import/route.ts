@@ -87,7 +87,7 @@ async function POSTHandler(req: NextRequest) {
     if (ginDirect && invoices.some((invoice) => invoice.customerId === "NUTRSTG1")) {
       const customer = await v.read("/customers/NUTRSTG1").catch(() => null);
       if (customer?.id !== "NUTRSTG1" || customer.company_id !== "TMS" ||
-          !/^NUTRIEN AG SOLUTIONS\b/.test(normalize(customer.name)) ||
+          !/^NUTRIEN\b/.test(normalize(customer.name)) ||
           [false, "N"].includes(customer.is_active)) {
         throw new Error("Could not verify the Nutrien Ag Solutions bill-to account (NUTRSTG1) in McLeod.");
       }

@@ -56,8 +56,9 @@ export function parseGinDirectInvoices(pages: string[], tariffs: Tariff[]): Invo
       if (seen.has(normalize(reference))) throw new Error(`Duplicate invoice number ${reference} in this upload.`);
       seen.add(normalize(reference));
       const customerName = lines[billTo].replace(/^Bill\s+To\s*:\s*/i, "") || lines[billTo + 1];
-      const customerKey = normalize(customerName).replace(/\s*-\s*ACCOUNT OF BEARER$/, "");
-      const customerId = CUSTOMER_ALIASES.get(customerKey);
+      const customerKey = normalize(customerName).replace(/\s*[-–—]\s*(?=ACCOUNT OF BEARER$)/, "-");
+      const customerId = CUSTOMER_ALIASES.get(customerKey) ??
+        CUSTOMER_ALIASES.get(customerKey.replace(/-ACCOUNT OF BEARER$/, ""));
       if (!customerId) throw new Error(`No approved customer mapping for ${customerName}.`);
       const cents = money(lines[footer].replace(/^Total\s+Invoice\s+Amount\s*:?\s*/i, ""));
       const unpostedZeroTariffs: { tariffId: string; description: string; units: number }[] = [];
