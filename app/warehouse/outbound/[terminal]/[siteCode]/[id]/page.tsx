@@ -370,7 +370,10 @@ export default function CottonOutboundBookingPage() {
           <tbody>{e2openDocuments.containers.map((row) => <tr key={row.container}>
             <td style={td}>{row.container}</td><td style={td}>{row.inbound ?? "Missing"}</td><td style={td}>{row.outbound ?? "Missing"}</td>
             <td style={td}><button type="button" style={button} disabled={Boolean(mcleodLoading || working || mcleodSending)}
-              onClick={() => void checkMcleodOrder(row.container)}>{mcleodLoading === row.container ? "Checking…" : "Check SCM order"}</button></td>
+              onClick={() => void checkMcleodOrder(row.container)}>{mcleodLoading === row.container ? "Checking…" : "Check SCM order"}</button>
+              <button type="button" style={{ ...button, marginLeft: 6 }}
+                disabled={Boolean(mcleodLoading || working || mcleodSending || Object.keys(pendingEquipment().drafts).length)}
+                onClick={() => void sendMcleodDocuments(row.container)}>Retry this BOL with movement ID</button></td>
           </tr>)}</tbody>
         </table>
         <button type="button" style={{ ...button, marginTop: 10 }}
@@ -391,10 +394,6 @@ export default function CottonOutboundBookingPage() {
               <li key={image.scope + image.id}>{[image.scope, image.type, image.description, image.scanDate].filter(Boolean).join(" · ")}</li>
             ))}</ul> : <p>{mcleodCheck.status === "Verified order" ? "No existing documents returned." : "Existing documents unavailable."}</p>}
           </details>
-          {mcleodCheck.orderId && mcleodCheck.movementId && mcleodCheck.status === "Verified order" &&
-            !mcleodCheck.existingImages.some(image => /^0*1$/.test(image.type.trim())) &&
-            <button type="button" style={button} disabled={mcleodSending || Boolean(working)}
-              onClick={() => void sendMcleodDocuments(mcleodCheck.container)}>Retry this BOL with movement ID</button>}
           {mcleodCheck.documentTypes.length > 0 && <details><summary>Available McLeod document types</summary>
             <ul>{mcleodCheck.documentTypes.map(type => <li key={type.id}>{type.description} ({type.id})</li>)}</ul>
           </details>}
