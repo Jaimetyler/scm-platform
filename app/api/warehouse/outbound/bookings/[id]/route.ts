@@ -1,4 +1,6 @@
-import { withStaffAccess } from "@/lib/auth/guard";
+import { findE2openDocuments } from "@/lib/sharepoint/e2open-documents";
+import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
+import { staffProfile, withStaffAccess } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -28,6 +30,27 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id")
       .eq("booking_id", id).order("sequence_no");
     if (containerError) throw containerError;
+    if (params.get("documents") === "e2open") {
+      const staff = staffProfile(req);
+      if (!isSavannahE2openBooking(terminal, booking.customer) ||
+          !(staff?.role === "admin" || staff?.role === "operator" && staff.terminal === terminal))
+        return NextResponse.json({ ok: false, error: "Available to Savannah staff for Louis Dreyfus bookings." }, { status: 403 });
+      const bookingNumber = booking.booking_number.trim();
+      if (!/^[a-z0-9-]+$/i.test(bookingNumber))
+        return NextResponse.json({ ok: false, error: "The booking number cannot be used to locate documents." }, { status: 400 });
+      const activeLineIds = new Set((lines ?? []).filter((line) => line.line_status === "active").map((line) => line.id));
+      const containerNumbers = [...new Set((containers ?? [])
+        .filter((row) => !row.split_transfer_id && (!row.booking_line_id || activeLineIds.has(row.booking_line_id)))
+        .map((row) => String(row.container_number ?? "").trim().toUpperCase())
+        .filter((number) => /^[A-Z]{4}\d{7}$/.test(number)))];
+      try {
+        return NextResponse.json(await findE2openDocuments(bookingNumber, containerNumbers), {
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      } catch {
+        return NextResponse.json({ error: "Could not check the booking folders in SharePoint." }, { status: 502 });
+      }
+    }
     const { data: transfers, error: transferError } = await sb.from("cotton_outbound_booking_transfers")
       .select("id,mark,bales,target_booking_id,target:cotton_outbound_bookings!target_booking_id(booking_number)")
       .eq("source_booking_id", id);

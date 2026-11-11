@@ -16,6 +16,7 @@ import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/w
 import "./booking.css";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
+import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
@@ -27,6 +28,7 @@ type Line = { id: string; source_row: number; mark: string; requested_bales: num
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; inbound_bales: number; inbound_statuses: string[] };
 type Booking = { return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
+type E2openDocuments = { bols: string[]; containers: { container: string; inbound: string | null; outbound: string | null }[] };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
   border: "1px solid #475569", background: "#0f172a", color: "#f8fafc" };
@@ -64,6 +66,9 @@ export default function CottonOutboundBookingPage() {
   const [editingDetails, setEditingDetails] = useState(false);
   const [details, setDetails] = useState({ scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "" });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
+  const [e2openDocuments, setE2openDocuments] = useState<E2openDocuments | null>(null);
+  const [e2openLoading, setE2openLoading] = useState(false);
+  const [e2openError, setE2openError] = useState("");
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
 
@@ -206,6 +211,23 @@ export default function CottonOutboundBookingPage() {
     } catch { setError("Clipboard access failed. Try again or use Export Container Info."); }
   }
 
+  async function checkE2openDocuments() {
+    setE2openLoading(true);
+    setE2openDocuments(null);
+    setE2openError("");
+    try {
+      const query = new URLSearchParams({ terminal, siteCode, documents: "e2open" });
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}?${query}`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not check SharePoint.");
+      setE2openDocuments(result);
+    } catch (error) {
+      setE2openError(error instanceof Error ? error.message : "Could not check SharePoint.");
+    } finally {
+      setE2openLoading(false);
+    }
+  }
+
   function editDetails() {
     if (!booking) return;
     setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
@@ -278,6 +300,22 @@ export default function CottonOutboundBookingPage() {
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import booking details</button>
         </div></details></>} />
     {canWrite && terminal === "DAL" && bookingChargeCustomer(booking.customer) && <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
+    {canWrite && isSavannahE2openBooking(terminal, booking.customer) && <PlatformPanel>
+      <button type="button" style={button} disabled={e2openLoading} onClick={() => void checkE2openDocuments()}>
+        {e2openLoading ? "Checking SharePoint…" : "Check e2open documents"}
+      </button>
+      {e2openError && <p role="alert">{e2openError}</p>}
+      {e2openDocuments && <div aria-live="polite">
+        <p><strong>Warehouse BOLs in SharePoint</strong> {e2openDocuments.bols.join(", ") || "None found"}</p>
+        <table>
+          <thead><tr><th style={th}>Container</th><th style={th}>Ingate POD</th><th style={th}>Outgate POD</th></tr></thead>
+          <tbody>{e2openDocuments.containers.map((row) => <tr key={row.container}>
+            <td style={td}>{row.container}</td><td style={td}>{row.inbound ?? "Missing"}</td><td style={td}>{row.outbound ?? "Missing"}</td>
+          </tr>)}</tbody>
+        </table>
+        {!e2openDocuments.containers.length && <p>No saved container numbers to check.</p>}
+      </div>}
+    </PlatformPanel>}
     <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
       <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status.replaceAll("_", " ")}</span>
