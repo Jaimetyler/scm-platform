@@ -17,6 +17,7 @@ import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/w
 import "./booking.css";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
+import DallasOrderPilot from "./DallasOrderPilot";
 import { BookingOrderLookup, CarrierCells, CarrierRateManager, type CarrierSelection } from "./CarrierRates";
 import type { CarrierPlan, CarrierRate } from "@/lib/warehouse/outbound/carrier-rates";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
@@ -569,6 +570,11 @@ export default function CottonOutboundBookingPage() {
           </div>}
           {canManage && row.container_number && (terminal === "DAL" && bookingChargeCustomer(booking.customer) || isSavannahE2openBooking(terminal, booking.customer)) &&
             <BookingOrderLookup key={row.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${row.id}`} />}
+          {isAdmin && canWrite && terminal === "DAL" && siteCode === "SCMDDETX" &&
+            bookingChargeCustomer(booking.customer)?.code === "OLAMRITX" &&
+            bookingReturnLocationLabel(booking.return_location, booking.return_location_code) === "BNSF Haslet" &&
+            row.container_number && line?.line_status === "active" && line.load_source === "warehouse" &&
+            <DallasOrderPilot key={row.updated_at} endpoint={`/api/warehouse/outbound/bookings/${id}/dallas-pilot`} containerId={row.id} mark={line.mark} />}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
