@@ -62,7 +62,7 @@ export function draftHoustonOrder(
     order: {
       __type: "orders", company_id: "TMS", status: "A", customer_id: preview.customerId,
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
-      order_type_id: "FSC", order_mode: "T", ordered_by: order.salesOrder,
+      order_type_id: destination?.terminal === "dallas" ? "FSCD" : "FSC", order_mode: "T", ordered_by: order.salesOrder,
       equipment_type_id: equipmentCode,
       ...(olam && order.bookingNumber ? { booking_no_sucm: order.bookingNumber } : {}),
       ...(weight === null ? {} : { weight }),

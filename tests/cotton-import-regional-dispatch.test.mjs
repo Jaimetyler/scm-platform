@@ -18,6 +18,7 @@ test("regional orders use Houston draft rules with the selected terminal and ver
     const draft = draftHoustonOrder(source, proposal, Array(2).fill({ early: "07:00", late: "15:00" }), "V");
     const payload = houstonPilotPayload(draft, terminal);
     assert.equal(payload.revenue_code_id, revenue);
+    assert.equal(payload.order_type_id, terminal === "dallas" ? "FSCD" : "FSC");
     assert.equal(payload.weight, 45000);
     assert.equal(payload.otherCharges[0].amount, 50);
     assert.deepEqual(payload.stops.map(stop => stop.location_id), ["FUNSMOG3", "BCTGMOGA", destination]);
@@ -33,4 +34,14 @@ test("OLAM preflight builds a single selected order without changing the Bunge p
   assert.equal(proposal.blnum, "D1085 90 BALES");
   assert.equal(source.pickups.length, 2);
   assert.throws(() => regionalOrder(lines, "9999999", "MERIBAT2", "MAIN", locations, "OLAMRITX"), /Selected order/);
+});
+
+test("Olam inbound uses FSCD at Dallas destinations and FSC at Houston", () => {
+  for (const [destination, revenue, type] of [
+    ["SCMDDETX", "DAVIS", "FSCD"], ["SCMDDATX", "DAVIS", "FSCD"], ["SUPPBAT1", "MAIN", "FSC"],
+  ]) {
+    const { source, proposal } = regionalOrder(lines, "2511158", destination, revenue, locations, "OLAMRITX");
+    const draft = draftHoustonOrder(source, proposal, Array(2).fill({ early: "07:00", late: "15:00" }), "V");
+    assert.equal(draft.order.order_type_id, type);
+  }
 });
