@@ -1,6 +1,6 @@
 "use client";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
-import { useCanWrite } from "@/components/auth/StaffSession";
+import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
 import { safeOutboundReturn } from "@/lib/warehouse/navigation";
@@ -17,12 +17,15 @@ import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/w
 import "./booking.css";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
+import { BookingOrderLookup, CarrierCells, CarrierRateManager, type CarrierSelection } from "./CarrierRates";
+import type { CarrierPlan, CarrierRate } from "@/lib/warehouse/outbound/carrier-rates";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
 type Container = { id: string; sequence_no: number; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
   chassis_number: string | null; notes: string | null; updated_at: string; split_transfer_id: string | null;
+  carrier_plan: CarrierPlan | null;
   split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
   line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string;
@@ -45,6 +48,7 @@ export default function CottonOutboundBookingPage() {
   const params = useParams<{ terminal: string; siteCode: string; id: string }>();
   const terminal = String(params.terminal ?? "").toUpperCase();
   const canManage = useCanWrite(terminal);
+  const isAdmin = useStaff()?.role === "admin";
   const siteCode = String(params.siteCode ?? "");
   const id = String(params.id ?? "");
   const locationOptions = terminal === "DAL" ? CHECKIN_SITES.filter(site => site.terminal === terminal && site.materials.includes("cotton")) : [];
@@ -52,6 +56,23 @@ export default function CottonOutboundBookingPage() {
   const backHref = safeOutboundReturn(requestedReturn) ?? `/warehouse/outbound?terminal=${terminal}&siteCode=${siteCode}`;
   const [booking, setBooking] = useState<Booking | null>(null);
   const canWrite = canManage && booking?.status === "draft";
+  const carrierEndpoint = `/api/warehouse/outbound/bookings/${id}/carrier-rates`;
+  const [carrierRates, setCarrierRates] = useState<CarrierRate[]>([]);
+  const [carrierError, setCarrierError] = useState("");
+  useEffect(() => {
+    if (!canManage) return;
+    const controller = new AbortController();
+    setCarrierRates([]);
+    setCarrierError("");
+    fetch(carrierEndpoint, { signal: controller.signal }).then(async response => {
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      if (!controller.signal.aborted) setCarrierRates(result.rates);
+    }).catch(error => {
+      if (!controller.signal.aborted) setCarrierError(error.message || "Could not load carrier rates.");
+    });
+    return () => controller.abort();
+  }, [canManage, carrierEndpoint, siteCode]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -113,7 +134,7 @@ export default function CottonOutboundBookingPage() {
     if (saveTimers.current[row.id]) window.clearTimeout(saveTimers.current[row.id]);
     saveTimers.current[row.id] = window.setTimeout(() => void save(row, next), 700);
   }
-  async function save(row: Container, draftToSave: Draft) {
+  async function save(row: Container, draftToSave: Draft, carrierPlan?: CarrierSelection | null) {
     if (row.split_transfer_id || lines.find((line) => line.id === row.booking_line_id)?.line_status !== "active" && row.booking_line_id) return;
     if (savingRows.current.has(row.id)) return;
     window.clearTimeout(saveTimers.current[row.id]);
@@ -123,7 +144,7 @@ export default function CottonOutboundBookingPage() {
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ terminal, siteCode, containerId: row.id, expectedUpdatedAt: row.updated_at, ...draftToSave }),
+        body: JSON.stringify({ terminal, siteCode, containerId: row.id, expectedUpdatedAt: row.updated_at, ...draftToSave, carrierPlan }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
@@ -507,14 +528,17 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
     </div> : null}
 
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse" }}><thead><tr>
-      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+    {isAdmin && !carrierError && <CarrierRateManager key={carrierEndpoint} rates={carrierRates} endpoint={carrierEndpoint} onSaved={rate =>
+      setCarrierRates(current => [...current.filter(item => item.id !== rate.id), rate])} />}
+    {canManage && carrierError && <p role="alert">{carrierError}</p>}
+    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: canManage ? 1540 : 1120, borderCollapse: "collapse" }}><thead><tr>
+      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Outside carrier', 'Accessorials'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
         {rollMode && <td style={td} />}<td style={td}>{row.sequence_no}</td>
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
-        <td style={td} colSpan={4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
+        <td style={td} colSpan={canManage ? 6 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
         <td style={{ ...td, fontSize: 12, fontWeight: 600 }}>Locked</td>
       </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
@@ -533,6 +557,9 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
+        {canManage && <CarrierCells key={JSON.stringify(row.carrier_plan)} plan={row.carrier_plan} rates={carrierRates} sequence={row.sequence_no} cellStyle={td}
+          disabled={!canWrite || locked || Boolean(working) || (!row.carrier_plan && !draft.containerNumber.trim())}
+          onSave={selection => save(row, draft, selection)} />}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           {canWrite && !locked && <div style={{ marginTop: 6 }}>
@@ -540,6 +567,8 @@ export default function CottonOutboundBookingPage() {
               aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
               onClick={() => void save(row, draft)}>Save</button>
           </div>}
+          {canManage && row.container_number && (terminal === "DAL" && bookingChargeCustomer(booking.customer) || isSavannahE2openBooking(terminal, booking.customer)) &&
+            <BookingOrderLookup key={row.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${row.id}`} />}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>

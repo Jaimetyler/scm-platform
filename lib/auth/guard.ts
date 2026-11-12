@@ -48,9 +48,9 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   // Document and equipment permissions continue to use the existing outreach endpoints.
   if (/^\/api\/cotton-locations\/outreach(?:\/(?:documents|equipment))?$/.test(path) &&
       (req.method === "GET" || staff.role === "operator" && ["POST", "PATCH"].includes(req.method))) return;
-  const bookingCharges = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)\/charges$/);
-  if (req.method === "GET" && bookingCharges && staff.role === "operator") {
-    requireTerminal(staff, await recordTerminal(db, "cotton_outbound_bookings", bookingCharges[1]));
+  const bookingStaffRead = path.match(/^\/api\/warehouse\/outbound\/bookings\/([^/]+)\/(?:charges|carrier-rates|mcleod-order)$/);
+  if (req.method === "GET" && bookingStaffRead && staff.role === "operator") {
+    requireTerminal(staff, await recordTerminal(db, "cotton_outbound_bookings", bookingStaffRead[1]));
     return;
   }
   if (["GET", "HEAD"].includes(req.method) && warehouseReadPath(path)) {

@@ -1,6 +1,7 @@
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { parseQuantities, parseRateAmount } from "@/lib/warehouse/outbound/carrier-rates";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
 export const runtime = "nodejs";
@@ -23,11 +24,11 @@ function cleanNotes(value: unknown) {
 function validSite(terminal: string, siteCode: string) {
   return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton"));
 }
-async function ownsBooking(id: string, terminal: string, siteCode: string) {
-  const { data, error } = await database().from("cotton_outbound_bookings").select("id")
+async function findBooking(id: string, terminal: string, siteCode: string) {
+  const { data, error } = await database().from("cotton_outbound_bookings").select("status")
     .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).maybeSingle();
   if (error) throw error;
-  return Boolean(data);
+  return data;
 }
 function user(req: NextRequest) { return staffActor(req); }
 
@@ -43,10 +44,11 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
       return NextResponse.json({ ok: false, error: "Unknown booking, warehouse, or container" }, { status: 400 });
     if (!expectedUpdatedAt || Number.isNaN(Date.parse(expectedUpdatedAt)))
       return NextResponse.json({ ok: false, error: "Reload this container before saving" }, { status: 409 });
-    if (!(await ownsBooking(id, terminal, siteCode)))
+    const booking = await findBooking(id, terminal, siteCode);
+    if (!booking)
       return NextResponse.json({ ok: false, error: "Booking not found at this warehouse" }, { status: 404 });
     const { data: current, error: currentError } = await database().from("cotton_outbound_containers")
-      .select("split_transfer_id").eq("id", containerId).eq("booking_id", id).maybeSingle();
+      .select("split_transfer_id,carrier_plan").eq("id", containerId).eq("booking_id", id).maybeSingle();
     if (currentError) throw currentError;
     if (!current) return NextResponse.json({ ok: false, error: "Container not found" }, { status: 404 });
     if (current.split_transfer_id) return NextResponse.json({ ok: false, error: "This mark was split to another booking. Its history row is locked." }, { status: 409 });
@@ -58,16 +60,48 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
       if (lineError) throw lineError;
       if (!line) return NextResponse.json({ ok: false, error: "That mark is not on this booking" }, { status: 400 });
     }
+    let carrierPlan = current.carrier_plan;
+    if (Object.hasOwn(body, "carrierPlan")) {
+      if (booking.status !== "draft") return NextResponse.json({ error: "Only draft bookings can be priced." }, { status: 409 });
+      carrierPlan = null;
+      if (body.carrierPlan !== null) {
+        const { rateId, quantities, basePayOverride } = body.carrierPlan ?? {};
+        if (typeof rateId !== "string" || !/^[0-9a-f-]{36}$/i.test(rateId))
+          return NextResponse.json({ error: "Choose a carrier rate." }, { status: 400 });
+        let counts;
+        let override = null;
+        try {
+          counts = parseQuantities(quantities);
+          if (basePayOverride != null && basePayOverride !== "") override = parseRateAmount(basePayOverride, "base carrier pay");
+          if (!cleanEquipment(body.containerNumber, 20)) throw new Error("Enter the container number before assigning a carrier.");
+        } catch (error) {
+          return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+        }
+        let rate = current.carrier_plan?.rate;
+        if (rate?.id !== rateId) {
+          const result = await database().from("outbound_carrier_rates")
+            .select("id,carrier_id,carrier_name,lane,rates,updated_at")
+            .match({ id: rateId, terminal, site_code: siteCode }).maybeSingle();
+          if (result.error) throw new Error("Could not load the carrier rate.");
+          rate = result.data;
+        }
+        if (!rate) return NextResponse.json({ error: "That carrier rate is unavailable at this warehouse." }, { status: 400 });
+        if (body.carrierPlan.rateVersion !== rate.updated_at)
+          return NextResponse.json({ error: "The carrier rate changed. Reopen the booking before saving." }, { status: 409 });
+        carrierPlan = { rate, quantities: counts, basePayOverride: override };
+      }
+    }
     let values;
     try {
       values = { booking_line_id: bookingLineId, container_number: cleanEquipment(body?.containerNumber, 20), seal_number: cleanEquipment(body?.sealNumber, 40),
-        chassis_number: cleanEquipment(body?.chassisNumber, 40), notes: cleanNotes(body?.notes), updated_by: user(req) };
+        carrier_plan: carrierPlan, chassis_number: cleanEquipment(body?.chassisNumber, 40), notes: cleanNotes(body?.notes), updated_by: user(req) };
+      if (carrierPlan && !values.container_number) throw new Error("Remove the carrier plan before clearing the container number.");
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
     }
     const { data, error } = await database().from("cotton_outbound_containers").update(values)
       .eq("id", containerId).eq("booking_id", id).eq("updated_at", expectedUpdatedAt).is("split_transfer_id", null)
-      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at").maybeSingle();
+      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,carrier_plan").maybeSingle();
     if (error) {
       const duplicate = error.code === "23505";
       return NextResponse.json({ ok: false, error: duplicate ? "That container number is already on this booking." : error.message }, { status: duplicate ? 409 : 400 });

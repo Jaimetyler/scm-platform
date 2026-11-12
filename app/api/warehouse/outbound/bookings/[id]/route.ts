@@ -29,7 +29,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
     const { data: containers, error: containerError } = await sb.from("cotton_outbound_containers")
-      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id")
+      .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id,carrier_plan")
       .eq("booking_id", id).order("sequence_no");
     if (containerError) throw containerError;
     if (["e2open", "mcleod"].includes(params.get("documents") ?? "")) {
@@ -105,10 +105,12 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
     const { data: alerts, error: alertError } = await sb.from("cotton_outbound_source_arrivals")
       .select("line_id,arrival_site_name,checkin_id").in("line_id", (lines ?? []).map((line) => line.id)).is("resolved_at", null);
     if (alertError) throw alertError;
+    const staff = staffProfile(req);
+    const canViewPricing = staff?.role === "admin" || staff?.role === "operator" && staff.terminal === terminal;
     return NextResponse.json({ ok: true, booking, containers: (containers ?? []).map((row) => {
       const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
       const target = transfer?.target as unknown as { booking_number: string } | null;
-      return { ...row, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
+      return { ...row, carrier_plan: canViewPricing ? row.carrier_plan : null, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
         target_booking_id: transfer.target_booking_id, target_booking_number: target?.booking_number ?? "—" } : null };
     }), lines: (lines ?? []).map((line) => ({ ...line,
       source_arrivals: (alerts ?? []).filter((alert) => alert.line_id === line.id),
