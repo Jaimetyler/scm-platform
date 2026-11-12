@@ -73,7 +73,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
         try {
           counts = parseQuantities(quantities);
           if (basePayOverride != null && basePayOverride !== "") override = parseRateAmount(basePayOverride, "base carrier pay");
-          if (!cleanEquipment(body.containerNumber, 20)) throw new Error("Enter the container number before assigning a carrier.");
+          if (!bookingLineId && !cleanEquipment(body.containerNumber, 20)) throw new Error("Choose a mark or enter a container number before assigning a carrier.");
         } catch (error) {
           return NextResponse.json({ error: (error as Error).message }, { status: 400 });
         }
@@ -95,7 +95,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     try {
       values = { booking_line_id: bookingLineId, container_number: cleanEquipment(body?.containerNumber, 20), seal_number: cleanEquipment(body?.sealNumber, 40),
         carrier_plan: carrierPlan, chassis_number: cleanEquipment(body?.chassisNumber, 40), notes: cleanNotes(body?.notes), updated_by: user(req) };
-      if (carrierPlan && !values.container_number) throw new Error("Remove the carrier plan before clearing the container number.");
+      if (carrierPlan && !bookingLineId && !values.container_number) throw new Error("Keep a mark or container number on a row with a carrier plan.");
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
     }

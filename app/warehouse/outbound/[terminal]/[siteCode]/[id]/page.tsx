@@ -425,7 +425,7 @@ export default function CottonOutboundBookingPage() {
   });
   const selectionEnabled = canWrite && !rollMode;
   const pending = pendingEquipment().drafts;
-  const selectableRows = selectionEnabled ? visibleContainers.filter(row => row.container_number && !row.split_transfer_id &&
+  const selectableRows = selectionEnabled ? visibleContainers.filter(row => (row.container_number || row.booking_line_id) && !row.split_transfer_id &&
     !pending[row.id] && drafts[row.id] && (!row.booking_line_id || lineById.get(row.booking_line_id)?.line_status === "active")) : [];
   const selectableIds = new Set(selectableRows.map(row => row.id));
   const selectedRows = selectableRows.filter(row => selectedContainers.has(row.id));
@@ -618,14 +618,14 @@ export default function CottonOutboundBookingPage() {
       const locked = line?.line_status === "on_hold" || line?.line_status === "cancelled";
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
-      const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes);
+      const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes || row.carrier_plan);
       const totals = row.carrier_plan ? carrierPlanTotals(row.carrier_plan, customerBilling) : null;
       return <tr key={row.id} data-selected={selectionEnabled && selectedContainers.has(row.id)} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
         {selectionEnabled && <td style={td}><input type="checkbox" aria-label={`Select container ${row.container_number ?? row.sequence_no}`}
           checked={selectableIds.has(row.id) && selectedContainers.has(row.id)} disabled={!selectableIds.has(row.id) || Boolean(working) || bulkSaving}
           onChange={event => toggleContainers([row.id], event.target.checked)} /></td>}
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
-          title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
+          title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
         <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges(line).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#94a3b8" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
@@ -645,7 +645,7 @@ export default function CottonOutboundBookingPage() {
               aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
               onClick={() => void save(row, draft)}>Save</button>
           </div>}
-          {canManage && row.container_number && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
+          {canManage && (row.container_number || row.booking_line_id) && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
             onClick={() => setDetailId(row.id)}>Details</button>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
@@ -657,7 +657,7 @@ export default function CottonOutboundBookingPage() {
     </PlatformPanel>
     {detailRow && <dialog ref={detailDialog} className="carrier-details-dialog" aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
       <div className="carrier-dialog-heading">
-        <h2 id="carrier-details-title">{detailRow.container_number}</h2>
+        <h2 id="carrier-details-title">{detailRow.container_number || detailLine?.mark || "Container details"}</h2>
         <form method="dialog"><button type="submit">Close</button></form>
       </div>
       <h3>Carrier and charges</h3>
@@ -665,8 +665,8 @@ export default function CottonOutboundBookingPage() {
         sequence={detailRow.sequence_no} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
         onSave={selection => save(detailRow, detailDraft, selection)} />}
       {error && <p role="alert">{error}</p>}
-      {orderLookup && <BookingOrderLookup key={detailRow.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${detailRow.id}`} />}
-      {hasletPilot && canWrite && detailLine?.line_status === "active" && detailLine.load_source === "warehouse" &&
+      {orderLookup && detailRow.container_number && <BookingOrderLookup key={detailRow.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${detailRow.id}`} />}
+      {hasletPilot && canWrite && detailRow.container_number && detailLine?.line_status === "active" && detailLine.load_source === "warehouse" &&
         <DallasOrderPilot key={detailRow.updated_at} endpoint={`/api/warehouse/outbound/bookings/${id}/dallas-pilot`} containerId={detailRow.id} mark={detailLine.mark} />}
     </dialog>}
     {markAction && <div role="dialog" aria-modal="true" aria-labelledby="mark-action-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>
