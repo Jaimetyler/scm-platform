@@ -183,7 +183,8 @@ async function POSTHandler(req: NextRequest) {
     if (row.status === "delivering" && Date.now() - new Date(row.updated_at).getTime() < 300000)
       throw new Error("Delivery may still be running. Wait five minutes before reconciling.");
     await reconcileDelivery(row, store, vendor(true));
-  } else if (body.action === "execute") {
+  } else if (body.action === "execute" || body.action === "execute-and-deliver") {
+    const finalize = body.action === "execute-and-deliver";
     if (body.confirmed !== true)
       throw new Error(
         "Review and confirm this import before creating or rating orders.",
@@ -196,7 +197,14 @@ async function POSTHandler(req: NextRequest) {
       throw new Error(
         "Creation/rating disabled. Preview and read-only reconciliation remain available.",
       );
-    await processInvoice(row, store, vendor());
+    if (finalize && (row.profile.orderedBy !== "GIN DIRECT" || !["ready", "created"].includes(row.status)))
+      throw new Error("Combined delivery requires a Gin Direct invoice ready to create or rate.");
+    const v = vendor();
+    const rated = await processInvoice(row, store, v);
+    if (finalize && rated) {
+      const plan = buildDeliveryPlan(await v.read("/orders/" + encodeURIComponent(rated.order_id!)), rated);
+      await deliverInvoice(rated, store, v, plan);
+    }
   } else if (body.action === "recheck") {
     if (row.status !== "preview_blocked")
       throw new Error("Only a preview-blocked row can be rechecked.");

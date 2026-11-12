@@ -195,11 +195,13 @@ export default function ImportClient() {
       }
     });
   }
-  async function execute() {
+  async function execute(finalize = false) {
     if (!confirmed || !chosen.length || !writes) return;
     if (
       !window.confirm(
-        `Create/rate ${chosen.length} selected orders from this reviewed import? Existing verified orders will be skipped. Delivery status will not be changed.`,
+        finalize
+          ? `Create, rate, and deliver ${chosen.length} selected Gin Direct orders? Scheduled pickup and delivery times will become actuals, brokerage will be marked FINISHED, and the orders will be marked Ready to Bill.`
+          : `Create/rate ${chosen.length} selected orders from this reviewed import? Existing verified orders will be skipped. Delivery status will not be changed.`,
       )
     )
       return;
@@ -207,14 +209,14 @@ export default function ImportClient() {
       for (const item of chosen) {
         try {
           const data = await call({
-            action: "execute",
+            action: finalize ? "execute-and-deliver" : "execute",
             runId: saved.run.id,
             rowId: item.order_id,
             confirmed: true,
           });
           setSaved(data);
           const current = data.items.find((x) => x.order_id === item.order_id);
-          if (current?.order.status !== "verified")
+          if (current?.order.status !== (finalize ? "delivered" : "verified"))
             throw new Error(
               "Processing stopped for review. Refresh and inspect this row before continuing.",
             );
@@ -463,10 +465,19 @@ export default function ImportClient() {
           <button
             style={button}
             disabled={busy || !writes || !confirmed || !chosen.length}
-            onClick={execute}
+            onClick={() => execute()}
           >
             Create and rate selected orders ({chosen.length})
           </button>
+          {saved.run.profile.orderedBy === "GIN DIRECT" && (
+            <button
+              style={button}
+              disabled={busy || !writes || !confirmed || !chosen.length}
+              onClick={() => execute(true)}
+            >
+              Create, deliver and mark ready to bill ({chosen.length})
+            </button>
+          )}
           <button
             style={button}
             disabled={busy}

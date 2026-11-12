@@ -4,12 +4,13 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import ts from "typescript";
 const require = createRequire(import.meta.url);
-function route() {
+function route({ newlyRated = false, orderedBy = "ECOTTON" } = {}) {
   let writes = 0;
   const row = {
     id: "11111111-1111-4111-8111-111111111111",
     status: "ready",
     source_hash: "same",
+    profile: { orderedBy },
   };
   const mod = { exports: {} };
   const code = ts.transpileModule(
@@ -42,7 +43,10 @@ function route() {
           ? server
           : n === "@/lib/ecotton/engine"
             ? {
-                processInvoice: async () => writes++,
+                processInvoice: async () => {
+                  writes++;
+                  if (newlyRated) return { ...row, status: "verified", order_id: "123" };
+                },
                 reconcileInvoice: async () => {},
               }
             : n === "@/lib/ecotton/delivery" ? {
@@ -134,5 +138,28 @@ test("delivery requires saved membership, both write flags, reviewed plan hash a
   } finally {
     if(oldI===undefined)delete process.env.ECOTTON_IMPORT_WRITES_ENABLED;else process.env.ECOTTON_IMPORT_WRITES_ENABLED=oldI;
     if(oldM===undefined)delete process.env.MCLEOD_SYNC_ENABLED;else process.env.MCLEOD_SYNC_ENABLED=oldM;
+  }
+});
+
+test("combined delivery requires a Gin Direct row rated by this request", async () => {
+  const keys = ["ECOTTON_IMPORT_WRITES_ENABLED", "MCLEOD_SYNC_ENABLED"];
+  const previous = keys.map(key => process.env[key]);
+  try {
+    for (const key of keys) process.env[key] = "true";
+    for (const [orderedBy, newlyRated, status, writes] of [
+      ["ECOTTON", true, 400, 0],
+      ["GIN DIRECT", false, 200, 1],
+      ["GIN DIRECT", true, 200, 2],
+    ]) {
+      const r = route({ orderedBy, newlyRated });
+      const response = await r.handler({ json: async () => ({ ...body, action: "execute-and-deliver" }) });
+      assert.equal(response.status, status);
+      assert.equal(r.writes(), writes);
+    }
+  } finally {
+    keys.forEach((key, i) => {
+      if (previous[i] === undefined) delete process.env[key];
+      else process.env[key] = previous[i];
+    });
   }
 });

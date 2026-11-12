@@ -216,6 +216,7 @@ export async function processInvoice(
           ? errors.join("; ")
           : "Created, rated and read-back verified; delivery not changed.",
       );
+      if (!errors.length) return { ...row, status: "verified" };
     } catch (e) {
       await store.finish(
         row,
