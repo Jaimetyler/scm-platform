@@ -31,6 +31,8 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
     "collection_method", "rate_type"] as const;
   const mismatches: string[] = fields.filter(field => String(actual[field] ?? "").trim() !== expected[field]);
   if (expected.booking_no_sucm && String(actual.booking_no_sucm ?? "").trim() !== expected.booking_no_sucm) mismatches.push("booking_no_sucm");
+  if (expected.planning_comment && String(actual.planning_comment ?? "").trim() !== expected.planning_comment)
+    mismatches.push("planning_comment");
   if (expected.weight !== undefined && Number(actual.weight) !== expected.weight) mismatches.push("weight");
   if (expected.otherCharges?.length) {
     const charges = actual.otherCharges ?? actual.other_charges;

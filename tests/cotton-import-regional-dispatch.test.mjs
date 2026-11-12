@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { regionalOrder } from "../lib/cotton-import/regional-dispatch.ts";
 import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
-import { houstonPilotPayload } from "../lib/cotton-import/pilot-create.ts";
+import { houstonPilotPayload, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
 
 const locations = ["FUNSMOG3", "BCTGMOGA"].map((code, i) => ({
   id: code, mcleod_code: code, prev_code: String(266405 + i), name: code,
@@ -44,4 +44,18 @@ test("Olam inbound uses FSCD at Dallas destinations and FSC at Houston", () => {
     const draft = draftHoustonOrder(source, proposal, Array(2).fill({ early: "07:00", late: "15:00" }), "V");
     assert.equal(draft.order.order_type_id, type);
   }
+});
+
+test("Dallas planning comments retain original pickup dates and warehouse tariff text", () => {
+  const { source, proposal } = regionalOrder(lines, "2511158", "SCMDDETX", "DAVIS", locations);
+  proposal.pickupStops[0].scheduledDate = "2026-11-13";
+  const windows = Array(2).fill({ early: "07:00", late: "15:00" });
+  const tariff = "C - 3 - $1/b/d - $2/bff -";
+  const draft = draftHoustonOrder(source, proposal, windows, "V", [tariff, null]);
+  const payload = houstonPilotPayload(draft, "dallas");
+  assert.equal(payload.planning_comment, "11/12 ; " + tariff + " | 11/12");
+  assert.match(payload.stops[0].sched_arrive_early, /^2026-11-13T/);
+  const saved = { ...payload, id: "123", stops: payload.stops.map((stop, i) => ({ ...stop, id: String(i) })) };
+  assert.deepEqual(verifyHoustonPilot(saved, "123", payload), []);
+  assert.deepEqual(verifyHoustonPilot({ ...saved, planning_comment: "" }, "123", payload), ["planning_comment"]);
 });

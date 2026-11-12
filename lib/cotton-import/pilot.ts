@@ -10,6 +10,7 @@ export function draftHoustonOrder(
   preview: CottonOrderPreview,
   windows: readonly PickupWindow[],
   equipmentCode: McLeodCottonEquipmentCode,
+  tariffNotes?: readonly (string | null | undefined)[],
 ) {
   const destination = SCM_DELIVERY_LOCATIONS.find(location => location.code === preview.deliveryLocation);
   const olam = preview.customerId === OLAM_CUSTOMER;
@@ -53,6 +54,15 @@ export function draftHoustonOrder(
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
   const receiving = cottonReceivingHours(preview.deliveryLocation);
 
+  const planningComment = destination?.terminal === "dallas" && tariffNotes
+    ? order.pickups.map((pickup, index) => {
+      // Dallas and OLAM dispatch parsers preserve the source RTL as YYYY-MM-DD.
+      const originalDate = pickup.rtl.slice(5).replace("-", "/");
+      const tariff = tariffNotes[index]?.trim();
+      return tariff ? originalDate + " ; " + tariff : originalDate;
+    }).join(" | ")
+    : undefined;
+
   // Keep local times explicit until their McLeod encoding is confirmed.
   return {
     salesOrder: order.salesOrder,
@@ -64,6 +74,7 @@ export function draftHoustonOrder(
       revenue_code_id: preview.revenueCode, commodity_id: preview.commodity,
       order_type_id: destination?.terminal === "dallas" ? "FSCD" : "FSC", order_mode: "T", ordered_by: order.salesOrder,
       equipment_type_id: equipmentCode,
+      ...(planningComment ? { planning_comment: planningComment } : {}),
       ...(olam && order.bookingNumber ? { booking_no_sucm: order.bookingNumber } : {}),
       ...(weight === null ? {} : { weight }),
       ...(pickups.length === 2 ? { otherCharges: [{

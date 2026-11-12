@@ -55,7 +55,7 @@ async function preflight(req: NextRequest) {
 
   const db = staffDatabase();
   const locations = await db.from("cotton_location_master")
-    .select("id,mcleod_code,prev_code,name,timezone,active").limit(5000);
+    .select("id,mcleod_code,prev_code,name,timezone,active,dallas_tariff_planning_note").limit(5000);
   if (locations.error || !locations.data) throw new Error("Location master unavailable.");
   let workbookDestination: { name: string; address: string[] } | undefined;
   const { source, proposal } = (() => {
@@ -203,7 +203,10 @@ async function preflight(req: NextRequest) {
         : "This order already has a pilot audit state. Review the existing record before proceeding." });
   }
 
-  const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code),
+  const tariffNotes = terminal.id === "dallas" ? proposal.pickupStops.map(stop =>
+    locations.data.find(location => location.id === stop.locationId)?.dallas_tariff_planning_note
+  ) : undefined;
+  const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code, tariffNotes),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
   let payload = houstonPilotPayload(draft, terminal.id);
   if (payload) {
