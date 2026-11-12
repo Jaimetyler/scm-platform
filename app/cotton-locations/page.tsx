@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
+import { canEditCottonLocationDetails } from "@/lib/auth/policy";
 import { useStaff } from "@/components/auth/StaffSession";
 import type { ExistingTariff } from "@/lib/cotton-locations/existing-tariffs";
 import TariffDocuments, { type TariffDocument } from "./TariffDocuments";
@@ -20,6 +21,7 @@ function formatHour(time:string|null){
 }
 export default function CottonLocationsPage(){
  const staff=useStaff();
+ const canEditDetails=canEditCottonLocationDetails(staff);
  const admin=staff?.role==="admin", canWrite=staff?.status==="active"&&staff.role!=="accounting";
  const selectionVersion=useRef(0);
  const [rows,setRows]=useState<Location[]>([]);
@@ -55,7 +57,7 @@ export default function CottonLocationsPage(){
   setPolicy(json);
  }
  async function save(){
-  if(!selected||!admin)return;setBusy(true);setError("");setNotice("");
+  if(!selected||!canEditDetails)return;setBusy(true);setError("");setNotice("");
   try{
    const {id,updated_at,...rest}=selected;
    const res=await fetch("/api/cotton-locations",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,expectedUpdatedAt:updated_at,name:rest.name,address:rest.address,address2:rest.address2,city:rest.city,state:rest.state,zip_code:rest.zip_code,timezone:rest.timezone,prev_code:rest.prev_code,active:rest.active})});
@@ -72,14 +74,14 @@ export default function CottonLocationsPage(){
   <div className={styles.toolbar}><input aria-label="Search locations" placeholder="Search McLeod code, EWR warehouse code, name or city" value={query} onChange={e=>setQuery(e.target.value)}/><button onClick={()=>void load()}>Refresh</button></div>
   {error&&!selected&&<p role="alert" className={styles.error}>{error}</p>}{notice&&<p role="status">{notice}</p>}
   <div className={styles.tableWrap}><table className={styles.table}><thead><tr>{["McLeod code","EWR Warehouse Code","Location","Address","Status",""].map(x=><th key={x}>{x}</th>)}</tr></thead>
-  <tbody>{filtered.map(r=><tr key={r.id}><td className={styles.code}>{r.mcleod_code}</td><td className={styles.code}>{r.prev_code||"—"}</td><td>{r.name||"Unnamed location"}</td><td>{[r.address,r.city,r.state,r.zip_code].filter(Boolean).join(", ")}</td><td>{r.active?"Active":"Unverified"}</td><td><button onClick={()=>void openLocation(r)}>{admin?"View / Edit":"Open location"}</button></td></tr>)}</tbody></table></div>
+  <tbody>{filtered.map(r=><tr key={r.id}><td className={styles.code}>{r.mcleod_code}</td><td className={styles.code}>{r.prev_code||"—"}</td><td>{r.name||"Unnamed location"}</td><td>{[r.address,r.city,r.state,r.zip_code].filter(Boolean).join(", ")}</td><td>{r.active?"Active":"Unverified"}</td><td><button onClick={()=>void openLocation(r)}>{canEditDetails?"View / Edit":"Open location"}</button></td></tr>)}</tbody></table></div>
   {selected&&<div className={styles.overlay} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setSelected(null)}}>
    <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cotton-location-title">
     <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · EWR Warehouse Code: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
     <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["tariffs","Tariff documents"],["equipment","Equipment"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div className={styles.modalBody}>
      {error&&<p role="alert" className={styles.error}>{error}</p>}
-     {tab==="details"&&<fieldset className={styles.form} disabled={!admin}>
+     {tab==="details"&&<fieldset className={styles.form} disabled={!canEditDetails}>
       {field("name","Location name")}
       <div className={styles.twoCols}>{field("prev_code","EWR Warehouse Code")}{field("timezone","IANA timezone")}</div>
       {field("address","Street address")}{field("address2","McLeod address line 2 / notes")}
@@ -136,7 +138,7 @@ export default function CottonLocationsPage(){
       {canWrite&&<PolicyEditor key={selected.id+"fees"} location={selected} kind="fees" onBusy={setBusy} onSaved={refreshPolicy}/>}
      </div>}
     </div>
-    <footer className={styles.modalFooter}><button disabled={busy} onClick={()=>setSelected(null)}>Close</button>{tab==="details"&&admin&&<button className={styles.primary} disabled={busy} onClick={()=>void save()}>{busy?"Saving…":"Save changes"}</button>}</footer>
+    <footer className={styles.modalFooter}><button disabled={busy} onClick={()=>setSelected(null)}>Close</button>{tab==="details"&&canEditDetails&&<button className={styles.primary} disabled={busy} onClick={()=>void save()}>{busy?"Saving…":"Save changes"}</button>}</footer>
    </section>
   </div>}
  </main>;

@@ -139,7 +139,7 @@ test("eCotton import denies operators and viewers and requires same-origin write
   assert.equal((await call(path,"POST",{action:"preview"},admin)).status,200);
 });
 
-test("location records allow viewing and scoped evidence updates without master edits",async()=>{
+test("dispatchers can edit cotton location details and other roles retain scoped evidence access",async()=>{
  for(const path of ["/api/cotton-locations/outreach","/api/cotton-locations/outreach/documents","/api/cotton-locations/outreach/equipment"]){
   assert.equal((await call(path,"GET",undefined,viewer)).status,200);
   assert.equal((await call(path,"POST",{},viewer)).status,path.endsWith("/documents")?200:403);
@@ -151,7 +151,8 @@ test("location records allow viewing and scoped evidence updates without master 
   assert.equal((await call("/api/cotton-locations/policies","GET",undefined,staff)).status,200);
   assert.equal((await call("/api/cotton-locations/review","POST",{},staff)).status,200);
   assert.equal((await call("/api/cotton-locations/review","POST",{},staff,{origin:false})).status,403);
-  assert.equal((await call("/api/cotton-locations","PATCH",{},staff)).status,403);
+  assert.equal((await call("/api/cotton-locations","PATCH",{},staff)).status,staff.role==="viewer"?200:403);
+  assert.equal((await call("/api/cotton-locations","PATCH",{},staff,{origin:false})).status,403);
  }
  for(const path of ["/api/cotton-locations","/api/cotton-locations/outreach/future"])
   assert.equal((await call(path,"POST",{},hou)).status,403);

@@ -17,6 +17,9 @@ export function warehouseReadPath(path: string) {
   return /^\/api\/warehouse\/(?:search|domestic-queue(?:\/match)?|domestic-history|container-queue|inventory|checkin-bol\/[^/]+|outbound\/(?:source-arrivals|bookings(?:\/[^/]+(?:\/(?:export|container-info|planning-info))?)?))$/.test(path) ||
     /^\/api\/inbound\/(?:history|checkin\/(?:cotton-match|rows(?:\/[^/]+\/dispatcher)?))$/.test(path);
 }
+export function canEditCottonLocationDetails(staff: Staff | null) {
+  return staff?.status === "active" && (staff.role === "admin" || staff.role === "viewer");
+}
 export function canUseInboundImporter(staff: Staff | null) {
   return staff?.status === "active" && (staff.role === "admin" || staff.role === "viewer");
 }

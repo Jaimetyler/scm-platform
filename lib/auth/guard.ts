@@ -1,6 +1,6 @@
 import { DependencyError } from "../http/dependency";
 import { NextRequest, NextResponse } from "next/server";
-import { AccessError, billingRequest, canViewLateFees, canUseInboundImporter, isWrite, requireActive, requireTerminal, warehouseReadPath, type Staff } from "./policy";
+import { AccessError, billingRequest, canEditCottonLocationDetails, canViewLateFees, canUseInboundImporter, isWrite, requireActive, requireTerminal, warehouseReadPath, type Staff } from "./policy";
 import { requireSameOrigin, staffDatabase, staffSession } from "./session";
 
 const identities = new WeakMap<object, Staff>();
@@ -24,6 +24,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   const path = new URL(req.url).pathname.replace(/\/$/, "");
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
+  if (path === "/api/cotton-locations" && req.method === "PATCH" && canEditCottonLocationDetails(staff)) return;
   if (path === "/api/warehouse/rates" && ["GET", "HEAD", "POST"].includes(req.method)) return;
   if (canViewLateFees(staff) && req.method === "GET" && ["/api/late-fees/dallas", "/api/late-fees/savannah"].includes(path)) return;
   if (staff.role === "accounting") {
