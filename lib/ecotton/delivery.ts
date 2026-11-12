@@ -68,12 +68,34 @@ export function verifyDelivery(order: any, row: Ledger, plan: DeliveryPlan): str
   return errors;
 }
 const note = (plan: DeliveryPlan, error?: string) => JSON.stringify({ deliveryPlan: plan, ...(error ? { error: error.slice(0, 500) } : {}) });
-export async function deliverInvoice(row: Ledger, store: Store, vendor: Vendor, expectedPlan: DeliveryPlan) {
+async function readDeliveryPlan(row: Ledger, vendor: Vendor, waitForMcLeod: boolean) {
+  const path = "/orders/" + encodeURIComponent(row.order_id!);
+  const read = async () => {
+    const before = await vendor.read(path);
+    return { before, plan: buildDeliveryPlan(before, row) };
+  };
+  if (!waitForMcLeod) return read();
+
+  let lastError: unknown;
+  // Retry only read-back. Once delivery is claimed, every vendor write is attempted once.
+  for (const delay of [0, 1000, 3000, 6000]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    try {
+      return await read();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const detail = lastError instanceof Error ? lastError.message : "McLeod read-back failed.";
+  throw new Error(`Order ${row.order_id} is rated. Delivery could not start. ${detail}`);
+}
+export async function deliverInvoice(row: Ledger, store: Store, vendor: Vendor, expectedPlan?: DeliveryPlan) {
   if (row.status === "delivered") return;
-  if (row.status !== "verified") throw new Error("Only verified orders can be delivered. Reconcile uncertain delivery first.");
-  const before = await vendor.read("/orders/" + encodeURIComponent(row.order_id!));
-  const plan = buildDeliveryPlan(before, row);
-  if (JSON.stringify(plan) !== JSON.stringify(expectedPlan)) throw new Error("Delivery details changed. Review a fresh preview.");
+  if (row.status !== "verified" || !row.order_id)
+    throw new Error("Only verified orders with a saved order number can be delivered. Reconcile uncertain delivery first.");
+  const { before, plan } = await readDeliveryPlan(row, vendor, expectedPlan === undefined);
+  if (expectedPlan && JSON.stringify(plan) !== JSON.stringify(expectedPlan))
+    throw new Error("Delivery details changed. Review a fresh preview.");
   const held = await store.claim(row.id, "verified", "delivering", note(plan));
   if (!held) throw new Error("This delivery was claimed by another request.");
   // The durable claim includes the exact schedule snapshot. Any partial/uncertain

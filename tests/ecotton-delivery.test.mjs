@@ -83,3 +83,22 @@ test('Savannah warehouse can preview delivery without weakening profile restrict
    assert.equal(buildDeliveryPlan(d.o,d.row).orderId,d.row.order_id);
  }
 });
+
+test('combined delivery waits for persisted movement and stops before writing', async () => {
+ const f=fixture(), read=f.vendor.read;
+ let reads=0;
+ f.vendor.read=async path=>{
+  assert.equal(path,'/orders/0828170');
+  const order=await read();
+  if (++reads===1) {
+   assert.equal(f.writes.length,0);
+   delete order.movements[0].id;
+  }
+  if (reads===2) assert.equal(f.writes.length,0);
+  return order;
+ };
+ await deliverInvoice(f.row,f.store,f.vendor);
+ assert.equal(reads,3);
+ assert.equal(f.row.status,'delivered');
+ assert.equal(f.writes.length,4);
+});

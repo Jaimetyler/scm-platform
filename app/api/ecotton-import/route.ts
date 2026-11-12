@@ -201,10 +201,7 @@ async function POSTHandler(req: NextRequest) {
       throw new Error("Combined delivery requires a Gin Direct invoice ready to create or rate.");
     const v = vendor();
     const rated = await processInvoice(row, store, v);
-    if (finalize && rated) {
-      const plan = buildDeliveryPlan(await v.read("/orders/" + encodeURIComponent(rated.order_id!)), rated);
-      await deliverInvoice(rated, store, v, plan);
-    }
+    if (finalize && rated) await deliverInvoice(rated, store, v);
   } else if (body.action === "recheck") {
     if (row.status !== "preview_blocked")
       throw new Error("Only a preview-blocked row can be rechecked.");

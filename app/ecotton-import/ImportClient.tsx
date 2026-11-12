@@ -195,7 +195,9 @@ export default function ImportClient() {
       }
     });
   }
-  async function execute(finalize = false) {
+  const finalizeOnImport = saved?.run?.profile?.orderedBy === "GIN DIRECT";
+  async function execute() {
+    const finalize = finalizeOnImport;
     if (!confirmed || !chosen.length || !writes) return;
     if (
       !window.confirm(
@@ -465,19 +467,10 @@ export default function ImportClient() {
           <button
             style={button}
             disabled={busy || !writes || !confirmed || !chosen.length}
-            onClick={() => execute()}
+            onClick={execute}
           >
-            Create and rate selected orders ({chosen.length})
+            {finalizeOnImport ? "Create, deliver and mark ready to bill" : "Create and rate selected orders"} ({chosen.length})
           </button>
-          {saved.run.profile.orderedBy === "GIN DIRECT" && (
-            <button
-              style={button}
-              disabled={busy || !writes || !confirmed || !chosen.length}
-              onClick={() => execute(true)}
-            >
-              Create, deliver and mark ready to bill ({chosen.length})
-            </button>
-          )}
           <button
             style={button}
             disabled={busy}
