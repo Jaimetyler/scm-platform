@@ -11,15 +11,25 @@
 .button:hover, .primary:hover { border-color: #67b4cc; }
 .button:disabled, .primary:disabled { opacity: .55; cursor: default; }
 .page :is(button, input, select, textarea):focus-visible { outline: 2px solid #67c6e2; outline-offset: 2px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 510px), 1fr)); gap: 16px; }
-.card { padding: 18px 20px; border: 1px solid #314256; border-radius: 14px; background: #111e2f; overflow-wrap: anywhere; }
-.card header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
-.card h2, .dialog h2 { margin: 0; font-size: 1.25rem; }
-.card header p, .notes { color: #aabbd0; margin: 5px 0 0; font-size: .87rem; }
-.terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 14px; margin: 17px 0 0; padding-top: 14px; border-top: 1px solid #314256; }
-.terms dt { font-size: .8rem; color: #aabbd0; }
-.terms dd { margin: 3px 0 0; font-weight: 650; }
-.notes { margin-top: 14px; }
+.gridScroll { overflow: auto; max-height: 65vh; border: 1px solid #314256; border-radius: 12px; }
+.gridScroll:focus-visible { outline: 2px solid #67c6e2; outline-offset: 2px; }
+.grid { width: 100%; min-width: 840px; text-align: left; border-collapse: separate; border-spacing: 0; font-size: .88rem; }
+.grid th, .grid td { padding: 10px 12px; vertical-align: middle; border-bottom: 1px solid #314256; }
+.grid th { font-weight: 650; }
+.grid thead th { position: sticky; top: 0; z-index: 1; background: #203247; color: #d1dfed; white-space: nowrap; }
+.grid tbody tr { background: #111e2f; }
+.grid tbody tr:nth-child(even) { background: #142337; }
+.grid tbody tr:hover { background: #1b3047; }
+.grid tbody tr:last-child > * { border-bottom: 0; }
+.grid tbody th { overflow-wrap: anywhere; }
+.grid small { display: block; margin-top: 3px; color: #aabbd0; font-size: .78rem; }
+.grid .inactive { color: #fca5a5; }
+.grid .mode { text-transform: capitalize; }
+.grid .mode small { text-transform: none; }
+.grid .amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gridNotes { max-width: 260px; color: #b8c8dc; overflow-wrap: anywhere; }
+.grid .button { min-height: 32px; padding: 4px 9px; }
+.dialog h2 { margin: 0; font-size: 1.25rem; }
 .empty, .dialog p { color: #aabbd0; }
 .error, .dialog .error { color: #fca5a5; }
 .dialog {

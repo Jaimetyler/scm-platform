@@ -101,21 +101,23 @@ export default function WarehouseRates() {
     </div>
     {message && <p role="status">{message}</p>}
     {error && !dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
-    <div className={styles.cards}>
-      {visible.map(rate => <article className={styles.card} key={key(rate)}>
-        <header><div><h2>{rate.customer_code}</h2>
-          <p>{TERMINAL_NAMES[rate.terminal as keyof typeof TERMINAL_NAMES]} · {siteLabel(rate.terminal, rate.site_code)} · {rate.service_type} / {rate.revenue_code}</p></div>
-          <button type="button" className={styles.button} onClick={() => edit(rate)} aria-label={`Edit ${rate.customer_code} rate`}>Edit</button>
-        </header>
-        {!rate.active && <p className={styles.error}>Inactive</p>}
-        <dl className={styles.terms}>
-          <div><dt>Base rate</dt><dd>{rate.base_rate == null ? "Contract base needed" : usd(rate.base_rate)}</dd></div>
-          <div><dt>Fuel</dt><dd>{fuelModes[rate.fuel_mode]}</dd></div>
-          <div><dt>Included chassis</dt><dd>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"} at ${usd(rate.chassis_daily_rate)}/day` : "None"}</dd></div>
-        </dl>
-        {rate.notes && <p className={styles.notes}>{rate.notes}</p>}
-      </article>)}
-    </div>
+    {visible.length > 0 && <div className={styles.gridScroll} role="region" aria-label="Customer rates grid" tabIndex={0}>
+      <table className={styles.grid} aria-label="Customer rates">
+        <thead><tr>{["Customer", "Warehouse", "Mode / code", "Contract base", "Fuel", "Included chassis", "Notes", "Actions"].map(label =>
+          <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <tbody>{visible.map(rate => <tr key={key(rate)}>
+          <th scope="row">{rate.customer_code}{!rate.active && <small className={styles.inactive}>Inactive</small>}</th>
+          <td>{rate.site_code ? siteLabel(rate.terminal, rate.site_code) : <>{TERMINAL_NAMES[rate.terminal as keyof typeof TERMINAL_NAMES]}<small>Terminal default</small></>}</td>
+          <td className={styles.mode}>{rate.service_type}<small>{rate.revenue_code}</small></td>
+          <td className={styles.amount}>{rate.base_rate == null ? <small>Contract base needed</small> : usd(rate.base_rate)}</td>
+          <td>{fuelModes[rate.fuel_mode]}</td>
+          <td className={styles.amount}>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"}` : "None"}
+            {rate.chassis_daily_rate > 0 && <small>{usd(rate.chassis_daily_rate)}/day</small>}</td>
+          <td className={styles.gridNotes}>{rate.notes || "—"}</td>
+          <td><button type="button" className={styles.button} onClick={() => edit(rate)} aria-label={`Edit ${rate.customer_code} rate`}>Edit</button></td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
     {!visible.length && <p className={styles.empty}>{loading ? "Loading rates…" : "No rates match these filters."}</p>}
 
     <dialog ref={dialog} className={styles.dialog} aria-labelledby="rate-dialog-title"
