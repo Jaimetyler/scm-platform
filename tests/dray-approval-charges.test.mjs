@@ -78,3 +78,12 @@ test("configured all-in base flags separately billed fuel and respects billed ch
  assert.equal(separateFuel.baseVariance, 25);
  assert.equal(separateFuel.extraTotal, 0);
 });
+
+test("changing billed FSC by week leaves a matching contract base unchanged", () => {
+ const rate = { includedChassisDays: 0, chassisDailyRate: 0, fuelMode: "base_plus_fsc", baseRate: 500 };
+ for (const fuel of [0, 45.5, 68]) {
+   const result = approvalCharges(500 + fuel, [line("Fuel surcharge", fuel)], rate);
+   assert.equal(result.baseVariance, 0);
+   assert.equal(result.billedFsc, fuel);
+ }
+});

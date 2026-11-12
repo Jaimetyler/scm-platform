@@ -109,7 +109,7 @@ export default function WarehouseRates() {
         </header>
         {!rate.active && <p className={styles.error}>Inactive</p>}
         <dl className={styles.terms}>
-          <div><dt>Base rate</dt><dd>{rate.base_rate == null ? "From McLeod" : usd(rate.base_rate)}</dd></div>
+          <div><dt>Base rate</dt><dd>{rate.base_rate == null ? "Contract base needed" : usd(rate.base_rate)}</dd></div>
           <div><dt>Fuel</dt><dd>{fuelModes[rate.fuel_mode]}</dd></div>
           <div><dt>Included chassis</dt><dd>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"} at ${usd(rate.chassis_daily_rate)}/day` : "None"}</dd></div>
         </dl>
@@ -125,7 +125,7 @@ export default function WarehouseRates() {
       {showImport && <form onSubmit={event => void save(event, true)}>
         <p>Upload a CSV or XLSX. Leave site code blank for a terminal default. Matching rates are updated.</p>
         <code>{rateColumns.join(",")}</code>
-        <p>Modes: {rateModes.join(", ")}. Fuel values: {Object.keys(fuelModes).join(", ")}.</p>
+        <p>Modes: {rateModes.join(", ")}. Fuel values: FSC, FLAT, or All in. Enter the contracted base for every row.</p>
         <label className={styles.label}>Rate file<input type="file" accept=".csv,.xlsx" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
         <footer><button type="button" className={styles.button} disabled={busy} onClick={closeDialog}>Cancel</button>
           <button className={styles.primary} disabled={busy || !file}>Import and save</button></footer>
@@ -152,7 +152,7 @@ export default function WarehouseRates() {
           <label>Fuel treatment<select value={draft.fuel_mode} onChange={event => change("fuel_mode", event.target.value)}>
             {Object.entries(fuelModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
-          <label>Base rate per order<input type="number" min="0" step=".01" placeholder="Use McLeod rate" value={draft.base_rate} onChange={event => change("base_rate", event.target.value)} /></label>
+          <label>Contract base per order<input required type="number" min="0" step=".01" value={draft.base_rate} onChange={event => change("base_rate", event.target.value)} /></label>
           <label>Included chassis days<input required type="number" min="0" step="1" value={draft.included_chassis_days} onChange={event => change("included_chassis_days", event.target.value)} /></label>
           <label>Chassis daily rate<input required type="number" min="0" step=".01" value={draft.chassis_daily_rate} onChange={event => change("chassis_daily_rate", event.target.value)} /></label>
           <label className={styles.notesField}>Notes<textarea rows={2} maxLength={1000} value={draft.notes} onChange={event => change("notes", event.target.value)} /></label>

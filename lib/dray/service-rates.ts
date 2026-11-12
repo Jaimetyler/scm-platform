@@ -2,9 +2,9 @@ import { CHECKIN_SITES } from "../inbound/checkin/sites.ts";
 
 export const rateModes = ["drayage", "truckload", "handling", "storage"] as const;
 export const fuelModes = {
-  all_in: "All-in base (FSC embedded)",
-  base_plus_fsc: "Base + separate standard FSC",
-  fuel_for_review: "Review FSC as an itemized charge",
+  all_in: "All in",
+  base_plus_fsc: "FSC",
+  fuel_for_review: "FLAT",
 } as const;
 export type FuelMode = keyof typeof fuelModes;
 export type ServiceRate = {
@@ -32,7 +32,8 @@ export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate 
   const customerCode = value("customer_code").toUpperCase();
   const revenueCode = value("revenue_code").toUpperCase();
   const mode = value("service_type").toLowerCase() as (typeof rateModes)[number];
-  const fuelMode = value("fuel_mode").toLowerCase() as FuelMode;
+  const inputFuelMode = value("fuel_mode").toLowerCase().replace(/\s+/g, "_");
+  const fuelMode = (inputFuelMode === "fsc" ? "base_plus_fsc" : inputFuelMode === "flat" ? "fuel_for_review" : inputFuelMode) as FuelMode;
   if (!["DAL", "HOU", "SAV"].includes(terminal) ||
       (siteInput && !site))
     throw Error("Choose a terminal and a warehouse within it.");
@@ -40,9 +41,8 @@ export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate 
     throw Error("Enter McLeod customer and revenue codes.");
   if (!rateModes.includes(mode) || !Object.hasOwn(fuelModes, fuelMode)) throw Error("Choose a mode and fuel treatment.");
 
-  function money(field: string, optional = false) {
+  function money(field: string) {
     const raw = value(field);
-    if (optional && !raw) return null;
     if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(raw)) throw Error(`Enter a valid ${field.replaceAll("_", " ")}.`);
     return Number(raw);
   }
@@ -56,6 +56,6 @@ export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate 
   const notes = value("notes");
   if (notes.length > 1000) throw Error("Keep notes to 1,000 characters.");
   return { terminal, site_code: site?.siteCode ?? "", customer_code: customerCode, revenue_code: revenueCode,
-    service_type: mode, fuel_mode: fuelMode, base_rate: money("base_rate", true), included_chassis_days: days,
+    service_type: mode, fuel_mode: fuelMode, base_rate: money("base_rate"), included_chassis_days: days,
     chassis_daily_rate: daily, active: active !== "false", notes: notes || null };
 }

@@ -36,11 +36,12 @@ export function approvalCharges<T extends Charge>(total: number | null, charges:
   const allIn = total === null || !complete ? null :
     (Math.round(total * 100) - nonFuel.reduce((sum, charge) => sum + Math.round(charge.amount! * 100), 0)) / 100;
   const extraTotal = complete ? extras.reduce((sum, charge) => sum + Math.round(charge.amount! * 100), 0) / 100 : null;
-  const fuelCents = standardFuel && complete ? (charges ?? []).filter(fuel)
-    .reduce((sum, charge) => sum + Math.round(charge.amount! * 100), 0) : 0;
+  const fuelLines = standardFuel && complete ? (charges ?? []).filter(fuel) : [];
+  const fuelCents = fuelLines.reduce((sum, charge) => sum + Math.round(charge.amount! * 100), 0);
+  const billedFsc = fuelLines.length ? fuelCents / 100 : null;
   const baseVariance = allIn === null || rate?.baseRate == null ? null :
     (Math.round(allIn * 100) - fuelCents - Math.round(rate.baseRate * 100)) / 100;
-  return { extras, allIn, baseVariance, includedChassis: includedChassis / 100,
+  return { extras, allIn, baseVariance, billedFsc, includedChassis: includedChassis / 100,
     standardTotal: allIn === null ? null : (Math.round(allIn * 100) + includedChassis) / 100, extraTotal };
 }
 

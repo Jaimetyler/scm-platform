@@ -14,7 +14,10 @@ test("rates preserve the entered fuel and chassis terms and normalize the yard c
   assert.deepEqual(rates.normalizeServiceRate(rule), { ...rule, site_code: "SCMDDETX", notes: null });
   assert.throws(() => rates.normalizeServiceRate({ ...rule, terminal: "HOU" }), /warehouse/);
   assert.throws(() => rates.normalizeServiceRate({ ...rule, chassis_daily_rate: 0 }), /positive/);
-  assert.equal(rates.normalizeServiceRate({ ...rule, base_rate: "" }).base_rate, null);
+  assert.throws(() => rates.normalizeServiceRate({ ...rule, base_rate: "" }), /base rate/);
+  assert.equal(rates.normalizeServiceRate({ ...rule, fuel_mode: "FSC" }).fuel_mode, "base_plus_fsc");
+  assert.equal(rates.normalizeServiceRate({ ...rule, fuel_mode: "FLAT" }).fuel_mode, "fuel_for_review");
+  assert.equal(rates.normalizeServiceRate({ ...rule, fuel_mode: "All in" }).fuel_mode, "all_in");
 });
 
 test("rates import normalizes CSV rows and saves the complete batch by scope", async () => {
