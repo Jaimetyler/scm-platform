@@ -11,6 +11,7 @@ import { fuelModes, rateColumns, rateModes, type ServiceRate } from "@/lib/dray/
 const blank = { terminal: "DAL", site_code: "", customer_code: "", revenue_code: "DDRAY", service_type: "drayage",
   fuel_mode: "all_in", base_rate: "", included_chassis_days: "0", chassis_daily_rate: "0", active: "true", notes: "" };
 type Draft = typeof blank;
+const templateUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(rateColumns.join(",") + "\r\n")}`;
 const key = (rate: ServiceRate) => [rate.terminal, rate.site_code, rate.customer_code, rate.revenue_code, rate.service_type].join("|");
 const usd = (amount: number | null) => amount == null ? "—" : Number(amount).toLocaleString("en-US", { style: "currency", currency: "USD" });
 const siteLabel = (terminal: string, code: string) => code ? CHECKIN_SITES.find(site => site.terminal === terminal && site.siteCode === code)?.siteName ?? code : "Terminal default";
@@ -126,7 +127,7 @@ export default function WarehouseRates() {
       {error && dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
       {showImport && <form onSubmit={event => void save(event, true)}>
         <p>Upload a CSV or XLSX. Leave site code blank for a terminal default. Matching rates are updated.</p>
-        <code>{rateColumns.join(",")}</code>
+        <a className={`${styles.button} ${styles.download}`} href={templateUrl} download="rate-import-template.csv">Download CSV template</a>
         <p>Modes: {rateModes.join(", ")}. Fuel values: FSC, FLAT, or All in. Enter the contracted base for every row.</p>
         <label className={styles.label}>Rate file<input type="file" accept=".csv,.xlsx" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
         <footer><button type="button" className={styles.button} disabled={busy} onClick={closeDialog}>Cancel</button>

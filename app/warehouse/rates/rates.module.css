@@ -37,7 +37,7 @@
   padding: 24px; border: 1px solid #41536a; border-radius: 16px; background: #111e2f; color: #e2e8f0;
 }
 .dialog::backdrop { background: rgba(3, 9, 19, .74); }
-.dialog code { overflow-wrap: anywhere; }
+.download { display: inline-flex; align-items: center; box-sizing: border-box; text-decoration: none; }
 .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; border: 0; padding: 0; margin: 16px 0 0; }
 .fields legend { margin-bottom: 8px; font-weight: 700; }
 .fields + .fields { padding-top: 4px; }
