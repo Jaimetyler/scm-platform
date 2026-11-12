@@ -1,6 +1,7 @@
 import { searchReferenceOrders } from "../inbound/checkin/reference-search.ts";
 import { normalizeReference, referenceMatchesInput } from "../inbound/checkin/reference-match.ts";
 import { mcleodOrderStops, stopAtScmYard } from "../inbound/checkin/yard-stop.ts";
+import { dallasOrderBookingReferences } from "../warehouse/outbound/planning-info.ts";
 import type { CheckinSite } from "../inbound/checkin/sites.ts";
 
 const revenueCode = "DDRAY";
@@ -26,11 +27,13 @@ export async function readBookingMarkCharges(
     if (!order || String(order.id) !== id || !order.customer_id) throw Error("McLeod order identity could not be verified.");
     if (String(order.revenue_code_id ?? "").trim().toUpperCase() !== revenueCode ||
         !customerIds.includes(String(order.customer_id).trim().toUpperCase()) ||
-        /^(?:V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(String(order.__statusDescr || order.status || "").trim()) ||
-        ![order.blnum, order.consignee_refno].some(reference => matchesMark(reference, key))) continue;
+        /^(?:V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(String(order.__statusDescr || order.status || "").trim())) continue;
     if (!mcleodOrderStops(order).some(stop => stopAtScmYard(stop, site.siteName, site.terminal))) continue;
-    const savedBooking = normalizeReference(order.booking_no_sucm);
-    if (bookingNumber && savedBooking && savedBooking !== normalizeReference(bookingNumber)) continue;
+    const references = dallasOrderBookingReferences(order);
+    const verifiedBooking = Boolean(bookingNumber && references.size === 1 && references.has(normalizeReference(bookingNumber)));
+    if (bookingNumber && references.size && !verifiedBooking) continue;
+    if (![order.blnum, order.consignee_refno].some(reference =>
+      matchesMark(reference, key) || verifiedBooking && referenceMatchesInput(reference, key))) continue;
     orders.push(bookingOrderCharges(order));
   }
   return orders;

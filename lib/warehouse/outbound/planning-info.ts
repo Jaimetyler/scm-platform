@@ -9,36 +9,59 @@ export type PlanningInfo = {
 const text = (value: unknown) => String(value ?? "").trim();
 const key = (value: unknown) => text(value).toUpperCase();
 
+export function dallasOrderBookingReferences(order: { booking_no_sucm?: unknown; planning_comment?: unknown }) {
+  const references = [...key(order.planning_comment).matchAll(/\b(?:BKG|BOOKING)\s*[:#]\s*([A-Z0-9][A-Z0-9._/-]*)/g)]
+    .map(match => match[1].replace(/[./-]+$/, ""));
+  return new Set([key(order.booking_no_sucm), ...references].filter(Boolean));
+}
+
 export async function readDallasBookingOrders(read: (path: string) => Promise<unknown>,
   bookingNumber: string, site: CheckinSite,
   customerIds: readonly string[], signal: AbortSignal) {
   const reference = key(bookingNumber);
   if (!reference || /[\u0000-\u001f*?]/.test(reference)) throw Error("Booking number is not suitable for lookup.");
-  const seen = new Set<string>();
-  const matched: Record<string, any>[] = [];
-  let exhausted = false;
-  for (let page = 0; page < 20; page++) {
-    signal.throwIfAborted();
-    const query = new URLSearchParams({ "orders.booking_no_sucm": reference, "orders.revenue_code_id": "DDRAY", recordLength: "5", recordOffset: String(page * 5) });
-    const rows = extractSearchOrders(await read(`/orders/search?${query}`));
-    if (!rows || rows.length > 5) throw Error("McLeod returned an incomplete booking search.");
-    for (const row of rows) {
-      const id = text(row && typeof row === "object" ? (row as Record<string, unknown>).id : null);
-      if (!/^[A-Za-z0-9_-]{1,60}$/.test(id) || seen.has(id)) throw Error("McLeod search could not establish a complete order list.");
-      seen.add(id);
+  async function search(field: string, value: string) {
+    const ids = new Set<string>();
+    for (let page = 0; page < 20; page++) {
       signal.throwIfAborted();
-      const order = await read(`/orders/${encodeURIComponent(id)}`) as Record<string, any> | null;
-      if (!order || text(order.id) !== id || order.booking_no_sucm == null || !order.customer_id || !order.revenue_code_id)
-        throw Error("McLeod order identity could not be verified.");
-      if (key(order.booking_no_sucm) !== reference || key(order.revenue_code_id) !== "DDRAY" ||
-        !customerIds.includes(key(order.customer_id)) || /^(V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(text(order.__statusDescr || order.status))) continue;
-      const pickups = mcleodOrderStops(order).filter(stop => key(stop.stop_type) === "PU" && stopAtScmYard(stop, site.siteName, site.terminal));
-      if (pickups.length !== 1) continue;
-      matched.push({ ...order, warehousePickup: pickups[0] });
+      const query = new URLSearchParams({ [field]: value, "orders.revenue_code_id": "DDRAY", recordLength: "5", recordOffset: String(page * 5) });
+      const rows = extractSearchOrders(await read(`/orders/search?${query}`));
+      if (!rows || rows.length > 5) throw Error("McLeod returned an incomplete booking search.");
+      for (const row of rows) {
+        const id = text(row && typeof row === "object" ? (row as Record<string, unknown>).id : null);
+        if (!/^[A-Za-z0-9_-]{1,60}$/.test(id) || ids.has(id)) throw Error("McLeod search could not establish a complete order list.");
+        ids.add(id);
+      }
+      if (rows.length < 5) return ids;
     }
-    if (rows.length < 5) { exhausted = true; break; }
+    throw Error("Too many booking orders to verify completely. Narrow the lookup before using coverage.");
   }
-  if (!exhausted) throw Error("Too many booking orders to verify completely. Narrow the lookup before using coverage.");
+
+  const [structured, comments] = await Promise.allSettled([
+    search("orders.booking_no_sucm", reference),
+    search("orders.planning_comment", `*${reference}*`),
+  ]);
+  signal.throwIfAborted();
+  if (structured.status === "rejected" && comments.status === "rejected") throw structured.reason;
+  const ids = new Set([
+    ...(structured.status === "fulfilled" ? structured.value : []),
+    ...(comments.status === "fulfilled" ? comments.value : []),
+  ]);
+  const matched: Record<string, any>[] = [];
+  for (const id of ids) {
+    signal.throwIfAborted();
+    const order = await read(`/orders/${encodeURIComponent(id)}`) as Record<string, any> | null;
+    if (!order || text(order.id) !== id || !order.customer_id || !order.revenue_code_id)
+      throw Error("McLeod order identity could not be verified.");
+    const references = dallasOrderBookingReferences(order);
+    if (references.size !== 1 || !references.has(reference) || key(order.revenue_code_id) !== "DDRAY" ||
+        !customerIds.includes(key(order.customer_id)) || /^(V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(text(order.__statusDescr || order.status))) continue;
+    const pickups = mcleodOrderStops(order).filter(stop => key(stop.stop_type) === "PU" && stopAtScmYard(stop, site.siteName, site.terminal));
+    if (pickups.length !== 1) continue;
+    matched.push({ ...order, warehousePickup: pickups[0] });
+  }
+  if (!matched.length && (structured.status === "rejected" || comments.status === "rejected"))
+    throw Error("One of the McLeod booking searches could not be completed.");
   return matched;
 }
 

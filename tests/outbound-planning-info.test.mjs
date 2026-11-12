@@ -40,3 +40,23 @@ test('search failure or unreadable response never becomes uncovered', async () =
   await assert.rejects(lookup([], 2, async () => ({ error: 'unavailable' })), /incomplete booking search/);
   await assert.rejects(lookup([], 2, async () => { throw Error('offline'); }), /offline/);
 });
+
+test('Dallas booking lookup verifies BKG tokens in planning comments and rejects substring or conflicting bookings', async () => {
+  const { readDallasBookingOrders } = await import('../lib/warehouse/outbound/planning-info.ts');
+  const number = 'EBKG17818536';
+  const planning_comment = 'ID41400 MSC BKG: EBKG17818536 - ERD 11/02 - C/O 11/05 BOLT SEALS';
+  const orders = [
+    { ...order('1'), booking_no_sucm: null, planning_comment },
+    { ...order('2'), booking_no_sucm: 'OTHER', planning_comment },
+    { ...order('3'), booking_no_sucm: null, planning_comment: planning_comment.replace(number, number + '9') },
+    { ...order('4'), booking_no_sucm: null, planning_comment, customer_id: 'WRONG' },
+  ];
+  const matched = await readDallasBookingOrders(async path => {
+    if (!path.startsWith('/orders/search?')) return orders.find(row => path === '/orders/' + row.id);
+    const query = new URL(path, 'https://fixture.invalid').searchParams;
+    if (!query.has('orders.planning_comment')) return [];
+    assert.equal(query.get('orders.planning_comment'), '*' + number + '*');
+    return orders.map(({ id }) => ({ id }));
+  }, number, site, ['BUNGOMNE'], AbortSignal.timeout(2000));
+  assert.deepEqual(matched.map(row => row.id), ['1']);
+});

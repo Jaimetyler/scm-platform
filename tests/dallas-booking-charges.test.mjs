@@ -62,3 +62,14 @@ test('mark fallback rejects a DDRAY order on a different saved booking', async (
  const site=getCheckinSite('DAL','SCMDDETX');
  assert.deepEqual(await readBookingMarkCharges(read,site,'WTMC',new AbortController().signal,['OLAMRITX'],'2343518850'),[]);
 });
+
+test('mark fallback can verify a compound reference against the planning-comment booking', async () => {
+ const order={id:'205',customer_id:'OLAMRITX',blnum:'SO 47439 / WTMC',consignee_refno:'47439',
+  planning_comment:'ID41400 MSC BKG: 2343518850 - ERD 11/02',revenue_code_id:'DDRAY',stops:[{location_id:'SCMDDETX',stop_type:'PU'}]};
+ const read=async path=>{
+  if(!path.startsWith('/orders/search?'))return order;
+  return path.includes('orders.blnum')?[order]:[];
+ };
+ const result=await readBookingMarkCharges(read,getCheckinSite('DAL','SCMDDETX'),'WTMC',AbortSignal.timeout(2000),['OLAMRITX'],'2343518850');
+ assert.deepEqual(result.map(row=>row.id),['205']);
+});
