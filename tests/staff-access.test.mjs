@@ -250,3 +250,12 @@ test("broker snapshot uploads require an active administrator and the configured
  assert.equal((await call(path, "POST", {}, admin, {origin:false})).status, 403);
  assert.equal((await call(path, "POST", {}, {...admin,status:"disabled"})).status, 403);
 });
+
+test("active staff can view and save warehouse rates with same-origin writes", async () => {
+  for (const staff of [hou, viewer, { ...viewer, role: "accounting" }, { ...viewer, role: "admin" }]) {
+    assert.equal((await call("/api/warehouse/rates", "GET", undefined, staff)).ran, true);
+    assert.equal((await call("/api/warehouse/rates", "POST", { rates: [] }, staff)).ran, true);
+    assert.equal((await call("/api/warehouse/rates", "POST", { rates: [] }, staff, { origin: false })).status, 403);
+  }
+  assert.equal((await call("/api/warehouse/rates", "GET", undefined, { ...viewer, status: "disabled" })).ran, false);
+});

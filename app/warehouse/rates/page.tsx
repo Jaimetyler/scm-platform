@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
-import PlatformPanel from "@/components/platform/PlatformPanel";
+import styles from "./rates.module.css";
 import { useWarehouseWorkspace } from "@/components/warehouse/WarehouseWorkspace";
 import { CHECKIN_SITES, TERMINAL_NAMES } from "@/lib/inbound/checkin/sites";
 import { fuelModes, rateColumns, rateModes, type ServiceRate } from "@/lib/dray/service-rates";
 
-const field = { padding: "8px 10px", border: "1px solid #475569", borderRadius: 6, background: "#0f172a", color: "#e2e8f0" };
+
 const blank = { terminal: "DAL", site_code: "", customer_code: "", revenue_code: "DDRAY", service_type: "drayage",
   fuel_mode: "all_in", base_rate: "", included_chassis_days: "0", chassis_daily_rate: "0", active: "true", notes: "" };
 type Draft = typeof blank;
@@ -18,6 +18,7 @@ const siteLabel = (terminal: string, code: string) => code ? CHECKIN_SITES.find(
 export default function WarehouseRates() {
   const { location } = useWarehouseWorkspace();
   const [rates, setRates] = useState<ServiceRate[]>([]);
+  const [search, setSearch] = useState("");
   const [mode, setMode] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editing, setEditing] = useState(false);
@@ -27,6 +28,17 @@ export default function WarehouseRates() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  const dialog = useRef<HTMLDialogElement>(null);
+  const dialogOpen = Boolean(draft || showImport);
+  useEffect(() => {
+    const element = dialog.current;
+    if (dialogOpen && !element?.open) element?.showModal();
+    else if (!dialogOpen && element?.open) element.close();
+  }, [dialogOpen]);
+  function closeDialog() {
+    setDraft(null); setShowImport(false); setFile(null); setError("");
+  }
 
   async function load(signal?: AbortSignal) {
     const response = await fetch("/api/warehouse/rates", { cache: "no-store", signal });
@@ -74,66 +86,81 @@ export default function WarehouseRates() {
 
   const visible = rates.filter(rate => (location.terminal === "all" || rate.terminal === location.terminal)
     && (location.siteCode === "all" || !rate.site_code || rate.site_code === location.siteCode)
-    && (!mode || rate.service_type === mode));
+    && (!mode || rate.service_type === mode)
+    && [rate.customer_code, rate.revenue_code, siteLabel(rate.terminal, rate.site_code)].some(value => value.toLowerCase().includes(search.trim().toLowerCase())));
   const change = (name: keyof Draft, value: string) => setDraft(current => current && { ...current, [name]: value });
-  return <main style={{ maxWidth: 1420, margin: "0 auto", color: "#e2e8f0" }}>
-    <PlatformPageHeader title="Rates" subtitle="Customer rates by warehouse, mode, and McLeod revenue code."
-      actions={<><button type="button" style={field} disabled={busy} onClick={() => edit()}>Add rate</button>
-        <button type="button" style={field} disabled={busy} onClick={() => setShowImport(open => !open)}>Import rates</button></>} />
-    <PlatformPanel style={{ padding: 16 }}>
-      <label>Mode <select style={field} value={mode} onChange={event => setMode(event.target.value)}>
-        <option value="">All modes</option>{rateModes.map(item => <option key={item}>{item}</option>)}
+  return <main className={styles.page}>
+    <PlatformPageHeader title="Rates" subtitle="Customer pricing and allowances used to review order charges."
+      actions={<><button type="button" className={styles.button} onClick={() => { setError(""); setShowImport(true); }}>Import rates</button>
+        <button type="button" className={styles.primary} onClick={() => edit()}>Add rate</button></>} />
+    <div className={styles.filters}>
+      <label>Search rates<input type="search" value={search} placeholder="Customer code or warehouse" onChange={event => setSearch(event.target.value)} /></label>
+      <label>Mode<select value={mode} onChange={event => setMode(event.target.value)}>
+        <option value="">All modes</option>{rateModes.map(item => <option key={item} value={item}>{item}</option>)}
       </select></label>
-      {message && <p role="status">{message}</p>}
-      {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}
-      {showImport && <form onSubmit={event => void save(event, true)} style={{ marginTop: 16 }}>
-        <p>Upload a CSV or XLSX with these headers. A blank site code applies the rate across the terminal. Matching rows are updated.</p>
-        <code style={{ overflowWrap: "anywhere" }}>{rateColumns.join(",")}</code>
-        <p>Modes: {rateModes.join(", ")}. Fuel values: {Object.keys(fuelModes).join(", ")}. Leave base rate blank to use McLeod for the comparison.</p>
-        <input aria-label="Rate import file" type="file" accept=".csv,.xlsx" onChange={event => setFile(event.target.files?.[0] ?? null)} />
-        <button style={field} disabled={busy || !file}>Import and save</button>
+    </div>
+    {message && <p role="status">{message}</p>}
+    {error && !dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
+    <div className={styles.cards}>
+      {visible.map(rate => <article className={styles.card} key={key(rate)}>
+        <header><div><h2>{rate.customer_code}</h2>
+          <p>{TERMINAL_NAMES[rate.terminal as keyof typeof TERMINAL_NAMES]} · {siteLabel(rate.terminal, rate.site_code)} · {rate.service_type} / {rate.revenue_code}</p></div>
+          <button type="button" className={styles.button} onClick={() => edit(rate)} aria-label={`Edit ${rate.customer_code} rate`}>Edit</button>
+        </header>
+        {!rate.active && <p className={styles.error}>Inactive</p>}
+        <dl className={styles.terms}>
+          <div><dt>Base rate</dt><dd>{rate.base_rate == null ? "From McLeod" : usd(rate.base_rate)}</dd></div>
+          <div><dt>Fuel</dt><dd>{fuelModes[rate.fuel_mode]}</dd></div>
+          <div><dt>Included chassis</dt><dd>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"} at ${usd(rate.chassis_daily_rate)}/day` : "None"}</dd></div>
+        </dl>
+        {rate.notes && <p className={styles.notes}>{rate.notes}</p>}
+      </article>)}
+    </div>
+    {!visible.length && <p className={styles.empty}>{loading ? "Loading rates…" : "No rates match these filters."}</p>}
+
+    <dialog ref={dialog} className={styles.dialog} aria-labelledby="rate-dialog-title"
+      onCancel={event => { event.preventDefault(); if (!busy) closeDialog(); }}>
+      <h2 id="rate-dialog-title">{showImport ? "Import rates" : editing ? "Edit rate" : "Add rate"}</h2>
+      {error && dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
+      {showImport && <form onSubmit={event => void save(event, true)}>
+        <p>Upload a CSV or XLSX. Leave site code blank for a terminal default. Matching rates are updated.</p>
+        <code>{rateColumns.join(",")}</code>
+        <p>Modes: {rateModes.join(", ")}. Fuel values: {Object.keys(fuelModes).join(", ")}.</p>
+        <label className={styles.label}>Rate file<input type="file" accept=".csv,.xlsx" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
+        <footer><button type="button" className={styles.button} disabled={busy} onClick={closeDialog}>Cancel</button>
+          <button className={styles.primary} disabled={busy || !file}>Import and save</button></footer>
       </form>}
-      {draft && <form onSubmit={event => void save(event)} style={{ marginTop: 16 }}>
-        <fieldset disabled={busy} style={{ border: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-          <label>Terminal <select style={field} disabled={editing} value={draft.terminal}
+      {draft && <form onSubmit={event => void save(event)}>
+        <fieldset className={styles.fields} disabled={busy}>
+          <legend>Applies to</legend>
+          <label>Terminal<select disabled={editing} value={draft.terminal}
             onChange={event => setDraft({ ...draft, terminal: event.target.value, site_code: "" })}>
             {Object.entries(TERMINAL_NAMES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
           </select></label>
-          <label>Warehouse <select style={field} disabled={editing} value={draft.site_code} onChange={event => change("site_code", event.target.value)}>
+          <label>Warehouse<select disabled={editing} value={draft.site_code} onChange={event => change("site_code", event.target.value)}>
             <option value="">Terminal default</option>
             {CHECKIN_SITES.filter(site => site.terminal === draft.terminal).map(site => <option key={site.siteCode} value={site.siteCode}>{site.siteName}</option>)}
           </select></label>
-          <label>Mode <select style={field} disabled={editing} value={draft.service_type} onChange={event => change("service_type", event.target.value)}>
+          <label>McLeod customer code<input required disabled={editing} maxLength={30} value={draft.customer_code} onChange={event => change("customer_code", event.target.value)} /></label>
+          <label>Mode<select disabled={editing} value={draft.service_type} onChange={event => change("service_type", event.target.value)}>
             {rateModes.map(item => <option key={item}>{item}</option>)}
           </select></label>
-          {([["customer_code", "McLeod customer code"], ["revenue_code", "Revenue code"]] as const).map(([name, label]) =>
-            <label key={name}>{label} <input style={{ ...field, width: "100%", boxSizing: "border-box" }} required disabled={editing} maxLength={30} value={draft[name]} onChange={event => change(name, event.target.value)} /></label>)}
-          <label>Fuel treatment <select style={{ ...field, maxWidth: "100%" }} value={draft.fuel_mode} onChange={event => change("fuel_mode", event.target.value)}>
+          <label>Revenue code<input required disabled={editing} maxLength={30} value={draft.revenue_code} onChange={event => change("revenue_code", event.target.value)} /></label>
+        </fieldset>
+        <fieldset className={styles.fields} disabled={busy}>
+          <legend>Pricing terms</legend>
+          <label>Fuel treatment<select value={draft.fuel_mode} onChange={event => change("fuel_mode", event.target.value)}>
             {Object.entries(fuelModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
-          {([["base_rate", "Base rate per order"], ["included_chassis_days", "Included chassis days"], ["chassis_daily_rate", "Chassis daily rate"]] as const).map(([name, label]) =>
-            <label key={name}>{label} <input style={{ ...field, width: "100%", boxSizing: "border-box" }} required={name !== "base_rate"}
-              type="number" min="0" step={name === "included_chassis_days" ? "1" : "0.01"} value={draft[name]} onChange={event => change(name, event.target.value)} /></label>)}
-          <label>Notes <input style={{ ...field, width: "100%", boxSizing: "border-box" }} maxLength={1000} value={draft.notes} onChange={event => change("notes", event.target.value)} /></label>
-          <label><input type="checkbox" checked={draft.active === "true"} onChange={event => change("active", String(event.target.checked))} /> Active</label>
+          <label>Base rate per order<input type="number" min="0" step=".01" placeholder="Use McLeod rate" value={draft.base_rate} onChange={event => change("base_rate", event.target.value)} /></label>
+          <label>Included chassis days<input required type="number" min="0" step="1" value={draft.included_chassis_days} onChange={event => change("included_chassis_days", event.target.value)} /></label>
+          <label>Chassis daily rate<input required type="number" min="0" step=".01" value={draft.chassis_daily_rate} onChange={event => change("chassis_daily_rate", event.target.value)} /></label>
+          <label className={styles.notesField}>Notes<textarea rows={2} maxLength={1000} value={draft.notes} onChange={event => change("notes", event.target.value)} /></label>
+          <label className={styles.checkbox}><input type="checkbox" checked={draft.active === "true"} onChange={event => change("active", String(event.target.checked))} /> Active</label>
         </fieldset>
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button style={field} disabled={busy}>Save rate</button>
-          <button type="button" style={field} disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
-        </div>
+        <footer><button type="button" className={styles.button} disabled={busy} onClick={closeDialog}>Cancel</button>
+          <button className={styles.primary} disabled={busy}>{busy ? "Saving…" : "Save rate"}</button></footer>
       </form>}
-    </PlatformPanel>
-    <PlatformPanel style={{ padding: 16, overflowX: "auto" }}>
-      <table style={{ width: "100%", textAlign: "left", borderSpacing: "8px 12px" }}>
-        <thead><tr>{["Terminal", "Warehouse", "Customer", "Mode / Revenue code", "Fuel", "Base rate", "Included chassis", "Status", "Notes", ""].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-        <tbody>{visible.map(rate => <tr key={key(rate)}>
-          <td>{rate.terminal}</td><td>{siteLabel(rate.terminal, rate.site_code)}</td><td>{rate.customer_code}</td>
-          <td>{rate.service_type} / {rate.revenue_code}</td><td>{fuelModes[rate.fuel_mode]}</td><td>{usd(rate.base_rate)}</td>
-          <td>{rate.included_chassis_days} days × {usd(rate.chassis_daily_rate)}</td><td>{rate.active ? "Active" : "Inactive"}</td><td>{rate.notes || "—"}</td>
-          <td><button type="button" style={field} disabled={busy} onClick={() => edit(rate)}>Edit</button></td>
-        </tr>)}</tbody>
-      </table>
-      {!visible.length && <p>{loading ? "Loading rates…" : "No rates in this location and mode."}</p>}
-    </PlatformPanel>
+    </dialog>
   </main>;
 }
