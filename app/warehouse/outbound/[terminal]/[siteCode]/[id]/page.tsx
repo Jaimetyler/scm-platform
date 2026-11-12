@@ -18,8 +18,8 @@ import "./booking.css";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
 import DallasOrderPilot from "./DallasOrderPilot";
-import { BookingOrderLookup, CarrierCells, CarrierRateManager, type CarrierSelection } from "./CarrierRates";
-import type { CarrierPlan, CarrierRate } from "@/lib/warehouse/outbound/carrier-rates";
+import { BookingOrderLookup, CarrierBatchToolbar, CarrierEditor, CarrierRateManager, CarrierSummary } from "./CarrierRates";
+import { carrierBatchSelection, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection } from "@/lib/warehouse/outbound/carrier-rates";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
@@ -58,6 +58,13 @@ export default function CottonOutboundBookingPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const canWrite = canManage && booking?.status === "draft";
   const carrierEndpoint = `/api/warehouse/outbound/bookings/${id}/carrier-rates`;
+  const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [detailId, setDetailId] = useState("");
+  const detailDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (detailId && detailDialog.current && !detailDialog.current.open) detailDialog.current.showModal();
+  }, [detailId]);
   const [carrierRates, setCarrierRates] = useState<CarrierRate[]>([]);
   const [carrierError, setCarrierError] = useState("");
   useEffect(() => {
@@ -78,7 +85,8 @@ export default function CottonOutboundBookingPage() {
   const [lines, setLines] = useState<Line[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState("");
+  const [operation, setWorking] = useState("");
+  const working = bulkSaving ? "carrier-batch" : operation;
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useWarehouseViewState("search", "");
@@ -135,13 +143,13 @@ export default function CottonOutboundBookingPage() {
     if (saveTimers.current[row.id]) window.clearTimeout(saveTimers.current[row.id]);
     saveTimers.current[row.id] = window.setTimeout(() => void save(row, next), 700);
   }
-  async function save(row: Container, draftToSave: Draft, carrierPlan?: CarrierSelection | null) {
+  async function save(row: Container, draftToSave: Draft, carrierPlan?: CarrierSelection | null, batch = false) {
     if (row.split_transfer_id || lines.find((line) => line.id === row.booking_line_id)?.line_status !== "active" && row.booking_line_id) return;
     if (savingRows.current.has(row.id)) return;
     window.clearTimeout(saveTimers.current[row.id]);
     delete saveTimers.current[row.id];
     savingRows.current.add(row.id);
-    setWorking(row.id); setError(""); setMessage("");
+    if (!batch) { setWorking(row.id); setError(""); setMessage(""); }
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -160,9 +168,15 @@ export default function CottonOutboundBookingPage() {
         setE2openDocuments(null);
         setMcleodCheck(null);
       }
-      setMessage(`Container ${row.sequence_no} saved.`);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save container"); }
-    finally { savingRows.current.delete(row.id); setWorking(""); }
+      if (!batch) setMessage(`Container ${row.sequence_no} saved.`);
+      return true;
+    } catch (reason) {
+      if (batch) throw reason;
+      setError(reason instanceof Error ? reason.message : "Could not save container");
+    } finally {
+      savingRows.current.delete(row.id);
+      if (!batch) setWorking("");
+    }
   }
   function pendingEquipment() {
     const dirty = containers.filter((row) => {
@@ -407,6 +421,54 @@ export default function CottonOutboundBookingPage() {
     };
     return rank(a) - rank(b) || a.sequence_no - b.sequence_no;
   });
+  const selectionEnabled = canWrite && !rollMode;
+  const pending = pendingEquipment().drafts;
+  const selectableRows = selectionEnabled ? visibleContainers.filter(row => row.container_number && !row.split_transfer_id &&
+    !pending[row.id] && drafts[row.id] && (!row.booking_line_id || lineById.get(row.booking_line_id)?.line_status === "active")) : [];
+  const selectableIds = new Set(selectableRows.map(row => row.id));
+  const selectedRows = selectableRows.filter(row => selectedContainers.has(row.id));
+  const detailRow = containers.find(row => row.id === detailId);
+  const detailLine = detailRow?.booking_line_id ? lineById.get(detailRow.booking_line_id) : undefined;
+  const detailDraft = detailRow ? drafts[detailRow.id] : undefined;
+  const orderLookup = terminal === "DAL" && bookingChargeCustomer(booking.customer) || isSavannahE2openBooking(terminal, booking.customer);
+  const hasletPilot = isAdmin && terminal === "DAL" && siteCode === "SCMDDETX" &&
+    bookingChargeCustomer(booking.customer)?.code === "OLAMRITX" &&
+    bookingReturnLocationLabel(booking.return_location, booking.return_location_code) === "BNSF Haslet";
+
+  function toggleContainers(ids: string[], selected: boolean) {
+    setSelectedContainers(current => {
+      const next = new Set(current);
+      for (const rowId of ids) selected ? next.add(rowId) : next.delete(rowId);
+      return next;
+    });
+  }
+  async function applyCarrierBatch(action: CarrierBatchAction) {
+    if (working || bulkSaving || !selectedRows.length) return;
+    setError(""); setMessage("");
+    let updates;
+    try {
+      updates = selectedRows.map(row => ({ row, plan: carrierBatchSelection(row.carrier_plan, action) }));
+    } catch (reason) {
+      setError((reason as Error).message);
+      return;
+    }
+    setBulkSaving(true);
+    const saved: string[] = [];
+    const failed: string[] = [];
+    try {
+      for (const { row, plan } of updates) {
+        try {
+          if (await save(row, drafts[row.id], plan, true)) saved.push(row.id);
+          else failed.push(`${row.container_number}: another edit is in progress`);
+        } catch (reason) {
+          failed.push(`${row.container_number}: ${(reason as Error).message || "could not save"}`);
+        }
+      }
+      toggleContainers(saved, false);
+      if (saved.length) setMessage(`Saved ${"rate" in action ? "carrier" : "charge"} on ${saved.length} container${saved.length === 1 ? "" : "s"}.`);
+      if (failed.length) setError(`Review ${failed.length} container${failed.length === 1 ? "" : "s"} before retrying. ${failed.join(" · ")}`);
+    } finally { setBulkSaving(false); }
+  }
   return <main className="outbound-booking" style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
       subtitle={`${booking.customer} · ${booking.scm_file_number ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
@@ -508,10 +570,10 @@ export default function CottonOutboundBookingPage() {
     </div></PlatformPanel>}
     <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Badges show receiving status. Green bale counts match the requested quantity.</p></div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => setSearch(event.target.value)}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => { setSearch(event.target.value); setSelectedContainers(new Set()); }}
         placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
         <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
-        <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
+        <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setSelectedContainers(new Set()); setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
 
     {rollMode ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
@@ -532,14 +594,20 @@ export default function CottonOutboundBookingPage() {
     {isAdmin && !carrierError && <CarrierRateManager key={carrierEndpoint} rates={carrierRates} endpoint={carrierEndpoint} onSaved={rate =>
       setCarrierRates(current => [...current.filter(item => item.id !== rate.id), rate])} />}
     {canManage && carrierError && <p role="alert">{carrierError}</p>}
-    <div style={{ overflowX: "auto" }}><table style={{ width: "100%", minWidth: canManage ? 1540 : 1120, borderCollapse: "collapse" }}><thead><tr>
-      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Outside carrier', 'Accessorials'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+    {selectedRows.length > 0 && <CarrierBatchToolbar rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
+      disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
+    <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: 1020, borderCollapse: "collapse" }}><thead><tr>
+      {selectionEnabled && <th style={th} scope="col"><input type="checkbox" aria-label="Select all visible containers"
+        checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
+        disabled={!selectableRows.length || Boolean(working) || bulkSaving}
+        onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
+      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
-        {rollMode && <td style={td} />}<td style={td}>{row.sequence_no}</td>
+        {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
-        <td style={td} colSpan={canManage ? 6 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
+        <td style={td} colSpan={canManage ? 5 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
         <td style={{ ...td, fontSize: 12, fontWeight: 600 }}>Locked</td>
       </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
@@ -548,7 +616,10 @@ export default function CottonOutboundBookingPage() {
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes);
-      return <tr key={row.id} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
+      return <tr key={row.id} data-selected={selectionEnabled && selectedContainers.has(row.id)} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
+        {selectionEnabled && <td style={td}><input type="checkbox" aria-label={`Select container ${row.container_number ?? row.sequence_no}`}
+          checked={selectableIds.has(row.id) && selectedContainers.has(row.id)} disabled={!selectableIds.has(row.id) || Boolean(working) || bulkSaving}
+          onChange={event => toggleContainers([row.id], event.target.checked)} /></td>}
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
@@ -558,9 +629,7 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
-        {canManage && <CarrierCells key={JSON.stringify(row.carrier_plan)} plan={row.carrier_plan} rates={carrierRates} sequence={row.sequence_no} cellStyle={td}
-          disabled={!canWrite || locked || Boolean(working) || (!row.carrier_plan && !draft.containerNumber.trim())}
-          onSave={selection => save(row, draft, selection)} />}
+        {canManage && <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           {canWrite && !locked && <div style={{ marginTop: 6 }}>
@@ -568,13 +637,8 @@ export default function CottonOutboundBookingPage() {
               aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
               onClick={() => void save(row, draft)}>Save</button>
           </div>}
-          {canManage && row.container_number && (terminal === "DAL" && bookingChargeCustomer(booking.customer) || isSavannahE2openBooking(terminal, booking.customer)) &&
-            <BookingOrderLookup key={row.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${row.id}`} />}
-          {isAdmin && canWrite && terminal === "DAL" && siteCode === "SCMDDETX" &&
-            bookingChargeCustomer(booking.customer)?.code === "OLAMRITX" &&
-            bookingReturnLocationLabel(booking.return_location, booking.return_location_code) === "BNSF Haslet" &&
-            row.container_number && line?.line_status === "active" && line.load_source === "warehouse" &&
-            <DallasOrderPilot key={row.updated_at} endpoint={`/api/warehouse/outbound/bookings/${id}/dallas-pilot`} containerId={row.id} mark={line.mark} />}
+          {canManage && row.container_number && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
+            onClick={() => setDetailId(row.id)}>Details</button>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
@@ -583,6 +647,20 @@ export default function CottonOutboundBookingPage() {
         </td></tr>;
     })}</tbody></table></div>
     </PlatformPanel>
+    {detailRow && <dialog ref={detailDialog} className="carrier-details-dialog" aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
+      <div className="carrier-dialog-heading">
+        <h2 id="carrier-details-title">{detailRow.container_number}</h2>
+        <form method="dialog"><button type="submit">Close</button></form>
+      </div>
+      <h3>Carrier and charges</h3>
+      {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} rates={carrierRates}
+        sequence={detailRow.sequence_no} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
+        onSave={selection => save(detailRow, detailDraft, selection)} />}
+      {error && <p role="alert">{error}</p>}
+      {orderLookup && <BookingOrderLookup key={detailRow.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${detailRow.id}`} />}
+      {hasletPilot && canWrite && detailLine?.line_status === "active" && detailLine.load_source === "warehouse" &&
+        <DallasOrderPilot key={detailRow.updated_at} endpoint={`/api/warehouse/outbound/bookings/${id}/dallas-pilot`} containerId={detailRow.id} mark={detailLine.mark} />}
+    </dialog>}
     {markAction && <div role="dialog" aria-modal="true" aria-labelledby="mark-action-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>
       <form onSubmit={(event) => void changeMark(event)} style={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480, boxSizing: "border-box" }}>
         <h2 id="mark-action-title">{markAction.action === "hold" ? "Put on hold" : markAction.action === "resume" ? "Resume mark" : markAction.action === "cancel" ? "Cancel mark from booking" : markAction.action === "warehouse" ? "Convert to warehouse load" : "Keep as source load"}: {markAction.line.mark}</h2>

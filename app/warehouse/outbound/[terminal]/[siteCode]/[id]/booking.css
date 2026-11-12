@@ -40,3 +40,50 @@
 .booking-charge-choice strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .booking-charge-pill { display: inline-block; margin: 5px 0 0 6px; padding: 3px 7px; border-radius: 999px; background: #78350f; color: #fef3c7; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .booking-charge-review { background: #334155; color: #e2e8f0; }
+
+.carrier-batch {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  margin: 10px 0 14px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #172238;
+}
+.carrier-batch-actions, .carrier-dialog-heading {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+.carrier-batch-actions > strong { align-self: center; }
+.carrier-batch-actions label, .carrier-details-dialog label { display: grid; gap: 4px; }
+.carrier-batch-actions input[type="number"] { width: 90px; }
+.carrier-batch button, .carrier-batch input, .carrier-batch select, .carrier-details-dialog button,
+.carrier-details-dialog input, .carrier-details-dialog select, .carrier-row-details {
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  border-radius: 7px;
+  padding: 6px 9px;
+}
+.carrier-batch button[aria-pressed="true"], .carrier-batch button[type="submit"] { background: #27476d; }
+.carrier-batch button:disabled, .carrier-row-details:disabled { opacity: .55; }
+.carrier-load-grid tr[data-selected="true"] > td { background: #1e334f; }
+.carrier-summary { min-width: 110px; }
+.carrier-summary small, .carrier-muted { display: block; color: #aebcd1; }
+.carrier-row-details { display: inline-block; margin-top: 5px; }
+.carrier-details-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  background: #111b2d;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  color: #e2e8f0;
+  padding: 22px;
+}
+.carrier-details-dialog::backdrop { background: rgb(2 6 23 / .75); }
+.carrier-dialog-heading { justify-content: space-between; align-items: center; }
+.carrier-dialog-heading h2 { margin: 0; font-size: 1.2rem; }
+.carrier-details-dialog h3 { margin: 12px 0 8px; }
+.carrier-editor { display: grid; gap: 6px; margin-bottom: 8px; }

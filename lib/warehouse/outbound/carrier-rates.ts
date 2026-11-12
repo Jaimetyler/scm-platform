@@ -51,3 +51,23 @@ export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierP
     return { ...item, units, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: units * bill };
   }).filter(line => line.units > 0);
 }
+
+export type CarrierSelection = { rateId: string; rateVersion: string; quantities: Record<string, string>; basePayOverride: string };
+export type CarrierBatchAction = { rate: CarrierRate } | { charge: keyof Quantities; units: number };
+
+export function carrierBatchSelection(plan: CarrierPlan | null, action: CarrierBatchAction): CarrierSelection {
+  const rate = "rate" in action ? plan?.rate.id === action.rate.id ? plan.rate : action.rate : plan?.rate;
+  if (!rate) throw Error("Assign a carrier before adding charges.");
+  const quantities = Object.fromEntries(accessorials.map(({ key }) => [key, String(plan?.quantities[key] ?? 0)]));
+  if ("charge" in action) {
+    const total = Number(quantities[action.charge]) + action.units;
+    if (!Number.isInteger(action.units) || action.units < 1 || !Number.isInteger(total) || total > 999) {
+      throw Error("Enter a positive whole number. A container can have up to 999 units per charge.");
+    }
+    quantities[action.charge] = String(total);
+  }
+  return {
+    rateId: rate.id, rateVersion: rate.updated_at, quantities,
+    basePayOverride: plan?.rate.id === rate.id && plan.basePayOverride != null ? (plan.basePayOverride / 100).toFixed(2) : "",
+  };
+}

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type CSSProperties, type FormEvent } from "react";
-import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type CarrierRate } from "@/lib/warehouse/outbound/carrier-rates";
+import { useState, type FormEvent } from "react";
+import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type CarrierRate, type CarrierSelection, type CarrierBatchAction, type Quantities } from "@/lib/warehouse/outbound/carrier-rates";
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
-export type CarrierSelection = { rateId: string; rateVersion: string; quantities: Record<string, string>; basePayOverride: string };
+
 
 export function CarrierRateManager({ rates, endpoint, onSaved }: {
   rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void;
@@ -60,9 +60,9 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
   </details>;
 }
 
-export function CarrierCells({ plan, rates, sequence, cellStyle, disabled, onSave }: {
-  plan: CarrierPlan | null; rates: CarrierRate[]; sequence: number; cellStyle: CSSProperties;
-  disabled: boolean; onSave: (selection: CarrierSelection | null) => Promise<void>;
+export function CarrierEditor({ plan, rates, sequence, disabled, onSave }: {
+  plan: CarrierPlan | null; rates: CarrierRate[]; sequence: number;
+  disabled: boolean; onSave: (selection: CarrierSelection | null) => Promise<unknown>;
 }) {
   const [selection, setSelection] = useState(plan?.rate.id ?? "");
   const [quantities, setQuantities] = useState(() => Object.fromEntries(accessorials.map(({ key }) => [key, String(plan?.quantities[key] ?? 0)])));
@@ -76,14 +76,14 @@ export function CarrierCells({ plan, rates, sequence, cellStyle, disabled, onSav
   const validCounts = Object.values(quantities).every(count => /^\d{1,3}$/.test(count));
 
   return <>
-    <td style={cellStyle}>
+    <div className="carrier-editor">
       <select aria-label={`Outside carrier for container ${sequence}`} value={selection} disabled={disabled} onChange={event => { setSelection(event.target.value); setBasePayOverride(event.target.value === plan?.rate.id ? savedOverride : ""); }}>
         <option value="">Unassigned</option>
         {rate && !rates.some(item => item.id === rate.id) && <option value={rate.id}>{rate.carrier_name} · {rate.lane}</option>}
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
       </select>
-    </td>
-    <td style={cellStyle}>
+    </div>
+    <div className="carrier-editor">
       <label style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         Base carrier pay override
         <input aria-label={`Base carrier pay override for container ${sequence}`} type="number" min={0} max={999999.99} step="0.01"
@@ -101,8 +101,68 @@ export function CarrierCells({ plan, rates, sequence, cellStyle, disabled, onSav
       </details>}
       {dirty && <button type="button" disabled={disabled || Boolean(selection) && (!rate || !validCounts || !validOverride)} onClick={() =>
         void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>Save carrier details</button>}
-    </td>
+    </div>
   </>;
+}
+
+export function CarrierSummary({ plan }: { plan: CarrierPlan | null }) {
+  if (!plan) return <span className="carrier-muted">Unassigned</span>;
+  const lines = carrierPlanLines(plan).filter(line => line.key !== "base");
+  return <div className="carrier-summary">
+    <strong>{plan.rate.carrier_name}</strong>
+    {lines.length > 0 && <small>{lines.map(line => `${line.units} ${line.label.toLowerCase()}`).join(" · ")}</small>}
+  </div>;
+}
+
+export function CarrierBatchToolbar({ rates, plans, disabled, onApply, onClear }: {
+  rates: CarrierRate[]; plans: (CarrierPlan | null)[]; disabled: boolean;
+  onApply: (action: CarrierBatchAction) => Promise<void>; onClear: () => void;
+}) {
+  const [mode, setMode] = useState<"carrier" | "charge" | null>(null);
+  const [rateId, setRateId] = useState("");
+  const [charge, setCharge] = useState<keyof Quantities>("chassisDays");
+  const [units, setUnits] = useState("1");
+  const rate = rates.find(item => item.id === rateId);
+  const allAssigned = plans.every(Boolean);
+  const validUnits = /^[1-9]\d{0,2}$/.test(units);
+  const chargePay = allAssigned ? plans.reduce((sum, plan) => sum + (plan?.rate.rates[charge].pay ?? 0), 0) : 0;
+  const chargeBill = allAssigned ? plans.reduce((sum, plan) => sum + (plan?.rate.rates[charge].bill ?? 0), 0) : 0;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disabled) return;
+    if (mode === "carrier" && rate) await onApply({ rate });
+    if (mode === "charge" && allAssigned && validUnits) await onApply({ charge, units: Number(units) });
+  }
+
+  return <div className="carrier-batch">
+    <div className="carrier-batch-actions">
+      <strong>{plans.length} selected</strong>
+      <button type="button" aria-pressed={mode === "carrier"} disabled={disabled || !rates.length} onClick={() => setMode("carrier")}>Assign carrier</button>
+      <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} onClick={() => setMode("charge")}>Add charge</button>
+      <button type="button" disabled={disabled} onClick={onClear}>Clear selection</button>
+    </div>
+    {!rates.length && <small>Add a carrier rate card to assign a carrier.</small>}
+    {rates.length > 0 && !allAssigned && <small>Assign a carrier to every selected row to add a charge.</small>}
+    {mode && <form onSubmit={submit} className="carrier-batch-actions">
+      {mode === "carrier" ? <label>Carrier rate card <select value={rateId} disabled={disabled} onChange={event => setRateId(event.target.value)}>
+        <option value="">Choose carrier</option>
+        {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
+      </select></label> : <>
+        <label>Charge <select value={charge} disabled={disabled} onChange={event => setCharge(event.target.value as keyof Quantities)}>
+          {accessorials.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+        </select></label>
+        <label>{charge === "chassisDays" ? "Days per container" : "Quantity per container"}
+          <input type="number" min="1" max="999" step="1" value={units} disabled={disabled} onChange={event => setUnits(event.target.value)} />
+        </label>
+        {allAssigned && validUnits && <span>Added pay ${dollars(chargePay * Number(units))} · Added bill ${dollars(chargeBill * Number(units))}</span>}
+      </>}
+      <button type="submit" disabled={disabled || (mode === "carrier" ? !rate : !allAssigned || !validUnits)}>
+        {disabled ? "Saving…" : mode === "carrier" ? "Apply carrier" : "Add to selected"}
+      </button>
+      <button type="button" disabled={disabled} onClick={() => setMode(null)}>Cancel</button>
+    </form>}
+  </div>;
 }
 
 type OrderPreview = {
