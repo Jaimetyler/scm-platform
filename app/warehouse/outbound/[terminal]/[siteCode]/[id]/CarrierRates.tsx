@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type CarrierRate, type CarrierSelection, type CarrierBatchAction, type Quantities } from "@/lib/warehouse/outbound/carrier-rates";
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
@@ -9,6 +9,7 @@ const dollars = (cents: number) => (cents / 100).toFixed(2);
 export function CarrierRateManager({ rates, endpoint, onSaved }: {
   rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const [selected, setSelected] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -37,8 +38,13 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
     } finally { setSaving(false); }
   }
 
-  return <details style={{ marginBottom: 16 }}>
-    <summary>Manage carrier rates</summary>
+  return <>
+    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Carrier rates</button>
+    <dialog ref={dialog} className="carrier-details-dialog carrier-rates-dialog" aria-labelledby="carrier-rates-title">
+      <div className="carrier-dialog-heading">
+        <h2 id="carrier-rates-title">Carrier rates</h2>
+        <form method="dialog"><button type="submit" disabled={saving}>Close</button></form>
+      </div>
     <label>Rate card <select value={selected} disabled={saving} onChange={event => { setSelected(event.target.value); setMessage(""); }}>
       <option value="">Add a carrier rate</option>
       {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
@@ -57,7 +63,8 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
       </fieldset>
     </form>
     {message && <p role="status">{message}</p>}
-  </details>;
+    </dialog>
+  </>;
 }
 
 export function CarrierEditor({ plan, rates, sequence, disabled, onSave }: {
@@ -120,26 +127,33 @@ export function CarrierBatchToolbar({ rates, plans, disabled, onApply, onClear }
 }) {
   const [mode, setMode] = useState<"carrier" | "charge" | null>(null);
   const [rateId, setRateId] = useState("");
-  const [charge, setCharge] = useState<keyof Quantities>("chassisDays");
-  const [units, setUnits] = useState("1");
+  const [units, setUnits] = useState<Record<keyof Quantities, string>>({ chassisDays: "", chassisSplits: "", stopoffs: "" });
   const rate = rates.find(item => item.id === rateId);
   const allAssigned = plans.every(Boolean);
-  const validUnits = /^[1-9]\d{0,2}$/.test(units);
-  const chargePay = allAssigned ? plans.reduce((sum, plan) => sum + (plan?.rate.rates[charge].pay ?? 0), 0) : 0;
-  const chargeBill = allAssigned ? plans.reduce((sum, plan) => sum + (plan?.rate.rates[charge].bill ?? 0), 0) : 0;
+  const quantities = Object.fromEntries(accessorials.map(({ key }) => [key, Number(units[key])])) as Quantities;
+  const validUnits = Object.values(units).every(value => /^\d{0,3}$/.test(value)) && Object.values(quantities).some(value => value > 0);
+  const exceedsLimit = validUnits && plans.some(plan => plan && accessorials.some(({ key }) => plan.quantities[key] + quantities[key] > 999));
+  const canAddCharges = allAssigned && validUnits && !exceedsLimit;
+  const added = plans.reduce((total, plan) => {
+    if (plan && canAddCharges) for (const { key } of accessorials) {
+      total.pay += plan.rate.rates[key].pay * quantities[key];
+      total.bill += plan.rate.rates[key].bill * quantities[key];
+    }
+    return total;
+  }, { pay: 0, bill: 0 });
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (disabled) return;
     if (mode === "carrier" && rate) await onApply({ rate });
-    if (mode === "charge" && allAssigned && validUnits) await onApply({ charge, units: Number(units) });
+    if (mode === "charge" && canAddCharges) await onApply({ charges: quantities });
   }
 
   return <div className="carrier-batch">
     <div className="carrier-batch-actions">
       <strong>{plans.length} selected</strong>
       <button type="button" aria-pressed={mode === "carrier"} disabled={disabled || !rates.length} onClick={() => setMode("carrier")}>Assign carrier</button>
-      <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} onClick={() => setMode("charge")}>Add charge</button>
+      <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} onClick={() => setMode("charge")}>Add charges</button>
       <button type="button" disabled={disabled} onClick={onClear}>Clear selection</button>
     </div>
     {!rates.length && <small>Add a carrier rate card to assign a carrier.</small>}
@@ -149,15 +163,14 @@ export function CarrierBatchToolbar({ rates, plans, disabled, onApply, onClear }
         <option value="">Choose carrier</option>
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
       </select></label> : <>
-        <label>Charge <select value={charge} disabled={disabled} onChange={event => setCharge(event.target.value as keyof Quantities)}>
-          {accessorials.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
-        </select></label>
-        <label>{charge === "chassisDays" ? "Days per container" : "Quantity per container"}
-          <input type="number" min="1" max="999" step="1" value={units} disabled={disabled} onChange={event => setUnits(event.target.value)} />
-        </label>
-        {allAssigned && validUnits && <span>Added pay ${dollars(chargePay * Number(units))} · Added bill ${dollars(chargeBill * Number(units))}</span>}
+        {accessorials.map(({ key, label }) => <label key={key}>{label} per container
+          <input type="number" min="0" max="999" step="1" placeholder="0" value={units[key]} disabled={disabled}
+            onChange={event => setUnits(current => ({ ...current, [key]: event.target.value }))} />
+        </label>)}
+        {canAddCharges && <span>Added pay ${dollars(added.pay)} · Added bill ${dollars(added.bill)}</span>}
+        {exceedsLimit && <span role="alert">A container can have up to 999 units per charge.</span>}
       </>}
-      <button type="submit" disabled={disabled || (mode === "carrier" ? !rate : !allAssigned || !validUnits)}>
+      <button type="submit" disabled={disabled || (mode === "carrier" ? !rate : !canAddCharges)}>
         {disabled ? "Saving…" : mode === "carrier" ? "Apply carrier" : "Add to selected"}
       </button>
       <button type="button" disabled={disabled} onClick={() => setMode(null)}>Cancel</button>

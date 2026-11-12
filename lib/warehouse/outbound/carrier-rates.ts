@@ -53,21 +53,30 @@ export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierP
 }
 
 export type CarrierSelection = { rateId: string; rateVersion: string; quantities: Record<string, string>; basePayOverride: string };
-export type CarrierBatchAction = { rate: CarrierRate } | { charge: keyof Quantities; units: number };
+export type CarrierBatchAction = { rate: CarrierRate } | { charges: Quantities };
 
 export function carrierBatchSelection(plan: CarrierPlan | null, action: CarrierBatchAction): CarrierSelection {
   const rate = "rate" in action ? plan?.rate.id === action.rate.id ? plan.rate : action.rate : plan?.rate;
   if (!rate) throw Error("Assign a carrier before adding charges.");
   const quantities = Object.fromEntries(accessorials.map(({ key }) => [key, String(plan?.quantities[key] ?? 0)]));
-  if ("charge" in action) {
-    const total = Number(quantities[action.charge]) + action.units;
-    if (!Number.isInteger(action.units) || action.units < 1 || !Number.isInteger(total) || total > 999) {
-      throw Error("Enter a positive whole number. A container can have up to 999 units per charge.");
+  if ("charges" in action) {
+    for (const { key, label } of accessorials) {
+      const units = action.charges[key];
+      const total = Number(quantities[key]) + units;
+      if (!Number.isInteger(units) || units < 0 || !Number.isInteger(total) || total > 999) {
+        throw Error(`${label} must be a whole number. A container can have up to 999 units per charge.`);
+      }
+      quantities[key] = String(total);
     }
-    quantities[action.charge] = String(total);
   }
   return {
     rateId: rate.id, rateVersion: rate.updated_at, quantities,
     basePayOverride: plan?.rate.id === rate.id && plan.basePayOverride != null ? (plan.basePayOverride / 100).toFixed(2) : "",
   };
+}
+
+export function carrierPlanTotals(plan: CarrierPlan) {
+  return carrierPlanLines(plan).reduce((total, line) => ({
+    pay: total.pay + line.payTotal, bill: total.bill + line.billTotal,
+  }), { pay: 0, bill: 0 });
 }

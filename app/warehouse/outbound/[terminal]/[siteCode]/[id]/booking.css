@@ -87,3 +87,17 @@
 .carrier-dialog-heading h2 { margin: 0; font-size: 1.2rem; }
 .carrier-details-dialog h3 { margin: 12px 0 8px; }
 .carrier-editor { display: grid; gap: 6px; margin-bottom: 8px; }
+
+.carrier-total { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+.carrier-rates-button {
+  padding: 9px 12px;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  color: #f8fafc;
+  background: #17263a;
+}
+.carrier-rates-dialog { width: min(650px, calc(100vw - 32px)); }
+.carrier-rates-dialog fieldset { border: 0; padding: 12px 0 0; }
+.carrier-rates-dialog table { width: 100%; }
+.carrier-rates-dialog th { text-align: left; }
+.carrier-rates-dialog input[type="number"] { width: min(100%, 120px); }

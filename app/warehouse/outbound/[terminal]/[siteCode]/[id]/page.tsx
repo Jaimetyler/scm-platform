@@ -19,7 +19,7 @@ import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
 import DallasOrderPilot from "./DallasOrderPilot";
 import { BookingOrderLookup, CarrierBatchToolbar, CarrierEditor, CarrierRateManager, CarrierSummary } from "./CarrierRates";
-import { carrierBatchSelection, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection } from "@/lib/warehouse/outbound/carrier-rates";
+import { carrierBatchSelection, carrierPlanTotals, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection } from "@/lib/warehouse/outbound/carrier-rates";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
@@ -469,7 +469,7 @@ export default function CottonOutboundBookingPage() {
       if (failed.length) setError(`Review ${failed.length} container${failed.length === 1 ? "" : "s"} before retrying. ${failed.join(" · ")}`);
     } finally { setBulkSaving(false); }
   }
-  return <main className="outbound-booking" style={{ maxWidth: 1550, margin: "0 auto", color: "#e2e8f0" }}>
+  return <main className="outbound-booking" style={{ maxWidth: "none", width: "100%", margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
       subtitle={`${booking.customer} · ${booking.scm_file_number ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
       actions={<><Link href={backHref} style={button}>← Booking list</Link>
@@ -572,6 +572,8 @@ export default function CottonOutboundBookingPage() {
       <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Badges show receiving status. Green bale counts match the requested quantity.</p></div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => { setSearch(event.target.value); setSelectedContainers(new Set()); }}
         placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
+        {isAdmin && !carrierError && <CarrierRateManager key={carrierEndpoint} rates={carrierRates} endpoint={carrierEndpoint} onSaved={rate =>
+      setCarrierRates(current => [...current.filter(item => item.id !== rate.id), rate])} />}
         <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
         <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setSelectedContainers(new Set()); setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
@@ -591,23 +593,21 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
     </div> : null}
 
-    {isAdmin && !carrierError && <CarrierRateManager key={carrierEndpoint} rates={carrierRates} endpoint={carrierEndpoint} onSaved={rate =>
-      setCarrierRates(current => [...current.filter(item => item.id !== rate.id), rate])} />}
     {canManage && carrierError && <p role="alert">{carrierError}</p>}
     {selectedRows.length > 0 && <CarrierBatchToolbar rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
-    <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: 1020, borderCollapse: "collapse" }}><thead><tr>
+    <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: canManage ? 1250 : 1020, borderCollapse: "collapse" }}><thead><tr>
       {selectionEnabled && <th style={th} scope="col"><input type="checkbox" aria-label="Select all visible containers"
         checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
         disabled={!selectableRows.length || Boolean(working) || bulkSaving}
         onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
-      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
         {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
-        <td style={td} colSpan={canManage ? 5 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
+        <td style={td} colSpan={canManage ? 7 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
         <td style={{ ...td, fontSize: 12, fontWeight: 600 }}>Locked</td>
       </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
@@ -616,6 +616,7 @@ export default function CottonOutboundBookingPage() {
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes);
+      const totals = row.carrier_plan ? carrierPlanTotals(row.carrier_plan) : null;
       return <tr key={row.id} data-selected={selectionEnabled && selectedContainers.has(row.id)} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
         {selectionEnabled && <td style={td}><input type="checkbox" aria-label={`Select container ${row.container_number ?? row.sequence_no}`}
           checked={selectableIds.has(row.id) && selectedContainers.has(row.id)} disabled={!selectableIds.has(row.id) || Boolean(working) || bulkSaving}
@@ -629,7 +630,11 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
-        {canManage && <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>}
+        {canManage && <>
+          <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>
+          <td style={td} className="carrier-total">{totals ? `$${(totals.pay / 100).toFixed(2)}` : "—"}</td>
+          <td style={td} className="carrier-total">{totals ? `$${(totals.bill / 100).toFixed(2)}` : "—"}</td>
+        </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           {canWrite && !locked && <div style={{ marginTop: 6 }}>

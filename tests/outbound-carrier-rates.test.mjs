@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { carrierBatchSelection, carrierPlanLines, parseQuantities, parseRates } from "../lib/warehouse/outbound/carrier-rates.ts";
+import { carrierBatchSelection, carrierPlanLines, carrierPlanTotals, parseQuantities, parseRates } from "../lib/warehouse/outbound/carrier-rates.ts";
 
 test("carrier pay overrides affect only base pay and chassis splits use CS on both sides", () => {
   const rates = parseRates({
@@ -16,6 +16,7 @@ test("carrier pay overrides affect only base pay and chassis splits use CS on bo
     [4000, 8000, null, null],
     [3500, 5500, "CS", "CS"],
   ]);
+  assert.deepEqual(carrierPlanTotals({ rate: { rates }, quantities, basePayOverride: 9000 }), { pay: 16500, bill: 28500 });
   assert.throws(() => parseQuantities({ ...quantities, chassisDays: "1.5" }), /whole number/);
 });
 
@@ -33,11 +34,11 @@ test("batch carrier changes keep charge quantities and use the new carrier's sav
 test("batch charges add units against each row's saved rate and preserve other pricing", () => {
   const plan = { rate: { id: "a", updated_at: "v1" },
     quantities: { chassisDays: 1, chassisSplits: 2, stopoffs: 0 }, basePayOverride: 9900 };
-  assert.deepEqual(carrierBatchSelection(plan, { charge: "chassisDays", units: 3 }), {
+  assert.deepEqual(carrierBatchSelection(plan, { charges: { chassisDays: 3, chassisSplits: 1, stopoffs: 0 } }), {
     rateId: "a", rateVersion: "v1",
-    quantities: { chassisDays: "4", chassisSplits: "2", stopoffs: "0" }, basePayOverride: "99.00",
+    quantities: { chassisDays: "4", chassisSplits: "3", stopoffs: "0" }, basePayOverride: "99.00",
   });
-  assert.throws(() => carrierBatchSelection(null, { charge: "chassisDays", units: 1 }), /Assign a carrier/);
-  assert.throws(() => carrierBatchSelection(plan, { charge: "chassisDays", units: 999 }), /999/);
-  assert.throws(() => carrierBatchSelection(plan, { charge: "chassisSplits", units: 1.5 }), /whole number/);
+  assert.throws(() => carrierBatchSelection(null, { charges: { chassisDays: 1, chassisSplits: 0, stopoffs: 0 } }), /Assign a carrier/);
+  assert.throws(() => carrierBatchSelection(plan, { charges: { chassisDays: 999, chassisSplits: 0, stopoffs: 0 } }), /999/);
+  assert.throws(() => carrierBatchSelection(plan, { charges: { chassisDays: 0, chassisSplits: 1.5, stopoffs: 0 } }), /whole number/);
 });
