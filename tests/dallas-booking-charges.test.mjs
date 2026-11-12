@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readBookingMarkCharges } from "../lib/dray/booking-charges.ts";
+import { bookingOrderMarks, readBookingMarkCharges } from "../lib/dray/booking-charges.ts";
 import { getCheckinSite } from "../lib/inbound/checkin/sites.ts";
 
 test("reads only DDRAY Bunge orders at the Dallas booking yard and preserves every returned charge", async () => {
@@ -48,4 +48,17 @@ test('Olam and ED&F exact customer IDs are verified after hydration; other custo
   const result=await readBookingMarkCharges(async path=>path.startsWith('/orders/search?')?orders:orders.find(o=>path.endsWith('/'+o.id)),getCheckinSite('DAL','SCMDDETX'),'W0282',new AbortController().signal,customer.ids);
   assert.deepEqual(result.map(o=>o.id),['201','202']);
  }
+});
+
+test('booking matches can use a standalone mark within an Olam reference', () => {
+ assert.deepEqual(bookingOrderMarks({blnum:'SO 47439 / WTMC',consignee_refno:'2343518850'},['WTMC']),['WTMC']);
+ assert.deepEqual(bookingOrderMarks({blnum:'WTMCX'},['WTMC']),[]);
+ assert.deepEqual(bookingOrderMarks({blnum:'X4803 X4804'},['X4803','X4804']),[]);
+});
+
+test('mark fallback rejects a DDRAY order on a different saved booking', async () => {
+ const order={id:'204',customer_id:'OLAMRITX',blnum:'WTMC',consignee_refno:'WTMC',booking_no_sucm:'2342891820',revenue_code_id:'DDRAY',stops:[{location_id:'SCMDDETX',stop_type:'PU'}]};
+ const read=async path=>path.startsWith('/orders/search?')?[order]:order;
+ const site=getCheckinSite('DAL','SCMDDETX');
+ assert.deepEqual(await readBookingMarkCharges(read,site,'WTMC',new AbortController().signal,['OLAMRITX'],'2343518850'),[]);
 });

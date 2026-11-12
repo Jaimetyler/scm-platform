@@ -9,10 +9,10 @@ export type PlanningInfo = {
 const text = (value: unknown) => String(value ?? "").trim();
 const key = (value: unknown) => text(value).toUpperCase();
 
-export async function readPlanningInfo(read: (path: string) => Promise<unknown>,
-  booking: { booking_number: string; planned_containers: number | null }, site: CheckinSite,
-  customerIds: readonly string[], signal: AbortSignal): Promise<PlanningInfo> {
-  const reference = key(booking.booking_number);
+export async function readDallasBookingOrders(read: (path: string) => Promise<unknown>,
+  bookingNumber: string, site: CheckinSite,
+  customerIds: readonly string[], signal: AbortSignal) {
+  const reference = key(bookingNumber);
   if (!reference || /[\u0000-\u001f*?]/.test(reference)) throw Error("Booking number is not suitable for lookup.");
   const seen = new Set<string>();
   const matched: Record<string, any>[] = [];
@@ -39,6 +39,15 @@ export async function readPlanningInfo(read: (path: string) => Promise<unknown>,
     if (rows.length < 5) { exhausted = true; break; }
   }
   if (!exhausted) throw Error("Too many booking orders to verify completely. Narrow the lookup before using coverage.");
+  return matched;
+}
+
+export async function readPlanningInfo(
+  read: (path: string) => Promise<unknown>,
+  booking: { booking_number: string; planned_containers: number | null }, site: CheckinSite,
+  customerIds: readonly string[], signal: AbortSignal,
+): Promise<PlanningInfo> {
+  const matched = await readDallasBookingOrders(read, booking.booking_number, site, customerIds, signal);
   const uncoveredOrderIds: string[] = [];
   let unknownCarriers = 0;
   const carriers = new Set<string>();

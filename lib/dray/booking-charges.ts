@@ -1,5 +1,5 @@
 import { searchReferenceOrders } from "../inbound/checkin/reference-search.ts";
-import { normalizeReference } from "../inbound/checkin/reference-match.ts";
+import { normalizeReference, referenceMatchesInput } from "../inbound/checkin/reference-match.ts";
 import { mcleodOrderStops, stopAtScmYard } from "../inbound/checkin/yard-stop.ts";
 import type { CheckinSite } from "../inbound/checkin/sites.ts";
 
@@ -13,7 +13,7 @@ const matchesMark = (reference: unknown, mark: string) =>
   normalizeReference(reference).replace(/\s+\d+\s+(?:BALES?|B\/?C)$/i, "") === mark;
 
 export async function readBookingMarkCharges(
-  read: (path: string) => Promise<unknown>, site: CheckinSite, mark: string, signal: AbortSignal, customerIds: readonly string[] = ["BUNGOMNE"],
+  read: (path: string) => Promise<unknown>, site: CheckinSite, mark: string, signal: AbortSignal, customerIds: readonly string[] = ["BUNGOMNE"], bookingNumber?: string,
 ) {
   const key = normalizeReference(mark);
   const candidates = await Promise.all((["blnum", "consignee_refno"] as const).map(field =>
@@ -29,15 +29,29 @@ export async function readBookingMarkCharges(
         /^(?:V|VOID|VOIDED|CANCELLED|CANCELED)$/i.test(String(order.__statusDescr || order.status || "").trim()) ||
         ![order.blnum, order.consignee_refno].some(reference => matchesMark(reference, key))) continue;
     if (!mcleodOrderStops(order).some(stop => stopAtScmYard(stop, site.siteName, site.terminal))) continue;
-    const lines = order.otherCharges ?? order.other_charges ?? order.otherCharge;
-    orders.push({
-      id, revenueCode: String(order.revenue_code_id ?? ""), status: String(order.__statusDescr ?? order.status ?? ""),
-      rate: amount(order.rate), rateUnits: amount(order.rate_units), total: amount(order.total_charge),
-      charges: Array.isArray(lines) ? lines.map(line => ({
-        code: String(line.charge_id ?? ""), description: String(line.descr ?? line.description ?? ""),
-        units: amount(line.units), rate: amount(line.rate), amount: amount(line.amount),
-      })) : null,
-    });
+    const savedBooking = normalizeReference(order.booking_no_sucm);
+    if (bookingNumber && savedBooking && savedBooking !== normalizeReference(bookingNumber)) continue;
+    orders.push(bookingOrderCharges(order));
   }
   return orders;
+}
+
+export function bookingOrderMarks(order: Record<string, any>, marks: readonly string[]) {
+  const references = [order.blnum, order.consignee_refno];
+  const exact = marks.filter(mark => references.some(reference => matchesMark(reference, normalizeReference(mark))));
+  if (exact.length) return exact;
+  const contained = marks.filter(mark => references.some(reference => referenceMatchesInput(reference, mark)));
+  return contained.length === 1 ? contained : [];
+}
+
+export function bookingOrderCharges(order: Record<string, any>) {
+  const lines = order.otherCharges ?? order.other_charges ?? order.otherCharge;
+  return {
+    id: String(order.id), revenueCode: String(order.revenue_code_id ?? ""), status: String(order.__statusDescr ?? order.status ?? ""),
+    rate: amount(order.rate), rateUnits: amount(order.rate_units), total: amount(order.total_charge),
+    charges: Array.isArray(lines) ? lines.map(line => ({
+      code: String(line.charge_id ?? ""), description: String(line.descr ?? line.description ?? ""),
+      units: amount(line.units), rate: amount(line.rate), amount: amount(line.amount),
+    })) : null,
+  };
 }
