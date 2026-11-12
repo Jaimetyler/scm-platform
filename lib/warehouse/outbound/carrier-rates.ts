@@ -8,7 +8,8 @@ export const rateItems = [
 export const accessorials = rateItems.filter(item => item.key !== "base");
 type RateKey = typeof rateItems[number]["key"];
 export type Quantities = Record<Exclude<RateKey, "base">, number>;
-export type RateAmounts = Record<RateKey, { pay: number; bill: number }>;
+export type RateAmounts = Record<RateKey, { pay: number }>;
+export type CustomerBillRates = Record<RateKey, number | null>;
 export type CarrierRate = {
   id: string;
   carrier_id: string;
@@ -26,10 +27,10 @@ export function parseRateAmount(amount: unknown, label: string) {
   return Math.round(Number(amount) * 100);
 }
 
-export function parseRates(value: Record<string, { pay?: unknown; bill?: unknown }> | undefined) {
+export function parseRates(value: Record<string, { pay?: unknown }> | undefined) {
   return Object.fromEntries(rateItems.map(({ key, label }) => {
     const line = value?.[key];
-    return [key, { pay: parseRateAmount(line?.pay, label), bill: parseRateAmount(line?.bill, label) }];
+    return [key, { pay: parseRateAmount(line?.pay, label) }];
   })) as RateAmounts;
 }
 
@@ -43,12 +44,13 @@ export function parseQuantities(value: Record<string, unknown> | undefined) {
   })) as Quantities;
 }
 
-export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierPlan) {
+export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierPlan, billing?: CustomerBillRates | null) {
   return rateItems.map(item => {
     const units = item.key === "base" ? 1 : quantities[item.key];
-    const { pay: cardPay, bill } = rate.rates[item.key];
+    const { pay: cardPay } = rate.rates[item.key];
+    const bill = billing?.[item.key] ?? null;
     const pay = item.key === "base" ? basePayOverride ?? cardPay : cardPay;
-    return { ...item, units, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: units * bill };
+    return { ...item, units, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: bill == null ? null : units * bill };
   }).filter(line => line.units > 0);
 }
 
@@ -75,8 +77,9 @@ export function carrierBatchSelection(plan: CarrierPlan | null, action: CarrierB
   };
 }
 
-export function carrierPlanTotals(plan: CarrierPlan) {
-  return carrierPlanLines(plan).reduce((total, line) => ({
-    pay: total.pay + line.payTotal, bill: total.bill + line.billTotal,
+export function carrierPlanTotals(plan: CarrierPlan, billing?: CustomerBillRates | null) {
+  return carrierPlanLines(plan, billing).reduce<{ pay: number; bill: number | null }>((total, line) => ({
+    pay: total.pay + line.payTotal,
+    bill: total.bill == null || line.billTotal == null ? null : total.bill + line.billTotal,
   }), { pay: 0, bill: 0 });
 }

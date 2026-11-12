@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { staffActor, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
+import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import { hash, vendor } from "@/lib/dray/server";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
@@ -73,8 +74,13 @@ async function handler(req: NextRequest, context: { params: Promise<{ id: string
   const savedPlan = row.carrier_plan;
   if (savedPlan && (key(savedPlan.rate?.carrier_id) !== "SCMIRIGA" ||
     (savedPlan.basePayOverride ?? savedPlan.rate?.rates?.base?.pay) !== 39293 ||
-    savedPlan.rate?.rates?.base?.bill !== 54500 || Object.values(savedPlan.quantities ?? {}).some(count => count !== 0))) {
+    Object.values(savedPlan.quantities ?? {}).some(count => count !== 0))) {
     return fail("The saved carrier plan differs from the standard SCMIRIGA Haslet pilot rates. Review the carrier details.");
+  }
+  const customerRate = await readBookingCustomerRate(db, booking).catch(() => null);
+  if (!customerRate || customerRate.fuel_mode !== "all_in" || Number(customerRate.base_rate) !== 545 ||
+    Number(customerRate.chassis_daily_rate) !== 35) {
+    return fail("The OLAM Haslet customer rate must match the pilot freight and chassis rates.");
   }
   const plan: DallasPilotPlan = {
     booking: key(booking.booking_number), container: key(row.container_number), bol: String(body.bol ?? "").trim(),
@@ -102,7 +108,7 @@ async function handler(req: NextRequest, context: { params: Promise<{ id: string
     return fail((reason as Error).message.startsWith("McLeod HTTP") ? "McLeod order search is unavailable." : (reason as Error).message);
   }
   const action = order ? "update" : "create";
-  const fingerprint = hash({ plan, booking: booking.updated_at, row: row.updated_at, before: review?.before });
+  const fingerprint = hash({ plan, booking: booking.updated_at, row: row.updated_at, customerRate, before: review?.before });
   const unchanged = Boolean(review && !review.billing && !review.movement);
   if (!apply) return NextResponse.json({ action, fingerprint, before: review?.before ?? null, unchanged, writable: writable() }, { headers });
   if (body.fingerprint !== fingerprint) return fail("The booking or McLeod order changed. Preview it again.");

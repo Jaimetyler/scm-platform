@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type CarrierRate, type CarrierSelection, type CarrierBatchAction, type Quantities } from "@/lib/warehouse/outbound/carrier-rates";
+import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type CarrierRate, type CarrierSelection, type CarrierBatchAction, type Quantities, type CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
 
@@ -19,7 +19,7 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const amounts = Object.fromEntries(rateItems.map(({ key }) => [key, {
-      pay: form.get(`${key}-pay`), bill: form.get(`${key}-bill`),
+      pay: form.get(`${key}-pay`),
     }]));
     setSaving(true);
     setMessage("");
@@ -54,10 +54,10 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
         <label>McLeod carrier ID <input name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>
         <label>Carrier name <input name="name" required maxLength={100} defaultValue={rate?.carrier_name} /></label>
         <label>Lane / return location <input name="lane" required maxLength={100} defaultValue={rate?.lane} /></label>
-        <table><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th><th scope="col">Customer bill ($)</th></tr></thead>
+        <table><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th></tr></thead>
           <tbody>{rateItems.map(({ key, label, code }) => <tr key={key}>
             <th scope="row">{label}{code && ` (${code})`}</th>
-            {(["pay", "bill"] as const).map(side => <td key={side}><input aria-label={`${label} ${side}`} name={`${key}-${side}`} type="number" min="0" max="999999.99" step="0.01" required defaultValue={rate ? dollars(rate.rates[key][side]) : ""} /></td>)}
+            <td><input aria-label={`${label} pay`} name={`${key}-pay`} type="number" min="0" max="999999.99" step="0.01" required defaultValue={rate ? dollars(rate.rates[key].pay) : ""} /></td>
           </tr>)}</tbody></table>
         <button type="submit">{saving ? "Saving…" : "Save rate"}</button>
       </fieldset>
@@ -67,8 +67,8 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
   </>;
 }
 
-export function CarrierEditor({ plan, rates, sequence, disabled, onSave }: {
-  plan: CarrierPlan | null; rates: CarrierRate[]; sequence: number;
+export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave }: {
+  plan: CarrierPlan | null; rates: CarrierRate[]; billing: CustomerBillRates | null; sequence: number;
   disabled: boolean; onSave: (selection: CarrierSelection | null) => Promise<unknown>;
 }) {
   const [selection, setSelection] = useState(plan?.rate.id ?? "");
@@ -77,7 +77,7 @@ export function CarrierEditor({ plan, rates, sequence, disabled, onSave }: {
   const [basePayOverride, setBasePayOverride] = useState(savedOverride);
   const validOverride = basePayOverride === "" || /^\d{1,6}(?:\.\d{1,2})?$/.test(basePayOverride);
   const rate = selection === plan?.rate.id ? plan.rate : rates.find(item => item.id === selection);
-  const lines = plan ? carrierPlanLines(plan) : [];
+  const lines = plan ? carrierPlanLines(plan, billing) : [];
   const dirty = selection !== (plan?.rate.id ?? "") ||
     Boolean(selection) && (basePayOverride !== savedOverride || accessorials.some(({ key }) => quantities[key] !== String(plan?.quantities[key] ?? 0)));
   const validCounts = Object.values(quantities).every(count => /^\d{1,3}$/.test(count));
@@ -103,8 +103,8 @@ export function CarrierEditor({ plan, rates, sequence, disabled, onSave }: {
           value={quantities[key]} disabled={disabled || !rate} onChange={event => setQuantities({ ...quantities, [key]: event.target.value })} />
       </label>)}
       {plan && <details>
-        <summary>Saved pay ${dollars(lines.reduce((total, line) => total + line.payTotal, 0))} · bill ${dollars(lines.reduce((total, line) => total + line.billTotal, 0))}</summary>
-        <ul>{lines.map(line => <li key={line.key}>{line.units} × {line.label}{line.code && ` (${line.code})`} · pay ${dollars(line.payTotal)} · bill ${dollars(line.billTotal)}</li>)}</ul>
+        <summary>Saved pay ${dollars(lines.reduce((total, line) => total + line.payTotal, 0))}</summary>
+        <ul>{lines.map(line => <li key={line.key}>{line.units} × {line.label}{line.code && ` (${line.code})`} · pay ${dollars(line.payTotal)} · bill {line.billTotal == null ? "rate unavailable" : `$${dollars(line.billTotal)}`}</li>)}</ul>
       </details>}
       {dirty && <button type="button" disabled={disabled || Boolean(selection) && (!rate || !validCounts || !validOverride)} onClick={() =>
         void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>Save carrier details</button>}
@@ -121,8 +121,8 @@ export function CarrierSummary({ plan }: { plan: CarrierPlan | null }) {
   </div>;
 }
 
-export function CarrierBatchToolbar({ rates, plans, disabled, onApply, onClear }: {
-  rates: CarrierRate[]; plans: (CarrierPlan | null)[]; disabled: boolean;
+export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, onClear }: {
+  rates: CarrierRate[]; plans: (CarrierPlan | null)[]; billing: CustomerBillRates | null; disabled: boolean;
   onApply: (action: CarrierBatchAction) => Promise<void>; onClear: () => void;
 }) {
   const [mode, setMode] = useState<"carrier" | "charge" | null>(null);
@@ -137,10 +137,15 @@ export function CarrierBatchToolbar({ rates, plans, disabled, onApply, onClear }
   const added = plans.reduce((total, plan) => {
     if (plan && canAddCharges) for (const { key } of accessorials) {
       total.pay += plan.rate.rates[key].pay * quantities[key];
-      total.bill += plan.rate.rates[key].bill * quantities[key];
+
     }
     return total;
-  }, { pay: 0, bill: 0 });
+  }, { pay: 0 });
+  const addedBill = accessorials.reduce<number | null>((total, { key }) => {
+    if (!quantities[key]) return total;
+    const rate = billing?.[key];
+    return total == null || rate == null ? null : total + rate * quantities[key] * plans.length;
+  }, 0);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -167,7 +172,7 @@ export function CarrierBatchToolbar({ rates, plans, disabled, onApply, onClear }
           <input type="number" min="0" max="999" step="1" placeholder="0" value={units[key]} disabled={disabled}
             onChange={event => setUnits(current => ({ ...current, [key]: event.target.value }))} />
         </label>)}
-        {canAddCharges && <span>Added pay ${dollars(added.pay)} · Added bill ${dollars(added.bill)}</span>}
+        {canAddCharges && <span>Added pay ${dollars(added.pay)} · {addedBill == null ? "Customer billing rate missing" : `Added bill $${dollars(addedBill)}`}</span>}
         {exceedsLimit && <span role="alert">A container can have up to 999 units per charge.</span>}
       </>}
       <button type="submit" disabled={disabled || (mode === "carrier" ? !rate : !canAddCharges)}>

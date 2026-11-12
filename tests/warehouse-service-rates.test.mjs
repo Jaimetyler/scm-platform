@@ -11,7 +11,10 @@ const rule = {
   fuel_mode: "all_in", base_rate: 545, included_chassis_days: 2, chassis_daily_rate: 35, active: true,
 };
 test("rates preserve the entered fuel and chassis terms and normalize the yard code", () => {
-  assert.deepEqual(rates.normalizeServiceRate(rule), { ...rule, site_code: "SCMDDETX", return_location: "UNIOWITX", notes: null });
+  assert.deepEqual(rates.normalizeServiceRate(rule), { ...rule, site_code: "SCMDDETX", return_location: "UNIOWITX", chassis_split_rate: null, stopoff_rate: null, notes: null });
+  assert.equal(rates.normalizeServiceRate({ ...rule, chassis_split_rate: "25.50", stopoff_rate: "0" }).chassis_split_rate, 25.5);
+  assert.equal(rates.normalizeServiceRate({ ...rule, stopoff_rate: "0" }).stopoff_rate, 0);
+  assert.throws(() => rates.normalizeServiceRate({ ...rule, stopoff_rate: -1 }), /stopoff rate/);
   assert.throws(() => rates.normalizeServiceRate({ ...rule, terminal: "HOU" }), /warehouse/);
   assert.throws(() => rates.normalizeServiceRate({ ...rule, chassis_daily_rate: 0 }), /positive/);
   assert.throws(() => rates.normalizeServiceRate({ ...rule, base_rate: "" }), /base rate/);

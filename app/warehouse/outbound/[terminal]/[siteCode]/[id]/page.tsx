@@ -19,7 +19,7 @@ import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
 import DallasOrderPilot from "./DallasOrderPilot";
 import { BookingOrderLookup, CarrierBatchToolbar, CarrierEditor, CarrierRateManager, CarrierSummary } from "./CarrierRates";
-import { carrierBatchSelection, carrierPlanTotals, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection } from "@/lib/warehouse/outbound/carrier-rates";
+import { carrierBatchSelection, carrierPlanTotals, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection, type CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
@@ -65,22 +65,24 @@ export default function CottonOutboundBookingPage() {
   useEffect(() => {
     if (detailId && detailDialog.current && !detailDialog.current.open) detailDialog.current.showModal();
   }, [detailId]);
+  const [customerBilling, setCustomerBilling] = useState<CustomerBillRates | null>(null);
   const [carrierRates, setCarrierRates] = useState<CarrierRate[]>([]);
   const [carrierError, setCarrierError] = useState("");
   useEffect(() => {
     if (!canManage) return;
     const controller = new AbortController();
     setCarrierRates([]);
+    setCustomerBilling(null);
     setCarrierError("");
     fetch(carrierEndpoint, { signal: controller.signal }).then(async response => {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      if (!controller.signal.aborted) setCarrierRates(result.rates);
+      if (!controller.signal.aborted) { setCarrierRates(result.rates); setCustomerBilling(result.customerBilling); }
     }).catch(error => {
       if (!controller.signal.aborted) setCarrierError(error.message || "Could not load carrier rates.");
     });
     return () => controller.abort();
-  }, [canManage, carrierEndpoint, siteCode]);
+  }, [canManage, carrierEndpoint, siteCode, booking?.return_location, booking?.return_location_code]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -593,8 +595,9 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
     </div> : null}
 
+    {canManage && <div style={{ marginBottom: 8 }}><Link href="/warehouse/rates">Customer billing rates</Link></div>}
     {canManage && carrierError && <p role="alert">{carrierError}</p>}
-    {selectedRows.length > 0 && <CarrierBatchToolbar rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
+    {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: canManage ? 1250 : 1020, borderCollapse: "collapse" }}><thead><tr>
       {selectionEnabled && <th style={th} scope="col"><input type="checkbox" aria-label="Select all visible containers"
@@ -616,7 +619,7 @@ export default function CottonOutboundBookingPage() {
       const saved = draft.bookingLineId === (row.booking_line_id ?? "") && draft.containerNumber === (row.container_number ?? "") && draft.sealNumber === (row.seal_number ?? "") &&
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes);
-      const totals = row.carrier_plan ? carrierPlanTotals(row.carrier_plan) : null;
+      const totals = row.carrier_plan ? carrierPlanTotals(row.carrier_plan, customerBilling) : null;
       return <tr key={row.id} data-selected={selectionEnabled && selectedContainers.has(row.id)} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
         {selectionEnabled && <td style={td}><input type="checkbox" aria-label={`Select container ${row.container_number ?? row.sequence_no}`}
           checked={selectableIds.has(row.id) && selectedContainers.has(row.id)} disabled={!selectableIds.has(row.id) || Boolean(working) || bulkSaving}
@@ -633,7 +636,7 @@ export default function CottonOutboundBookingPage() {
         {canManage && <>
           <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>
           <td style={td} className="carrier-total">{totals ? `$${(totals.pay / 100).toFixed(2)}` : "—"}</td>
-          <td style={td} className="carrier-total">{totals ? `$${(totals.bill / 100).toFixed(2)}` : "—"}</td>
+          <td style={td} className="carrier-total">{totals?.bill != null ? `$${(totals.bill / 100).toFixed(2)}` : totals ? "Rate unavailable" : "—"}</td>
         </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
@@ -658,7 +661,7 @@ export default function CottonOutboundBookingPage() {
         <form method="dialog"><button type="submit">Close</button></form>
       </div>
       <h3>Carrier and charges</h3>
-      {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} rates={carrierRates}
+      {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} billing={customerBilling} rates={carrierRates}
         sequence={detailRow.sequence_no} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
         onSave={selection => save(detailRow, detailDraft, selection)} />}
       {error && <p role="alert">{error}</p>}

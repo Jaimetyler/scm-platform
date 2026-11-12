@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { staffActor, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
+import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { parseRates } from "@/lib/warehouse/outbound/carrier-rates";
 
 const fields = "id,carrier_id,carrier_name,lane,rates,updated_at";
@@ -10,7 +11,7 @@ async function bookingScope({ params }: Context) {
   const { id } = await params;
   if (!/^[a-f0-9-]{36}$/i.test(id)) return null;
   const { data, error } = await staffDatabase().from("cotton_outbound_bookings")
-    .select("terminal,site_code").eq("id", id).maybeSingle();
+    .select("terminal,site_code,customer,return_location,return_location_code").eq("id", id).maybeSingle();
   if (error) throw new Error("Could not load booking.");
   return data;
 }
@@ -18,10 +19,19 @@ async function bookingScope({ params }: Context) {
 export const GET = withStaffAccess(async (_req: NextRequest, context: Context) => {
   const scope = await bookingScope(context);
   if (!scope) return NextResponse.json({ error: "Booking not found." }, { status: 404 });
-  const { data, error } = await staffDatabase().from("outbound_carrier_rates").select(fields)
-    .match(scope).order("carrier_name").order("lane");
+  const db = staffDatabase();
+  const [{ data, error }, customerRate] = await Promise.all([
+    db.from("outbound_carrier_rates").select(fields).match({ terminal: scope.terminal, site_code: scope.site_code }).order("carrier_name").order("lane"),
+    readBookingCustomerRate(db, scope),
+  ]);
   if (error) throw new Error("Could not load carrier rates.");
-  return NextResponse.json({ rates: data }, { headers: { "Cache-Control": "private, no-store" } });
+  const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
+  const customerBilling = customerRate ? {
+    base: customerRate.fuel_mode === "all_in" ? cents(customerRate.base_rate) : null,
+    chassisDays: cents(customerRate.chassis_daily_rate), chassisSplits: cents(customerRate.chassis_split_rate),
+    stopoffs: cents(customerRate.stopoff_rate),
+  } : null;
+  return NextResponse.json({ rates: data, customerBilling }, { headers: { "Cache-Control": "private, no-store" } });
 });
 
 export const POST = withStaffAccess(async (req: NextRequest, context: Context) => {
@@ -40,10 +50,11 @@ export const POST = withStaffAccess(async (req: NextRequest, context: Context) =
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
-  const values = { ...scope, carrier_id: carrierId, carrier_name: carrierName, lane, rates, updated_by: staffActor(req), updated_at: new Date().toISOString() };
+  const warehouse = { terminal: scope.terminal, site_code: scope.site_code };
+  const values = { ...warehouse, carrier_id: carrierId, carrier_name: carrierName, lane, rates, updated_by: staffActor(req), updated_at: new Date().toISOString() };
   const table = staffDatabase().from("outbound_carrier_rates");
   const write = body.id
-    ? table.update(values).match({ ...scope, id: body.id, updated_at: body.expectedUpdatedAt })
+    ? table.update(values).match({ ...warehouse, id: body.id, updated_at: body.expectedUpdatedAt })
     : table.insert(values);
   const { data, error } = await write.select(fields).maybeSingle();
   if (error?.code === "23505" || !error && !data) {

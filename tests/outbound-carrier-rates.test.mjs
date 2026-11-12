@@ -10,13 +10,17 @@ test("carrier pay overrides affect only base pay and chassis splits use CS on bo
     stopoffs: { pay: "25", bill: "50" },
   });
   const quantities = parseQuantities({ chassisDays: "2", chassisSplits: "1", stopoffs: "0" });
-  const lines = carrierPlanLines({ rate: { rates }, quantities, basePayOverride: 9000 });
+  const billing = { base: 15000, chassisDays: 4000, chassisSplits: 5500, stopoffs: 5000 };
+  assert.deepEqual(rates.base, { pay: 10000 });
+  const plan = { rate: { rates }, quantities, basePayOverride: 9000 };
+  const lines = carrierPlanLines(plan, billing);
   assert.deepEqual(lines.map(({ payTotal, billTotal, payCode, billCode }) => [payTotal, billTotal, payCode, billCode]), [
     [9000, 15000, null, null],
     [4000, 8000, null, null],
     [3500, 5500, "CS", "CS"],
   ]);
-  assert.deepEqual(carrierPlanTotals({ rate: { rates }, quantities, basePayOverride: 9000 }), { pay: 16500, bill: 28500 });
+  assert.deepEqual(carrierPlanTotals(plan, billing), { pay: 16500, bill: 28500 });
+  assert.deepEqual(carrierPlanTotals(plan, { ...billing, chassisSplits: null }), { pay: 16500, bill: null });
   assert.throws(() => parseQuantities({ ...quantities, chassisDays: "1.5" }), /whole number/);
 });
 

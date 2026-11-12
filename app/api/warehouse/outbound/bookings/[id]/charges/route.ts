@@ -6,7 +6,7 @@ import { vendor } from "@/lib/dray/server";
 import { bookingOrderCharges, bookingOrderMarks, readBookingMarkCharges } from "@/lib/dray/booking-charges";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { readDallasBookingOrders } from "@/lib/warehouse/outbound/planning-info";
-import { rateReturnLocation } from "@/lib/dray/service-rates";
+import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { mapLimit } from "@/lib/http/map-limit";
 
 export const maxDuration = 120;
@@ -22,17 +22,10 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   if (!site || !customer) {
     return NextResponse.json({ ok: false, error: "Choose a supported Dallas dray booking." }, { status: 404 });
   }
-  const destinations = [...new Set([booking.data!.return_location_code, booking.data!.return_location]
-    .map(location => rateReturnLocation(location ?? "")).filter(Boolean))];
-  const rate = await db.from("customer_service_rates")
-    .select("rate_code,return_location,site_code,included_chassis_days,chassis_daily_rate,fuel_mode,base_rate")
-    .eq("terminal", "DAL").eq("customer_code", customer.code)
-    .eq("revenue_code", "DDRAY").eq("service_type", "drayage").eq("active", true).in("site_code", [site.siteCode, ""]).in("return_location", [...destinations, ""]);
-  const applicable = [site.siteCode, ""].flatMap(siteCode =>
-    destinations.map(destination => rate.data?.find(row => row.site_code === siteCode && row.return_location === destination)))
-    .find(Boolean) ?? rate.data?.find(row => row.site_code === site.siteCode && row.return_location === "")
-    ?? rate.data?.find(row => row.site_code === "" && row.return_location === "");
-  if (rate.error || customer.code === "BUNGOMNE" && !applicable) return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 });
+  let applicable;
+  try { applicable = await readBookingCustomerRate(db, booking.data!); }
+  catch { return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 }); }
+  if (customer.code === "BUNGOMNE" && !applicable) return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 });
   const approvalRate = applicable ? { rateCode: applicable.rate_code, includedChassisDays: Number(applicable.included_chassis_days),
     chassisDailyRate: Number(applicable.chassis_daily_rate), fuelMode: applicable.fuel_mode,
     baseRate: applicable.base_rate === null ? null : Number(applicable.base_rate) } : null;

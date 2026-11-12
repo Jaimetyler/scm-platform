@@ -10,7 +10,7 @@ import { fuelModes, rateColumns, rateModes, type ServiceRate } from "@/lib/dray/
 
 
 const blank = { terminal: "DAL", site_code: "", customer_code: "", revenue_code: "DDRAY", service_type: "drayage",
-  return_location: "", fuel_mode: "all_in", base_rate: "", included_chassis_days: "0", chassis_daily_rate: "0", active: "true", notes: "" };
+  return_location: "", fuel_mode: "all_in", base_rate: "", included_chassis_days: "0", chassis_daily_rate: "0", chassis_split_rate: "", stopoff_rate: "", active: "true", notes: "" };
 type Draft = typeof blank;
 const templateUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(rateColumns.join(",") + "\r\n")}`;
 type SavedRate = ServiceRate & { rate_code: number };
@@ -116,7 +116,9 @@ export default function WarehouseRates() {
           <td className={styles.amount}>{rate.base_rate == null ? <small>Contract base needed</small> : usd(rate.base_rate)}</td>
           <td>{fuelModes[rate.fuel_mode]}</td>
           <td className={styles.amount}>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"}` : "None"}
-            {rate.chassis_daily_rate > 0 && <small>{usd(rate.chassis_daily_rate)}/day</small>}</td>
+            {rate.chassis_daily_rate > 0 && <small>{usd(rate.chassis_daily_rate)}/day</small>}
+            {rate.chassis_split_rate != null && <small>Split {usd(rate.chassis_split_rate)}</small>}
+            {rate.stopoff_rate != null && <small>Stopoff {usd(rate.stopoff_rate)}</small>}</td>
           <td className={styles.gridNotes}>{rate.notes || "—"}</td>
           <td><button type="button" className={styles.button} onClick={() => edit(rate)} aria-label={`Edit ${rate.customer_code} rate`}>Edit</button></td>
         </tr>)}</tbody>
@@ -161,6 +163,8 @@ export default function WarehouseRates() {
           </select></label>
           <label>Contract base per order<input required type="number" min="0" step=".01" value={draft.base_rate} onChange={event => change("base_rate", event.target.value)} /></label>
           <label>Included chassis days<input required type="number" min="0" step="1" value={draft.included_chassis_days} onChange={event => change("included_chassis_days", event.target.value)} /></label>
+          <label>Chassis split rate<input type="number" min="0" step=".01" placeholder="Not set" value={draft.chassis_split_rate} onChange={event => change("chassis_split_rate", event.target.value)} /></label>
+          <label>Stopoff rate<input type="number" min="0" step=".01" placeholder="Not set" value={draft.stopoff_rate} onChange={event => change("stopoff_rate", event.target.value)} /></label>
           <label>Chassis daily rate<input required type="number" min="0" step=".01" value={draft.chassis_daily_rate} onChange={event => change("chassis_daily_rate", event.target.value)} /></label>
           <label className={styles.notesField}>Notes<textarea rows={2} maxLength={1000} value={draft.notes} onChange={event => change("notes", event.target.value)} /></label>
           <label className={styles.checkbox}><input type="checkbox" checked={draft.active === "true"} onChange={event => change("active", String(event.target.checked))} /> Active</label>

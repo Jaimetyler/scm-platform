@@ -19,6 +19,8 @@ export type ServiceRate = {
   base_rate: number | null;
   included_chassis_days: number;
   chassis_daily_rate: number;
+  chassis_split_rate: number | null;
+  stopoff_rate: number | null;
   active: boolean;
   notes: string | null;
 };
@@ -29,7 +31,7 @@ export function rateReturnLocation(value: string) {
 }
 
 export const rateColumns = ["terminal", "site_code", "customer_code", "revenue_code", "service_type",
-  "return_location", "fuel_mode", "base_rate", "included_chassis_days", "chassis_daily_rate", "active", "notes"] as const;
+  "return_location", "fuel_mode", "base_rate", "included_chassis_days", "chassis_daily_rate", "chassis_split_rate", "stopoff_rate", "active", "notes"] as const;
 
 export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate {
   const value = (field: string) => String(row[field] ?? "").trim();
@@ -64,5 +66,6 @@ export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate 
   if (notes.length > 1000) throw Error("Keep notes to 1,000 characters.");
   return { terminal, site_code: site?.siteCode ?? "", customer_code: customerCode, revenue_code: revenueCode,
     return_location: rateReturnLocation(value("return_location")), service_type: mode, fuel_mode: fuelMode, base_rate: money("base_rate"), included_chassis_days: days,
-    chassis_daily_rate: daily, active: active !== "false", notes: notes || null };
+    chassis_daily_rate: daily, chassis_split_rate: value("chassis_split_rate") ? money("chassis_split_rate") : null,
+    stopoff_rate: value("stopoff_rate") ? money("stopoff_rate") : null, active: active !== "false", notes: notes || null };
 }
