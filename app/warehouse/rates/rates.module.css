@@ -13,7 +13,7 @@
 .page :is(button, input, select, textarea):focus-visible { outline: 2px solid #67c6e2; outline-offset: 2px; }
 .gridScroll { overflow: auto; max-height: 65vh; border: 1px solid #314256; border-radius: 12px; }
 .gridScroll:focus-visible { outline: 2px solid #67c6e2; outline-offset: 2px; }
-.grid { width: 100%; min-width: 840px; text-align: left; border-collapse: separate; border-spacing: 0; font-size: .88rem; }
+.grid { width: 100%; min-width: 1020px; text-align: left; border-collapse: separate; border-spacing: 0; font-size: .88rem; }
 .grid th, .grid td { padding: 10px 12px; vertical-align: middle; border-bottom: 1px solid #314256; }
 .grid th { font-weight: 650; }
 .grid thead th { position: sticky; top: 0; z-index: 1; background: #203247; color: #d1dfed; white-space: nowrap; }

@@ -144,7 +144,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         <button type="button" className="booking-charge-button" onClick={() => dialog.current?.close()}>Close</button>
       </header>
       <div className="booking-charge-body">
-        <p>Select a load to include its itemized charges in the email. {standardNote} {verifiedStandard && "Extras appear first, highest total first."}</p>
+        <p>Select a load to include its itemized charges in the email. {approvalRate?.rateCode && <strong>Rate R-{approvalRate.rateCode}. </strong>}{standardNote} {verifiedStandard && "Extras appear first, highest total first."}</p>
         {busy && <p role="status">Looking up McLeod charges…</p>}
         {error && <p role="alert">{error}</p>}
         {results && <div className="booking-charge-overview">

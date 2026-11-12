@@ -1,7 +1,7 @@
 import type { FuelMode } from "./service-rates.ts";
 
 type Charge = { units?: number | null; code: string; description: string; amount: number | null };
-export type ApprovalRate = { includedChassisDays: number; chassisDailyRate: number; fuelMode?: FuelMode; baseRate?: number | null };
+export type ApprovalRate = { rateCode?: number; includedChassisDays: number; chassisDailyRate: number; fuelMode?: FuelMode; baseRate?: number | null };
 const fuel = (charge: Charge) => /^(?:FSC|FUEL)$/i.test(charge.code.trim()) ||
   /\bFSC\b|\bfuel\s+(?:sur(?:charge)?|surcharge)\b/i.test(charge.description);
 const chassis = (charge: Charge) => /^(?:CHAS|CHASSIS)$/i.test(charge.code.trim()) || /\bchassis\b/i.test(charge.description);

@@ -5,14 +5,15 @@ import {createRequire} from 'node:module';
 import ts from 'typescript';
 import * as customers from '../lib/dray/booking-customers.ts';
 import * as sites from '../lib/inbound/checkin/sites.ts';
+import * as serviceRates from '../lib/dray/service-rates.ts';
 import * as limit from '../lib/http/map-limit.ts';
 const require=createRequire(import.meta.url);
-function route(customer,rates=[],bookingOrders=[]){
+function route(customer,rates=[],bookingOrders=[],returnLocation=null){
  const queried=[];const called=[];
- const db={from:table=>({select(){return this;},eq(key,value){queried.push({table,key,value});return this;},async in(key,value){queried.push({table,key,value});return {data:rates,error:null};},neq(){return this;},async maybeSingle(){return {data:table==='cotton_outbound_bookings'?{terminal:'DAL',site_code:'SCMDDETX',customer,booking_number:'2343518850'}:null,error:null};},async limit(){return {data:[{mark:'W0282'}],error:null};}})};
+ const db={from:table=>({select(){return this;},eq(key,value){queried.push({table,key,value});return this;},in(key,value){queried.push({table,key,value});return key==="return_location"?Promise.resolve({data:rates.map(row=>({return_location:"",...row})).filter(row=>value.includes(row.return_location)),error:null}):this;},neq(){return this;},async maybeSingle(){return {data:table==='cotton_outbound_bookings'?{terminal:'DAL',site_code:'SCMDDETX',customer,booking_number:'2343518850',return_location:returnLocation}:null,error:null};},async limit(){return {data:[{mark:'W0282'}],error:null};}})};
  const mod={exports:{}};
  const code=ts.transpileModule(readFileSync('app/api/warehouse/outbound/bookings/[id]/charges/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- const local=n=>n==='@/lib/auth/guard'?{withStaffAccess:f=>f}:n==='@/lib/auth/session'?{staffDatabase:()=>db}:n==='@/lib/dray/booking-customers'?customers:n==='@/lib/inbound/checkin/sites'?sites:n==='@/lib/http/map-limit'?limit:n==='@/lib/dray/server'?{vendor:readonly=>{assert.equal(readonly,true);return {read:async()=>({})};}}:n==='@/lib/warehouse/outbound/planning-info'?{readDallasBookingOrders:async(read,number)=>{assert.equal(number,'2343518850');return bookingOrders;}}:n==='@/lib/dray/booking-charges'?{bookingOrderMarks:order=>order.blnum==='W0282'?['W0282']:[],bookingOrderCharges:order=>order,readBookingMarkCharges:async(read,site,mark,signal,ids)=>{called.push(ids);return [];}}:require(n);
+ const local=n=>n==='@/lib/auth/guard'?{withStaffAccess:f=>f}:n==='@/lib/auth/session'?{staffDatabase:()=>db}:n==='@/lib/dray/booking-customers'?customers:n==='@/lib/inbound/checkin/sites'?sites:n==='@/lib/http/map-limit'?limit:n==='@/lib/dray/service-rates'?serviceRates:n==='@/lib/dray/server'?{vendor:readonly=>{assert.equal(readonly,true);return {read:async()=>({})};}}:n==='@/lib/warehouse/outbound/planning-info'?{readDallasBookingOrders:async(read,number)=>{assert.equal(number,'2343518850');return bookingOrders;}}:n==='@/lib/dray/booking-charges'?{bookingOrderMarks:order=>order.blnum==='W0282'?['W0282']:[],bookingOrderCharges:order=>order,readBookingMarkCharges:async(read,site,mark,signal,ids)=>{called.push(ids);return [];}}:require(n);
  new Function('require','module','exports',code)(local,mod,mod.exports);return {get:mod.exports.GET,queried,called};
 }
 const request=()=>new Request('https://example.test/api/warehouse/outbound/bookings/11111111-1111-4111-8111-111111111111/charges');
@@ -52,4 +53,16 @@ test('Dallas 2119 uses its configured all-in rate ahead of the terminal default'
  const data=await (await r.get(request(),params)).json();
  assert.deepEqual(data.approvalRate,{includedChassisDays:2,chassisDailyRate:35,fuelMode:'all_in',baseRate:545});
  assert.equal(data.negotiatedFuel,false);
+});
+
+test('Dallas return location prefers its matching rate over a warehouse default', async () => {
+ const base={included_chassis_days:1,chassis_daily_rate:45,fuel_mode:'all_in',base_rate:545};
+ const r=route('Olam Agri Americas Inc',[
+  {...base,site_code:'SCMDDETX',return_location:'',rate_code:10},
+  {...base,site_code:'SCMDDETX',return_location:'BNSFHATX',rate_code:11},
+  {...base,site_code:'',return_location:'UNIOWITX',rate_code:12},
+  {...base,site_code:'SCMDDETX',return_location:'UNIOWITX',rate_code:13},
+ ],[],'Dallas UP - DIT');
+ const data=await (await r.get(request(),params)).json();
+ assert.equal(data.approvalRate.rateCode,13);
 });

@@ -1,3 +1,4 @@
+import { bookingReturnLocation } from "../warehouse/outbound/return-location.ts";
 import { CHECKIN_SITES } from "../inbound/checkin/sites.ts";
 
 export const rateModes = ["drayage", "truckload", "handling", "storage"] as const;
@@ -11,6 +12,7 @@ export type ServiceRate = {
   terminal: string;
   site_code: string;
   customer_code: string;
+  return_location: string;
   revenue_code: string;
   service_type: string;
   fuel_mode: FuelMode;
@@ -21,8 +23,13 @@ export type ServiceRate = {
   notes: string | null;
 };
 
+export function rateReturnLocation(value: string) {
+  const resolved = bookingReturnLocation(value);
+  return resolved.return_location_code ?? resolved.return_location?.toUpperCase() ?? "";
+}
+
 export const rateColumns = ["terminal", "site_code", "customer_code", "revenue_code", "service_type",
-  "fuel_mode", "base_rate", "included_chassis_days", "chassis_daily_rate", "active", "notes"] as const;
+  "return_location", "fuel_mode", "base_rate", "included_chassis_days", "chassis_daily_rate", "active", "notes"] as const;
 
 export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate {
   const value = (field: string) => String(row[field] ?? "").trim();
@@ -56,6 +63,6 @@ export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate 
   const notes = value("notes");
   if (notes.length > 1000) throw Error("Keep notes to 1,000 characters.");
   return { terminal, site_code: site?.siteCode ?? "", customer_code: customerCode, revenue_code: revenueCode,
-    service_type: mode, fuel_mode: fuelMode, base_rate: money("base_rate"), included_chassis_days: days,
+    return_location: rateReturnLocation(value("return_location")), service_type: mode, fuel_mode: fuelMode, base_rate: money("base_rate"), included_chassis_days: days,
     chassis_daily_rate: daily, active: active !== "false", notes: notes || null };
 }

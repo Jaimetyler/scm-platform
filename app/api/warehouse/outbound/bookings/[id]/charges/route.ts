@@ -6,6 +6,7 @@ import { vendor } from "@/lib/dray/server";
 import { bookingOrderCharges, bookingOrderMarks, readBookingMarkCharges } from "@/lib/dray/booking-charges";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { readDallasBookingOrders } from "@/lib/warehouse/outbound/planning-info";
+import { rateReturnLocation } from "@/lib/dray/service-rates";
 import { mapLimit } from "@/lib/http/map-limit";
 
 export const maxDuration = 120;
@@ -14,20 +15,25 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   const { id } = await context.params;
   if (!/^[a-f0-9-]{36}$/i.test(id)) return NextResponse.json({ ok: false, error: "Invalid booking." }, { status: 400 });
   const db = staffDatabase();
-  const booking = await db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number").eq("id", id).maybeSingle();
+  const booking = await db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,return_location,return_location_code").eq("id", id).maybeSingle();
   if (booking.error) return NextResponse.json({ ok: false, error: "Could not load booking." }, { status: 503 });
   const site = CHECKIN_SITES.find(site => site.terminal === "DAL" && site.terminal === booking.data?.terminal && site.siteCode === booking.data.site_code);
   const customer = bookingChargeCustomer(String(booking.data?.customer ?? ""));
   if (!site || !customer) {
     return NextResponse.json({ ok: false, error: "Choose a supported Dallas dray booking." }, { status: 404 });
   }
+  const destinations = [...new Set([booking.data!.return_location_code, booking.data!.return_location]
+    .map(location => rateReturnLocation(location ?? "")).filter(Boolean))];
   const rate = await db.from("customer_service_rates")
-    .select("site_code,included_chassis_days,chassis_daily_rate,fuel_mode,base_rate")
+    .select("rate_code,return_location,site_code,included_chassis_days,chassis_daily_rate,fuel_mode,base_rate")
     .eq("terminal", "DAL").eq("customer_code", customer.code)
-    .eq("revenue_code", "DDRAY").eq("service_type", "drayage").eq("active", true).in("site_code", [site.siteCode, ""]);
-  const applicable = rate.data?.find(row => row.site_code === site.siteCode) ?? rate.data?.find(row => row.site_code === "");
+    .eq("revenue_code", "DDRAY").eq("service_type", "drayage").eq("active", true).in("site_code", [site.siteCode, ""]).in("return_location", [...destinations, ""]);
+  const applicable = [site.siteCode, ""].flatMap(siteCode =>
+    destinations.map(destination => rate.data?.find(row => row.site_code === siteCode && row.return_location === destination)))
+    .find(Boolean) ?? rate.data?.find(row => row.site_code === site.siteCode && row.return_location === "")
+    ?? rate.data?.find(row => row.site_code === "" && row.return_location === "");
   if (rate.error || customer.code === "BUNGOMNE" && !applicable) return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 });
-  const approvalRate = applicable ? { includedChassisDays: Number(applicable.included_chassis_days),
+  const approvalRate = applicable ? { rateCode: applicable.rate_code, includedChassisDays: Number(applicable.included_chassis_days),
     chassisDailyRate: Number(applicable.chassis_daily_rate), fuelMode: applicable.fuel_mode,
     baseRate: applicable.base_rate === null ? null : Number(applicable.base_rate) } : null;
   const lines = await db.from("cotton_outbound_booking_lines").select("mark").eq("booking_id", id).neq("line_status", "cancelled").limit(501);
