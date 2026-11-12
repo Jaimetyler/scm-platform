@@ -4,7 +4,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { createContext, Fragment, useContext, useEffect, useState, type ReactNode } from "react";
 import { CHECKIN_SITES, getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { ALL_LOCATIONS, LOCATION_KEY, CHECKIN_VIEW_KEY, validLocation, routeLocation, sectionForPath, checkinViewForPath,
-  availableCheckinViews, workspaceHref, locationLabel, safeOutboundReturn, type WarehouseLocation, type WarehouseSection, type CheckinView } from "@/lib/warehouse/navigation";
+  availableCheckinViews, workspaceHref, locationLabel, locationQuery, safeOutboundReturn, type WarehouseLocation, type WarehouseSection, type CheckinView } from "@/lib/warehouse/navigation";
 import { WarehouseScrollMemory } from "./useWarehouseViewState";
 import "./warehouse-workspace.css";
 import { useStaff } from "@/components/auth/StaffSession";
@@ -67,7 +67,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
   return <Context.Provider value={{ location, ready, href }}>
     {visible && <header className="warehouse-workspace" aria-label="Warehouse workspace">
       <div className="warehouse-brand-row"><Link href={href("overview")} className="warehouse-brand">SCM <span>Warehouse operations</span></Link>
-        <div className="warehouse-utilities">{staff?.role === "admin" && <Link href="/warehouse/gate">Driver QR setup</Link>}</div>
+        <div className="warehouse-utilities">{staff?.role === "admin" && <><Link href={`/warehouse/rates?${locationQuery(location)}`}>Rates</Link><Link href="/warehouse/gate">Driver QR setup</Link></>}</div>
       </div>
       <div className="warehouse-location-row">
         <nav aria-label="Terminal" className="warehouse-location-options">

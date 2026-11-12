@@ -22,11 +22,14 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
     return NextResponse.json({ ok: false, error: "Choose a supported Dallas dray booking." }, { status: 404 });
   }
   const rate = await db.from("customer_service_rates")
-    .select("included_chassis_days,chassis_daily_rate")
+    .select("site_code,included_chassis_days,chassis_daily_rate,fuel_mode,base_rate")
     .eq("terminal", "DAL").eq("customer_code", customer.code)
-    .eq("revenue_code", "DDRAY").eq("service_type", "drayage").eq("active", true).maybeSingle();
-  if (rate.error || customer.code === "BUNGOMNE" && !rate.data) return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 });
-  const approvalRate = rate.data ? { includedChassisDays: Number(rate.data.included_chassis_days), chassisDailyRate: Number(rate.data.chassis_daily_rate) } : null;
+    .eq("revenue_code", "DDRAY").eq("service_type", "drayage").eq("active", true).in("site_code", [site.siteCode, ""]);
+  const applicable = rate.data?.find(row => row.site_code === site.siteCode) ?? rate.data?.find(row => row.site_code === "");
+  if (rate.error || customer.code === "BUNGOMNE" && !applicable) return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 });
+  const approvalRate = applicable ? { includedChassisDays: Number(applicable.included_chassis_days),
+    chassisDailyRate: Number(applicable.chassis_daily_rate), fuelMode: applicable.fuel_mode,
+    baseRate: applicable.base_rate === null ? null : Number(applicable.base_rate) } : null;
   const lines = await db.from("cotton_outbound_booking_lines").select("mark").eq("booking_id", id).neq("line_status", "cancelled").limit(501);
   if (lines.error || !lines.data || lines.data.length > 500) {
     return NextResponse.json({ ok: false, error: "Could not load a complete set of booking marks." }, { status: 503 });
@@ -62,5 +65,5 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   const matchedIds = new Set(results.flatMap(result => result.orders.map(order => order.id)));
   const unassigned = unmatchedOrders.filter(order => !matchedIds.has(order.id));
   if (unassigned.length) results.push({ mark: "Booking match · mark unverified", orders: unassigned });
-  return NextResponse.json({ ok: true, results, approvalRate, negotiatedFuel: customer.negotiatedFuel }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ ok: true, results, approvalRate, negotiatedFuel: approvalRate?.fuelMode === "base_plus_fsc" }, { headers: { "Cache-Control": "no-store" } });
 });

@@ -1,7 +1,7 @@
 import { CHECKIN_SITES, TERMINAL_NAMES, getCheckinSite, type TerminalCode } from "../inbound/checkin/sites.ts";
 
 export type WarehouseLocation = { terminal: TerminalCode | "all"; siteCode: string };
-export type WarehouseSection = "overview" | "checkins" | "inventory" | "outbound" | "history";
+export type WarehouseSection = "overview" | "checkins" | "inventory" | "outbound" | "history" | "rates";
 export type CheckinView = "cotton" | "line" | "domestic" | "containers";
 export const ALL_LOCATIONS: WarehouseLocation = { terminal: "all", siteCode: "all" };
 export const LOCATION_KEY = "scm.warehouse.location.v1";
@@ -34,6 +34,7 @@ export function locationQuery(location: WarehouseLocation) {
 }
 
 export function sectionForPath(path: string): WarehouseSection {
+  if (path === "/warehouse/rates") return "rates";
   if (path.startsWith("/warehouse/outbound")) return "outbound";
   if (path.startsWith("/warehouse/inventory")) return "inventory";
   if (path === "/inbound/history" || path === "/warehouse/history" || /\/gate\/[^/]+\/[^/]+\/history$/.test(path)) return "history";

@@ -100,7 +100,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   const standardLabel = verifiedStandard ? "Standard" : "Drayage";
   const intro = `${verifiedStandard ? "Please review and approve the additional charges" : "Please review the itemized charges"} for booking ${clean(bookingNumber)}${customerReference ? ` (customer ref. ${clean(customerReference)})` : ""}.`;
   const standardNote = verifiedStandard
-    ? `Standard includes drayage${negotiatedFuel ? ", FSC" : ""} and ${approvalRate.includedChassisDays} chassis day(s) at ${currency(approvalRate.chassisDailyRate)} per day.`
+    ? `Standard uses ${approvalRate.fuelMode === "all_in" ? "all-in drayage" : negotiatedFuel ? "drayage plus separate FSC" : "drayage with FSC shown for review"} and ${approvalRate.includedChassisDays} included chassis day(s) at ${currency(approvalRate.chassisDailyRate)} per day.${approvalRate.baseRate != null ? ` Contract base: ${currency(approvalRate.baseRate)}.` : ""}`
     : "Customer rate allowances are not configured. Itemized charges are shown in full for review; no standard chassis or fuel allowance has been deducted.";
   const includedTotal = reviewTotal(orderRows.filter(order => selected.has(order.id)).map(order => order.total));
   const email = ["Hi,", "", intro, standardNote, "",
@@ -175,7 +175,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
               {index === 0 && <th scope="rowgroup" rowSpan={orders.length}>{marks}</th>}
               <td>#{order.id}{(order.extraTotal ?? 0) > 0 && <span className="booking-charge-pill">{verifiedStandard ? "Extra" : "Review"} {currency(order.extraTotal)}</span>}
                 {order.extraTotal === null && <span className="booking-charge-pill booking-charge-review">Review charges</span>}</td>
-              <td>{drayage(order)}{order.includedChassis > 0 && <small>Includes {currency(order.includedChassis)} chassis</small>}</td>
+              <td>{drayage(order)}{order.baseVariance !== null && order.baseVariance !== 0 && <small>Base {currency(Math.abs(order.baseVariance))} {order.baseVariance > 0 ? "over" : "under"} contract</small>}{order.includedChassis > 0 && <small>Includes {currency(order.includedChassis)} chassis</small>}</td>
               <td>{!order.charges.length && <small>{order.chargesAvailable ? "No extra charges" : "Charge lines unavailable"}</small>}
                 {order.charges.map((charge, index) => <div key={index} className="booking-charge-choice">
                   <span>{charge.label}{charge.includedAmount > 0 && <small>{currency(charge.includedAmount)} standard chassis excluded</small>}{!charge.includedAmount && charge.units !== null && charge.rate !== null &&

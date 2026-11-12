@@ -58,7 +58,7 @@ export function billingRequest(path: string, method: string) {
 export function canAccessStaffPage(staff: Staff, path: string) {
   if (staff.role === "admin") return true;
   const warehouse = (path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/")) &&
-    path !== "/warehouse/gate";
+    path !== "/warehouse/gate" && path !== "/warehouse/rates";
   // Gate includes operational sheets as well as the admin-only QR setup index.
   const accountingWarehouse = warehouse && (!path.startsWith("/warehouse/gate/") ||
     /^\/warehouse\/gate\/(?:hou|sav|dal)\/[^/]+\/(?:line|domestic|containers|history)\/?$/i.test(path));

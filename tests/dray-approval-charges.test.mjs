@@ -67,3 +67,14 @@ test('only complete positive extras are preselected, deduplicated per order; unc
  assert.deepEqual([...defaultApprovalSelection(orders,rate,true)],['extra']);
  assert.deepEqual([...defaultApprovalSelection(orders,null,false)],[]);
 });
+
+test("configured all-in base flags separately billed fuel and respects billed chassis days", () => {
+ const allIn = { includedChassisDays: 1, chassisDailyRate: 45, fuelMode: "all_in", baseRate: 545 };
+ const result = approvalCharges(615, [{...line("Chassis", 40), units: 2}, line("Fuel surcharge", 30)], allIn);
+ assert.equal(result.baseVariance, 0);
+ assert.equal(result.standardTotal, 565);
+ assert.deepEqual(result.extras.map(charge => charge.amount), [20, 30]);
+ const separateFuel = approvalCharges(630, [line("Fuel surcharge", 60)], { ...allIn, fuelMode: "base_plus_fsc" });
+ assert.equal(separateFuel.baseVariance, 25);
+ assert.equal(separateFuel.extraTotal, 0);
+});
