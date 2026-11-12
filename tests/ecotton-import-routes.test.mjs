@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import ts from "typescript";
 const require = createRequire(import.meta.url);
-function route({ newlyRated = false, orderedBy = "ECOTTON" } = {}) {
+function route({ newlyRated = false, orderedBy = "ECOTTON", eligible = true } = {}) {
   let writes = 0;
   const row = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -50,7 +50,7 @@ function route({ newlyRated = false, orderedBy = "ECOTTON" } = {}) {
                 reconcileInvoice: async () => {},
               }
             : n === "@/lib/ecotton/delivery" ? {
-              buildDeliveryPlan: () => ({}), deliverInvoice: async () => writes++, reconcileDelivery: async () => {},
+              supportsDelivery: () => eligible, buildDeliveryPlan: () => ({}), deliverInvoice: async () => writes++, reconcileDelivery: async () => {},
             } : n.startsWith("@/lib/ecotton/")
               ? { PROFILES: [{ id: "HOU", confirmed: true }] }
               : require(n);
@@ -141,17 +141,18 @@ test("delivery requires saved membership, both write flags, reviewed plan hash a
   }
 });
 
-test("combined delivery requires a Gin Direct row rated by this request", async () => {
+test("combined delivery requires an eligible warehouse and a row rated by this request", async () => {
   const keys = ["ECOTTON_IMPORT_WRITES_ENABLED", "MCLEOD_SYNC_ENABLED"];
   const previous = keys.map(key => process.env[key]);
   try {
     for (const key of keys) process.env[key] = "true";
-    for (const [orderedBy, newlyRated, status, writes] of [
-      ["ECOTTON", true, 400, 0],
-      ["GIN DIRECT", false, 200, 1],
-      ["GIN DIRECT", true, 200, 2],
+    for (const [orderedBy, newlyRated, eligible, status, writes] of [
+      ["ECOTTON", true, false, 400, 0],
+      ["ECOTTON", true, true, 200, 2],
+      ["GIN DIRECT", false, true, 200, 1],
+      ["GIN DIRECT", true, true, 200, 2],
     ]) {
-      const r = route({ orderedBy, newlyRated });
+      const r = route({ orderedBy, newlyRated, eligible });
       const response = await r.handler({ json: async () => ({ ...body, action: "execute-and-deliver" }) });
       assert.equal(response.status, status);
       assert.equal(r.writes(), writes);

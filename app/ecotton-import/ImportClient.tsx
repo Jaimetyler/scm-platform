@@ -195,15 +195,11 @@ export default function ImportClient() {
       }
     });
   }
-  const finalizeOnImport = saved?.run?.profile?.orderedBy === "GIN DIRECT";
   async function execute() {
-    const finalize = finalizeOnImport;
     if (!confirmed || !chosen.length || !writes) return;
     if (
       !window.confirm(
-        finalize
-          ? `Create, rate, and deliver ${chosen.length} selected Gin Direct orders? Scheduled pickup and delivery times will become actuals, brokerage will be marked FINISHED, and the orders will be marked Ready to Bill.`
-          : `Create/rate ${chosen.length} selected orders from this reviewed import? Existing verified orders will be skipped. Delivery status will not be changed.`,
+        `Create, rate, and deliver ${chosen.length} selected orders? Scheduled pickup and delivery times will become actuals, brokerage will be marked FINISHED, and the orders will be marked Ready to Bill.`,
       )
     )
       return;
@@ -211,14 +207,14 @@ export default function ImportClient() {
       for (const item of chosen) {
         try {
           const data = await call({
-            action: finalize ? "execute-and-deliver" : "execute",
+            action: "execute-and-deliver",
             runId: saved.run.id,
             rowId: item.order_id,
             confirmed: true,
           });
           setSaved(data);
           const current = data.items.find((x) => x.order_id === item.order_id);
-          if (current?.order.status !== (finalize ? "delivered" : "verified"))
+          if (current?.order.status !== "delivered")
             throw new Error(
               "Processing stopped for review. Refresh and inspect this row before continuing.",
             );
@@ -469,7 +465,7 @@ export default function ImportClient() {
             disabled={busy || !writes || !confirmed || !chosen.length}
             onClick={execute}
           >
-            {finalizeOnImport ? "Create, deliver and mark ready to bill" : "Create and rate selected orders"} ({chosen.length})
+            Create, deliver and mark ready to bill ({chosen.length})
           </button>
           <button
             style={button}

@@ -11,7 +11,7 @@ import {
 } from "@/lib/ecotton/mcleod";
 import { processInvoice, reconcileInvoice } from "@/lib/ecotton/engine";
 import { hash, databaseStore, readRun, vendor } from "@/lib/ecotton/server";
-import { buildDeliveryPlan, deliverInvoice, reconcileDelivery } from "@/lib/ecotton/delivery";
+import { buildDeliveryPlan, deliverInvoice, reconcileDelivery, supportsDelivery } from "@/lib/ecotton/delivery";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const uuid = (v: unknown) =>
@@ -197,8 +197,8 @@ async function POSTHandler(req: NextRequest) {
       throw new Error(
         "Creation/rating disabled. Preview and read-only reconciliation remain available.",
       );
-    if (finalize && (row.profile.orderedBy !== "GIN DIRECT" || !["ready", "created"].includes(row.status)))
-      throw new Error("Combined delivery requires a Gin Direct invoice ready to create or rate.");
+    if (finalize && (!supportsDelivery(row.profile) || !["ready", "created"].includes(row.status)))
+      throw new Error("Combined delivery requires an eligible warehouse and an invoice ready to create or rate.");
     const v = vendor();
     const rated = await processInvoice(row, store, v);
     if (finalize && rated) await deliverInvoice(rated, store, v);

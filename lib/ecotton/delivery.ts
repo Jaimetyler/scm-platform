@@ -1,5 +1,5 @@
 import { verifyRatedOrder } from "./mcleod.ts";
-import { normalize } from "./model.ts";
+import { normalize, PROFILES } from "./model.ts";
 import type { Ledger, Store, Vendor } from "./engine.ts";
 
 export type DeliveryPlan = {
@@ -18,8 +18,11 @@ function timestamp(value: unknown): number {
     throw new Error("Invalid scheduled date.");
   return n;
 }
+export function supportsDelivery(profile: Ledger["profile"]) {
+  return PROFILES.some(candidate => candidate.confirmed && candidate.id === profile.id && candidate.location === profile.location);
+}
 export function buildDeliveryPlan(order: any, row: Ledger): DeliveryPlan {
-  if (!["HOU-HOUWHSE", "SAV-SAVWHSE", "DAL-SCMDDETX", "DAL-SCMDDATX"].includes(row.profile.id)) throw new Error("Delivery is not enabled for this warehouse profile.");
+  if (!supportsDelivery(row.profile)) throw new Error("Delivery is not enabled for this warehouse profile.");
   const errors = verifyRatedOrder(order, row.invoice, row.profile);
   if (!row.order_id || String(order.id) !== row.order_id) errors.push("Saved order ID differs");
   if (!['A', 'D'].includes(normalize(order.status)) || order.xferred2billing === true)
