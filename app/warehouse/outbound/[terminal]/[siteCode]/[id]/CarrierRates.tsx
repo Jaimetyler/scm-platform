@@ -36,8 +36,9 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId,
     const input = nameInput.current;
     if (!input) return;
     const normalized = code.trim().toUpperCase();
-    const saved = rates.filter(item => item.carrier_id.trim().toUpperCase() === normalized && item.carrier_name.trim())
-      .reduce<CarrierRate | undefined>((latest, item) => !latest || item.updated_at > latest.updated_at ? item : latest, undefined);
+    const matches = rates.filter(item => item.carrier_id.trim().toUpperCase() === normalized && item.carrier_name.trim());
+    const names = new Set(matches.map(item => item.carrier_name.trim().toLowerCase()));
+    const saved = names.size === 1 ? matches[0] : undefined;
     if (saved) {
       input.value = saved.carrier_name;
       lastFilledName.current = saved.carrier_name;

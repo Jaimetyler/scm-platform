@@ -28,7 +28,7 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
         const warehouse = String(row.warehouse ?? "").trim();
         const target = warehouse ? CHECKIN_SITES.find(candidate => candidate.materials.includes("cotton") && (candidate.displayCode ?? candidate.siteCode) === warehouse) : scope ? site : null;
         if (!target) throw Error(warehouse ? `Unknown warehouse number ${warehouse}.` : "Enter a warehouse number.");
-        return { terminal: target.terminal, site_code: target.siteCode, ...parseCarrierRate({ ...row, rates: Object.fromEntries(rateItems.map(({ key }) => [key, { pay: String(row[key] ?? "") }])) }) };
+        return { terminal: target.terminal, site_code: target.siteCode, ...parseCarrierRate({ ...row, rates: Object.fromEntries(rateItems.map(({ key }) => [key, { pay: String(row[key] ?? "").trim().replace(/^\$\s*/, "") }])) }) };
       } catch (error) {
         throw Error(`Data row ${index + 1}: ${(error as Error).message}`);
       }
@@ -39,7 +39,7 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
   const { data, error } = await staffDatabase().from("outbound_carrier_rates")
     .insert(rates.map(rate => ({ ...rate, updated_by: staffActor(req) }))).select(`${carrierRateFields},terminal,site_code`);
   if (error?.code === "23505") {
-    return NextResponse.json({ error: "Duplicate carrier code and delivery for the same warehouse. Remove duplicates and retry. No rates were imported." }, { status: 409 });
+    return NextResponse.json({ error: "Duplicate carrier code, carrier name, and delivery for the same warehouse. Remove duplicates and retry. No rates were imported." }, { status: 409 });
   }
   if (error) throw Error("Could not import carrier rates.");
   return NextResponse.json({ count: data.length, rates: data });
