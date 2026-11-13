@@ -24,6 +24,7 @@ export default function WarehouseRates() {
   const [rates, setRates] = useState<SavedRate[]>([]);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"drayage" | "inbound">("drayage");
+  const [showContractMiles, setShowContractMiles] = useState(false);
   const [terminal, setTerminal] = useState<string | null>(null);
   const [delivery, setDelivery] = useState("");
   const selectedTerminal = terminal ?? location.terminal;
@@ -108,7 +109,13 @@ export default function WarehouseRates() {
     {category === "inbound" ? <section className="warehouse-empty-state">
       <h2>Transit Inbound Rates</h2>
       <p>Flat customer billing per load by pickup city, state, and delivery warehouse. Rate entry and import are pending.</p>
-      <MileageEvidence />
+      <button type="button" className={styles.contractMilesButton} aria-expanded={showContractMiles}
+        aria-controls="contract-mileage" onClick={() => setShowContractMiles(current => !current)}>
+        {showContractMiles ? "Hide contract miles" : "Contract miles"}
+      </button>
+      <div id="contract-mileage" hidden={!showContractMiles}>
+        {showContractMiles && <MileageEvidence />}
+      </div>
     </section> : <>
     <div className={styles.filters}>
       <label>Search rates<input type="search" value={search} placeholder="Rate code, customer, or location" onChange={event => setSearch(event.target.value)} /></label>

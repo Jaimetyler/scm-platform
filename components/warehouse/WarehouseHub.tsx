@@ -31,16 +31,11 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
   }
 
   return <main className="warehouse-hub warehouse-operations">
-    <div className="warehouse-operations-heading">
-      <div><div className="warehouse-eyebrow">Live workspace</div><h1>Operations</h1>
-        <p>Pick the site you are working and go straight to the freight. Existing check-in screens stay underneath this board.</p></div>
-      {canUseInboundImporter(staff) && <Link href="/bunge-import?terminal=houston" className="warehouse-secondary-action">Inbound Cotton Importer</Link>}
-      <div className="warehouse-utilities"><Link href={workspaceHref("rates", location)} className="warehouse-secondary-action">Rates</Link><Link href="/cotton-locations" className="warehouse-secondary-action">Cotton Locations</Link></div>
-      {staff?.role === "admin" && <Link href="/warehouse/gate" className="warehouse-secondary-action">QR Set up</Link>}
-    </div>
+    <div className="warehouse-operations-heading"><h1>Operations</h1></div>
     {!ready ? <p>Loading your workspace…</p> : sites.length ? <div className="warehouse-operations-list">{sites.map((site) => {
       const siteLocation = { terminal: site.terminal, siteCode: site.siteCode };
       const views = availableCheckinViews(siteLocation);
+      const importerTerminal = { DAL: "dallas", HOU: "houston", SAV: "savannah" }[site.terminal];
       return <section key={`${site.terminal}:${site.siteCode}`} className="warehouse-operation-row">
         <div className="warehouse-operation-site">
           <span className="warehouse-operation-terminal">{TERMINAL_NAMES[site.terminal]}</span>
@@ -57,6 +52,8 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
           </Link>)}</div>
         <div className="warehouse-operation-tools">
           {site.materials.includes("cotton") && <>
+            {canUseInboundImporter(staff) &&
+              <Link href={`/bunge-import?terminal=${importerTerminal}`}>Inbound Cotton Importer</Link>}
             <Link href={workspaceHref("inventory", siteLocation)}>Inventory</Link>
             <Link href={workspaceHref("outbound", siteLocation)}>Outbound bookings</Link>
           </>}
