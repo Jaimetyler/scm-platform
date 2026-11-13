@@ -4,6 +4,7 @@ type PlatformPageHeaderProps = {
   title: string;
   subtitle?: string;
   badge?: string;
+  compact?: boolean;
   actions?: React.ReactNode;
 };
 
@@ -12,20 +13,21 @@ export default function PlatformPageHeader({
   subtitle,
   badge = "SCM PLATFORM",
   actions,
+  compact = false,
 }: PlatformPageHeaderProps) {
   return (
     <section
       style={{
-        marginBottom: 22,
+        marginBottom: compact ? 12 : 22,
         display: "flex",
         justifyContent: "space-between",
         alignItems: "flex-start",
-        gap: 20,
+        gap: compact ? 10 : 20,
         flexWrap: "wrap",
       }}
     >
-      <div style={{ flex: "1 1 520px" }}>
-        <div
+      <div style={{ flex: compact ? "1 1 300px" : "1 1 520px" }}>
+        {!compact && <div
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -42,16 +44,16 @@ export default function PlatformPageHeader({
           }}
         >
           {badge}
-        </div>
+        </div>}
 
         <h1
           style={{
             margin: 0,
-            fontSize: 42,
+            fontSize: compact ? 28 : 42,
             lineHeight: 1.05,
             fontWeight: 800,
             letterSpacing: "-0.03em",
-            color: "#f8fafc",
+            color: compact ? "#e2e8e4" : "#f8fafc",
           }}
         >
           {title}
@@ -60,8 +62,8 @@ export default function PlatformPageHeader({
         {subtitle ? (
           <p
             style={{
-              margin: "10px 0 0",
-              color: "#94a3b8",
+              margin: compact ? "4px 0 0" : "10px 0 0",
+              color: compact ? "#bbc9c2" : "#94a3b8",
               fontSize: 15,
               maxWidth: 760,
             }}

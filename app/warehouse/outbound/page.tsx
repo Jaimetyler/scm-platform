@@ -25,9 +25,9 @@ type Preferences = { warehouse: string; view: DeadlineView; group: BookingGroup;
 const defaultPreferences: Preferences = { warehouse: "all", view: "all", group: "schedule", search: "", basis: "cutoff", layout: "cards" };
 const storageKey = "scm.outbound.dashboard";
 
-const input: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, borderWidth: 1, borderStyle: "solid", borderColor: "#475569", background: "#0f172a", color: "#f8fafc" };
+const input: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, borderWidth: 1, borderStyle: "solid", borderColor: "#475569", background: "#0f172a", color: "#e2e8e4" };
 const button: React.CSSProperties = { ...input, cursor: "pointer", fontWeight: 700 };
-const active: React.CSSProperties = { borderColor: "#38bdf8", background: "rgba(14,165,233,.12)", color: "#e0f2fe" };
+const active: React.CSSProperties = { borderColor: "#7ca393", background: "#284c42", color: "#e1ece5" };
 function dashboardUrl(preferences: Preferences, history = false) {
   const query = new URLSearchParams();
   if (preferences.warehouse === "all") query.set("warehouse", "all");
@@ -177,28 +177,28 @@ export default function CottonOutboundPage() {
   const returnTo = encodeURIComponent(dashboardUrl(preferences, history));
 
   return <main style={{ maxWidth: preferences.layout === "cards" ? 1550 : undefined, margin: "0 auto", color: "#e2e8f0" }}>
-    <PlatformPageHeader title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
+    <PlatformPageHeader compact title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
       actions={<button type="button" className={styles.importButton} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>} />
 
     {showImport && <div id="booking-import-panel" aria-label="Booking import">
     <PlatformPanel><h2 style={{ marginTop: 0 }}>{site ? `Import to ${site.siteName}` : "Import a booking request"}</h2>
       {!site && <div>
-        <p style={{ color: "#cbd5e1" }}>Choose the warehouse receiving this booking:</p>
+        <p style={{ color: "#cbd7d0" }}>Choose the warehouse receiving this booking:</p>
         <div aria-label="Import warehouse" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
           {sites.map((item) => <button key={`${item.terminal}:${item.siteCode}`} type="button" disabled={working} style={button}
             onClick={() => setPreferences((current) => ({ ...current, warehouse: `${item.terminal}:${item.siteCode}`, layout: item.terminal === "DAL" ? "sheet" : current.layout }))}>{item.siteName}</button>)}
         </div>
       </div>}
       <form onSubmit={(event) => void upload(event, false)} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-        <label style={{ display: "grid", gap: 8, color: "#cbd5e1", fontSize: 13 }}>Booking request (.xlsx / .xlsb)
+        <label style={{ display: "grid", gap: 8, color: "#cbd7d0", fontSize: 13 }}>Booking request (.xlsx / .xlsb)
           <input key={preferences.warehouse} type="file" accept=".xlsx,.xlsb" disabled={!site || working} aria-label="Booking request file"
             onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); setDateYear(""); setLineBales({}); setCustomerConfirmed(false); setWarehouseConfirmed(false); setDatesConfirmed(false); setImportError(""); }} />
         </label>
         <button style={button} disabled={!site || !file || working}>{working ? "Processing…" : "Review booking request"}</button>
       </form>
-      {working && <p role="status" style={{ color: "#94a3b8" }}>Processing {file?.name}…</p>}
+      {working && <p role="status" style={{ color: "#bbc9c2" }}>Processing {file?.name}…</p>}
       {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
-      <p style={{ color: "#94a3b8", fontSize: 12 }}>Bunge, Olam Dray Dispatch, ED&F inland drayage, and LDC e2open exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
+      <p style={{ color: "#bbc9c2", fontSize: 12 }}>Bunge, Olam Dray Dispatch, ED&F inland drayage, and LDC e2open exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
@@ -220,13 +220,13 @@ export default function CottonOutboundPage() {
         <label>Steamship line<input aria-label="Import steamship line" maxLength={200} style={input} value={importDates.steamshipLine} onChange={event => setImportDates(current => ({ ...current, steamshipLine: event.target.value }))} /></label>
         <label>Vessel<input aria-label="Import vessel" maxLength={200} style={input} value={importDates.vessel} onChange={(event) => setImportDates((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div>
-      {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" || site?.terminal === "DAL" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#94a3b8" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
-      {importDates.erd && importDates.cutoff && importDates.erd > importDates.cutoff.slice(0, 10) && <p style={{ color: "#94a3b8" }}>ERD is after the cutoff. Review the loading window before confirming.</p>}
+      {([['ERD', importDates.erd], ['Doc cutoff', importDates.docCutoff], ['Cutoff', importDates.cutoff]] as const).filter(([, value]) => value && value.slice(0, 10) < now.toLocaleDateString("en-CA", { timeZone: site?.terminal === "HOU" || site?.terminal === "DAL" ? "America/Chicago" : "America/New_York" })).map(([label]) => <p key={label} style={{ color: "#bbc9c2" }}>{label} is in the past. Confirm it if this is an older request, or enter the current date.</p>)}
+      {importDates.erd && importDates.cutoff && importDates.erd > importDates.cutoff.slice(0, 10) && <p style={{ color: "#bbc9c2" }}>ERD is after the cutoff. Review the loading window before confirming.</p>}
       <label style={{ display: "block", margin: "12px 0" }}><input type="checkbox" checked={datesConfirmed} onChange={(event) => setDatesConfirmed(event.target.checked)} /> I reviewed ERD, doc cutoff, and cutoff (including any dates still unknown).</label>
-      {preview.booking.sourceDates?.length > 0 && <p style={{ color: "#94a3b8", fontSize: 12 }}>Source dates: {preview.booking.sourceDates.map(({ label, value }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`).join(" · ")}</p>}
-      {preview.booking.detailNotes?.map((note) => <p key={note} style={{ color: "#94a3b8" }}>{note}</p>)}
-      {preview.booking.sourceFormat !== "edf" && preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#94a3b8" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
-      {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#94a3b8" }}>{warning}</p>)}
+      {preview.booking.sourceDates?.length > 0 && <p style={{ color: "#bbc9c2", fontSize: 12 }}>Source dates: {preview.booking.sourceDates.map(({ label, value }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`).join(" · ")}</p>}
+      {preview.booking.detailNotes?.map((note) => <p key={note} style={{ color: "#bbc9c2" }}>{note}</p>)}
+      {preview.booking.sourceFormat !== "edf" && preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#bbc9c2" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
+      {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#bbc9c2" }}>{warning}</p>)}
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Container", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
         {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.needsBales ? <input aria-label={`Bales for ${line.mark} row ${line.sourceRow}`} type="number" min="1" max="1000000" style={{ ...input, width: 100 }} value={lineBales[String(line.sourceRow)] ?? ""} onChange={event => setLineBales(current => ({ ...current, [String(line.sourceRow)]: event.target.value }))} /> : line.bales}</td><td>{line.shippingOrder || "—"}</td><td>{line.containerNumber || "—"}</td><td>{line.warehouse}</td><td>{preview.booking.warehouseNeedsConfirmation ? (warehouseConfirmed ? "Warehouse load" : "Confirm warehouse") : line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
@@ -259,11 +259,11 @@ export default function CottonOutboundPage() {
     </div>
     </>}
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}{message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
-    {limitReached && <p style={{ color: "#94a3b8" }}>Showing the first 1,000 bookings {history ? "most recently updated." : "ordered by cutoff."}</p>}
+    {limitReached && <p style={{ color: "#bbc9c2" }}>Showing the first 1,000 bookings {history ? "most recently updated." : "ordered by cutoff."}</p>}
 
 
-    <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14 }}>
-      <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : location.terminal === "DAL" ? "Dallas" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#94a3b8", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
+    <PlatformPanel style={{ padding: 12, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div><strong style={{ fontSize: 20 }}>{site?.siteName ?? (location.siteCode !== "all" ? `${location.terminal} ${location.siteCode} · No cotton bookings` : location.terminal === "all" ? "All warehouses" : `${location.terminal === "SAV" ? "Savannah" : location.terminal === "DAL" ? "Dallas" : "Houston"} · All sites`)}</strong><span style={{ marginLeft: 10, color: "#bbc9c2", fontSize: 12 }}>{visible.length} booking{visible.length === 1 ? "" : "s"}</span></div>
       {!history && <div style={{ display: "flex", gap: 6 }} aria-label="Booking display">
         {(["cards", "sheet"] as const).map(layout => <button type="button" key={layout} aria-pressed={preferences.layout === layout} style={{ ...button, ...(preferences.layout === layout ? active : {}) }} onClick={() => setPreferences(current => ({ ...current, layout }))}>{layout === "sheet" ? "Planning sheet" : "Cards"}</button>)}
       </div>}
@@ -278,31 +278,31 @@ export default function CottonOutboundPage() {
       {bookings.length > 0 && (search || !history) && <button style={{ ...button, marginTop: 12 }} onClick={() => setPreferences((current) => ({ ...current, view: "all", search: "" }))}>Show all bookings at this warehouse</button>}</PlatformPanel> :
       !history && preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} className={styles.bookingGroup}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}><h2 style={{ fontSize: 19, margin: 0 }}>{name}</h2>
-          <span style={{ color: "#94a3b8", fontSize: 12 }}>{items.length} bookings · {items.reduce((sum, item) => sum + item.requested_bales, 0).toLocaleString()} bales</span></div>
+          <span style={{ color: "#bbc9c2", fontSize: 12 }}>{items.length} bookings · {items.reduce((sum, item) => sum + item.requested_bales, 0).toLocaleString()} bales</span></div>
         <div className={styles.bookingGrid}>
           {items.map((item) => <Link key={item.id} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}
             className={styles.bookingCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 17, color: "#f8fafc", overflowWrap: "anywhere" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
-              <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
-            <p style={{ color: "#cbd5e1", fontSize: 13, margin: "3px 0" }}>{item.customer}{history ? (item.status === "cancelled" ? " · Deleted" : " · Archived") : ""}</p>
-            <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 7px" }}>{item.scm_file_number && <>Booking {item.booking_number} · </>}Ref {item.customer_reference || "—"} · {item.vessel || "Vessel needed"}</p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 17, color: "#e2e8e4", overflowWrap: "anywhere" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
+              <span style={{ fontSize: 11, color: "#bbc9c2", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
+            <p style={{ color: "#cbd7d0", fontSize: 13, margin: "3px 0" }}>{item.customer}{history ? (item.status === "cancelled" ? " · Deleted" : " · Archived") : ""}</p>
+            <p style={{ color: "#bbc9c2", fontSize: 12, margin: "0 0 7px" }}>{item.scm_file_number && <>Booking {item.booking_number} · </>}Ref {item.customer_reference || "—"} · {item.vessel || "Vessel needed"}</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, borderTop: "1px solid #334155", paddingTop: 7 }}>
               <DateCell label="ERD" value={item.erd} /><DateCell label="Doc cutoff" value={item.doc_cutoff} hasTime={item.doc_cutoff_has_time} today={deadlineMatches({ ...item, cutoff: null }, "today", now)} />
               <DateCell label="Cutoff" value={item.cutoff} hasTime={item.cutoff_has_time} today={deadlineMatches({ ...item, doc_cutoff: null }, "today", now)} />
             </div><div style={{ marginTop: 6, fontSize: 12 }}>
               <strong title="Active warehouse marks whose physical bale count is below the requested count. Checked-in loads remain missing until receiving is completed; source loads and held marks are excluded." style={{ color: item.missing_marks ? "#fca5a5" : "#86efac" }}>{item.missing_marks ?? 0} missing mark{item.missing_marks === 1 ? "" : "s"}</strong>
-              {!!item.source_loads && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{item.source_loads} source loads</span>}
-              {!!item.held_marks && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{item.held_marks} on hold</span>}
+              {!!item.source_loads && <span style={{ marginLeft: 12, color: "#bbc9c2" }}>{item.source_loads} source loads</span>}
+              {!!item.held_marks && <span style={{ marginLeft: 12, color: "#bbc9c2" }}>{item.held_marks} on hold</span>}
               {!!item.source_arrivals && <p style={{ color: "#fde68a", margin: "3px 0 0" }}>{item.source_arrivals} source load{item.source_arrivals === 1 ? "" : "s"} arrived — review needed</p>}
-            </div><div style={{ display: "flex", justifyContent: "space-between", color: "#94a3b8", fontSize: 12, gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-              <span>{item.requested_bales.toLocaleString()} bales · {item.planned_containers ?? "—"} containers</span><span style={{ color: "#94a3b8" }}>Open booking →</span></div>
+            </div><div style={{ display: "flex", justifyContent: "space-between", color: "#bbc9c2", fontSize: 12, gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              <span>{item.requested_bales.toLocaleString()} bales · {item.planned_containers ?? "—"} containers</span><span style={{ color: "#bbc9c2" }}>Open booking →</span></div>
           </Link>)}
         </div>
       </section>)}
   </main>;
 }
 function DateCell({ label, value, hasTime = false, today = false }: { label: string; value: string | null; hasTime?: boolean; today?: boolean }) {
-  return <div><span style={{ display: "block", color: "#94a3b8", fontSize: 11, marginBottom: 2 }}>{label}</span>
+  return <div><span style={{ display: "block", color: "#bbc9c2", fontSize: 11, marginBottom: 2 }}>{label}</span>
     <strong style={{ fontSize: 12, color: today ? "#38bdf8" : "#e2e8f0", display: "block" }}>{formatBookingDate(value, hasTime)}</strong>
     {today && <span style={{ color: "#38bdf8", fontSize: 10 }}>Today</span>}</div>;
 }
