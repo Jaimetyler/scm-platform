@@ -58,3 +58,8 @@
 .customerPage { max-width: 1800px; width: calc(100% - 32px); }
 .customerGrid { min-width: 1400px; }
 .customerGrid td, .customerGrid th { padding-block: 7px; }
+
+.contractMilesButton {
+  composes: button;
+  justify-self: start;
+}

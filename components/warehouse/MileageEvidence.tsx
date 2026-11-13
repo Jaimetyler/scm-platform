@@ -7,6 +7,7 @@ type ContractRow = { customer_code: string; pickup_city: string; pickup_state: s
 
 export default function MileageEvidence({ locationId }: { locationId?: string }) {
   const [rows, setRows] = useState<(RoutingRow | ContractRow)[] | null>(null);
+  const [customer, setCustomer] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
@@ -21,18 +22,28 @@ export default function MileageEvidence({ locationId }: { locationId?: string })
     return () => controller.abort();
   }, [locationId]);
 
+  const customers = [...new Set(rows?.flatMap(row => "customer_code" in row ? [row.customer_code] : []))];
+  const selectedCustomer = customer || customers[0];
+  const visibleRows = rows?.filter(row => !("customer_code" in row) || row.customer_code === selectedCustomer);
+
   return <section aria-label={locationId ? "Routing miles" : "Contract miles"}>
     <h3>{locationId ? "Routing miles" : "Contract miles"}</h3>
     <p>{locationId ? "Historical McLeod billed miles by receiving yard." : "Based on locked McLeod billed miles. Single-order lanes are provisional."}</p>
-    {error ? <p role="alert">{error}</p> : !rows ? <p>Loading mileage…</p> : !rows.length ? <p>No mileage saved.</p> :
+    {!locationId && customers.length > 0 && <label>
+      Customer{" "}
+      <select value={selectedCustomer} onChange={event => setCustomer(event.target.value)}>
+        {customers.map(code => <option key={code} value={code}>{code}</option>)}
+      </select>
+    </label>}
+    {error ? <p role="alert">{error}</p> : !visibleRows ? <p>Loading mileage…</p> : !visibleRows.length ? <p>No mileage saved.</p> :
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}>
-        <thead><tr>{!locationId && <><th scope="col">Customer</th><th scope="col">Pickup city / state</th></>}
+        <thead><tr>{!locationId && <th scope="col">Pickup city / state</th>}
           <th scope="col">Delivery</th><th scope="col">Miles</th><th scope="col">Evidence</th></tr></thead>
-        <tbody>{rows.map(row => {
+        <tbody>{visibleRows.map(row => {
           const contract = "customer_code" in row ? row : null;
           const count = "order_count" in row ? row.order_count : row.locked_order_count;
           return <tr key={JSON.stringify([contract?.customer_code, contract?.pickup_city, contract?.pickup_state, row.delivery_code])}>
-            {contract && <><td>{contract.customer_code}</td><td>{contract.pickup_city}, {contract.pickup_state}</td></>}
+            {contract && <td>{contract.pickup_city}, {contract.pickup_state}</td>}
             <td>{row.delivery_code}</td><td>{row.miles}</td><td>{count} {contract ? "locked " : ""}{count === 1 ? "order · Provisional" : "orders"}</td>
           </tr>;
         })}</tbody>

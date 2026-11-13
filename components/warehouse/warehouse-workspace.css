@@ -110,6 +110,12 @@
   box-shadow: 0 12px 30px rgba(2,6,23,.24);
 }
 
+.warehouse-operations-list > .warehouse-operation-row:only-child {
+  width: 100%;
+  max-width: 640px;
+  box-sizing: border-box;
+}
+
 .warehouse-operation-row:hover {
   border-color: #475569;
   box-shadow: 0 16px 36px rgba(2,6,23,.32);
