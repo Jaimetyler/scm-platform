@@ -14,6 +14,7 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
 import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
+import styles from "./outbound.module.css";
 
 type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
   sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; steamshipLine?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
@@ -177,7 +178,7 @@ export default function CottonOutboundPage() {
 
   return <main style={{ maxWidth: preferences.layout === "cards" ? 1550 : undefined, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
-      actions={<button type="button" style={button} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>} />
+      actions={<button type="button" className={styles.importButton} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>} />
 
     {showImport && <div id="booking-import-panel" aria-label="Booking import">
     <PlatformPanel><h2 style={{ marginTop: 0 }}>{site ? `Import to ${site.siteName}` : "Import a booking request"}</h2>
@@ -247,13 +248,13 @@ export default function CottonOutboundPage() {
       {(["cutoff", "erd"] as const).map((basis) => <button key={basis} type="button" style={{ ...button, ...(preferences.basis === basis ? active : {}) }}
         aria-pressed={preferences.basis === basis} onClick={() => setPreferences((current) => ({ ...current, basis }))}>{basis === "erd" ? "Filter by ERD" : "Filter by cutoffs"}</button>)}
     </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 12, marginBottom: 22 }}>
+    <div className={styles.dateFilters} role="group" aria-label="Booking date ranges">
       {([{ key: "all", label: "Active bookings", tone: "#e2e8f0" }, { key: "today", label: preferences.basis === "erd" ? "ERD today" : "Cutoffs today", tone: "#38bdf8" },
         { key: "upcoming", label: "Next 7 days", tone: "#4ade80" }, { key: "past", label: preferences.basis === "erd" ? "Past ERD" : "Past cutoff", tone: "#fbbf24" }] as const).map((item) =>
-        <button key={item.key} type="button" aria-pressed={preferences.view === item.key} style={{ ...button, ...(preferences.view === item.key ? active : {}), padding: 18, textAlign: "left" }}
+        <button key={item.key} type="button" aria-pressed={preferences.view === item.key} className={styles.dateFilter}
           onClick={() => setPreferences((current) => ({ ...current, view: item.key }))}>
-          <span style={{ display: "block", color: "#94a3b8", fontSize: 12, marginBottom: 8 }}>{item.label}</span>
-          <strong style={{ fontSize: 32, color: item.tone }}>{loading ? "—" : stats[item.key]}</strong>
+          <span>{item.label}</span>
+          <strong style={{ color: item.tone }}>{loading ? "—" : stats[item.key]}</strong>
         </button>)}
     </div>
     </>}
@@ -275,26 +276,25 @@ export default function CottonOutboundPage() {
     </div></PlatformPanel>
     {loading || !ready ? <p>Loading outbound bookings…</p> : groups.length === 0 ? <PlatformPanel><p style={{ margin: 0 }}>{history ? "No archived or deleted bookings match this view." : bookings.length ? "No bookings match this view." : "No active bookings."}</p>
       {bookings.length > 0 && (search || !history) && <button style={{ ...button, marginTop: 12 }} onClick={() => setPreferences((current) => ({ ...current, view: "all", search: "" }))}>Show all bookings at this warehouse</button>}</PlatformPanel> :
-      !history && preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} style={{ marginBottom: 26 }}>
+      !history && preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} className={styles.bookingGroup}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}><h2 style={{ fontSize: 19, margin: 0 }}>{name}</h2>
           <span style={{ color: "#94a3b8", fontSize: 12 }}>{items.length} bookings · {items.reduce((sum, item) => sum + item.requested_bales, 0).toLocaleString()} bales</span></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }}>
+        <div className={styles.bookingGrid}>
           {items.map((item) => <Link key={item.id} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}
-            style={{ padding: 20, borderRadius: 14, border: "1px solid #334155", background: "rgba(15,23,42,.75)", display: "block" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 21, color: "#f8fafc" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
+            className={styles.bookingCard}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 17, color: "#f8fafc", overflowWrap: "anywhere" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
               <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
-            <p style={{ color: "#cbd5e1", fontSize: 13, margin: "8px 0" }}>{item.customer}{history ? (item.status === "cancelled" ? " · Deleted" : " · Archived") : ""}</p>
-            <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 8px" }}>Booking {item.booking_number} · Ref {item.customer_reference || "—"}</p>
-            <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 18px", minHeight: 16 }}>{item.vessel || "Vessel needed"}</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, borderTop: "1px solid #334155", paddingTop: 14 }}>
+            <p style={{ color: "#cbd5e1", fontSize: 13, margin: "3px 0" }}>{item.customer}{history ? (item.status === "cancelled" ? " · Deleted" : " · Archived") : ""}</p>
+            <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 7px" }}>{item.scm_file_number && <>Booking {item.booking_number} · </>}Ref {item.customer_reference || "—"} · {item.vessel || "Vessel needed"}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, borderTop: "1px solid #334155", paddingTop: 7 }}>
               <DateCell label="ERD" value={item.erd} /><DateCell label="Doc cutoff" value={item.doc_cutoff} hasTime={item.doc_cutoff_has_time} today={deadlineMatches({ ...item, cutoff: null }, "today", now)} />
               <DateCell label="Cutoff" value={item.cutoff} hasTime={item.cutoff_has_time} today={deadlineMatches({ ...item, doc_cutoff: null }, "today", now)} />
-            </div><div style={{ marginTop: 14, fontSize: 12 }}>
+            </div><div style={{ marginTop: 6, fontSize: 12 }}>
               <strong title="Active warehouse marks whose physical bale count is below the requested count. Checked-in loads remain missing until receiving is completed; source loads and held marks are excluded." style={{ color: item.missing_marks ? "#fca5a5" : "#86efac" }}>{item.missing_marks ?? 0} missing mark{item.missing_marks === 1 ? "" : "s"}</strong>
               {!!item.source_loads && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{item.source_loads} source loads</span>}
               {!!item.held_marks && <span style={{ marginLeft: 12, color: "#94a3b8" }}>{item.held_marks} on hold</span>}
-              {!!item.source_arrivals && <p style={{ color: "#fde68a" }}>{item.source_arrivals} source load{item.source_arrivals === 1 ? "" : "s"} arrived — review needed</p>}
-            </div><div style={{ display: "flex", justifyContent: "space-between", color: "#94a3b8", fontSize: 12, marginTop: 18 }}>
+              {!!item.source_arrivals && <p style={{ color: "#fde68a", margin: "3px 0 0" }}>{item.source_arrivals} source load{item.source_arrivals === 1 ? "" : "s"} arrived — review needed</p>}
+            </div><div style={{ display: "flex", justifyContent: "space-between", color: "#94a3b8", fontSize: 12, gap: 6, flexWrap: "wrap", marginTop: 6 }}>
               <span>{item.requested_bales.toLocaleString()} bales · {item.planned_containers ?? "—"} containers</span><span style={{ color: "#94a3b8" }}>Open booking →</span></div>
           </Link>)}
         </div>
@@ -302,7 +302,7 @@ export default function CottonOutboundPage() {
   </main>;
 }
 function DateCell({ label, value, hasTime = false, today = false }: { label: string; value: string | null; hasTime?: boolean; today?: boolean }) {
-  return <div><span style={{ display: "block", color: "#94a3b8", fontSize: 11, marginBottom: 6 }}>{label}</span>
+  return <div><span style={{ display: "block", color: "#94a3b8", fontSize: 11, marginBottom: 2 }}>{label}</span>
     <strong style={{ fontSize: 12, color: today ? "#38bdf8" : "#e2e8f0", display: "block" }}>{formatBookingDate(value, hasTime)}</strong>
     {today && <span style={{ color: "#38bdf8", fontSize: 10 }}>Today</span>}</div>;
 }
