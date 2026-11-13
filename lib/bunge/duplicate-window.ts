@@ -1,3 +1,4 @@
+import { MAX_COTTON_PICKUPS } from "../cotton-import/stop-off.ts";
 export type PickupMonthRange={from:string;to:string};
 function validDate(value:unknown):string{
  if(typeof value!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(value))throw Error("A valid scheduled pickup date is required for the duplicate check.");
@@ -7,7 +8,7 @@ function shiftMonth(value:string,delta:number){
  const [y,m,day]=value.split("-").map(Number);const month=new Date(Date.UTC(y,m-1+delta,1));const last=new Date(Date.UTC(month.getUTCFullYear(),month.getUTCMonth()+1,0)).getUTCDate();month.setUTCDate(Math.min(day,last));return month.toISOString().slice(0,10);
 }
 export function pickupMonthRanges(values:unknown):PickupMonthRange[]{
- if(!Array.isArray(values)||!values.length||values.length>2)throw Error("Scheduled pickup dates are required (up to two pickup stops).");
+ if(!Array.isArray(values)||!values.length||values.length>MAX_COTTON_PICKUPS)throw Error("Scheduled pickup dates are required (up to 20 pickup stops).");
  const ranges=[...new Set(values.map(validDate))].map(d=>({from:shiftMonth(d,-1),to:shiftMonth(d,1)})).sort((a,b)=>a.from.localeCompare(b.from));
  const merged:PickupMonthRange[]=[];for(const r of ranges){const previous=merged[merged.length-1];if(previous&&r.from<=previous.to)previous.to=previous.to>r.to?previous.to:r.to;else merged.push({...r})}return merged;
 }

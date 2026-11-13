@@ -1,3 +1,4 @@
+import { transitCityKey } from "@/lib/dray/transit-rates";
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
@@ -208,7 +209,26 @@ async function preflight(req: NextRequest) {
   ) : undefined;
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code, tariffNotes),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
-  let payload = houstonPilotPayload(draft, terminal.id);
+  const pricingEnabled = process.env.INBOUND_TRANSIT_PRICING_ENABLED === "true";
+  let pricing: { city: string; state: string; base: number; stopOff: number } | undefined;
+  let pricingError: string | null = null;
+  if (pricingEnabled) {
+    const firstPickup = await db.from("cotton_location_master").select("city,state")
+      .eq("id", proposal.pickupStops[0].locationId).maybeSingle();
+    const city = transitCityKey(firstPickup.data?.city ?? "");
+    const state = String(firstPickup.data?.state ?? "").trim().toUpperCase();
+    if (firstPickup.error || !city || !state) {
+      pricingError = "The first pickup needs a verified city and state for transit pricing.";
+    } else {
+      const rate = await db.from("inbound_transit_rates").select("flat_cents")
+        .eq("rate_side", "customer").eq("account_code", proposal.customerId).eq("pickup_city", city)
+        .eq("pickup_state", state).eq("delivery_code", proposal.deliveryLocation).maybeSingle();
+      if (rate.error) pricingError = "Transit customer rates could not be loaded.";
+      else if (!rate.data) pricingError = `Add a customer transit rate for ${city}, ${state} to ${proposal.deliveryLocation}.`;
+      else pricing = { city, state, base: rate.data.flat_cents / 100, stopOff: draft.order.otherCharges?.[0]?.amount ?? 0 };
+    }
+  }
+  let payload = houstonPilotPayload(draft, terminal.id, pricing ? Math.round(pricing.base * 100) : undefined);
   if (payload) {
     try {
       const example = await vendor(true).read("/orders/0829475");
@@ -219,9 +239,9 @@ async function preflight(req: NextRequest) {
     }
   }
   const createBlock = !pilotEnabled ? "Live cotton order creation is disabled on this deployment."
-    : !payload ? "Live creation requires complete weight and a verified pickup schedule. Choose a delivery location in the selected terminal."
+    : pricingError ?? (!payload ? "Live creation requires complete weight and a verified pickup schedule. Choose a delivery location in the selected terminal."
     : saved.data.destination_code !== proposal.deliveryLocation ? "The audit destination differs from the selected delivery site."
-    : null;
+    : null);
   const canCreate = createBlock === null;
   const reviewToken = canCreate ? createHash("sha256").update(JSON.stringify({ payload, auditId: saved.data.id, auditVersion: saved.data.updated_at })).digest("hex") : null;
   if (create) {
@@ -275,7 +295,7 @@ async function preflight(req: NextRequest) {
   return NextResponse.json({
     ...response, delivery, duplicates, auditId: saved.data.id, auditStatus: saved.data.status,
     dispatchDestination: workbookDestination,
-    draft, canCreate, reviewToken,
+    draft, pricing, canCreate, reviewToken,
     reason: createBlock ?? (correctedRetry
       ? "The corrected one-order retry is ready. Its schedule matches McLeod order 0829475."
       : "Ready to create in McLeod."),

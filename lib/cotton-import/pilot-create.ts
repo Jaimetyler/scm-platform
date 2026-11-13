@@ -4,7 +4,7 @@ import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
-export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston") {
+export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston", flatCents?: number) {
   const stops = draft.order.stops;
   try { cottonTerminalDeliveryCode(region, stops.at(-1)?.location_id); } catch { return null; }
   if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight) return null;
@@ -12,6 +12,8 @@ export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah"
     ...draft.order,
     collection_method: "T",
     rate_type: "F",
+    ...(flatCents === undefined ? {} : { rate_units: 1, rate: flatCents / 100,
+      total_charge: (flatCents + Math.round((draft.order.otherCharges?.[0]?.amount ?? 0) * 100)) / 100 }),
     stops: draft.order.stops.map(({ timezone: _timezone, ...stop }) => stop),
   };
 }
@@ -33,12 +35,20 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
   if (expected.booking_no_sucm && String(actual.booking_no_sucm ?? "").trim() !== expected.booking_no_sucm) mismatches.push("booking_no_sucm");
   if (expected.planning_comment && String(actual.planning_comment ?? "").trim() !== expected.planning_comment)
     mismatches.push("planning_comment");
+  if (expected.rate !== undefined) {
+    if (Number(actual.rate_units) !== 1) mismatches.push("rate_units");
+    for (const field of ["rate", "total_charge"] as const) {
+      if (actual[field] == null || String(actual[field]).trim() === "" ||
+          Math.round(Number(actual[field]) * 100) !== Math.round(expected[field]! * 100)) mismatches.push(field);
+    }
+  }
   if (expected.weight !== undefined && Number(actual.weight) !== expected.weight) mismatches.push("weight");
   if (expected.otherCharges?.length) {
     const charges = actual.otherCharges ?? actual.other_charges;
     const stopOff = Array.isArray(charges) ? charges.filter(charge => String(charge?.charge_id ?? "").trim() === "006") : [];
-    if (stopOff.length !== 1 || Number(stopOff[0].units) !== 1 || Number(stopOff[0].rate) !== 50 ||
-        Number(stopOff[0].amount) !== 50) mismatches.push("Stop Off Charge 006");
+    const [charge] = expected.otherCharges;
+    if (stopOff.length !== 1 || Number(stopOff[0].units) !== charge.units || Number(stopOff[0].rate) !== charge.rate ||
+        Number(stopOff[0].amount) !== charge.amount) mismatches.push("Stop Off Charge 006");
   }
   if (String(actual.id ?? "").trim() !== id) mismatches.push("id");
   const stops = Array.isArray(actual.stops) ? actual.stops : [];

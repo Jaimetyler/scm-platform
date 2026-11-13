@@ -72,3 +72,19 @@ test("the remaining Baytown orders allow the expected workbook weight and equipm
     assert.equal(houstonPilotPayload({ ...draft, order: { ...draft.order, weight: undefined } }), null);
   }
 });
+
+test("three pickups bill two stop-offs on top of the flat transit rate", () => {
+  const pickups = [30, 30, 30].map(bales => ({ bales, weight: 1000 }));
+  const draft = draftHoustonOrder({ salesOrder: "12345", mark: "ABC", bales: 90, pickups }, {
+    customerId: "BUNGOMNE", revenueCode: "MAIN", commodity: "COTTON", deliveryLocation: "SUPPBAT1", blnum: "ABC 90 BALES",
+    pickupStops: ["A", "B", "C"].map(locationCode => ({ locationCode, scheduledDate: "2026-11-10", timezone: "America/Chicago" })),
+  }, Array(3).fill({ early: "08:00", late: "15:00" }), "V");
+  const payload = houstonPilotPayload(draft, "houston", 85000);
+  assert.equal(payload.rate, 850);
+  assert.equal(payload.total_charge, 950);
+  assert.equal(payload.otherCharges[0].units, 2);
+  assert.equal(draft.pickupReferences.length, 3);
+  const actual = { ...payload, id: "TEST1", stops: payload.stops.map((stop, index) => ({ ...stop, id: String(index) })) };
+  assert.deepEqual(verifyHoustonPilot(actual, actual.id, payload), []);
+  assert.deepEqual(verifyHoustonPilot({ ...actual, total_charge: 900 }, actual.id, payload), ["total_charge"]);
+});

@@ -1,3 +1,4 @@
+import { COTTON_STOP_OFF_RATE } from "./stop-off.ts";
 import { defaultDeliveryDate, SCM_DELIVERY_LOCATIONS, OLAM_CUSTOMER, cottonReceivingHours } from "../bunge/destinations.ts";
 import type { CottonOrderPreview } from "./preview.ts";
 import type { McLeodCottonEquipmentCode } from "./equipment.ts";
@@ -39,7 +40,7 @@ export function draftHoustonOrder(
     throw new Error("Pickup bale counts do not reconcile with the order total.");
 
   // Draft references retain pickup sequence until the McLeod reference write contract is verified.
-  const pickupReferences = pickups.length === 2 ? order.pickups.map((line, index) => ({
+  const pickupReferences = pickups.length > 1 ? order.pickups.map((line, index) => ({
     stopSequence: pickups[index].order_sequence,
     locationCode: pickups[index].location_id,
     qualifier: "PU",
@@ -77,9 +78,9 @@ export function draftHoustonOrder(
       ...(planningComment ? { planning_comment: planningComment } : {}),
       ...(olam && order.bookingNumber ? { booking_no_sucm: order.bookingNumber } : {}),
       ...(weight === null ? {} : { weight }),
-      ...(pickups.length === 2 ? { otherCharges: [{
+      ...(pickups.length > 1 ? { otherCharges: [{
         __type: "other_charge", __name: "otherCharges", company_id: "TMS",
-        charge_id: "006", descr: "Stop Off Charge", units: 1, rate: 50, amount: 50,
+        charge_id: "006", descr: "Stop Off Charge", units: pickups.length - 1, rate: COTTON_STOP_OFF_RATE, amount: (pickups.length - 1) * COTTON_STOP_OFF_RATE,
         incl_in_freight: "N", bill_type: "F", calc_method: "F",
       }] } : {}),
       blnum: preview.blnum, consignee_refno: order.mark.toUpperCase(),

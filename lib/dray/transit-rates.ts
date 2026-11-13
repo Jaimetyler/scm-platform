@@ -3,11 +3,13 @@ import { parseRateAmount } from "../warehouse/outbound/carrier-rates.ts";
 
 export type TransitRateSide = "customer" | "carrier";
 export const transitColumns = ["account_code", "account_name", "pickup_city", "pickup_state", "delivery_code", "flat_rate"] as const;
+export const transitCityKey = (city: string) => city.trim().replace(/\s+/g, " ").toUpperCase();
+
 export function normalizeTransitRate(row: Record<string, unknown>) {
   const field = (name: string) => String(row[name] ?? "").trim();
   const account_code = field("account_code").toUpperCase();
   const account_name = field("account_name");
-  const pickup_city = field("pickup_city").replace(/\s+/g, " ").toUpperCase();
+  const pickup_city = transitCityKey(field("pickup_city"));
   const pickup_state = field("pickup_state").toUpperCase();
   const delivery_code = field("delivery_code").toUpperCase();
   if (!/^[A-Z0-9_-]{1,30}$/.test(account_code) || account_name.length > 100) throw Error("Enter a valid McLeod account code and name.");
