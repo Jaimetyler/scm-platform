@@ -1,4 +1,5 @@
 "use client";
+import MileageEvidence from "@/components/warehouse/MileageEvidence";
 import {useEffect,useRef,useState} from "react";
 import { canEditCottonLocationDetails } from "@/lib/auth/policy";
 import { useStaff } from "@/components/auth/StaffSession";
@@ -29,7 +30,7 @@ export default function CottonLocationsPage(){
  const [policy,setPolicy]=useState<PolicyData|null>(null);
  const [editingHours,setEditingHours]=useState<{day:number;verify:boolean}|null>(null);
  const [policyBusy,setPolicyBusy]=useState(false);
- const [tab,setTab]=useState<"details"|"hours"|"fees"|"tariffs"|"equipment">("details");
+ const [tab,setTab]=useState<"details"|"hours"|"fees"|"tariffs"|"equipment"|"mileage">("details");
  const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  async function load(): Promise<Location[] | undefined>{
   try{const res=await fetch("/api/cotton-locations",{cache:"no-store"});const json=await res.json();if(!res.ok||!json.ok)throw Error(json.error||"Unable to load locations");setRows(json.locations);return json.locations;}
@@ -88,7 +89,7 @@ export default function CottonLocationsPage(){
   {selected&&<div className={styles.overlay} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setSelected(null)}}>
    <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="cotton-location-title">
     <header className={styles.modalHeader}><div><span className={styles.eyebrow}>COTTON LOCATION</span><h2 id="cotton-location-title">{selected.name||selected.mcleod_code}</h2><span className={styles.code}>{selected.mcleod_code} · EWR Warehouse Code: {selected.prev_code||"Not recorded"}</span></div><button className={styles.close} aria-label="Close location" disabled={busy} onClick={()=>setSelected(null)}>×</button></header>
-    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["tariffs","Tariff documents"],["equipment","Equipment"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+    <nav className={styles.tabs} aria-label="Location sections">{([["details","Location details"],["hours","Pickup hours"],["fees","Fee policies"],["tariffs","Tariff documents"],["equipment","Equipment"],["mileage","Routing miles"]] as const).map(([id,label])=><button key={id} className={tab===id?styles.activeTab:""} aria-current={tab===id?"page":undefined} disabled={busy} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div className={styles.modalBody}>
      {error&&<p role="alert" className={styles.error}>{error}</p>}
      {tab==="details"&&<fieldset className={styles.form} disabled={!canEditDetails}>
@@ -98,8 +99,9 @@ export default function CottonLocationsPage(){
       <div className={styles.threeCols}>{field("city","City")}{field("state","State")}{field("zip_code","ZIP code")}</div>
       <label className={styles.checkbox}><input type="checkbox" checked={selected.active} onChange={e=>setSelected(v=>v?{...v,active:e.target.checked}:v)}/> Active location</label>
      </fieldset>}
-     {tab!=="details"&&policyBusy&&<p>Loading location policies…</p>}
-     {tab!=="details"&&policy&&!policy.ok&&<p role="alert" className={styles.error}>{policy.error}</p>}
+     {tab!=="details"&&tab!=="mileage"&&policyBusy&&<p>Loading location policies…</p>}
+     {tab!=="details"&&tab!=="mileage"&&policy&&!policy.ok&&<p role="alert" className={styles.error}>{policy.error}</p>}
+     {tab==="mileage"&&<MileageEvidence key={selected.id} locationId={selected.id}/>}
      {tab==="equipment"&&<div className={styles.policyList}><EquipmentEditor key={selected.id} locationId={selected.id} admin={admin} canWrite={admin||staff?.role==="operator"} onBusy={setBusy}/></div>}
      {["hours","fees","tariffs"].includes(tab)&&policy?.contact&&<p className={styles.helper}>
       {[policy.contact.contact_name,policy.contact.contact_phone,policy.contact.contact_email].filter(Boolean).join(" · ")}

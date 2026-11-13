@@ -25,6 +25,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
   if (path === "/api/cotton-locations" && req.method === "PATCH" && canEditCottonLocationDetails(staff)) return;
+  if (req.method === "GET" && ["/api/cotton-locations/mileage", "/api/warehouse/contract-miles"].includes(path)) return;
   if (path === "/api/warehouse/rates" && ["GET", "HEAD", "POST"].includes(req.method)) return;
   if (canViewLateFees(staff) && req.method === "GET" && ["/api/late-fees/dallas", "/api/late-fees/savannah"].includes(path)) return;
   if (staff.role === "accounting") {

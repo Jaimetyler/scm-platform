@@ -1,5 +1,6 @@
 "use client";
 
+import MileageEvidence from "@/components/warehouse/MileageEvidence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import styles from "./rates.module.css";
@@ -107,6 +108,7 @@ export default function WarehouseRates() {
     {category === "inbound" ? <section className="warehouse-empty-state">
       <h2>Transit Inbound Rates</h2>
       <p>Flat customer billing per load by pickup city, state, and delivery warehouse. Rate entry and import are pending.</p>
+      <MileageEvidence />
     </section> : <>
     <div className={styles.filters}>
       <label>Search rates<input type="search" value={search} placeholder="Rate code, customer, or location" onChange={event => setSearch(event.target.value)} /></label>
