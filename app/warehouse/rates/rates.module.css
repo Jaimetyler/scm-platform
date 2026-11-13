@@ -54,3 +54,7 @@
 .guideScroll thead { background: #203247; }
 .guideScroll code { color: #d4e7de; }
 .button[aria-pressed="true"] { background: #33584d; border-color: #85a998; }
+
+.customerPage { max-width: 1800px; width: calc(100% - 32px); }
+.customerGrid { min-width: 1400px; }
+.customerGrid td, .customerGrid th { padding-block: 7px; }

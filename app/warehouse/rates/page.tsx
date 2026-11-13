@@ -96,7 +96,7 @@ export default function WarehouseRates() {
   const visible = terminalRates.filter(rate => (!delivery || rate.return_location === delivery)
     && [rate.customer_code, rate.revenue_code, `R-${rate.rate_code}`, rate.return_location, bookingReturnLocationLabel(rate.return_location), siteLabel(rate.terminal, rate.site_code)].some(value => value.toLowerCase().includes(search.trim().toLowerCase())));
   const change = (name: keyof Draft, value: string) => setDraft(current => current && { ...current, [name]: value });
-  return <main className={styles.page}>
+  return <main className={`${styles.page} ${styles.customerPage}`}>
     <PlatformPageHeader compact title="Customer Rates" subtitle="Customer pricing and allowances used to review order charges."
       actions={category === "drayage" && <><button type="button" className={styles.button} onClick={() => { setError(""); setShowImport(true); }}>Import rates</button>
         <button type="button" className={styles.primary} onClick={() => edit()}>Add rate</button></>} />
@@ -122,8 +122,8 @@ export default function WarehouseRates() {
     {message && <p role="status">{message}</p>}
     {error && !dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
     {visible.length > 0 && <div className={styles.gridScroll} role="region" aria-label="Customer rates grid" tabIndex={0}>
-      <table className={styles.grid} aria-label="Customer rates">
-        <thead><tr>{["Rate code", "Customer", "Warehouse", "Delivery", "Revenue code", "Contract base", "Fuel", "Minimum chassis days", "Notes", "Actions"].map(label =>
+      <table className={`${styles.grid} ${styles.customerGrid}`} aria-label="Customer rates">
+        <thead><tr>{["Rate code", "Customer", "Warehouse", "Delivery", "Revenue code", "Contract base", "Fuel", "Min. chassis days", "Chassis per day", "Chassis split", "Stopoff", "Notes", "Actions"].map(label =>
           <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{visible.map(rate => <tr key={rate.rate_code}>
           <th scope="row">R-{rate.rate_code}</th>
@@ -133,10 +133,10 @@ export default function WarehouseRates() {
           <td>{rate.revenue_code}</td>
           <td className={styles.amount}>{rate.base_rate == null ? <small>Contract base needed</small> : usd(rate.base_rate)}</td>
           <td>{fuelModes[rate.fuel_mode]}</td>
-          <td className={styles.amount}>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"}` : "None"}
-            {rate.chassis_daily_rate > 0 && <small>Chassis per day {usd(rate.chassis_daily_rate)}</small>}
-            {rate.chassis_split_rate != null && <small>Split {usd(rate.chassis_split_rate)}</small>}
-            {rate.stopoff_rate != null && <small>Stopoff {usd(rate.stopoff_rate)}</small>}</td>
+          <td className={styles.amount}>{rate.included_chassis_days}</td>
+          <td className={styles.amount}>{usd(rate.chassis_daily_rate)}</td>
+          <td className={styles.amount}>{usd(rate.chassis_split_rate)}</td>
+          <td className={styles.amount}>{usd(rate.stopoff_rate)}</td>
           <td className={styles.gridNotes}>{rate.notes || "—"}</td>
           <td><button type="button" className={styles.button} onClick={() => edit(rate)} aria-label={`Edit ${rate.customer_code} rate`}>Edit</button></td>
         </tr>)}</tbody>
