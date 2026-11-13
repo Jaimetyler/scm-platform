@@ -91,7 +91,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
           <Link href={href("rates")}>Rates</Link>
           {staff?.role === "admin" && <>
             <Link href={href("carriers")} aria-current={section === "carriers" ? "page" : undefined}>Carriers</Link>
-            <Link href="/warehouse/gate">Driver QR setup</Link>
+            <Link href="/warehouse/gate">QR Set up</Link>
           </>}
           <details className="warehouse-search-menu" onToggle={event => {
             if (event.currentTarget.open) event.currentTarget.querySelector<HTMLInputElement>('input[type="search"]')?.focus();

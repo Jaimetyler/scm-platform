@@ -7,9 +7,9 @@ import styles from "../rates/rates.module.css";
 import RateImportGuide from "../rates/RateImportGuide";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-const template = ["carrierId,carrierName,lane," + rateItems.map(item => item.key).join(","), ""].join("\n");
+const template = ["carrierId,carrierName,warehouse,lane," + rateItems.map(item => item.key).join(","), ""].join("\n");
 
-export default function CarrierRateEditor({ initialRates, endpoint }: { initialRates: CarrierRate[]; endpoint: string }) {
+export default function CarrierRateEditor({ initialRates, endpoint, warehouse }: { initialRates: CarrierRate[]; endpoint: string; warehouse: string }) {
   const [rates, setRates] = useState(initialRates);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState("");
@@ -42,7 +42,7 @@ export default function CarrierRateEditor({ initialRates, endpoint }: { initialR
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Could not import carrier rates.");
       setRates(current => [...current, ...result.rates]);
-      setMessage(`Imported ${result.rates.length} carrier rates.`);
+      setMessage(`Imported ${result.count} carrier rates.`);
       importer.current?.close();
       form.reset();
     } catch (reason) {
@@ -52,23 +52,23 @@ export default function CarrierRateEditor({ initialRates, endpoint }: { initialR
 
   return <div className={styles.page}>
     <div className={styles.filters} style={{ alignItems: "end" }}>
-      <label>Search carrier rates<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Carrier, code, or delivery" /></label>
-      <button className={styles.primary} onClick={() => edit("")}>Add carrier rate</button>
+      <label>Search local dray rates<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Carrier, code, or delivery" /></label>
+      <button className={styles.primary} onClick={() => edit("")}>Add local dray rate</button>
       <button className={styles.button} onClick={() => { setError(""); importer.current?.showModal(); }}>Import rates</button>
     </div>
     {message && <p role="status">{message}</p>}
-    <div className={styles.gridScroll} tabIndex={0} role="region" aria-label="Carrier rates grid">
+    <div className={styles.gridScroll} tabIndex={0} role="region" aria-label="Local dray rates grid">
       <table className={styles.grid}>
-        <thead><tr><th scope="col">Carrier</th><th scope="col">McLeod carrier code</th><th scope="col">Delivery</th>
+        <thead><tr><th scope="col">Carrier</th><th scope="col">McLeod carrier code</th><th scope="col">Warehouse</th><th scope="col">Delivery</th>
           {rateItems.map(item => <th scope="col" key={item.key}>{item.key === "chassisDays" ? "Chassis per day" : item.label}</th>)}<th scope="col">Actions</th></tr></thead>
-        <tbody>{visible.map(rate => <tr key={rate.id}><th scope="row">{rate.carrier_name}</th><td>{rate.carrier_id}</td><td>{rate.lane}</td>
+        <tbody>{visible.map(rate => <tr key={rate.id}><th scope="row">{rate.carrier_name}</th><td>{rate.carrier_id}</td><td>{warehouse}</td><td>{rate.lane}</td>
           {rateItems.map(item => <td key={item.key} className={styles.amount}>{money.format(rate.rates[item.key].pay / 100)}</td>)}
           <td><button className={styles.button} aria-label={`Edit ${rate.carrier_name}, ${rate.lane}`} onClick={() => edit(rate.id)}>Edit</button></td></tr>)}
-          {!visible.length && <tr><td colSpan={8}>{query ? "No matching carrier rates." : "No carrier rates for this yard yet."}</td></tr>}</tbody>
+          {!visible.length && <tr><td colSpan={9}>{query ? "No matching carrier rates." : "No carrier rates for this yard yet."}</td></tr>}</tbody>
       </table>
     </div>
     <dialog ref={editor} className={styles.dialog} aria-labelledby="carrier-rate-editor-title" onCancel={event => { if (busy) event.preventDefault(); }}>
-      <h2 id="carrier-rate-editor-title">{editing ? "Edit carrier rate" : "Add carrier rate"}</h2>
+      <h2 id="carrier-rate-editor-title">{editing ? "Edit local dray rate" : "Add carrier rate"}</h2>
       <CarrierRateForm key={formVersion} initialId={editing} rates={rates} endpoint={endpoint} onSaving={setBusy}
         onSaved={rate => {
           setRates(current => [...current.filter(item => item.id !== rate.id), rate]);
@@ -78,13 +78,14 @@ export default function CarrierRateEditor({ initialRates, endpoint }: { initialR
       <footer><button className={styles.button} disabled={busy} onClick={() => editor.current?.close()}>Close</button></footer>
     </dialog>
     <dialog ref={importer} className={styles.dialog} aria-labelledby="carrier-import-title" onCancel={event => { if (busy) event.preventDefault(); }}>
-      <h2 id="carrier-import-title">Import carrier rates</h2>
-      <p>Use the template headers on the first sheet of a CSV or XLSX up to 2 MB, with 1–500 rate rows. Every field is required. Enter carrier pay in dollars without currency symbols or commas. Use 0 for charges that do not apply.</p>
-      <p>Imports add rates to the selected yard. A duplicate carrier code and delivery in the file or at this yard rejects the entire import. Use Edit in the grid to change existing rates.</p>
+      <h2 id="carrier-import-title">Import local dray rates</h2>
+      <p>Use the template headers on the first sheet of a CSV or XLSX up to 2 MB, with 1–500 rate rows. All fields except warehouse are required. Enter carrier pay in dollars without currency symbols or commas. Use 0 for charges that do not apply.</p>
+      <p>Imports use the warehouse number on each row. A duplicate carrier code and delivery for the same warehouse rejects the entire import. Use Edit in the grid to change existing rates.</p>
       <a className={`${styles.button} ${styles.download}`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`} download="carrier-rate-import-template.csv">Download CSV template</a>
       <RateImportGuide columns={[
-        ["carrierId", "Yes", "McLeod carrier code, for example ABC123. Use up to 30 letters, numbers, hyphens, or underscores."],
+        ["carrierId", "Yes", "Use the 8-character McLeod carrier code, for example SCMIRIGA."],
         ["carrierName", "Yes", "Carrier name as it should appear on the rate card."],
+        ["warehouse", "No", "Warehouse number, such as 2119 or 5300. Blank uses the selected warehouse."],
         ["lane", "Yes", "Delivery location. Use the McLeod location code, for example BNSFHATX."],
         ["base", "Yes", "Base drayage pay for one load."],
         ["chassisDays", "Yes", "Chassis pay per day in dollars. This column takes the daily rate."],

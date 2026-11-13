@@ -10,10 +10,10 @@ export function CarrierRateManager(props: { rates: CarrierRate[]; endpoint: stri
   const dialog = useRef<HTMLDialogElement>(null);
   const [saving, setSaving] = useState(false);
   return <>
-    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Carrier rates</button>
+    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Local Dray Rates</button>
     <dialog ref={dialog} className="carrier-details-dialog carrier-rates-dialog" aria-labelledby="carrier-rates-title">
       <div className="carrier-dialog-heading">
-        <h2 id="carrier-rates-title">Carrier rates</h2>
+        <h2 id="carrier-rates-title">Local Dray Rates</h2>
         <form method="dialog"><button type="submit" disabled={saving}>Close</button></form>
       </div>
       <CarrierRateForm {...props} onSaving={setSaving} />
@@ -60,7 +60,7 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId 
     </select></label>}
     <form key={rate ? `${rate.id}:${rate.updated_at}` : "new"} onSubmit={submit}>
       <fieldset disabled={saving} style={{ display: "grid", gap: 8, maxWidth: 620 }}>
-        <label>McLeod carrier code <input placeholder="e.g. ABC123" name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>
+        <label>McLeod carrier code <input placeholder="e.g. SCMIRIGA" name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>
         <label>Carrier name <input name="name" required maxLength={100} defaultValue={rate?.carrier_name} /></label>
         <label>Delivery <input placeholder="McLeod location code, e.g. BNSFHATX" name="lane" required maxLength={100} defaultValue={rate?.lane} /></label>
         <table><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th></tr></thead>

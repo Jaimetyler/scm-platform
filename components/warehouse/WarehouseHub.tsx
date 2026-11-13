@@ -36,7 +36,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
         <p>Pick the site you are working and go straight to the freight. Existing check-in screens stay underneath this board.</p></div>
       {canUseInboundImporter(staff) && <Link href="/bunge-import?terminal=houston" className="warehouse-secondary-action">Inbound Cotton Importer</Link>}
       <div className="warehouse-utilities"><Link href={workspaceHref("rates", location)} className="warehouse-secondary-action">Rates</Link><Link href="/cotton-locations" className="warehouse-secondary-action">Cotton Locations</Link></div>
-      {staff?.role === "admin" && <Link href="/warehouse/gate" className="warehouse-secondary-action">Driver QR setup</Link>}
+      {staff?.role === "admin" && <Link href="/warehouse/gate" className="warehouse-secondary-action">QR Set up</Link>}
     </div>
     {!ready ? <p>Loading your workspace…</p> : sites.length ? <div className="warehouse-operations-list">{sites.map((site) => {
       const siteLocation = { terminal: site.terminal, siteCode: site.siteCode };
