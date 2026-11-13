@@ -39,10 +39,10 @@ type McLeodUploadResult = { container: string; orderId?: string; file?: string; 
 type E2openDocuments = { bols: string[]; containers: { container: string; inbound: string | null; outbound: string | null }[] };
 type Draft = { bookingLineId: string; containerNumber: string; sealNumber: string; chassisNumber: string; notes: string };
 const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 10px", borderRadius: 8,
-  border: "1px solid #475569", background: "#0f172a", color: "#f8fafc" };
+  border: "1px solid #475569", background: "#0f172a", color: "#e2e8e4" };
 const button: React.CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "1px solid #475569",
-  background: "#0f172a", color: "#f8fafc", cursor: "pointer", fontWeight: 700, textDecoration: "none" };
-const th: React.CSSProperties = { padding: "10px", borderBottom: "1px solid #475569", color: "#94a3b8", fontSize: 12, textAlign: "left" };
+  background: "#23303c", color: "#e2e8e4", cursor: "pointer", fontWeight: 700, textDecoration: "none" };
+const th: React.CSSProperties = { padding: "10px", borderBottom: "1px solid #475569", color: "#bbc9c2", fontSize: 12, textAlign: "left" };
 const td: React.CSSProperties = { padding: "9px 10px", borderBottom: "1px solid rgba(71,85,105,.45)" };
 
 export default function CottonOutboundBookingPage() {
@@ -422,7 +422,7 @@ export default function CottonOutboundBookingPage() {
   }
 
   if (loading) return <main style={{ color: "#e2e8f0" }}>Loading booking…</main>;
-  if (!booking) return <main><PlatformPageHeader title="Outbound Booking Not Found" actions={<Link href={backHref} style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
+  if (!booking) return <main><PlatformPageHeader compact title="Outbound Booking Not Found" actions={<Link href={backHref} style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
   const activeContainers = containers.filter((row) => !row.split_transfer_id && (!row.booking_line_id || lines.find((line) => line.id === row.booking_line_id)?.line_status === "active"));
   const complete = activeContainers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
   const lineById = new Map(lines.map((line) => [line.id, line]));
@@ -487,10 +487,10 @@ export default function CottonOutboundBookingPage() {
     } finally { setBulkSaving(false); }
   }
   return <main className="outbound-booking" style={{ maxWidth: "none", width: "100%", margin: "0 auto", color: "#e2e8f0" }}>
-    <PlatformPageHeader title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
+    <PlatformPageHeader compact title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
       subtitle={`${booking.customer} · ${booking.scm_file_number ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
       actions={<><Link href={backHref} style={button}>← Booking list</Link>
-        {canWrite && <button type="button" style={{ ...button, borderColor: "#15803d", background: "#14532d" }}
+        {canWrite && <button type="button" style={{ ...button, borderColor: "#659481", background: "#285647", color: "#e2eee7" }}
           disabled={Boolean(working) || mcleodSending || editingDetails}
           onClick={() => void changeBookingStatus("archived")}>Complete booking</button>}
         <details className="booking-actions"><summary style={button}>Actions ▾</summary><div className="booking-actions-menu">
@@ -548,11 +548,11 @@ export default function CottonOutboundBookingPage() {
         {!e2openDocuments.containers.length && <p>No saved container numbers to check.</p>}
       </div>}
     </PlatformPanel>}
-    <PlatformPanel><div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+    <PlatformPanel style={{ padding: 12, marginBottom: 12, borderRadius: 12, boxShadow: "none" }}><div style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", fontSize: 13 }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
       <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status === "draft" ? "Active" : booking.status === "cancelled" ? "Deleted" : "Archived"}</span>
     </div>
-    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center", marginTop: 18 }}>
+    <div style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", alignItems: "center", marginTop: 7, fontSize: 13 }}>
       <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>
       <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, booking.doc_cutoff_has_time !== false)}</span>
       <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, booking.cutoff_has_time !== false)}</span>
@@ -575,7 +575,7 @@ export default function CottonOutboundBookingPage() {
         <label>Return location<input style={input} maxLength={300} value={details.returnLocation} onChange={event => setDetails(current => ({ ...current, returnLocation: event.target.value }))} /></label>
         <label>Steamship line (SSL)<input style={input} maxLength={200} value={details.steamshipLine} onChange={event => setDetails(current => ({ ...current, steamshipLine: event.target.value }))} /></label>
         <label>Vessel<input style={input} maxLength={200} value={details.vessel} onChange={(event) => setDetails((current) => ({ ...current, vessel: event.target.value }))} /></label>
-      </div><p style={{ color: "#94a3b8", fontSize: 12 }}>Times are optional and local to {booking.site_name}.</p>
+      </div><p style={{ color: "#bbc9c2", fontSize: 12 }}>Times are optional and local to {booking.site_name}.</p>
       <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "details" ? "Saving…" : "Save details"}</button>
         <button style={button} type="button" disabled={!canWrite || Boolean(working)} onClick={() => { setEditingDetails(false); setMessage(""); }}>Cancel</button></div>
     </form> : null}
@@ -585,21 +585,21 @@ export default function CottonOutboundBookingPage() {
       <strong>Source loads arrived at a warehouse — review required</strong>
       {lines.filter((line) => line.source_arrivals?.length && line.line_status !== "cancelled").map((line) => <p key={line.id}>{line.mark} · {line.source_arrivals.map((arrival) => arrival.arrival_site_name).join(", ")} · <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button> <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "keep_source")}>Keep as source load</button></p>)}
     </div></PlatformPanel>}
-    <PlatformPanel><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <div><h2 style={{ marginBottom: 4 }}>Outbound load plan</h2><p style={{ marginTop: 0, color: "#94a3b8" }}>Badges show receiving status. Green bale counts match the requested quantity.</p></div>
+    <PlatformPanel style={{ padding: 12, borderRadius: 12 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <h2 style={{ margin: 0 }}>Outbound load plan</h2>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input aria-label="Search booking" value={search} onChange={(event) => { setSearch(event.target.value); setSelectedContainers(new Set()); }}
         placeholder="Search marks or equipment" style={{ ...input, width: 260 }} />
         {isAdmin && !carrierError && <CarrierRateManager key={carrierEndpoint} rates={carrierRates} endpoint={carrierEndpoint} onSaved={rate =>
       setCarrierRates(current => [...current.filter(item => item.id !== rate.id), rate])} />}
-        <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
+        <button type="button" style={{ ...button, background: "#33584d", borderColor: "#85a998" }} disabled={!canWrite || Boolean(working)} onClick={() => { setMarkError(""); setNewMark({ requestId: crypto.randomUUID(), mark: "", bales: "", shippingOrder: "" }); }}>+ Add mark to booking</button>
         <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setSelectedContainers(new Set()); setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
 
     {rollMode ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
       <strong>Split / roll {selectedLines.size} selected mark{selectedLines.size === 1 ? "" : "s"}</strong>
-      <p style={{ color: "#cbd5e1", fontSize: 13, margin: "8px 0" }}>Select marks below, enter the destination booking, then move them. Adjust each selected quantity for a partial split. Marks with equipment entered must have that equipment cleared first.</p>
+      <p style={{ color: "#cbd7d0", fontSize: 13, margin: "8px 0" }}>Select marks below, enter the destination booking, then move them. Adjust each selected quantity for a partial split. Marks with equipment entered must have that equipment cleared first.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8, margin: "10px 0" }}>
-        {[...selectedLines].map((lineId) => { const line = lineById.get(lineId); return line ? <label key={lineId} style={{ color: "#cbd5e1", fontSize: 12 }}>{line.mark} bales
+        {[...selectedLines].map((lineId) => { const line = lineById.get(lineId); return line ? <label key={lineId} style={{ color: "#cbd7d0", fontSize: 12 }}>{line.mark} bales
           <input type="number" min={1} max={line.requested_bales} style={input} value={rollQuantities[lineId] ?? line.requested_bales}
             onChange={(event) => setRollQuantities((current) => ({ ...current, [lineId]: event.target.value }))} /></label> : null; })}
       </div>
@@ -621,7 +621,7 @@ export default function CottonOutboundBookingPage() {
         onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
       {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
-      if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#94a3b8" }}>
+      if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#bbc9c2" }}>
         {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
@@ -642,8 +642,8 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
-        <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#94a3b8" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
+        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#bbc9c2" }}>Extra container</span>}</td>
+        <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#bbc9c2" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
@@ -653,7 +653,7 @@ export default function CottonOutboundBookingPage() {
           <td style={td} className="carrier-total">{totals ? `$${(totals.pay / 100).toFixed(2)}` : "—"}</td>
           <td style={td} className="carrier-total">{totals?.bill != null ? `$${(totals.bill / 100).toFixed(2)}` : totals ? "Rate unavailable" : "—"}</td>
         </>}
-        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#94a3b8", fontSize: 12, fontWeight: 600 }}>
+        <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           {canWrite && !locked && <div style={{ marginTop: 6 }}>
             <button type="button" style={{ ...button, padding: "5px 8px", fontSize: 11 }}
@@ -664,7 +664,7 @@ export default function CottonOutboundBookingPage() {
             onClick={() => setDetailId(row.id)}>Details</button>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
-            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#94a3b8" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
+            <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#bbc9c2" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
             {line.load_source === "source_load" && <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button>}
           </div></details>}
         </td></tr>;
@@ -687,7 +687,7 @@ export default function CottonOutboundBookingPage() {
     {markAction && <div role="dialog" aria-modal="true" aria-labelledby="mark-action-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>
       <form onSubmit={(event) => void changeMark(event)} style={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480, boxSizing: "border-box" }}>
         <h2 id="mark-action-title">{markAction.action === "hold" ? "Put on hold" : markAction.action === "resume" ? "Resume mark" : markAction.action === "cancel" ? "Cancel mark from booking" : markAction.action === "warehouse" ? "Convert to warehouse load" : "Keep as source load"}: {markAction.line.mark}</h2>
-        <p style={{ color: "#cbd5e1", fontSize: 13 }}>{markAction.action === "hold" ? "Keep this mark on ice. Its equipment and split actions are locked until you resume it." : markAction.action === "cancel" ? "Remove this mark from the booking’s requested total and active load plan. Its history and saved equipment remain visible in a locked row below." : markAction.action === "warehouse" ? `Plan this mark through ${booking.site_name}. This does not mark it as received; normal check-in and warehouse receiving still apply.` : markAction.action === "keep_source" ? "Acknowledge the unexpected arrival and explain why the direct-pickup plan still applies." : "Return this mark to the active plan."}</p>
+        <p style={{ color: "#cbd7d0", fontSize: 13 }}>{markAction.action === "hold" ? "Keep this mark on ice. Its equipment and split actions are locked until you resume it." : markAction.action === "cancel" ? "Remove this mark from the booking’s requested total and active load plan. Its history and saved equipment remain visible in a locked row below." : markAction.action === "warehouse" ? `Plan this mark through ${booking.site_name}. This does not mark it as received; normal check-in and warehouse receiving still apply.` : markAction.action === "keep_source" ? "Acknowledge the unexpected arrival and explain why the direct-pickup plan still applies." : "Return this mark to the active plan."}</p>
         <label>Note {markAction.action === "keep_source" ? "(required)" : "(optional)"}<textarea aria-label="Mark action note" required={markAction.action === "keep_source"} maxLength={500} style={input} value={markAction.note} onChange={(event) => setMarkAction((current) => current && { ...current, note: event.target.value })} /></label>
         {actionError && <p role="alert" style={{ color: "#fca5a5" }}>{actionError}</p>}
         <div style={{ display: "flex", gap: 8, marginTop: 18 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "mark-action" ? "Saving…" : "Confirm change"}</button><button style={button} type="button" disabled={!canWrite || Boolean(working)} onClick={() => setMarkAction(null)}>Back</button></div>
@@ -696,7 +696,7 @@ export default function CottonOutboundBookingPage() {
     {newMark && <div role="dialog" aria-modal="true" aria-labelledby="add-mark-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>
       <form onSubmit={(event) => void addMark(event)} style={{ background: "#0f172a", border: "1px solid #475569", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460, boxSizing: "border-box" }}>
         <h2 id="add-mark-title" style={{ marginTop: 0 }}>Add mark to booking</h2>
-        <p style={{ color: "#94a3b8", fontSize: 13 }}>Add the mark and requested bales to booking {booking.booking_number}. Container details can be entered on its row afterward.</p>
+        <p style={{ color: "#bbc9c2", fontSize: 13 }}>Add the mark and requested bales to booking {booking.booking_number}. Container details can be entered on its row afterward.</p>
         {markError && <p role="alert" style={{ color: "#fca5a5" }}>{markError}</p>}
         <div style={{ display: "grid", gap: 14 }}>
           <label>Mark<input autoFocus required maxLength={80} value={newMark.mark} disabled={!canWrite || Boolean(working)} style={input} onChange={(event) => setNewMark((current) => current && { ...current, mark: event.target.value.toUpperCase() })} /></label>

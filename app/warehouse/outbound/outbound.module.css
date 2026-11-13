@@ -1,15 +1,15 @@
 .importButton {
   padding: 9px 14px;
-  border: 1px solid #67e8f9;
+  border: 1px solid #85a998;
   border-radius: 8px;
-  background: #67e8f9;
-  color: #083344;
+  background: #85a998;
+  color: #142b24;
   cursor: pointer;
   font-weight: 800;
 }
 
 .importButton:hover:not(:disabled) {
-  background: #a5f3fc;
+  background: #a3c5b3;
 }
 
 .importButton:disabled {
@@ -32,8 +32,8 @@
   padding: 5px 10px;
   border: 1px solid #475569;
   border-radius: 7px;
-  background: #162338;
-  color: #e2e8f0;
+  background: #222e36;
+  color: #dce6e0;
   cursor: pointer;
   font-size: 13px;
   font-weight: 650;
@@ -45,12 +45,12 @@
 
 .dateFilter:hover,
 .dateFilter[aria-pressed="true"] {
-  border-color: #67e8f9;
+  border-color: #85a998;
 }
 
 .dateFilter[aria-pressed="true"] {
-  background: #164e63;
-  color: #ecfeff;
+  background: #33584d;
+  color: #e4eee8;
 }
 
 .bookingGroup {
@@ -72,14 +72,14 @@
 }
 
 .bookingCard:hover {
-  border-color: #67e8f9;
+  border-color: #85a998;
   background: #142337;
 }
 
 .importButton:focus-visible,
 .dateFilter:focus-visible,
 .bookingCard:focus-visible {
-  outline: 2px solid #7dd3fc;
+  outline: 2px solid #a0c7b3;
   outline-offset: 2px;
 }
 

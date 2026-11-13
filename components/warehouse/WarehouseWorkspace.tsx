@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, Fragment, useContext, useEffect, useState, type ReactNode } from "react";
-import { CHECKIN_SITES, getCheckinSite } from "@/lib/inbound/checkin/sites";
+import { CHECKIN_SITES, getCheckinSite, TERMINAL_NAMES } from "@/lib/inbound/checkin/sites";
 import { ALL_LOCATIONS, LOCATION_KEY, CHECKIN_VIEW_KEY, validLocation, routeLocation, sectionForPath, checkinViewForPath,
   availableCheckinViews, workspaceHref, locationLabel, locationQuery, safeOutboundReturn, type WarehouseLocation, type WarehouseSection, type CheckinView } from "@/lib/warehouse/navigation";
 import { WarehouseScrollMemory } from "./useWarehouseViewState";
@@ -17,6 +17,7 @@ export const useWarehouseWorkspace = () => useContext(Context);
 export default function WarehouseWorkspace({ children }: { children: ReactNode }) {
   const staff = useStaff();
   const path = usePathname();
+  const router = useRouter();
   const query = useSearchParams();
   const queryString = query.toString();
   const enabled = path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/");
@@ -62,36 +63,57 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
   const href = (target: WarehouseSection) => workspaceHref(target, location, view, filters);
   const returnTo = path.startsWith("/warehouse/outbound/") ? safeOutboundReturn(query.get("returnTo")) : null;
   const site = getCheckinSite(location.terminal, location.siteCode);
-  const navigation: [WarehouseSection, string][] = [["overview", "Operations"], ["outbound", "Outbound Bookings"], ["inventory", "Inventory"], ["history", "History"]];
+  const navigation: [WarehouseSection, string][] = [["overview", "Operations"], ["checkins", "Check-In"], ["outbound", "Outbound Bookings"], ["inventory", "Inventory"], ["history", "History"]];
   const locationHref = (next: WarehouseLocation) => workspaceHref(section, next, view, filters);
   return <Context.Provider value={{ location, ready, href }}>
     {visible && <header className="warehouse-workspace" aria-label="Warehouse workspace">
-      <div className="warehouse-brand-row"><Link href={href("overview")} className="warehouse-brand">SCM <span>Warehouse operations</span></Link>
-        <div className="warehouse-utilities"><Link href={`/warehouse/rates?${locationQuery(location)}`}>Rates</Link>{staff?.role === "admin" && <Link href="/warehouse/gate">Driver QR setup</Link>}</div>
+      <div className="warehouse-brand-row">
+        <Link href={href("overview")} className="warehouse-brand">SCM <span>Warehouse</span></Link>
+        <div className="warehouse-location-options">
+          <select aria-label="Terminal" value={location.terminal} onChange={event => {
+            const terminal = event.target.value as WarehouseLocation["terminal"];
+            router.push(locationHref({ terminal, siteCode: "all" }));
+          }}>
+            {staff?.role !== "operator" && <option value="all">All locations</option>}
+            {Object.entries(TERMINAL_NAMES)
+              .filter(([terminal]) => staff?.role !== "operator" || terminal === staff.terminal)
+              .map(([terminal, label]) => <option key={terminal} value={terminal}>{label}</option>)}
+          </select>
+          {location.terminal !== "all" && <select aria-label="Warehouse site" value={location.siteCode}
+            onChange={event => router.push(locationHref({ ...location, siteCode: event.target.value }))}>
+            <option value="all">All sites</option>
+            {CHECKIN_SITES.filter(item => item.terminal === location.terminal)
+              .sort((a, b) => (a.displayCode ?? a.siteCode).localeCompare(b.displayCode ?? b.siteCode, undefined, { numeric: true }))
+              .map(item => <option key={item.siteCode} value={item.siteCode}>{item.displayCode ?? item.siteCode}</option>)}
+          </select>}
+        </div>
+        <div className="warehouse-utilities">
+          <Link href={href("rates")}>Rates</Link>
+          {staff?.role === "admin" && <Link href="/warehouse/gate">Driver QR setup</Link>}
+          <details className="warehouse-search-menu" onToggle={event => {
+            if (event.currentTarget.open) event.currentTarget.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
+          }} onKeyDown={event => {
+            if (event.key !== "Escape" || !event.currentTarget.open) return;
+            event.preventDefault();
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector("summary")?.focus();
+          }} key={`${path}:${location.terminal}:${location.siteCode}:${query.get("q") ?? ""}`}>
+            <summary>Search</summary>
+            <form className="warehouse-global-search" action="/warehouse/search" role="search">
+                {location.terminal !== "all" && <input type="hidden" name="terminal" value={location.terminal} />}
+                {location.siteCode !== "all" ? <input type="hidden" name="siteCode" value={location.siteCode} /> : <input type="hidden" name="warehouse" value="all" />}
+                <input key={`${location.terminal}:${location.siteCode}:${query.get("q") || ""}`} name="q" type="search" minLength={2} maxLength={100} required
+                  defaultValue={path === "/warehouse/search" ? query.get("q") || "" : ""} aria-label={`Search ${locationLabel(location)}`}
+                  placeholder="Mark, booking, container, order, driver…" />
+                <button type="submit">Search</button>
+            </form>
+          </details>
+        </div>
       </div>
-      <div className="warehouse-location-row">
-        <nav aria-label="Terminal" className="warehouse-location-options">
-          {[{ terminal: "all" as const, label: "All locations" }, { terminal: "SAV" as const, label: "Savannah" }, { terminal: "HOU" as const, label: "Houston" }, { terminal: "DAL" as const, label: "Dallas" }].filter((item) => staff?.role !== "operator" || item.terminal === staff.terminal).map((item) =>
-            <Link key={item.terminal} href={locationHref({ terminal: item.terminal, siteCode: "all" })} aria-current={location.terminal === item.terminal ? "true" : undefined}>{item.label}</Link>)}
-        </nav>
-        {location.terminal !== "all" && <nav aria-label="Warehouse location" className="warehouse-location-options warehouse-sites">
-          <Link href={locationHref({ terminal: location.terminal, siteCode: "all" })} aria-current={location.siteCode === "all" ? "true" : undefined}>All sites</Link>
-          {CHECKIN_SITES.filter((item) => item.terminal === location.terminal).sort((a, b) => (a.displayCode ?? a.siteCode).localeCompare(b.displayCode ?? b.siteCode, undefined, { numeric: true })).map((item) =>
-            <Link key={item.siteCode} href={locationHref({ terminal: item.terminal, siteCode: item.siteCode })} aria-current={location.siteCode === item.siteCode ? "true" : undefined}>{item.displayCode ?? item.siteCode}</Link>)}
-        </nav>}
-      </div>
-      <form className="warehouse-global-search" action="/warehouse/search" role="search">
-        {location.terminal !== "all" && <input type="hidden" name="terminal" value={location.terminal} />}
-        {location.siteCode !== "all" ? <input type="hidden" name="siteCode" value={location.siteCode} /> : <input type="hidden" name="warehouse" value="all" />}
-        <input key={`${location.terminal}:${location.siteCode}:${query.get("q") || ""}`} name="q" type="search" minLength={2} maxLength={100} required
-          defaultValue={path === "/warehouse/search" ? query.get("q") || "" : ""} aria-label={`Search ${locationLabel(location)}`}
-          placeholder={`Search ${locationLabel(location)}: mark, booking, container, SO, driver…`} />
-        <button type="submit">Search warehouse</button>
-      </form>
       <nav aria-label="Warehouse navigation" className="warehouse-main-nav">{navigation.map(([key, label]) =>
-        <Link key={key} className={key === "outbound" ? "warehouse-bookings-tab" : undefined} href={key === "outbound" && returnTo ? returnTo : href(key)} aria-current={section === key ? "page" : undefined}>{label}</Link>)}</nav>
-      {<nav aria-label="Check-in views" className="warehouse-subnav"><Link href={href("overview")} className="warehouse-back-operations">← Operations</Link>{(site ? availableCheckinViews(location) : (["line", "cotton", "domestic", "containers"] as CheckinView[]).map(key => ({ key, label: { line: "Active Line", cotton: "Cotton", domestic: "Lumber & Other", containers: "Containers" }[key], href: `/inbound/checkin?${new URLSearchParams({ ...(location.terminal !== "all" ? { terminal: location.terminal } : {}), warehouse: "all", view: key })}` }))).map((item) =>
-        <Link key={item.key} href={item.href} aria-current={checkinViewForPath(path) === item.key ? "page" : undefined}>{item.label}</Link>)}</nav>}
+        <Link key={key} href={key === "outbound" && returnTo ? returnTo : href(key)} aria-current={section === key ? "page" : undefined}>{label}</Link>)}</nav>
+      {section === "checkins" && <nav aria-label="Check-in views" className="warehouse-subnav">{(site ? availableCheckinViews(location) : (["line", "cotton", "domestic", "containers"] as CheckinView[]).map(key => ({ key, label: { line: "Active Line", cotton: "Cotton", domestic: "Lumber & Other", containers: "Containers" }[key], href: `/inbound/checkin?${new URLSearchParams({ ...(location.terminal !== "all" ? { terminal: location.terminal } : {}), warehouse: "all", view: key })}` }))).map((item) =>
+        <Link key={item.key} href={item.href} aria-current={(checkinViewForPath(path) ?? query.get("view")) === item.key ? "page" : undefined}>{item.label}</Link>)}</nav>}
       {section === "history" && <nav aria-label="History views" className="warehouse-subnav">
         <Link href={href("history")} aria-current={path !== "/inbound/history" ? "page" : undefined}>Check-in history</Link>
         <Link href="/inbound/history" aria-current={path === "/inbound/history" ? "page" : undefined}>Cotton processing report</Link>
