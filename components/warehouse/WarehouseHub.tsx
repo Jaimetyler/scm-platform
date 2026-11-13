@@ -15,7 +15,7 @@ export default function WarehouseHub({ section = "overview" }: { section?: Wareh
   const sites = sitesForLocation(location).filter((site) => (section !== "inventory" || site.materials.includes("cotton")) && (section !== "checkins" || !view || availableCheckinViews({terminal: site.terminal, siteCode: site.siteCode}).some(item => item.key === view)));
 
   if (section !== "overview") {
-    const titles = { overview: "Operations", checkins: "Check-in sheets", inventory: "Inventory / Marks", outbound: "Outbound bookings", history: "Check-in history" };
+    const titles = { overview: "Operations", rates: "Rates", carriers: "Carrier rates", checkins: "Check-in sheets", inventory: "Inventory / Marks", outbound: "Outbound bookings", history: "Check-in history" };
     return <main className="warehouse-hub">
       <h1>{titles[section]}</h1>
       <p>{section === "inventory" ? "Choose a cotton warehouse to review marks, available bales, allocations, and receipt status."
