@@ -8,11 +8,11 @@ import { carrierRateFields, parseCarrierRate, saveCarrierRate } from "@/lib/ware
 
 export const POST = withStaffAccess(async (req: NextRequest) => {
   const site = getCheckinSite(req.nextUrl.searchParams.get("terminal") ?? "", req.nextUrl.searchParams.get("siteCode") ?? "");
-  if (!site?.materials.includes("cotton")) {
-    return NextResponse.json({ error: "Choose a cotton warehouse." }, { status: 400 });
+  const scope = site?.materials.includes("cotton") ? { terminal: site.terminal, site_code: site.siteCode } : null;
+  if (!req.headers.get("content-type")?.startsWith("multipart/form-data")) {
+    if (!scope) return NextResponse.json({ error: "Choose a cotton warehouse." }, { status: 400 });
+    return saveCarrierRate(req, scope);
   }
-  const scope = { terminal: site.terminal, site_code: site.siteCode };
-  if (!req.headers.get("content-type")?.startsWith("multipart/form-data")) return saveCarrierRate(req, scope);
   let rates;
   try {
     const file = (await req.formData()).get("file");
@@ -26,8 +26,8 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     rates = rows.map((row, index) => {
       try {
         const warehouse = String(row.warehouse ?? "").trim();
-        const target = warehouse ? CHECKIN_SITES.find(candidate => candidate.materials.includes("cotton") && (candidate.displayCode ?? candidate.siteCode) === warehouse) : site;
-        if (!target) throw Error(`Unknown warehouse number ${warehouse}.`);
+        const target = warehouse ? CHECKIN_SITES.find(candidate => candidate.materials.includes("cotton") && (candidate.displayCode ?? candidate.siteCode) === warehouse) : scope ? site : null;
+        if (!target) throw Error(warehouse ? `Unknown warehouse number ${warehouse}.` : "Enter a warehouse number.");
         return { terminal: target.terminal, site_code: target.siteCode, ...parseCarrierRate({ ...row, rates: Object.fromEntries(rateItems.map(({ key }) => [key, { pay: String(row[key] ?? "") }])) }) };
       } catch (error) {
         throw Error(`Data row ${index + 1}: ${(error as Error).message}`);
@@ -42,5 +42,5 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     return NextResponse.json({ error: "Duplicate carrier code and delivery for the same warehouse. Remove duplicates and retry. No rates were imported." }, { status: 409 });
   }
   if (error) throw Error("Could not import carrier rates.");
-  return NextResponse.json({ count: data.length, rates: data.filter(rate => rate.terminal === scope.terminal && rate.site_code === scope.site_code) });
+  return NextResponse.json({ count: data.length, rates: data });
 });
