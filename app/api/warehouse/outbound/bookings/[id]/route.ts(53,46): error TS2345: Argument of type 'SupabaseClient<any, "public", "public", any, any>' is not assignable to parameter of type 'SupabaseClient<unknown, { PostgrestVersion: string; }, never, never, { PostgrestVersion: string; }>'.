@@ -1,0 +1,2 @@
+/bin/bash: -c: line 1: syntax error near unexpected token `}'
+/bin/bash: -c: line 1: `cd scm-platform && cat 'app/api/warehouse/outbound/bookings/[id]/route.ts(53,46): error TS2345: Argument of type 'SupabaseClient<any, "public", "public", any, any>' is not assignable to parameter of type 'SupabaseClient<unknown, { PostgrestVersion: string; }, never, never, { PostgrestVersion: string; }>'.''

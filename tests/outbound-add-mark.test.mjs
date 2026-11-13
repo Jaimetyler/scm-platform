@@ -74,3 +74,10 @@ test("full slots cause one new assigned row, while locked split history stays un
     assert.equal((await db.query("select requested_bales from cotton_outbound_bookings where id=$1",[id])).rows[0].requested_bales,270);
   } finally { await db.close(); }
 });
+
+test("booking marks show the assigned Active Line numbers", () => {
+  const line = { available_bales: 0, inbound_bales: 88, inbound_statuses: ["waiting"], active_line_numbers: [3, 8] };
+  assert.deepEqual(bookingMarkBadges(line).map(badge => badge.label), ["Number 3 in line", "Number 8 in line"]);
+  assert.deepEqual(bookingMarkBadges({ ...line, line_status: "cancelled" }).map(badge => badge.label), ["Cancelled"]);
+  assert.deepEqual(bookingMarkBadges({ ...line, active_line_numbers: [] }).map(badge => badge.label), ["Checked in"]);
+});

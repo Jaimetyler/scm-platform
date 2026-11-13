@@ -1,5 +1,5 @@
 export function bookingMarkBadges(line: {
-  available_bales: number; warehouse_bales?: number; inventory_locations?: string[]; has_break_inventory?: boolean; inbound_bales: number; inbound_statuses?: string[]; line_status?: string; load_source?: string; source_arrivals?: unknown[];
+  available_bales: number; warehouse_bales?: number; inventory_locations?: string[]; has_break_inventory?: boolean; inbound_bales: number; inbound_statuses?: string[]; active_line_numbers?: number[]; line_status?: string; load_source?: string; source_arrivals?: unknown[];
 }) {
   const badges: { label: string; color: string; background: string; title: string }[] = [];
   if (line.line_status === "cancelled") return [{ label: "Cancelled", color: "#94a3b8", background: "rgba(71,85,105,.16)", title: "Removed from this booking’s active plan; history retained." }];
@@ -16,11 +16,15 @@ export function bookingMarkBadges(line: {
     for (const label of labels)
       badges.push({ label, color: "#86efac", background: "rgba(22,163,74,.16)", title });
   }
+  for (const number of line.active_line_numbers ?? []) {
+    badges.push({ label: `Number ${number} in line`, color: "#a5f3fc", background: "rgba(8,145,178,.28)",
+      title: "This truck is checked in on the Active Line at this warehouse." });
+  }
   if (sourceLoad) {
     if (line.source_arrivals?.length) badges.push({ label: "Unexpected warehouse arrival", color: "#fde68a", background: "rgba(180,83,9,.12)", title: "This source mark checked in at a warehouse. Review and convert its plan if needed." });
     return badges;
   }
-  if (line.inbound_bales > 0 || (line.inbound_statuses?.length ?? 0) > 0) badges.push({ label: "Checked in", color: "#7dd3fc",
+  if (!line.active_line_numbers?.length && (line.inbound_bales > 0 || (line.inbound_statuses?.length ?? 0) > 0)) badges.push({ label: "Checked in", color: "#7dd3fc",
     background: "rgba(2,132,199,.18)", title: "A load is checked in; its receiving has not been completed." });
   if (!badges.length) badges.push({ label: "Not received", color: "#fca5a5", background: "rgba(185,28,28,.14)",
     title: "No warehouse inventory or active check-in found for this mark." });

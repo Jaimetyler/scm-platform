@@ -8,6 +8,26 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 export const runtime = "nodejs";
 export const maxDuration = 120;
+async function loadInboundMarks(sb: ReturnType<typeof createClient>, terminal: string, siteCode: string, marks: string[]) {
+  if (!marks.length) return new Map<string, { bales: number; statuses: Set<string>; numbers: Set<number> }>();
+  const { data: inboundRows, error: inboundError } = await sb.from("inbound_checkin_rows")
+    .select("mark,bol_bc,bale_count,driver_reported_bales,yard_status,arrival_number:warehouse_arrival_numbers(queue_number)")
+    .eq("terminal", terminal).eq("site_code", siteCode).eq("material_type", "cotton")
+    .eq("movement_direction", "delivery").in("mark", marks).is("physical_departed_at", null)
+    .in("yard_status", ["waiting", "called", "in_door", "working"]);
+  if (inboundError) throw inboundError;
+  const inbound = new Map<string, { bales: number; statuses: Set<string>; numbers: Set<number> }>();
+  for (const row of inboundRows ?? []) {
+    const mark = String(row.mark ?? "").toUpperCase();
+    const entry = inbound.get(mark) ?? { bales: 0, statuses: new Set<string>(), numbers: new Set<number>() };
+    entry.bales += Number(row.bale_count ?? row.driver_reported_bales ?? row.bol_bc ?? 0);
+    if (row.yard_status) entry.statuses.add(row.yard_status);
+    const number = (Array.isArray(row.arrival_number) ? row.arrival_number[0] : row.arrival_number)?.queue_number;
+    if (Number.isInteger(number) && number > 0) entry.numbers.add(number);
+    inbound.set(mark, entry);
+  }
+  return inbound;
+}
 async function GETHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
@@ -28,6 +48,13 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       .select("id,source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse,line_status,load_source,status_note,status_changed_at,status_changed_by")
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
+    if (params.get("view") === "active-line") {
+      const marks = [...new Set((lines ?? []).filter(line => line.line_status !== "cancelled").map(line => line.mark))];
+      const inbound = await loadInboundMarks(sb, terminal, siteCode, marks);
+      return NextResponse.json({ ok: true, numbers: Object.fromEntries(
+        [...inbound].map(([mark, entry]) => [mark, [...entry.numbers].sort((a, b) => a - b)]),
+      ) }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const { data: containers, error: containerError } = await sb.from("cotton_outbound_containers")
       .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id,carrier_plan")
       .eq("booking_id", id).order("sequence_no");
@@ -73,21 +100,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,source_type,customer")
       .eq("terminal", terminal).eq("site_code", siteCode).in("mark", marks).limit(1000);
     if (inventoryError) throw inventoryError;
-    const { data: inboundRows, error: inboundError } = await sb.from("inbound_checkin_rows")
-      .select("mark,bol_bc,bale_count,driver_reported_bales,yard_status")
-      .eq("terminal", terminal).eq("site_code", siteCode).eq("material_type", "cotton")
-      .eq("movement_direction", "delivery").in("mark", marks)
-      .in("yard_status", ["waiting", "called", "in_door", "working"])
-      .in("draft_status", ["draft", "checked_in", "ready", "processing", "failed"]);
-    if (inboundError) throw inboundError;
-    const inbound = new Map<string, { bales: number; statuses: Set<string> }>();
-    for (const row of inboundRows ?? []) {
-      const mark = String(row.mark ?? "").toUpperCase();
-      const entry = inbound.get(mark) ?? { bales: 0, statuses: new Set<string>() };
-      entry.bales += Number(row.bale_count ?? row.driver_reported_bales ?? row.bol_bc ?? 0);
-      if (row.yard_status) entry.statuses.add(row.yard_status);
-      inbound.set(mark, entry);
-    }
+    const inbound = await loadInboundMarks(sb, terminal, siteCode, marks);
     const inventory = new Map<string, { available: number; warehouse: number; locations: Set<string>; hasBreak: boolean }>();
     for (const lot of lots ?? []) {
       if (!["active", "on_hold"].includes(lot.inventory_status)) continue;

@@ -21,6 +21,7 @@ import DallasOrderPilot from "./DallasOrderPilot";
 import { BookingOrderLookup, CarrierBatchToolbar, CarrierEditor, CarrierRateManager, CarrierSummary } from "./CarrierRates";
 import { carrierBatchSelection, carrierPlanTotals, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection, type CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
 import { isSavannahE2openBooking } from "@/lib/warehouse/outbound/e2open-customer";
+import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
@@ -132,6 +133,20 @@ export default function CottonOutboundBookingPage() {
     finally { setLoading(false); }
   }, [id, terminal, siteCode]);
   useEffect(() => { void load(); }, [load]);
+  const [activeLine, setActiveLine] = useState<{ bookingId: string; numbers: Record<string, number[]> } | null>(null);
+  useVisiblePolling({
+    intervalMs: 10000,
+    enabled: Boolean(booking),
+    requestKey: `${terminal}:${siteCode}:${id}`,
+    load: async (signal) => {
+      const query = new URLSearchParams({ terminal, siteCode, view: "active-line" });
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}?${query}`, { cache: "no-store", signal });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error("Could not refresh booking line numbers");
+      if (!signal.aborted) setActiveLine({ bookingId: id, numbers: result.numbers });
+    },
+  });
+
   useEffect(() => () => { Object.values(saveTimers.current).forEach((timer) => window.clearTimeout(timer)); }, []);
 
   function change(row: Container, field: keyof Draft, value: string) {
@@ -627,7 +642,7 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges(line).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
+        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#94a3b8", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#94a3b8" }}>Extra container</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#94a3b8" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>

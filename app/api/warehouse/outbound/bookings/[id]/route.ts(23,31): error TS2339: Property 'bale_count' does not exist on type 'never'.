@@ -1,0 +1,1 @@
+cat: 'app/api/warehouse/outbound/bookings/[id]/route.ts(23,31): error TS2339: Property bale_count does not exist on type never.': No such file or directory

@@ -1,0 +1,1 @@
+cat: 'app/api/warehouse/outbound/bookings/[id]/route.ts(25,39): error TS2339: Property arrival_number does not exist on type never.': No such file or directory
