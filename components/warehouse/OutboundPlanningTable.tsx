@@ -87,7 +87,7 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
       <span>{rows.length} bookings · {rows.reduce((sum, row) => sum + row.requested_bales, 0).toLocaleString()} bales</span>
       {dallasBookings.length > 0 && <button className={styles.pull} type="button" disabled={!!refreshing}
         title="Refresh all active Dallas bookings in this location" onClick={() => void refresh(dallasBookings)}>Refresh bookings</button>}</div>
-    <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts matched SCM orders with no carrier. Loaded counts containers with a saved container number.</span></div>
+    <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts booking rows without a saved carrier assignment. Loaded counts containers with a saved container number.</span></div>
     <div className={styles.scroll} tabIndex={0} role="region" aria-label="Booking planning table">
       <table className={styles.table} role="table">
         <caption className={styles.caption}>Active outbound bookings with warehouse inventory alerts. Sort using column headings.</caption>
@@ -104,18 +104,14 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
           <td role="cell" data-label="ERD" className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
           <td role="cell" data-label="Cutoff" className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>
           <td role="cell" data-label="Ramp / return">{bookingReturnLocationLabel(item.return_location, item.return_location_code)}</td>
-          <td role="cell" data-label="Uncovered" className={!pulled?.complete ? styles.unknown : pulled.uncovered ? styles.shortage : styles.covered}>
-            {item.terminal !== "DAL" ? "—" : pulled?.complete ? <details>
-              <summary aria-label={`${pulled.uncovered} uncovered orders for booking ${item.booking_number}`}>{pulled.uncovered}</summary>
-              {pulled.uncoveredOrderIds.length > 0 ? <ul aria-label="Uncovered SCM order numbers">
-                {pulled.uncoveredOrderIds.map(id => <li key={id}>{id}</li>)}
-              </ul> : <span>All matched orders have a carrier.</span>}
-            </details> : "Unknown"}
+          <td role="cell" data-label="Uncovered"
+            className={item.uncovered_containers == null ? styles.unknown : item.uncovered_containers > 0 ? styles.shortage : styles.covered}>
+            {item.uncovered_containers ?? "—"}
           </td>
           <td role="cell" data-label="Comments / alerts" className={styles.alerts}>
             {!!item.missing_marks && <span className={styles.hold}>{item.missing_marks} inventory marks missing</span>}
             {pulled && <span>Matched {pulled.matchedOrders} SCM orders · checked {new Date(pulled.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
-            {pulled && !pulled.complete && <span className={styles.arrival}>Coverage incomplete — {pulled.unknownCarriers ? `${pulled.unknownCarriers} carrier assignments unknown` : "review matched order count"}</span>}
+            {pulled && !pulled.complete && <span className={styles.arrival}>McLeod check incomplete — {pulled.unknownCarriers ? `${pulled.unknownCarriers} carrier assignments unknown` : "review matched order count"}</span>}
             {errors[item.id] && <span role="alert" className={styles.hold}>{errors[item.id]}</span>}
             {!!item.held_marks && <span className={styles.hold}>{item.held_marks} marks on hold</span>}
             {!!item.source_arrivals && <span className={styles.arrival}>{item.source_arrivals} source arrivals — review</span>}
