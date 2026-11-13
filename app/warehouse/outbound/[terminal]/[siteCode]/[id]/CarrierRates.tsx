@@ -6,10 +6,24 @@ import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type Carri
 const dollars = (cents: number) => (cents / 100).toFixed(2);
 
 
-export function CarrierRateManager({ rates, endpoint, onSaved }: {
-  rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void;
-}) {
+export function CarrierRateManager(props: { rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [saving, setSaving] = useState(false);
+  return <>
+    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Carrier rates</button>
+    <dialog ref={dialog} className="carrier-details-dialog carrier-rates-dialog" aria-labelledby="carrier-rates-title">
+      <div className="carrier-dialog-heading">
+        <h2 id="carrier-rates-title">Carrier rates</h2>
+        <form method="dialog"><button type="submit" disabled={saving}>Close</button></form>
+      </div>
+      <CarrierRateForm {...props} onSaving={setSaving} />
+    </dialog>
+  </>;
+}
+
+export function CarrierRateForm({ rates, endpoint, onSaved, onSaving }: {
+  rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void; onSaving?: (saving: boolean) => void;
+}) {
   const [selected, setSelected] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -22,6 +36,7 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
       pay: form.get(`${key}-pay`),
     }]));
     setSaving(true);
+    onSaving?.(true);
     setMessage("");
     try {
       const response = await fetch(endpoint, {
@@ -35,16 +50,10 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
       setMessage("Carrier rate saved.");
     } catch (error) {
       setMessage((error as Error).message || "Could not save carrier rate.");
-    } finally { setSaving(false); }
+    } finally { setSaving(false); onSaving?.(false); }
   }
 
   return <>
-    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Carrier rates</button>
-    <dialog ref={dialog} className="carrier-details-dialog carrier-rates-dialog" aria-labelledby="carrier-rates-title">
-      <div className="carrier-dialog-heading">
-        <h2 id="carrier-rates-title">Carrier rates</h2>
-        <form method="dialog"><button type="submit" disabled={saving}>Close</button></form>
-      </div>
     <label>Rate card <select value={selected} disabled={saving} onChange={event => { setSelected(event.target.value); setMessage(""); }}>
       <option value="">Add a carrier rate</option>
       {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
@@ -63,7 +72,6 @@ export function CarrierRateManager({ rates, endpoint, onSaved }: {
       </fieldset>
     </form>
     {message && <p role="status">{message}</p>}
-    </dialog>
   </>;
 }
 

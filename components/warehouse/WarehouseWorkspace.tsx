@@ -89,7 +89,10 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
         </div>
         <div className="warehouse-utilities">
           <Link href={href("rates")}>Rates</Link>
-          {staff?.role === "admin" && <Link href="/warehouse/gate">Driver QR setup</Link>}
+          {staff?.role === "admin" && <>
+            <Link href={href("carriers")} aria-current={section === "carriers" ? "page" : undefined}>Carriers</Link>
+            <Link href="/warehouse/gate">Driver QR setup</Link>
+          </>}
           <details className="warehouse-search-menu" onToggle={event => {
             if (event.currentTarget.open) event.currentTarget.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
           }} onKeyDown={event => {
