@@ -19,7 +19,7 @@ export default async function CarrierRatesPage({ searchParams }: {
   const scope = site ? new URLSearchParams({ terminal: site.terminal, siteCode: site.siteCode }) : null;
 
   return <main className="warehouse-hub">
-    <PlatformPageHeader compact title="Carrier rates" subtitle={site?.siteName ?? "Choose a warehouse to manage outbound carrier pay."} />
+    <PlatformPageHeader compact title="Local Dray Rates" subtitle={site?.siteName ?? "Choose a warehouse to manage local dray rates."} />
     {result?.error ? <p role="alert">Could not load carrier rates.</p> : result && scope && site ?
       <CarrierRateEditor key={scope.toString()} initialRates={result.data ?? []} warehouse={site.displayCode ?? site.siteCode}
         endpoint={`/api/warehouse/carrier-rates?${scope}`} /> :
