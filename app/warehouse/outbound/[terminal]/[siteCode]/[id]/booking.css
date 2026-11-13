@@ -227,3 +227,15 @@
 .charge-stepper output { text-align: center; font-variant-numeric: tabular-nums; }
 .charge-stepper button { min-width: 36px; min-height: 34px; }
 .charge-stepper button:disabled, .carrier-charge-plus:disabled { opacity: .55; }
+
+.carrier-rate-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #bae6fd;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.carrier-rate-link:disabled { opacity: .55; cursor: default; }

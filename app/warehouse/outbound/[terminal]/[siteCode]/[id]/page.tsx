@@ -63,6 +63,7 @@ export default function CottonOutboundBookingPage() {
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
   const [chargesOnly, setChargesOnly] = useState(false);
+  const [saveFailed, setSaveFailed] = useState<Record<string, boolean>>({});
   const [detailId, setDetailId] = useState("");
   const detailDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -168,6 +169,7 @@ export default function CottonOutboundBookingPage() {
     window.clearTimeout(saveTimers.current[row.id]);
     delete saveTimers.current[row.id];
     savingRows.current.add(row.id);
+    setSaveFailed(current => ({ ...current, [row.id]: false }));
     if (!batch) { setWorking(row.id); setError(""); setMessage(""); }
     try {
       const response = await fetch(`/api/warehouse/outbound/bookings/${id}/containers`, {
@@ -191,6 +193,7 @@ export default function CottonOutboundBookingPage() {
       return true;
     } catch (reason) {
       if (batch) throw reason;
+      setSaveFailed(current => ({ ...current, [row.id]: true }));
       setError(reason instanceof Error ? reason.message : "Could not save container");
     } finally {
       savingRows.current.delete(row.id);
@@ -664,25 +667,24 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         {canManage && <>
-          <td style={td}><div className="carrier-summary-actions">
-            <CarrierSummary plan={row.carrier_plan} />
-            {canWrite && row.carrier_plan && !locked && <button type="button" className="carrier-charge-plus"
-              aria-label={`Edit charges for load ${row.sequence_no}`} disabled={Boolean(working) || bulkSaving}
-              onClick={() => { setChargesOnly(true); setDetailId(row.id); }}>+</button>}
-          </div></td>
-          <td style={td} className="carrier-total">{totals ? `$${(totals.pay / 100).toFixed(2)}` : "—"}</td>
+          <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>
+          <td style={td} className="carrier-total">{row.container_number || row.booking_line_id ?
+            <button type="button" className="carrier-rate-link" disabled={Boolean(working) || bulkSaving}
+              aria-label={`View carrier and charges for load ${row.sequence_no}`}
+              onClick={() => { setChargesOnly(false); setDetailId(row.id); }}>
+              {totals ? `$${(totals.pay / 100).toFixed(2)}` : "Assign carrier"}
+            </button> : "—"}</td>
           <td style={td} className="carrier-total">{totals?.bill != null ? `$${(totals.bill / 100).toFixed(2)}` : totals ? "Rate unavailable" : "—"}</td>
         </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           <div className="booking-row-controls">
-          {canWrite && !locked && <>
-            <button type="button" style={{ ...button, padding: "5px 8px", fontSize: 11 }}
-              aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
-              onClick={() => void save(row, draft)}>Save</button>
-          </>}
-          {canManage && (row.container_number || row.booking_line_id) && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
-            onClick={() => { setChargesOnly(false); setDetailId(row.id); }}>Carrier / charges</button>}
+          {canManage && canWrite && row.carrier_plan && !locked && <button type="button" className="carrier-charge-plus"
+            aria-label={`Edit charges for load ${row.sequence_no}`} disabled={Boolean(working) || bulkSaving}
+            onClick={() => { setChargesOnly(true); setDetailId(row.id); }}>+</button>}
+          {canWrite && !locked && !saved && saveFailed[row.id] &&
+            <button type="button" className="carrier-rate-link" disabled={Boolean(working) || bulkSaving}
+              onClick={() => void save(row, draft)}>Retry</button>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions"><summary>Mark actions</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#bbc9c2" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
