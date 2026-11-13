@@ -28,6 +28,23 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const rate = rates.find(item => item.id === selected);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const lastFilledName = useRef("");
+
+  function fillCarrierName(code: string) {
+    const input = nameInput.current;
+    if (!input) return;
+    const normalized = code.trim().toUpperCase();
+    const saved = rates.filter(item => item.carrier_id.trim().toUpperCase() === normalized && item.carrier_name.trim())
+      .reduce<CarrierRate | undefined>((latest, item) => !latest || item.updated_at > latest.updated_at ? item : latest, undefined);
+    if (saved) {
+      input.value = saved.carrier_name;
+      lastFilledName.current = saved.carrier_name;
+    } else if (input.value === lastFilledName.current || input.value === rate?.carrier_name) {
+      input.value = "";
+      lastFilledName.current = "";
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,8 +77,8 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId 
     </select></label>}
     <form key={rate ? `${rate.id}:${rate.updated_at}` : "new"} onSubmit={submit}>
       <fieldset disabled={saving} style={{ display: "grid", gap: 8, maxWidth: 620 }}>
-        <label>McLeod carrier code <input placeholder="e.g. SCMIRIGA" name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>
-        <label>Carrier name <input name="name" required maxLength={100} defaultValue={rate?.carrier_name} /></label>
+        <label>McLeod carrier code <input placeholder="e.g. SCMIRIGA" name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} onChange={event => fillCarrierName(event.target.value)} /></label>
+        <label>Carrier name <input ref={nameInput} name="name" required maxLength={100} defaultValue={rate?.carrier_name} /></label>
         <label>Delivery <input placeholder="McLeod location code, e.g. BNSFHATX" name="lane" required maxLength={100} defaultValue={rate?.lane} /></label>
         <table><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th></tr></thead>
           <tbody>{rateItems.map(({ key, label, code }) => <tr key={key}>
