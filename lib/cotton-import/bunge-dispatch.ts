@@ -1,3 +1,4 @@
+import { MAX_COTTON_PICKUPS } from "./stop-off.ts";
 export type DispatchLine = { row: number; mark: string; salesOrder: string; bales: number; weight?: number; warehouse: string; rtl: string; usdaWarehouseCode: string | null };
 export type DispatchOrder = { mark: string; salesOrder: string; bales: number; bookingNumber?: string; pickups: DispatchLine[] };
 const str = (v: unknown) => String(v ?? "").trim();
@@ -30,8 +31,8 @@ export function parseBungeDispatch(rows: readonly (readonly unknown[])[]) {
       continue;
     }
     const order = grouped.get(key) ?? { mark, salesOrder, bales: 0, pickups: [] };
-    if (order.pickups.length === 2) {
-      blocked.push({ row: index + 1, reason: "More than two pickup lines" });
+    if (order.pickups.length >= MAX_COTTON_PICKUPS) {
+      blocked.push({ row: index + 1, reason: `More than ${MAX_COTTON_PICKUPS} pickup lines` });
       invalidOrders.add(key);
       continue;
     }

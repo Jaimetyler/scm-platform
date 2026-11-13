@@ -1,3 +1,4 @@
+import TransitRateGrid from "../rates/TransitRateGrid";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -25,10 +26,7 @@ export default async function CarrierRatesPage({ searchParams }: {
       <Link href={workspaceHref("carriers", location)} aria-current={!transit ? "page" : undefined}>Local Dray Rates</Link>
       <Link href={`/warehouse/carriers?${transitQuery}`} aria-current={transit ? "page" : undefined}>Transit Inbound Rates</Link>
     </nav>
-    {transit ? <section className="warehouse-empty-state">
-      <h2>Transit Inbound Rates</h2>
-      <p>Flat carrier pay per load by pickup city, state, and delivery warehouse. Rate entry and import are pending.</p>
-    </section> : <>
+    {transit ? <TransitRateGrid side="carrier" /> : <>
     {result?.error ? <p role="alert">Could not load local dray rates.</p> :
       <CarrierRateEditor key={locationQuery(location).toString()} initialRates={result?.data ?? []} location={location} />}
     </>}

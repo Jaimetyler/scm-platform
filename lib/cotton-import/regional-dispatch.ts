@@ -1,3 +1,4 @@
+import { MAX_COTTON_PICKUPS } from "./stop-off.ts";
 import { buildCottonOrderPreview } from "./preview.ts";
 import type { CottonLocation } from "./location-resolution.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
@@ -7,8 +8,8 @@ export function regionalOrder(lines: PickupLine[], salesOrder: string, destinati
   revenue: "MAIN" | "DAVIS", locations: readonly CottonLocation[], customerId: "BUNGOMNE" | "OLAMRITX" = "BUNGOMNE") {
   const matches = lines.filter(line => line.so === salesOrder);
   const mark = matches[0]?.mark;
-  if (!mark || matches.length > 2 || matches.some(line => line.mark !== mark || !line.rtl || !line.warehouseCode))
-    throw Error("Selected order requires one mark, one or two pickups, and mapped warehouse codes and dates.");
+  if (!mark || matches.length > MAX_COTTON_PICKUPS || matches.some(line => line.mark !== mark || !line.rtl || !line.warehouseCode))
+    throw Error("Selected order requires one mark, up to 20 pickups, and mapped warehouse codes and dates.");
   const distinct = new Set(matches.map(line => `${line.warehouseCode}|${line.rtl}`));
   if (distinct.size !== matches.length) throw Error("Repeated pickup location and date require review.");
   const bookings = [...new Set(matches.map(line => line.bookingNumber).filter(Boolean))];

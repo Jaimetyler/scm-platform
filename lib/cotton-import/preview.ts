@@ -1,3 +1,4 @@
+import { MAX_COTTON_PICKUPS } from "./stop-off.ts";
 import { resolveCottonLocation, type CottonLocation } from "./location-resolution.ts";
 
 export type CottonPickup = {
@@ -44,8 +45,8 @@ export function buildCottonOrderPreview(input: CottonImportInput, locations: rea
   if (!Number.isSafeInteger(input.baleCount) || input.baleCount <= 0) throw new Error("Invalid bale count");
   const blnum = `${mark} ${input.baleCount} BALES`;
   if (blnum.length > 28) throw new Error("McLeod BLNUM exceeds 28 characters");
-  if (!Array.isArray(input.pickups) || input.pickups.length < 1 || input.pickups.length > 2)
-    throw new Error("Cotton imports require one or two pickup stops");
+  if (!Array.isArray(input.pickups) || input.pickups.length < 1 || input.pickups.length > MAX_COTTON_PICKUPS)
+    throw new Error("Cotton imports require between 1 and 20 pickup stops");
   const pickupStops = input.pickups.map((pickup) => {
     const location = resolveCottonLocation(pickup.locationCode, locations);
     const scheduledTime = pickup.scheduledTime?.trim() || null;
