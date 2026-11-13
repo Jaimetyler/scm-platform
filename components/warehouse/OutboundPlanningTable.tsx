@@ -14,7 +14,7 @@ const columns: { label: string; width: number; key?: SortKey }[] = [
   { label: "Containers", width: 7, key: "planned_containers" }, { label: "To load", width: 4 }, { label: "Loaded", width: 4 }, { label: "SSL", width: 3 },
   { label: "Booking #", width: 8, key: "booking_number" }, { label: "ERD", width: 7, key: "erd" },
   { label: "Cutoff", width: 8, key: "cutoff" }, { label: "Ramp / return", width: 7 },
-  { label: "Uncovered", width: 7 }, { label: "Comments / alerts", width: 13 }, { label: "", width: 8 },
+  { label: "Uncovered", width: 7 }, { label: "Carrier breakdown", width: 12 }, { label: "Comments / alerts", width: 11 },
 ];
 
 export default function OutboundPlanningTable({ bookings, activeBookings, returnTo, now }: {
@@ -86,7 +86,7 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
     <div className={styles.heading}><div><strong>Outbound planning sheet</strong><p>One booking per row · click a booking to open its load plan</p></div>
       <span>{rows.length} bookings · {rows.reduce((sum, row) => sum + row.requested_bales, 0).toLocaleString()} bales</span>
       {dallasBookings.length > 0 && <button className={styles.pull} type="button" disabled={!!refreshing}
-        title="Refresh all active Dallas bookings in this location" onClick={() => void refresh(dallasBookings)}>Refresh bookings</button>}</div>
+        title="Check matching McLeod orders for active Dallas bookings in this location" onClick={() => void refresh(dallasBookings)}>{refreshing ? "Checking McLeod…" : "Check McLeod orders"}</button>}</div>
     <div className={styles.legend}><span>Dates:</span><span className={styles.scheduled}>Upcoming</span><span className={styles.today}>Today</span><span className={styles.overdue}>Past date</span><span>Uncovered counts booking rows without a saved carrier assignment. Loaded counts containers with a saved container number.</span></div>
     <div className={styles.scroll} tabIndex={0} role="region" aria-label="Booking planning table">
       <table className={styles.table} role="table">
@@ -108,6 +108,10 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
             className={item.uncovered_containers == null ? styles.unknown : item.uncovered_containers > 0 ? styles.shortage : styles.covered}>
             {item.uncovered_containers ?? "—"}
           </td>
+          <td role="cell" data-label="Carrier breakdown" className={styles.carriers}>
+            {item.carrier_breakdown?.length ? item.carrier_breakdown.map(carrier =>
+              <span key={carrier.code}>{carrier.name || carrier.code} · <strong>{carrier.count}</strong></span>) : "—"}
+          </td>
           <td role="cell" data-label="Comments / alerts" className={styles.alerts}>
             {!!item.missing_marks && <span className={styles.hold}>{item.missing_marks} inventory marks missing</span>}
             {pulled && <span>Matched {pulled.matchedOrders} SCM orders · checked {new Date(pulled.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
@@ -119,10 +123,6 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
             {item.doc_cutoff && <span>Doc cutoff: {formatBookingDate(item.doc_cutoff, item.doc_cutoff_has_time)}</span>}
             {!item.held_marks && !item.source_arrivals && !item.source_loads && !item.doc_cutoff && <span>—</span>}
           </td>
-          <td role="cell" data-label="">{item.terminal === "DAL" && <button className={styles.pull} type="button" disabled={!!refreshing}
-            onClick={() => void refresh([item])} aria-label={`Refresh booking ${item.booking_number}`}>
-            {refreshing === item.id ? "Refreshing…" : "Refresh this booking"}
-          </button>}</td>
         </tr>; })}</tbody>
       </table>
     </div>
