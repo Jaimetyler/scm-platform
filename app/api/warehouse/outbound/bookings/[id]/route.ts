@@ -8,7 +8,7 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 export const runtime = "nodejs";
 export const maxDuration = 120;
-async function loadInboundMarks(sb: ReturnType<typeof createClient>, terminal: string, siteCode: string, marks: string[]) {
+async function loadInboundMarks(sb: ReturnType<typeof createClient<any>>, terminal: string, siteCode: string, marks: string[]) {
   if (!marks.length) return new Map<string, { bales: number; statuses: Set<string>; numbers: Set<number> }>();
   const { data: inboundRows, error: inboundError } = await sb.from("inbound_checkin_rows")
     .select("mark,bol_bc,bale_count,driver_reported_bales,yard_status,arrival_number:warehouse_arrival_numbers(queue_number)")
