@@ -22,6 +22,16 @@ test("uncovered counts open booking slots without a carrier, including slots wit
         (2,null,null,null,'{"rate":{"carrier_id":"SCMIRIGA"}}');
     `);
     await db.exec(await readFile(new URL("../supabase/migrations/20261113141000_outbound_booking_uncovered.sql", import.meta.url), "utf8"));
+    await db.exec(`insert into cotton_outbound_containers values
+      (1,1,null,null,'{"rate":{"carrier_id":"scmiriga","carrier_name":"SCMI"}}'),
+      (1,2,null,null,'{"rate":{"carrier_id":"HOLD"}}'),
+      (1,null,null,9,'{"rate":{"carrier_id":"SPLIT"}}');`);
+    await db.exec(await readFile(new URL("../supabase/migrations/20261113153000_outbound_booking_carrier_breakdown.sql", import.meta.url), "utf8"));
+    const breakdown = await db.query("select carrier_breakdown from cotton_outbound_booking_search_dashboard order by id");
+    assert.deepEqual(breakdown.rows.map(row => row.carrier_breakdown), [
+      [{ code: "SCMIRIGA", name: "SCMI", count: 2 }],
+      [{ code: "SCMIRIGA", name: null, count: 1 }],
+    ]);
     const result = await db.query("select uncovered_containers from cotton_outbound_booking_search_dashboard order by id");
     assert.deepEqual(result.rows.map(row => row.uncovered_containers), [2, 0]);
   } finally { await db.close(); }

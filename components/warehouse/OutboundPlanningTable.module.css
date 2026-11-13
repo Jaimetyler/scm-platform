@@ -63,3 +63,6 @@
   .table td.alerts { grid-column: 1 / -1; }
   .table td:empty { display: none; }
 }
+
+.carriers span { display: block; }
+.carriers strong { font-variant-numeric: tabular-nums; }

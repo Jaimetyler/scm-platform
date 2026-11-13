@@ -5,6 +5,7 @@ export type DashboardBooking = {
   steamship_line?: string | null; loaded_containers?: number; uncovered_containers?: number;
   erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null;
   doc_cutoff_has_time: boolean; cutoff_has_time: boolean;
+  carrier_breakdown?: { code: string; name: string | null; count: number }[];
   missing_marks?: number; source_loads?: number; held_marks?: number; source_arrivals?: number;
 };
 export type DeadlineView = "all" | "today" | "upcoming" | "past";
