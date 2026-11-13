@@ -10,7 +10,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import CutoffInput from "@/components/warehouse/CutoffInput";
 import PlatformPanel from "@/components/platform/PlatformPanel";
-import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
+import { bookingReturnLocationLabel, carrierRatesForReturn } from "@/lib/warehouse/outbound/return-location";
 import { bookingDateInput, formatBookingDate } from "@/lib/warehouse/outbound/details";
 
 import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/warehouse/outbound/container-info-rows";
@@ -424,6 +424,7 @@ export default function CottonOutboundBookingPage() {
 
   if (loading) return <main style={{ color: "#e2e8f0" }}>Loading booking…</main>;
   if (!booking) return <main><PlatformPageHeader compact title="Outbound Booking Not Found" actions={<Link href={backHref} style={button}>Back</Link>} />{error && <p style={{ color: "#fca5a5" }}>{error}</p>}</main>;
+  const assignmentRates = carrierRatesForReturn(carrierRates, booking.return_location, booking.return_location_code);
   const activeContainers = containers.filter((row) => !row.split_transfer_id && (!row.booking_line_id || lines.find((line) => line.id === row.booking_line_id)?.line_status === "active"));
   const complete = activeContainers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
   const lineById = new Map(lines.map((line) => [line.id, line]));
@@ -685,7 +686,7 @@ export default function CottonOutboundBookingPage() {
           </div>
         </td></tr>;
     })}</tbody></table></div>
-    {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
+    {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={assignmentRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     </PlatformPanel>
     {detailRow && <dialog ref={detailDialog} className="carrier-details-dialog" aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
@@ -694,7 +695,7 @@ export default function CottonOutboundBookingPage() {
         <form method="dialog"><button type="submit">Close</button></form>
       </div>
       <h3>Carrier and charges</h3>
-      {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} billing={customerBilling} rates={carrierRates}
+      {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} billing={customerBilling} rates={assignmentRates}
         sequence={detailRow.sequence_no} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
         onSave={selection => save(detailRow, detailDraft, selection)} />}
       {error && <p role="alert">{error}</p>}

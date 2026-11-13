@@ -1,3 +1,4 @@
+import { carrierRateMatchesReturn } from "@/lib/warehouse/outbound/return-location";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -25,7 +26,7 @@ function validSite(terminal: string, siteCode: string) {
   return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton"));
 }
 async function findBooking(id: string, terminal: string, siteCode: string) {
-  const { data, error } = await database().from("cotton_outbound_bookings").select("status")
+  const { data, error } = await database().from("cotton_outbound_bookings").select("status,return_location,return_location_code")
     .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).maybeSingle();
   if (error) throw error;
   return data;
@@ -84,6 +85,8 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
             .match({ id: rateId, terminal, site_code: siteCode }).maybeSingle();
           if (result.error) throw new Error("Could not load the carrier rate.");
           rate = result.data;
+          if (rate && !carrierRateMatchesReturn(rate.lane, booking.return_location, booking.return_location_code))
+            return NextResponse.json({ error: "Choose a carrier with a rate for this booking’s return location." }, { status: 400 });
         }
         if (!rate) return NextResponse.json({ error: "That carrier rate is unavailable at this warehouse." }, { status: 400 });
         if (body.carrierPlan.rateVersion !== rate.updated_at)

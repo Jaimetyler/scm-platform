@@ -112,9 +112,10 @@ export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave
     <div className="carrier-editor">
       <select aria-label={`Outside carrier for container ${sequence}`} value={selection} disabled={disabled} onChange={event => { setSelection(event.target.value); setBasePayOverride(event.target.value === plan?.rate.id ? savedOverride : ""); }}>
         <option value="">Unassigned</option>
-        {rate && !rates.some(item => item.id === rate.id) && <option value={rate.id}>{rate.carrier_name} · {rate.lane}</option>}
-        {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
+        {rate && !rates.some(item => item.id === rate.id) && <option value={rate.id}>{rate.carrier_name} (saved assignment)</option>}
+        {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id})</option>)}
       </select>
+      {!rates.length && <small>Set the booking return location and add a matching carrier rate card.</small>}
     </div>
     <div className="carrier-editor">
       <label style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -200,15 +201,15 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
       <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} className="carrier-primary-action" onClick={() => openAction("charge")}>Add charges</button>
       <button type="button" disabled={disabled} onClick={onClear}>Clear selection</button>
     </div>
-    {!rates.length && <small>Add a carrier rate card to assign a carrier.</small>}
+    {!rates.length && <small>Set the booking return location and add a matching carrier rate card.</small>}
     {rates.length > 0 && !allAssigned && <small>Assign a carrier to every selected row to add a charge.</small>}
     <dialog ref={actionDialog} className="carrier-details-dialog" aria-labelledby="carrier-batch-title"
       onClose={() => setMode(null)} onCancel={event => { if (disabled) event.preventDefault(); }}>
       {mode && <form onSubmit={submit} className="carrier-batch-form">
       <h2 id="carrier-batch-title">{mode === "carrier" ? "Assign carrier" : "Add charges"} · {plans.length} selected</h2>
-      {mode === "carrier" ? <label>Carrier rate card <select value={rateId} disabled={disabled} onChange={event => setRateId(event.target.value)}>
+      {mode === "carrier" ? <label>Carrier <select value={rateId} disabled={disabled} onChange={event => setRateId(event.target.value)}>
         <option value="">Choose carrier</option>
-        {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
+        {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name}</option>)}
       </select></label> : <>
         {accessorials.map(({ key, label }) => <label key={key}>{label} per container
           <input type="number" min="0" max="999" step="1" placeholder="0" value={units[key]} disabled={disabled}
