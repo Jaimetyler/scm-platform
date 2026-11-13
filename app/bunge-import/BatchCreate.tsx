@@ -6,6 +6,15 @@ import type { DispatchInput } from "./DispatchUpload";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
 
+function LocationWarning({ outcome }: { outcome: string }) {
+  const match = /(?:Inactive location|Ambiguous location code|Unknown location code): ([A-Z0-9_-]+)\.?$/i.exec(outcome);
+  if (!match) return outcome;
+  const code = match[1];
+  const start = match.index + match[0].indexOf(": ") + 2;
+  return <>{outcome.slice(0, start)}<a style={{ color: "#7dd3fc", textDecoration: "underline" }}
+    href={`/cotton-locations?location=${encodeURIComponent(code)}`} target="_blank" rel="noopener noreferrer">{code}</a>{outcome.slice(start + code.length)}</>;
+}
+
 type Preflight = {
   canCreate?: boolean; reviewToken?: string; mcleodOrderId?: string | null;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
@@ -78,7 +87,7 @@ export default function BatchCreate({ terminal, submission, orders, onBusy, dest
         {busy && <p>Batch checking or creating SO {batchCurrent}…</p>}
         {!!batchResults.length && <section className={styles.guide} aria-label="Batch results">
           <h3>Batch results</h3>
-          <ul>{batchResults.map(row => <li key={row.so}><strong>{row.so}</strong> · {row.outcome}</li>)}</ul>
+          <ul>{batchResults.map(row => <li key={row.so}><strong>{row.so}</strong> · <LocationWarning outcome={row.outcome} /></li>)}</ul>
         </section>}
       </div>
   </>;
