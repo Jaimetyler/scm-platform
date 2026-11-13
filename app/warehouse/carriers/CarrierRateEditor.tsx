@@ -24,6 +24,7 @@ export default function CarrierRateEditor({ initialRates, location }: { initialR
   const [rates, setRates] = useState(initialRates);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState("");
+  const [copying, setCopying] = useState<YardRate | null>(null);
   const [formVersion, setFormVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -36,9 +37,10 @@ export default function CarrierRateEditor({ initialRates, location }: { initialR
   const visible = terminalRates.filter(rate => (!delivery || rate.lane === delivery) && [rate.carrier_id, rate.carrier_name, rate.lane].some(value => value.toLowerCase().includes(query)))
     .sort((a, b) => a.carrier_name.localeCompare(b.carrier_name) || a.lane.localeCompare(b.lane));
 
-  function edit(id: string) {
+  function edit(id: string, source: YardRate | null = null) {
     setEditing(id);
-    setYardCode(rates.find(rate => rate.id === id)?.site_code ?? scopedYard?.siteCode ?? "");
+    setCopying(source);
+    setYardCode(source?.site_code ?? rates.find(rate => rate.id === id)?.site_code ?? scopedYard?.siteCode ?? "");
     setFormVersion(current => current + 1);
     setMessage("");
     editor.current?.showModal();
@@ -85,17 +87,25 @@ export default function CarrierRateEditor({ initialRates, location }: { initialR
           {rateItems.map(item => <th scope="col" key={item.key}>{item.key === "chassisDays" ? "Chassis per day" : item.label}</th>)}<th scope="col">Actions</th></tr></thead>
         <tbody>{visible.map(rate => <tr key={rate.id}><th scope="row">{rate.carrier_name}</th><td>{rate.carrier_id}</td><td>{yards.find(site => site.siteCode === rate.site_code && site.terminal === rate.terminal)?.displayCode ?? rate.site_code}</td><td>{rate.lane}</td>
           {rateItems.map(item => <td key={item.key} className={styles.amount}>{money.format(rate.rates[item.key].pay / 100)}</td>)}
-          <td><button className={styles.button} aria-label={`Edit ${rate.carrier_name}, ${rate.lane}`} onClick={() => edit(rate.id)}>Edit</button></td></tr>)}
+          <td><select aria-label={`Actions for ${rate.carrier_name}, ${rate.lane}`} value="" onChange={event => {
+            if (event.target.value === "edit") edit(rate.id);
+            if (event.target.value === "copy") edit("", rate);
+          }}>
+            <option value="">Actions</option>
+            <option value="edit">Edit rate</option>
+            <option value="copy">Copy rate</option>
+          </select></td></tr>)}
           {!visible.length && <tr><td colSpan={9}>{query ? "No matching carrier rates." : "No rates match these filters."}</td></tr>}</tbody>
       </table>
     </div>
-    <dialog ref={editor} className={styles.dialog} aria-labelledby="carrier-rate-editor-title" onCancel={event => { if (busy) event.preventDefault(); }}>
-      <h2 id="carrier-rate-editor-title">{editing ? "Edit local dray rate" : "Add carrier rate"}</h2>
+    <dialog ref={editor} className={`${styles.dialog} carrier-rate-editor-dialog`} aria-labelledby="carrier-rate-editor-title" onCancel={event => { if (busy) event.preventDefault(); }}>
+      <h2 id="carrier-rate-editor-title">{editing ? "Edit local dray rate" : copying ? "Copy local dray rate" : "Add local dray rate"}</h2>
+      {copying && <p>Copied from {copying.carrier_name} · {copying.lane}. Choose the warehouse and update the carrier or delivery as needed before saving.</p>}
       <label className={styles.label}>Warehouse<select value={yardCode} disabled={Boolean(editing) || busy} onChange={event => setYardCode(event.target.value)}>
         <option value="">Choose a warehouse</option>
         {yards.map(site => <option key={site.siteCode} value={site.siteCode}>{site.siteName}</option>)}
       </select></label>
-      {yard && <CarrierRateForm key={`${formVersion}:${yardCode}`} initialId={editing} rates={rates}
+      {yard && <CarrierRateForm key={`${formVersion}:${yardCode}`} initialId={editing} copyFrom={copying ?? undefined} rates={rates}
         endpoint={`/api/warehouse/carrier-rates?terminal=${yard.terminal}&siteCode=${yard.siteCode}`} onSaving={setBusy}
         onSaved={rate => {
           setRates(current => [...current.filter(item => item.id !== rate.id), { ...rate, terminal: yard.terminal, site_code: yard.siteCode }]);
