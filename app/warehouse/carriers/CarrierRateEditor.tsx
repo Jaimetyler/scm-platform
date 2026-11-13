@@ -83,7 +83,7 @@ export default function CarrierRateEditor({ initialRates, endpoint }: { initialR
       <p>Imports add rates to the selected yard. A duplicate carrier code and delivery in the file or at this yard rejects the entire import. Use Edit in the grid to change existing rates.</p>
       <a className={`${styles.button} ${styles.download}`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`} download="carrier-rate-import-template.csv">Download CSV template</a>
       <RateImportGuide columns={[
-        ["carrierId", "Yes", "McLeod carrier code, for example ABC123. Use up to 30 letters, numbers, hyphens, or underscores."],
+        ["carrierId", "Yes", "Use the 8-character McLeod carrier code, for example SCMIRIGA."],
         ["carrierName", "Yes", "Carrier name as it should appear on the rate card."],
         ["lane", "Yes", "Delivery location. Use the McLeod location code, for example BNSFHATX."],
         ["base", "Yes", "Base drayage pay for one load."],
