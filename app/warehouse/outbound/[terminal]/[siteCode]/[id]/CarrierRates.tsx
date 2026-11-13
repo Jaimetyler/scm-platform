@@ -129,7 +129,7 @@ export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave
       </label>)}
       {plan && <details>
         <summary>Saved pay ${dollars(lines.reduce((total, line) => total + line.payTotal, 0))}</summary>
-        <ul>{lines.map(line => <li key={line.key}>{line.units} × {line.label}{line.code && ` (${line.code})`} · pay ${dollars(line.payTotal)} · bill {line.billTotal == null ? "rate unavailable" : `$${dollars(line.billTotal)}`}</li>)}</ul>
+        <ul>{lines.map(line => <li key={line.key}>{line.key === "chassisDays" ? "Chassis" : `${line.units} × ${line.label}`}{line.code && ` (${line.code})`} · pay {line.key === "chassisDays" && `${line.units} days, `}${dollars(line.payTotal)} · bill {line.billUnits !== line.units && `${line.billUnits} days, `}{line.billTotal == null ? "rate unavailable" : `$${dollars(line.billTotal)}`}</li>)}</ul>
       </details>}
       <button type="button" className="carrier-primary-action" disabled={!dirty || disabled || Boolean(selection) && (!rate || !validCounts || !validOverride)} onClick={() =>
         void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>Save carrier details</button>
@@ -175,7 +175,12 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
   const addedBill = accessorials.reduce<number | null>((total, { key }) => {
     if (!quantities[key]) return total;
     const rate = billing?.[key];
-    return total == null || rate == null ? null : total + rate * quantities[key] * plans.length;
+    const units = key === "chassisDays" ? plans.reduce((sum, plan) => {
+      const current = plan?.quantities.chassisDays ?? 0;
+      const minimum = billing?.minimumChassisDays ?? 0;
+      return sum + Math.max(current + quantities[key], minimum) - Math.max(current, minimum);
+    }, 0) : quantities[key] * plans.length;
+    return units === 0 ? total : total == null || rate == null ? null : total + rate * units;
   }, 0);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

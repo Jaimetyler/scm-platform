@@ -4,11 +4,12 @@ type Charge = { units?: number | null; code: string; description: string; amount
 export type ApprovalRate = { rateCode?: number; includedChassisDays: number; chassisDailyRate: number; fuelMode?: FuelMode; baseRate?: number | null };
 const fuel = (charge: Charge) => /^(?:FSC|FUEL)$/i.test(charge.code.trim()) ||
   /\bFSC\b|\bfuel\s+(?:sur(?:charge)?|surcharge)\b/i.test(charge.description);
-const chassis = (charge: Charge) => /^(?:CHAS|CHASSIS)$/i.test(charge.code.trim()) || /\bchassis\b/i.test(charge.description);
+const chassis = (charge: Charge) => !/^CS$/i.test(charge.code.trim()) && !/\bsplit\b/i.test(charge.description) && (/^(?:CHAS|CHASSIS)$/i.test(charge.code.trim()) || /\bchassis\b/i.test(charge.description));
 
 // One allowance per order, even when McLeod splits chassis over several lines.
 export function approvalCharges<T extends Charge>(total: number | null, charges: T[] | null, rate?: ApprovalRate | null, negotiatedFuel = true) {
-  let allowance = rate ? Math.round(rate.includedChassisDays * rate.chassisDailyRate * 100) : 0;
+  const minimumChassisCents = rate ? rate.includedChassisDays * Math.round(rate.chassisDailyRate * 100) : 0;
+  let allowance = minimumChassisCents;
   let remainingDays = rate?.includedChassisDays ?? 0;
   let includedChassis = 0;
   const standardFuel = rate?.fuelMode ? rate.fuelMode === "base_plus_fsc" : negotiatedFuel;
@@ -42,6 +43,7 @@ export function approvalCharges<T extends Charge>(total: number | null, charges:
   const baseVariance = allIn === null || rate?.baseRate == null ? null :
     (Math.round(allIn * 100) - fuelCents - Math.round(rate.baseRate * 100)) / 100;
   return { extras, allIn, baseVariance, billedFsc, includedChassis: includedChassis / 100,
+    chassisMinimumShortfall: complete ? (minimumChassisCents - includedChassis) / 100 : null,
     standardTotal: allIn === null ? null : (Math.round(allIn * 100) + includedChassis) / 100, extraTotal };
 }
 

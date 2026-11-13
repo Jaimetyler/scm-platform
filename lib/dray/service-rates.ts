@@ -57,9 +57,9 @@ export function normalizeServiceRate(row: Record<string, unknown>): ServiceRate 
   }
   const days = Number(value("included_chassis_days"));
   if (!/^\d{1,3}$/.test(value("included_chassis_days")) || !Number.isInteger(days))
-    throw Error("Enter the included chassis days, using 0 for none.");
+    throw Error("Enter minimum chassis days, using 0 for no minimum.");
   const daily = money("chassis_daily_rate")!;
-  if (days > 0 && daily <= 0) throw Error("Enter a positive chassis daily rate when days are included.");
+  if (days > 0 && daily <= 0) throw Error("Enter a positive chassis daily rate when a minimum is set.");
   const active = value("active").toLowerCase();
   if (active && !["true", "false"].includes(active)) throw Error("Active must be true or false.");
   const notes = value("notes");
