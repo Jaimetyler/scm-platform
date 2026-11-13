@@ -3,7 +3,7 @@
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
 import type { reviewPickupEquipment } from "@/lib/cotton-import/equipment";
-import BatchCreate from "./BatchCreate";
+import BatchCreate, { PickupLocationLink } from "./BatchCreate";
 import { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
 type Window = {
@@ -46,7 +46,7 @@ export default function HoustonPreviewClient({ result, submission, onBusy }: {
         {result.sourceErrors.map(issue => <p key={issue.row}>Row {issue.row} · {issue.reason}</p>)}
       </details>}
       {submission && <BatchCreate terminal="houston" submission={submission}
-        orders={result.reviews.map(row => row.salesOrder)} onBusy={onBusy} />}
+        pickupCodes={so => result.reviews.filter(row => row.salesOrder === so).flatMap(row => row.pickupWindows?.map(stop => stop.locationCode) ?? [])} orders={result.reviews.map(row => row.salesOrder)} onBusy={onBusy} />}
       <div className={styles.tableWrap}><table>
         <thead><tr><th scope="col">Order</th><th scope="col">Pickup and RTL</th>
           <th scope="col">Equipment</th><th scope="col">Late-fee policy</th><th scope="col">Review</th></tr></thead>
@@ -56,7 +56,7 @@ export default function HoustonPreviewClient({ result, submission, onBusy }: {
           return <tr key={`${review.salesOrder}-${index}`}>
             <td><strong>{review.salesOrder}</strong><small>{review.preview?.blnum ?? "—"}</small></td>
             <td>{review.pickupWindows?.map((window, stop) => <div className={layout.stop} key={stop}>
-              <strong>{window.locationCode}</strong> · {window.originalRtlDate}
+              <PickupLocationLink code={window.locationCode} /> · {window.originalRtlDate}
               <small>{window.early ?? "?"}–{window.late ?? "?"}{window.status !== "ready" && ` · ${window.reason}`}</small>
             </div>) || "—"}</td>
             <td>{review.equipment?.choice && <strong>{equipmentLabels[review.equipment.choice]}</strong>}
