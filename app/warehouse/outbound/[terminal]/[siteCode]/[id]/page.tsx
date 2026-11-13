@@ -628,8 +628,6 @@ export default function CottonOutboundBookingPage() {
       </button>
       <small>{unassignedRows.length} {term ? "matching" : "available"}</small>
     </form>}
-    {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
-      disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: canManage ? 1250 : 1020, borderCollapse: "collapse" }}><thead><tr>
       {selectionEnabled && <th style={th} scope="col"><input type="checkbox" aria-label="Select all visible containers"
         checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
@@ -678,7 +676,7 @@ export default function CottonOutboundBookingPage() {
               onClick={() => void save(row, draft)}>Save</button>
           </>}
           {canManage && (row.container_number || row.booking_line_id) && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
-            onClick={() => setDetailId(row.id)}>Details</button>}
+            onClick={() => setDetailId(row.id)}>Carrier / charges</button>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions"><summary>Mark actions</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#bbc9c2" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
@@ -687,6 +685,8 @@ export default function CottonOutboundBookingPage() {
           </div>
         </td></tr>;
     })}</tbody></table></div>
+    {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
+      disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     </PlatformPanel>
     {detailRow && <dialog ref={detailDialog} className="carrier-details-dialog" aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
       <div className="carrier-dialog-heading">

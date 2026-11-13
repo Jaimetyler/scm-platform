@@ -131,8 +131,8 @@ export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave
         <summary>Saved pay ${dollars(lines.reduce((total, line) => total + line.payTotal, 0))}</summary>
         <ul>{lines.map(line => <li key={line.key}>{line.units} × {line.label}{line.code && ` (${line.code})`} · pay ${dollars(line.payTotal)} · bill {line.billTotal == null ? "rate unavailable" : `$${dollars(line.billTotal)}`}</li>)}</ul>
       </details>}
-      {dirty && <button type="button" disabled={disabled || Boolean(selection) && (!rate || !validCounts || !validOverride)} onClick={() =>
-        void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>Save carrier details</button>}
+      <button type="button" className="carrier-primary-action" disabled={!dirty || disabled || Boolean(selection) && (!rate || !validCounts || !validOverride)} onClick={() =>
+        void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>Save carrier details</button>
     </div>
   </>;
 }
@@ -151,6 +151,12 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
   onApply: (action: CarrierBatchAction) => Promise<void>; onClear: () => void;
 }) {
   const [mode, setMode] = useState<"carrier" | "charge" | null>(null);
+  const actionDialog = useRef<HTMLDialogElement>(null);
+
+  function openAction(next: "carrier" | "charge") {
+    setMode(next);
+    actionDialog.current?.showModal();
+  }
   const [rateId, setRateId] = useState("");
   const [units, setUnits] = useState<Record<keyof Quantities, string>>({ chassisDays: "", chassisSplits: "", stopoffs: "" });
   const rate = rates.find(item => item.id === rateId);
@@ -176,19 +182,24 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
     event.preventDefault();
     if (disabled) return;
     if (mode === "carrier" && rate) await onApply({ rate });
-    if (mode === "charge" && canAddCharges) await onApply({ charges: quantities });
+    else if (mode === "charge" && canAddCharges) await onApply({ charges: quantities });
+    else return;
+    actionDialog.current?.close();
   }
 
   return <div className="carrier-batch">
     <div className="carrier-batch-actions">
       <strong>{plans.length} selected</strong>
-      <button type="button" aria-pressed={mode === "carrier"} disabled={disabled || !rates.length} onClick={() => setMode("carrier")}>Assign carrier</button>
-      <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} onClick={() => setMode("charge")}>Add charges</button>
+      <button type="button" aria-pressed={mode === "carrier"} disabled={disabled || !rates.length} className="carrier-primary-action" onClick={() => openAction("carrier")}>Assign carrier</button>
+      <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} className="carrier-primary-action" onClick={() => openAction("charge")}>Add charges</button>
       <button type="button" disabled={disabled} onClick={onClear}>Clear selection</button>
     </div>
     {!rates.length && <small>Add a carrier rate card to assign a carrier.</small>}
     {rates.length > 0 && !allAssigned && <small>Assign a carrier to every selected row to add a charge.</small>}
-    {mode && <form onSubmit={submit} className="carrier-batch-actions">
+    <dialog ref={actionDialog} className="carrier-details-dialog" aria-labelledby="carrier-batch-title"
+      onClose={() => setMode(null)} onCancel={event => { if (disabled) event.preventDefault(); }}>
+      {mode && <form onSubmit={submit} className="carrier-batch-form">
+      <h2 id="carrier-batch-title">{mode === "carrier" ? "Assign carrier" : "Add charges"} · {plans.length} selected</h2>
       {mode === "carrier" ? <label>Carrier rate card <select value={rateId} disabled={disabled} onChange={event => setRateId(event.target.value)}>
         <option value="">Choose carrier</option>
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
@@ -200,11 +211,14 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
         {canAddCharges && <span>Added pay ${dollars(added.pay)} · {addedBill == null ? "Customer billing rate missing" : `Added bill $${dollars(addedBill)}`}</span>}
         {exceedsLimit && <span role="alert">A container can have up to 999 units per charge.</span>}
       </>}
-      <button type="submit" disabled={disabled || (mode === "carrier" ? !rate : !canAddCharges)}>
+      <footer className="carrier-batch-actions">
+      <button type="submit" className="carrier-primary-action" disabled={disabled || (mode === "carrier" ? !rate : !canAddCharges)}>
         {disabled ? "Saving…" : mode === "carrier" ? "Apply carrier" : "Add to selected"}
       </button>
-      <button type="button" disabled={disabled} onClick={() => setMode(null)}>Cancel</button>
+      <button type="button" disabled={disabled} onClick={() => actionDialog.current?.close()}>Cancel</button>
+      </footer>
     </form>}
+    </dialog>
   </div>;
 }
 

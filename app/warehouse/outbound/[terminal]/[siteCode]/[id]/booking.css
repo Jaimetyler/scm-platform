@@ -141,3 +141,25 @@
   white-space: nowrap;
   color: #bbc9c2;
 }
+
+.carrier-batch {
+  position: sticky;
+  bottom: 8px;
+  z-index: 30;
+  margin: 8px 0 0;
+  background: #17283a;
+  border-color: #68849e;
+  box-shadow: 0 4px 16px #02061799;
+}
+
+.carrier-batch-form { display: grid; gap: 12px; }
+.carrier-batch-form h2 { margin: 0; font-size: 1.1rem; }
+.carrier-batch-form footer { justify-content: flex-end; }
+.outbound-booking button.carrier-primary-action {
+  background: #9dc9b4;
+  color: #102b23;
+  border-color: #9dc9b4;
+  font-weight: 750 !important;
+  padding: 8px 12px;
+}
+.outbound-booking button.carrier-primary-action:disabled { opacity: .55; }
