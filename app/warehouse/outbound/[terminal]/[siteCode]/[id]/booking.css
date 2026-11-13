@@ -101,3 +101,43 @@
 .carrier-rates-dialog table { width: 100%; }
 .carrier-rates-dialog th { text-align: left; }
 .carrier-rates-dialog input[type="number"] { width: min(100%, 120px); }
+
+.booking-quick-select, .booking-quick-select label, .booking-row-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.booking-quick-select {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.booking-quick-select input[type="number"] {
+  width: 66px !important;
+}
+
+.booking-quick-select small {
+  color: #bbc9c2;
+}
+
+.carrier-load-grid td > input:not([type="checkbox"]) {
+  padding: 4px 7px !important;
+  font-size: 14px;
+}
+
+.booking-row-controls {
+  margin-top: 3px;
+}
+
+.booking-row-controls .carrier-row-details {
+  margin: 0;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.booking-row-controls .booking-mark-actions summary {
+  white-space: nowrap;
+  color: #bbc9c2;
+}

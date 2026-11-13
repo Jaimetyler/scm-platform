@@ -42,8 +42,8 @@ const input: React.CSSProperties = { width: "100%", boxSizing: "border-box", pad
   border: "1px solid #475569", background: "#0f172a", color: "#e2e8e4" };
 const button: React.CSSProperties = { padding: "9px 12px", borderRadius: 8, border: "1px solid #475569",
   background: "#23303c", color: "#e2e8e4", cursor: "pointer", fontWeight: 700, textDecoration: "none" };
-const th: React.CSSProperties = { padding: "10px", borderBottom: "1px solid #475569", color: "#bbc9c2", fontSize: 12, textAlign: "left" };
-const td: React.CSSProperties = { padding: "9px 10px", borderBottom: "1px solid rgba(71,85,105,.45)" };
+const th: React.CSSProperties = { padding: "6px 7px", borderBottom: "1px solid #475569", color: "#bbc9c2", fontSize: 12, textAlign: "left" };
+const td: React.CSSProperties = { padding: "4px 7px", borderBottom: "1px solid rgba(71,85,105,.45)" };
 
 export default function CottonOutboundBookingPage() {
   const queryParams = useSearchParams();
@@ -59,6 +59,7 @@ export default function CottonOutboundBookingPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const canWrite = canManage && booking?.status === "draft";
   const carrierEndpoint = `/api/warehouse/outbound/bookings/${id}/carrier-rates`;
+  const [selectionCount, setSelectionCount] = useState("");
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
   const [detailId, setDetailId] = useState("");
@@ -442,6 +443,9 @@ export default function CottonOutboundBookingPage() {
   const pending = pendingEquipment().drafts;
   const selectableRows = selectionEnabled ? visibleContainers.filter(row => (row.container_number || row.booking_line_id) && !row.split_transfer_id &&
     !pending[row.id] && drafts[row.id] && (!row.booking_line_id || lineById.get(row.booking_line_id)?.line_status === "active")) : [];
+  const unassignedRows = selectableRows.filter(row => !row.carrier_plan);
+  const requestedSelection = Number(selectionCount);
+  const validSelectionCount = Number.isSafeInteger(requestedSelection) && requestedSelection > 0;
   const selectableIds = new Set(selectableRows.map(row => row.id));
   const selectedRows = selectableRows.filter(row => selectedContainers.has(row.id));
   const detailRow = containers.find(row => row.id === detailId);
@@ -612,6 +616,18 @@ export default function CottonOutboundBookingPage() {
 
     {canManage && <div style={{ marginBottom: 8 }}><Link href="/warehouse/rates">Customer billing rates</Link></div>}
     {canManage && carrierError && <p role="alert">{carrierError}</p>}
+    {selectionEnabled && canManage && <form className="booking-quick-select" onSubmit={event => {
+      event.preventDefault();
+      if (working || bulkSaving || !validSelectionCount || !unassignedRows.length) return;
+      setSelectedContainers(new Set(unassignedRows.slice(0, requestedSelection).map(row => row.id)));
+    }}>
+      <label>First unassigned <input type="number" min={1} step={1} value={selectionCount} style={input}
+        onChange={event => setSelectionCount(event.target.value)} /></label>
+      <button type="submit" style={button} disabled={!validSelectionCount || !unassignedRows.length || Boolean(working) || bulkSaving}>
+        Select{validSelectionCount && unassignedRows.length ? ` ${Math.min(requestedSelection, unassignedRows.length)}` : ""}
+      </button>
+      <small>{unassignedRows.length} {term ? "matching" : "available"}</small>
+    </form>}
     {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: canManage ? 1250 : 1020, borderCollapse: "collapse" }}><thead><tr>
@@ -642,7 +658,7 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <><strong style={{ fontSize: 16 }}>{line.mark}</strong><div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#bbc9c2" }}>Extra container</span>}</td>
+        <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#bbc9c2" }}>Extra container</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#bbc9c2" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
@@ -655,18 +671,20 @@ export default function CottonOutboundBookingPage() {
         </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
-          {canWrite && !locked && <div style={{ marginTop: 6 }}>
+          <div className="booking-row-controls">
+          {canWrite && !locked && <>
             <button type="button" style={{ ...button, padding: "5px 8px", fontSize: 11 }}
               aria-label={`Save container ${row.sequence_no}`} disabled={saved || Boolean(working)}
               onClick={() => void save(row, draft)}>Save</button>
-          </div>}
+          </>}
           {canManage && (row.container_number || row.booking_line_id) && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
             onClick={() => setDetailId(row.id)}>Details</button>}
-          {line && line.line_status !== "cancelled" && <details className="booking-mark-actions" style={{ marginTop: 8 }}><summary>Mark actions ▾</summary><div>
+          {line && line.line_status !== "cancelled" && <details className="booking-mark-actions"><summary>Mark actions</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#bbc9c2" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
             {line.load_source === "source_load" && <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button>}
           </div></details>}
+          </div>
         </td></tr>;
     })}</tbody></table></div>
     </PlatformPanel>
