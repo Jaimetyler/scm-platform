@@ -1,3 +1,4 @@
+import { sslBillsChassisDirectly } from "@/lib/dray/chassis-billing";
 import { NextRequest, NextResponse } from "next/server";
 import { staffActor, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
@@ -53,13 +54,15 @@ async function handler(req: NextRequest, context: { params: Promise<{ id: string
 
   const db = staffDatabase();
   const [bookingResult, rowResult] = await Promise.all([
-    db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,status,return_location_code,return_location,updated_at").eq("id", id).maybeSingle(),
+    db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,status,return_location_code,return_location,steamship_line,updated_at").eq("id", id).maybeSingle(),
     db.from("cotton_outbound_containers").select("container_number,booking_line_id,carrier_plan,updated_at").match({ id: containerId, booking_id: id }).is("split_transfer_id", null).maybeSingle(),
   ]);
   if (bookingResult.error || rowResult.error) return fail("Could not load the booking container.", 503);
   const booking = bookingResult.data;
   const row = rowResult.data;
   if (!booking || !row) return fail("Booking container not found.", 404);
+  if (sslBillsChassisDirectly(booking.terminal, booking.steamship_line))
+    return fail("MSC bills chassis directly in Dallas. This pilot applies a customer chassis charge.");
   const returnCode = bookingReturnLocation(booking.return_location_code || booking.return_location).return_location_code;
   if (booking.terminal !== "DAL" || booking.site_code !== "SCMDDETX" || booking.status !== "draft" ||
     returnCode !== "BNSFHATX" || bookingChargeCustomer(booking.customer)?.code !== "OLAMRITX") {

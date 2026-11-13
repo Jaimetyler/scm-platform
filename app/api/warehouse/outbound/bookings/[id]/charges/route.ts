@@ -1,3 +1,4 @@
+import { sslBillsChassisDirectly } from "@/lib/dray/chassis-billing";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess } from "@/lib/auth/guard";
@@ -15,7 +16,7 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   const { id } = await context.params;
   if (!/^[a-f0-9-]{36}$/i.test(id)) return NextResponse.json({ ok: false, error: "Invalid booking." }, { status: 400 });
   const db = staffDatabase();
-  const booking = await db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,return_location,return_location_code").eq("id", id).maybeSingle();
+  const booking = await db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,return_location,return_location_code,steamship_line").eq("id", id).maybeSingle();
   if (booking.error) return NextResponse.json({ ok: false, error: "Could not load booking." }, { status: 503 });
   const site = CHECKIN_SITES.find(site => site.terminal === "DAL" && site.terminal === booking.data?.terminal && site.siteCode === booking.data.site_code);
   const customer = bookingChargeCustomer(String(booking.data?.customer ?? ""));
@@ -26,7 +27,8 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   try { applicable = await readBookingCustomerRate(db, booking.data!); }
   catch { return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 }); }
   if (customer.code === "BUNGOMNE" && !applicable) return NextResponse.json({ ok: false, error: "Customer rate lookup is unavailable. Retry before reviewing extras." }, { status: 503 });
-  const approvalRate = applicable ? { rateCode: applicable.rate_code, includedChassisDays: Number(applicable.included_chassis_days),
+  const direct = sslBillsChassisDirectly(site.terminal, booking.data?.steamship_line);
+  const approvalRate = applicable ? { rateCode: applicable.rate_code, includedChassisDays: direct ? 0 : Number(applicable.included_chassis_days),
     chassisDailyRate: Number(applicable.chassis_daily_rate), fuelMode: applicable.fuel_mode,
     baseRate: applicable.base_rate === null ? null : Number(applicable.base_rate) } : null;
   const lines = await db.from("cotton_outbound_booking_lines").select("mark").eq("booking_id", id).neq("line_status", "cancelled").limit(501);
