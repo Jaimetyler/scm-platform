@@ -21,10 +21,10 @@ export function CarrierRateManager(props: { rates: CarrierRate[]; endpoint: stri
   </>;
 }
 
-export function CarrierRateForm({ rates, endpoint, onSaved, onSaving }: {
-  rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void; onSaving?: (saving: boolean) => void;
+export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId }: {
+  rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void; initialId?: string; onSaving?: (saving: boolean) => void;
 }) {
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(initialId ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const rate = rates.find(item => item.id === selected);
@@ -54,10 +54,10 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving }: {
   }
 
   return <>
-    <label>Rate card <select value={selected} disabled={saving} onChange={event => { setSelected(event.target.value); setMessage(""); }}>
+    {initialId === undefined && <label>Rate card <select value={selected} disabled={saving} onChange={event => { setSelected(event.target.value); setMessage(""); }}>
       <option value="">Add a carrier rate</option>
       {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
-    </select></label>
+    </select></label>}
     <form key={rate ? `${rate.id}:${rate.updated_at}` : "new"} onSubmit={submit}>
       <fieldset disabled={saving} style={{ display: "grid", gap: 8, maxWidth: 620 }}>
         <label>McLeod carrier ID <input name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>

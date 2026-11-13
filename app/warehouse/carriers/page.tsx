@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
-import PlatformPanel from "@/components/platform/PlatformPanel";
 import { requireStaffPage } from "@/lib/auth/page";
 import { sitesForLocation, validLocation, workspaceHref } from "@/lib/warehouse/navigation";
 import { listCarrierRates } from "@/lib/warehouse/outbound/carrier-rate-store";
@@ -22,8 +21,8 @@ export default async function CarrierRatesPage({ searchParams }: {
   return <main className="warehouse-hub">
     <PlatformPageHeader compact title="Carrier rates" subtitle={site?.siteName ?? "Choose a warehouse to manage outbound carrier pay."} />
     {result?.error ? <p role="alert">Could not load carrier rates.</p> : result && scope ?
-      <PlatformPanel><CarrierRateEditor key={scope.toString()} initialRates={result.data ?? []}
-        endpoint={`/api/warehouse/carrier-rates?${scope}`} /></PlatformPanel> :
+      <CarrierRateEditor key={scope.toString()} initialRates={result.data ?? []}
+        endpoint={`/api/warehouse/carrier-rates?${scope}`} /> :
       <div className="warehouse-hub-grid">{sites.map(site =>
         <Link key={site.siteCode} className="warehouse-hub-card"
           href={workspaceHref("carriers", { terminal: site.terminal, siteCode: site.siteCode })}>
