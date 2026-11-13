@@ -52,12 +52,12 @@ export default function CarrierRateEditor({ initialRates, endpoint, warehouse }:
 
   return <div className={styles.page}>
     <div className={styles.filters} style={{ alignItems: "end" }}>
-      <label>Search carrier rates<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Carrier, code, or delivery" /></label>
-      <button className={styles.primary} onClick={() => edit("")}>Add carrier rate</button>
+      <label>Search local dray rates<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Carrier, code, or delivery" /></label>
+      <button className={styles.primary} onClick={() => edit("")}>Add local dray rate</button>
       <button className={styles.button} onClick={() => { setError(""); importer.current?.showModal(); }}>Import rates</button>
     </div>
     {message && <p role="status">{message}</p>}
-    <div className={styles.gridScroll} tabIndex={0} role="region" aria-label="Carrier rates grid">
+    <div className={styles.gridScroll} tabIndex={0} role="region" aria-label="Local dray rates grid">
       <table className={styles.grid}>
         <thead><tr><th scope="col">Carrier</th><th scope="col">McLeod carrier code</th><th scope="col">Warehouse</th><th scope="col">Delivery</th>
           {rateItems.map(item => <th scope="col" key={item.key}>{item.key === "chassisDays" ? "Chassis per day" : item.label}</th>)}<th scope="col">Actions</th></tr></thead>
@@ -68,7 +68,7 @@ export default function CarrierRateEditor({ initialRates, endpoint, warehouse }:
       </table>
     </div>
     <dialog ref={editor} className={styles.dialog} aria-labelledby="carrier-rate-editor-title" onCancel={event => { if (busy) event.preventDefault(); }}>
-      <h2 id="carrier-rate-editor-title">{editing ? "Edit carrier rate" : "Add carrier rate"}</h2>
+      <h2 id="carrier-rate-editor-title">{editing ? "Edit local dray rate" : "Add carrier rate"}</h2>
       <CarrierRateForm key={formVersion} initialId={editing} rates={rates} endpoint={endpoint} onSaving={setBusy}
         onSaved={rate => {
           setRates(current => [...current.filter(item => item.id !== rate.id), rate]);
@@ -78,7 +78,7 @@ export default function CarrierRateEditor({ initialRates, endpoint, warehouse }:
       <footer><button className={styles.button} disabled={busy} onClick={() => editor.current?.close()}>Close</button></footer>
     </dialog>
     <dialog ref={importer} className={styles.dialog} aria-labelledby="carrier-import-title" onCancel={event => { if (busy) event.preventDefault(); }}>
-      <h2 id="carrier-import-title">Import carrier rates</h2>
+      <h2 id="carrier-import-title">Import local dray rates</h2>
       <p>Use the template headers on the first sheet of a CSV or XLSX up to 2 MB, with 1–500 rate rows. All fields except warehouse are required. Enter carrier pay in dollars without currency symbols or commas. Use 0 for charges that do not apply.</p>
       <p>Imports use the warehouse number on each row. A duplicate carrier code and delivery for the same warehouse rejects the entire import. Use Edit in the grid to change existing rates.</p>
       <a className={`${styles.button} ${styles.download}`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`} download="carrier-rate-import-template.csv">Download CSV template</a>
