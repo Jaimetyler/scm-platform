@@ -1,3 +1,4 @@
+import { sslBillsChassisDirectly } from "@/lib/dray/chassis-billing";
 import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
@@ -9,7 +10,7 @@ async function bookingScope({ params }: Context) {
   const { id } = await params;
   if (!/^[a-f0-9-]{36}$/i.test(id)) return null;
   const { data, error } = await staffDatabase().from("cotton_outbound_bookings")
-    .select("terminal,site_code,customer,return_location,return_location_code").eq("id", id).maybeSingle();
+    .select("terminal,site_code,customer,return_location,return_location_code,steamship_line").eq("id", id).maybeSingle();
   if (error) throw new Error("Could not load booking.");
   return data;
 }
@@ -24,10 +25,11 @@ export const GET = withStaffAccess(async (_req: NextRequest, context: Context) =
   ]);
   if (error) throw new Error("Could not load carrier rates.");
   const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
+  const direct = sslBillsChassisDirectly(scope.terminal, scope.steamship_line);
   const customerBilling = customerRate ? {
     base: customerRate.fuel_mode === "all_in" ? cents(customerRate.base_rate) : null,
-    minimumChassisDays: Number(customerRate.included_chassis_days),
-    chassisDays: cents(customerRate.chassis_daily_rate), chassisSplits: cents(customerRate.chassis_split_rate),
+    minimumChassisDays: direct ? 0 : Number(customerRate.included_chassis_days),
+    chassisDays: direct ? 0 : cents(customerRate.chassis_daily_rate), chassisSplits: cents(customerRate.chassis_split_rate),
     stopoffs: cents(customerRate.stopoff_rate),
   } : null;
   return NextResponse.json({ rates: data, customerBilling }, { headers: { "Cache-Control": "private, no-store" } });

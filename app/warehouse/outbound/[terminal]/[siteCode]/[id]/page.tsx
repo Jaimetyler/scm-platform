@@ -1,4 +1,5 @@
 "use client";
+import { sslBillsChassisDirectly } from "@/lib/dray/chassis-billing";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
@@ -84,7 +85,7 @@ export default function CottonOutboundBookingPage() {
       if (!controller.signal.aborted) setCarrierError(error.message || "Could not load carrier rates.");
     });
     return () => controller.abort();
-  }, [canManage, carrierEndpoint, siteCode, booking?.return_location, booking?.return_location_code]);
+  }, [canManage, carrierEndpoint, siteCode, booking?.return_location, booking?.return_location_code, booking?.steamship_line]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -452,7 +453,8 @@ export default function CottonOutboundBookingPage() {
   const detailLine = detailRow?.booking_line_id ? lineById.get(detailRow.booking_line_id) : undefined;
   const detailDraft = detailRow ? drafts[detailRow.id] : undefined;
   const orderLookup = terminal === "DAL" && bookingChargeCustomer(booking.customer) || isSavannahE2openBooking(terminal, booking.customer);
-  const hasletPilot = isAdmin && terminal === "DAL" && siteCode === "SCMDDETX" &&
+  const directChassis = sslBillsChassisDirectly(terminal, booking.steamship_line);
+  const hasletPilot = !directChassis && isAdmin && terminal === "DAL" && siteCode === "SCMDDETX" &&
     bookingChargeCustomer(booking.customer)?.code === "OLAMRITX" &&
     bookingReturnLocationLabel(booking.return_location, booking.return_location_code) === "BNSF Haslet";
 
@@ -561,7 +563,7 @@ export default function CottonOutboundBookingPage() {
       <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, booking.doc_cutoff_has_time !== false)}</span>
       <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, booking.cutoff_has_time !== false)}</span>
       <span><strong>Return location</strong> {bookingReturnLocationLabel(booking.return_location, booking.return_location_code)}{booking.return_location_code ? ` · ${booking.return_location_code}` : ""}</span>
-      <span><strong>Steamship line</strong> {booking.steamship_line || "—"}</span>
+      <span><strong>Steamship line</strong> {booking.steamship_line || "—"}{directChassis && <small style={{ marginLeft: 8, color: "#a7f3d0" }}>SSL bills chassis</small>}</span>
       {booking.vessel ? <span><strong>Vessel</strong> {booking.vessel}</span> : null}
     </div>
     <input ref={requestInput} type="file" accept=".xlsx,.xlsb" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />
