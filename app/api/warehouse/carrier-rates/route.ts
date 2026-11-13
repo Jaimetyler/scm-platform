@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx/xlsx.mjs";
 import { staffActor, withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
-import { getCheckinSite } from "@/lib/inbound/checkin/sites";
+import { CHECKIN_SITES, getCheckinSite } from "@/lib/inbound/checkin/sites";
 import { rateItems } from "@/lib/warehouse/outbound/carrier-rates";
 import { carrierRateFields, parseCarrierRate, saveCarrierRate } from "@/lib/warehouse/outbound/carrier-rate-store";
 
@@ -25,7 +25,10 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     if (!rows.length || rows.length > 500) throw Error("Include 1 to 500 rates on the first sheet.");
     rates = rows.map((row, index) => {
       try {
-        return parseCarrierRate({ ...row, rates: Object.fromEntries(rateItems.map(({ key }) => [key, { pay: String(row[key] ?? "") }])) });
+        const warehouse = String(row.warehouse ?? "").trim();
+        const target = warehouse ? CHECKIN_SITES.find(candidate => candidate.materials.includes("cotton") && (candidate.displayCode ?? candidate.siteCode) === warehouse) : site;
+        if (!target) throw Error(`Unknown warehouse number ${warehouse}.`);
+        return { terminal: target.terminal, site_code: target.siteCode, ...parseCarrierRate({ ...row, rates: Object.fromEntries(rateItems.map(({ key }) => [key, { pay: String(row[key] ?? "") }])) }) };
       } catch (error) {
         throw Error(`Data row ${index + 1}: ${(error as Error).message}`);
       }
@@ -34,10 +37,10 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     return NextResponse.json({ error: (error as Error).message }, { status: 400 });
   }
   const { data, error } = await staffDatabase().from("outbound_carrier_rates")
-    .insert(rates.map(rate => ({ ...rate, ...scope, updated_by: staffActor(req) }))).select(carrierRateFields);
+    .insert(rates.map(rate => ({ ...rate, updated_by: staffActor(req) }))).select(`${carrierRateFields},terminal,site_code`);
   if (error?.code === "23505") {
-    return NextResponse.json({ error: "Duplicate carrier ID and lane in the file or this yard. Remove duplicates and retry. No rates were imported." }, { status: 409 });
+    return NextResponse.json({ error: "Duplicate carrier code and delivery for the same warehouse. Remove duplicates and retry. No rates were imported." }, { status: 409 });
   }
   if (error) throw Error("Could not import carrier rates.");
-  return NextResponse.json({ rates: data });
+  return NextResponse.json({ count: data.length, rates: data.filter(rate => rate.terminal === scope.terminal && rate.site_code === scope.site_code) });
 });
