@@ -5,9 +5,17 @@ import { parseRates } from "./carrier-rates";
 
 export const carrierRateFields = "id,carrier_id,carrier_name,lane,rates,updated_at";
 
-export function listCarrierRates(scope: { terminal: string; site_code: string }) {
-  return staffDatabase().from("outbound_carrier_rates").select(carrierRateFields)
-    .match(scope).order("carrier_name").order("lane");
+export async function listCarrierRates(scope: { terminal: string; site_code: string } | null) {
+  const query = staffDatabase().from("outbound_carrier_rates").select(`${carrierRateFields},terminal,site_code`)
+    .order("carrier_name").order("lane").order("id");
+  if (scope) return query.match(scope);
+  const rates = [];
+  for (let offset = 0; ; offset += 1000) {
+    const result = await query.range(offset, offset + 999);
+    if (result.error) return { data: null, error: result.error };
+    rates.push(...result.data);
+    if (result.data.length < 1000) return { data: rates, error: null };
+  }
 }
 
 export function parseCarrierRate(body: Record<string, unknown>) {
