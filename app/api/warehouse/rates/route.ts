@@ -15,6 +15,7 @@ export const GET = withStaffAccess(async (_req: NextRequest) => {
 export const POST = withStaffAccess(async (req: NextRequest) => {
   try {
     let input: unknown;
+    const localDray = req.nextUrl.searchParams.get("category") === "local-dray";
     let rateCode: number | undefined;
     if (req.headers.get("content-type")?.startsWith("multipart/form-data")) {
       const file = (await req.formData()).get("file");
@@ -35,7 +36,10 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     const rates = input.map((row, index) => {
       try {
         if (!row || typeof row !== "object" || Array.isArray(row)) throw Error("Invalid row.");
-        const rate = normalizeServiceRate(row);
+        const values = row as Record<string, unknown>;
+        const mode = String(values.service_type ?? "").trim().toLowerCase();
+        if (localDray && mode && mode !== "drayage") throw Error("Local Dray Rates imports accept drayage rows.");
+        const rate = normalizeServiceRate(localDray ? { ...values, service_type: "drayage" } : values);
         const key = [rate.terminal, rate.site_code, rate.customer_code, rate.revenue_code, rate.service_type, rate.return_location].join("|");
         if (keys.has(key)) throw Error("This rate scope appears twice.");
         keys.add(key);
