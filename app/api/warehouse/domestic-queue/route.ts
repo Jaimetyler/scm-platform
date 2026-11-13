@@ -128,11 +128,37 @@ async function GETHandler(req: NextRequest) {
         }
       }));
     }
+    const bookingsByMark = new Map<string, { id: string; booking_number: string }[]>();
+    if (line) {
+      const marks = [...new Set(data.filter(isActiveCottonDelivery).map(row => row.mark as string))];
+      for (let offset = 0; offset < marks.length; offset += 50) {
+        const { data: matches, error } = await database().from("cotton_outbound_booking_lines")
+          .select("mark, booking:cotton_outbound_bookings!inner(id,booking_number)")
+          .in("mark", marks.slice(offset, offset + 50)).neq("line_status", "cancelled")
+          .eq("booking.terminal", terminal).eq("booking.site_code", siteCode).eq("booking.status", "draft");
+        if (error) {
+          console.error("Could not load Active Line booking tags", error.message);
+          continue;
+        }
+        for (const match of matches ?? []) {
+          const booking = Array.isArray(match.booking) ? match.booking[0] : match.booking;
+          if (!booking) continue;
+          const entries = bookingsByMark.get(match.mark) ?? [];
+          if (!entries.some(entry => entry.id === booking.id)) entries.push(booking);
+          bookingsByMark.set(match.mark, entries);
+        }
+      }
+    }
     const displayRows = await enrichDisplayCarriers(data ?? [], line);
-    return NextResponse.json({ ok: true, rows: displayRows.map(row => ({ ...queueRow(row), carrier_code: row.carrier_code, scm_carrier: row.scm_carrier })) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: true, rows: displayRows.map(row => ({ ...queueRow(row), carrier_code: row.carrier_code, scm_carrier: row.scm_carrier, ...(line ? { outbound_bookings: isActiveCottonDelivery(row) ? bookingsByMark.get(row.mark) ?? [] : [] } : {}) })) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? "Could not load domestic queue") }, { status: error instanceof DependencyError ? 503 : error instanceof YardStopError ? 409 : 500, headers: error instanceof DependencyError ? { "Retry-After": "10" } : {} });
   }
+}
+
+function isActiveCottonDelivery(row: Record<string, any>) {
+  return row.material_type === "cotton" && row.movement_direction === "delivery" && Boolean(row.mark) &&
+    !row.physical_departed_at && ["waiting", "called", "in_door", "working"].includes(row.yard_status);
 }
 
 async function POSTHandler(req: NextRequest) {

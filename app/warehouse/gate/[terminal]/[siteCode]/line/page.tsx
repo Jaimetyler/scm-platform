@@ -21,6 +21,7 @@ import { cottonShortage, type ShortageFields } from "@/lib/inbound/checkin/short
 
 type Status = "waiting" | "called" | "in_door" | "working";
 type Arrival = ShortageFields & OutsideCarrierRow & {
+  outbound_bookings?: { id: string; booking_number: string }[];
   queue_number?: number | null; queue_day?: string | null;
   arrival_sync_status?: string | null; arrival_sync_error?: string | null;
   id: string; checked_in_at: string; physical_departed_at?: string | null; driver_name: string | null; trucking_company: string | null; movement_direction: string | null;
@@ -290,7 +291,15 @@ export default function DomesticLinePage() {
             <td style={cell}>{row.driver_name || "Staff entry"}
               <Link href={`/warehouse/checkin/${row.id}`} style={{ display: "block", marginTop: 4, color: "#67e8f9", fontSize: 11 }}>Driver details</Link></td>
             <td style={cell}>{row.trucking_company || "Company not entered"}</td>
-            <td style={cell}>{row.reference_number || row.mark || "—"}</td>
+            <td style={cell}>{row.reference_number || row.mark || "—"}
+              {Boolean(row.outbound_bookings?.length) && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                {row.outbound_bookings?.map(booking => <Link key={booking.id}
+                  href={`/warehouse/outbound/${site.terminalSlug}/${site.siteCode}/${booking.id}`}
+                  style={{ color: "#a5f3fc", background: "rgba(8,145,178,.28)", borderRadius: 20, padding: "2px 7px", fontSize: 11, fontWeight: 700 }}>
+                  Book ID {booking.booking_number}
+                </Link>)}
+              </div>}
+            </td>
             <td style={cell}>{row.shipper || "—"}</td>
             <td style={cell}>{row.scm_carrier && <strong style={{ color: "#86efac", display: "block" }}>SCM carrier</strong>}
               {row.matched_order_id ? <span>SCM order #{row.matched_order_id}</span> : "—"}
