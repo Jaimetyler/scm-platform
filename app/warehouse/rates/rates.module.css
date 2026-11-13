@@ -45,3 +45,11 @@
 .fields .checkbox { display: flex; align-items: center; }
 .dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 @media (max-width: 540px) { .fields { grid-template-columns: 1fr; } .dialog { padding: 16px; } }
+
+.importGuide { margin: 12px 0 16px; font-size: .85rem; }
+.importGuide summary { cursor: pointer; font-weight: 650; }
+.guideScroll { overflow-x: auto; }
+.guideScroll table { width: 100%; border-collapse: collapse; margin-top: 8px; text-align: left; }
+.guideScroll th, .guideScroll td { padding: 6px 8px; border-bottom: 1px solid #314256; vertical-align: top; }
+.guideScroll thead { background: #203247; }
+.guideScroll code { color: #d4e7de; }

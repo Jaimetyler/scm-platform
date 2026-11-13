@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
 import styles from "./rates.module.css";
+import RateImportGuide from "./RateImportGuide";
 import { useWarehouseWorkspace } from "@/components/warehouse/WarehouseWorkspace";
 import { CHECKIN_SITES, TERMINAL_NAMES } from "@/lib/inbound/checkin/sites";
 import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
@@ -116,7 +117,7 @@ export default function WarehouseRates() {
           <td className={styles.amount}>{rate.base_rate == null ? <small>Contract base needed</small> : usd(rate.base_rate)}</td>
           <td>{fuelModes[rate.fuel_mode]}</td>
           <td className={styles.amount}>{rate.included_chassis_days ? `${rate.included_chassis_days} ${rate.included_chassis_days === 1 ? "day" : "days"}` : "None"}
-            {rate.chassis_daily_rate > 0 && <small>{usd(rate.chassis_daily_rate)}/day</small>}
+            {rate.chassis_daily_rate > 0 && <small>Chassis per day {usd(rate.chassis_daily_rate)}</small>}
             {rate.chassis_split_rate != null && <small>Split {usd(rate.chassis_split_rate)}</small>}
             {rate.stopoff_rate != null && <small>Stopoff {usd(rate.stopoff_rate)}</small>}</td>
           <td className={styles.gridNotes}>{rate.notes || "—"}</td>
@@ -131,9 +132,24 @@ export default function WarehouseRates() {
       <h2 id="rate-dialog-title">{showImport ? "Import rates" : editing ? `Edit rate R-${editing}` : "Add rate"}</h2>
       {error && dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
       {showImport && <form onSubmit={event => void save(event, true)}>
-        <p>Upload a CSV or XLSX. Leave site code blank for a terminal default. Leave return location blank for any return. Matching rates are updated.</p>
+        <p>Use the template headers on the first sheet of a CSV or XLSX up to 2 MB, with 1–500 rate rows. Enter dollar amounts as numbers without currency symbols or commas. A matching terminal, site, customer, revenue code, service type, and return location updates the existing rate.</p>
         <a className={`${styles.button} ${styles.download}`} href={templateUrl} download="rate-import-template.csv">Download CSV template</a>
-        <p>Modes: {rateModes.join(", ")}. Fuel values: FSC, FLAT, or All in. Enter the contracted base for every row.</p>
+        <RateImportGuide columns={[
+          ["terminal", "Yes", "Use DAL, HOU, or SAV."],
+          ["site_code", "No", "Use the yard number or site code, such as 2119 or SCMDDETX. Blank sets a terminal-wide default."],
+          ["customer_code", "Yes", "McLeod customer ID, such as OLAMRITX."],
+          ["revenue_code", "Yes", "McLeod revenue code, such as DDRAY."],
+          ["service_type", "Yes", rateModes.join(", ") + "."],
+          ["return_location", "No", "Return ramp or location name or code, such as BNSF Haslet or BNSFHATX. Blank applies to any return location."],
+          ["fuel_mode", "Yes", "All in (all_in) includes fuel. FSC (base_plus_fsc) means fuel is separate. FLAT (fuel_for_review) flags fuel for review."],
+          ["base_rate", "Yes", "Contracted customer base charge in dollars. For All in, enter the amount including fuel."],
+          ["included_chassis_days", "Yes", "Number of chassis days included in the base. Use a whole number, or 0 for none."],
+          ["chassis_daily_rate", "Yes", "Customer charge per additional chassis day. Must be positive when included days are greater than 0."],
+          ["chassis_split_rate", "No", "Customer charge per chassis split. Blank leaves the rate unset."],
+          ["stopoff_rate", "No", "Customer charge per extra stop. Blank leaves the rate unset."],
+          ["active", "No", "true or false. Blank defaults to true."],
+          ["notes", "No", "Internal notes, up to 1,000 characters."],
+        ]} />
         <label className={styles.label}>Rate file<input type="file" accept=".csv,.xlsx" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
         <footer><button type="button" className={styles.button} disabled={busy} onClick={closeDialog}>Cancel</button>
           <button className={styles.primary} disabled={busy || !file}>Import and save</button></footer>
@@ -165,7 +181,7 @@ export default function WarehouseRates() {
           <label>Included chassis days<input required type="number" min="0" step="1" value={draft.included_chassis_days} onChange={event => change("included_chassis_days", event.target.value)} /></label>
           <label>Chassis split rate<input type="number" min="0" step=".01" placeholder="Not set" value={draft.chassis_split_rate} onChange={event => change("chassis_split_rate", event.target.value)} /></label>
           <label>Stopoff rate<input type="number" min="0" step=".01" placeholder="Not set" value={draft.stopoff_rate} onChange={event => change("stopoff_rate", event.target.value)} /></label>
-          <label>Chassis daily rate<input required type="number" min="0" step=".01" value={draft.chassis_daily_rate} onChange={event => change("chassis_daily_rate", event.target.value)} /></label>
+          <label>Chassis per day<input required type="number" min="0" step=".01" value={draft.chassis_daily_rate} onChange={event => change("chassis_daily_rate", event.target.value)} /></label>
           <label className={styles.notesField}>Notes<textarea rows={2} maxLength={1000} value={draft.notes} onChange={event => change("notes", event.target.value)} /></label>
           <label className={styles.checkbox}><input type="checkbox" checked={draft.active === "true"} onChange={event => change("active", String(event.target.checked))} /> Active</label>
         </fieldset>
