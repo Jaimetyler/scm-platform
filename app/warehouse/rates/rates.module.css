@@ -53,3 +53,4 @@
 .guideScroll th, .guideScroll td { padding: 6px 8px; border-bottom: 1px solid #314256; vertical-align: top; }
 .guideScroll thead { background: #203247; }
 .guideScroll code { color: #d4e7de; }
+.button[aria-pressed="true"] { background: #33584d; border-color: #85a998; }
