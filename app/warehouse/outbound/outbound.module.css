@@ -19,6 +19,7 @@
 
 .dateFilters {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 12px;
@@ -88,4 +89,14 @@
   .importButton {
     min-height: 44px;
   }
+}
+
+
+.filterLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #bbc9c2;
+  font-size: 13px;
+  font-weight: 650;
 }

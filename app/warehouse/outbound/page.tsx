@@ -6,7 +6,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState, type SetStateActio
 import { useSearchParams } from "next/navigation";
 import { useWarehouseWorkspace } from "@/components/warehouse/WarehouseWorkspace";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
-import OutboundPlanningTable from "@/components/warehouse/OutboundPlanningTable";
+import OutboundPlanningTable, { type PlanningSort } from "@/components/warehouse/OutboundPlanningTable";
 import SourceLoadAlerts from "@/components/warehouse/SourceLoadAlerts";
 import CutoffInput from "@/components/warehouse/CutoffInput";
 import PlatformPanel from "@/components/platform/PlatformPanel";
@@ -40,7 +40,7 @@ function dashboardUrl(preferences: Preferences, history = false) {
 function validPreferences(raw: Partial<Preferences>): Preferences {
   return { warehouse: ["SAV:all", "HOU:all", "DAL:all"].includes(raw.warehouse) || CHECKIN_SITES.some((site) => `${site.terminal}:${site.siteCode}` === raw.warehouse) ? raw.warehouse! : "all",
     view: ["today", "upcoming", "past"].includes(raw.view ?? "") ? raw.view! : "all",
-    group: ["customer", "vessel", "erd"].includes(raw.group ?? "") ? raw.group! : "schedule", search: String(raw.search ?? ""), basis: raw.basis === "erd" ? "erd" : "cutoff", layout: raw.layout === "sheet" ? "sheet" : "cards" };
+    group: ["customer", "vessel"].includes(raw.group ?? "") ? raw.group! : "schedule", search: String(raw.search ?? ""), basis: raw.basis === "erd" || (raw.basis === undefined && raw.group === "erd") ? "erd" : "cutoff", layout: raw.layout === "sheet" ? "sheet" : "cards" };
 }
 
 export default function CottonOutboundPage() {
@@ -50,13 +50,14 @@ export default function CottonOutboundPage() {
   const queryParams = useSearchParams();
   const history = queryParams.get("bookingStatus") === "history";
   const [storedPreferences, setStoredPreferences] = useState(defaultPreferences);
+  const [planningSort, setPlanningSort] = useState<(PlanningSort & { basis: Preferences["basis"] }) | null>(null);
   useEffect(() => {
     try { setStoredPreferences(validPreferences(JSON.parse(localStorage.getItem(storageKey) ?? "{}"))); } catch { /* Optional. */ }
   }, []);
   const preferences = validPreferences({
     ...storedPreferences,
     warehouse: location.terminal === "all" ? "all" : `${location.terminal}:${location.siteCode}`,
-    ...(queryParams.has("basis") ? { basis: queryParams.get("basis") as Preferences["basis"] } : {}),
+    ...(queryParams.has("basis") ? { basis: queryParams.get("basis") as Preferences["basis"] } : queryParams.get("group") === "erd" ? { basis: "erd" } : {}),
     ...(queryParams.has("view") ? { view: queryParams.get("view") as DeadlineView } : {}),
     ...(queryParams.has("group") ? { group: queryParams.get("group") as BookingGroup } : {}),
     layout: queryParams.get("layout") === "cards" ? "cards"
@@ -173,7 +174,7 @@ export default function CottonOutboundPage() {
   const search = preferences.search.trim().toLowerCase();
   const visible = warehouseBookings.filter((item) => (history || deadlineMatches(item, preferences.view, now, preferences.basis)) && (!search ||
     [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, bookingReturnLocationLabel(item.return_location, item.return_location_code), item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
-  const groups = history ? (visible.length ? [["Booking history", visible] as const] : []) : groupBookings(visible, preferences.group, now);
+  const groups = history ? (visible.length ? [["Booking history", visible] as const] : []) : groupBookings(visible, preferences.group === "schedule" && preferences.basis === "erd" ? "erd" : preferences.group, now);
   const returnTo = encodeURIComponent(dashboardUrl(preferences, history));
 
   return <main style={{ maxWidth: preferences.layout === "cards" ? 1550 : undefined, margin: "0 auto", color: "#e2e8f0" }}>
@@ -244,13 +245,20 @@ export default function CottonOutboundPage() {
     </div>
     {!history && <>
     {(location.siteCode === "all" || site) && <SourceLoadAlerts terminal={location.terminal === "all" ? undefined : location.terminal} siteCode={location.siteCode === "all" ? undefined : location.siteCode} />}
-    <div aria-label="Filter booking dates" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-      {(["cutoff", "erd"] as const).map((basis) => <button key={basis} type="button" style={{ ...button, ...(preferences.basis === basis ? active : {}) }}
-        aria-pressed={preferences.basis === basis} onClick={() => setPreferences((current) => ({ ...current, basis }))}>{basis === "erd" ? "Filter by ERD" : "Filter by cutoffs"}</button>)}
-    </div>
-    <div className={styles.dateFilters} role="group" aria-label="Booking date ranges">
-      {([{ key: "all", label: "Active bookings", tone: "#e2e8f0" }, { key: "today", label: preferences.basis === "erd" ? "ERD today" : "Cutoffs today", tone: "#38bdf8" },
-        { key: "upcoming", label: "Next 7 days", tone: "#4ade80" }, { key: "past", label: preferences.basis === "erd" ? "Past ERD" : "Past cutoff", tone: "#fbbf24" }] as const).map((item) =>
+    <div className={styles.dateFilters} role="group" aria-label="Booking date filters">
+      <label className={styles.filterLabel}>
+        Date
+        <select style={input} value={preferences.basis} onChange={event => {
+          const basis = event.target.value as Preferences["basis"];
+          setPlanningSort(null);
+          setPreferences(current => ({ ...current, basis }));
+        }}>
+          <option value="cutoff">Cutoffs</option>
+          <option value="erd">ERD</option>
+        </select>
+      </label>
+      {([{ key: "all", label: "All dates", tone: "#e2e8f0" }, { key: "today", label: "Today", tone: "#38bdf8" },
+        { key: "upcoming", label: "Next 7 days", tone: "#4ade80" }, { key: "past", label: "Past", tone: "#fbbf24" }] as const).map((item) =>
         <button key={item.key} type="button" aria-pressed={preferences.view === item.key} className={styles.dateFilter}
           onClick={() => setPreferences((current) => ({ ...current, view: item.key }))}>
           <span>{item.label}</span>
@@ -267,16 +275,23 @@ export default function CottonOutboundPage() {
       {!history && <div style={{ display: "flex", gap: 6 }} aria-label="Booking display">
         {(["cards", "sheet"] as const).map(layout => <button type="button" key={layout} aria-pressed={preferences.layout === layout} style={{ ...button, ...(preferences.layout === layout ? active : {}) }} onClick={() => setPreferences(current => ({ ...current, layout }))}>{layout === "sheet" ? "Planning sheet" : "Cards"}</button>)}
       </div>}
-      {!history && preferences.layout === "cards" && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} aria-label="Group bookings">
-        {([{ key: "schedule", label: "By cutoff" }, { key: "erd", label: "By ERD" }, { key: "customer", label: "By customer" }, { key: "vessel", label: "By vessel" }] as const).map((item) =>
-          <button key={item.key} type="button" aria-pressed={preferences.group === item.key} style={{ ...button, ...(preferences.group === item.key ? active : {}) }} onClick={() => setPreferences((current) => ({ ...current, group: item.key }))}>{item.label}</button>)}
-      </div>}
+      {!history && preferences.layout === "cards" && <label className={styles.filterLabel}>
+        Group by
+        <select style={input} value={preferences.group}
+          onChange={event => setPreferences(current => ({ ...current, group: event.target.value as BookingGroup }))}>
+          <option value="schedule">Selected date</option>
+          <option value="customer">Customer</option>
+          <option value="vessel">Vessel</option>
+        </select>
+      </label>}
       <input aria-label="Search outbound bookings" placeholder="Search file #, booking, customer, mark, container…" value={preferences.search} style={{ ...input, flex: "1 1 280px", maxWidth: 380 }}
         onChange={(event) => setPreferences((current) => ({ ...current, search: event.target.value }))} />
     </div></PlatformPanel>
     {loading || !ready ? <p>Loading outbound bookings…</p> : groups.length === 0 ? <PlatformPanel><p style={{ margin: 0 }}>{history ? "No archived or deleted bookings match this view." : bookings.length ? "No bookings match this view." : "No active bookings."}</p>
       {bookings.length > 0 && (search || !history) && <button style={{ ...button, marginTop: 12 }} onClick={() => setPreferences((current) => ({ ...current, view: "all", search: "" }))}>Show all bookings at this warehouse</button>}</PlatformPanel> :
-      !history && preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now} /> : groups.map(([name, items]) => <section key={name} className={styles.bookingGroup}>
+      !history && preferences.layout === "sheet" ? <OutboundPlanningTable bookings={visible} activeBookings={warehouseBookings} returnTo={returnTo} now={now}
+        sort={planningSort?.basis === preferences.basis ? planningSort : { key: preferences.basis, descending: false }}
+        onSort={sort => setPlanningSort({ ...sort, basis: preferences.basis })} /> : groups.map(([name, items]) => <section key={name} className={styles.bookingGroup}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}><h2 style={{ fontSize: 19, margin: 0 }}>{name}</h2>
           <span style={{ color: "#bbc9c2", fontSize: 12 }}>{items.length} bookings · {items.reduce((sum, item) => sum + item.requested_bales, 0).toLocaleString()} bales</span></div>
         <div className={styles.bookingGrid}>
