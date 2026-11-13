@@ -19,3 +19,25 @@ export function bookingReturnLocationLabel(location?: string | null, code?: stri
   if (resolvedCode === "BNSFHATX") return "BNSF Haslet";
   return location || "Not set";
 }
+
+function returnKey(value?: string | null) {
+  return value ? bookingReturnLocation(value).return_location_code ?? value.trim().replace(/\s+/g, " ").toUpperCase() : "";
+}
+
+export function carrierRateMatchesReturn(lane: string, location?: string | null, code?: string | null) {
+  const target = returnKey(code) || returnKey(location);
+  return Boolean(target && returnKey(lane) === target);
+}
+
+export function carrierRatesForReturn<T extends { lane: string; carrier_id: string; carrier_name?: string; updated_at: string }>(
+  rates: T[], location?: string | null, code?: string | null,
+) {
+  const matches = new Map<string, T>();
+  for (const rate of rates) {
+    if (!carrierRateMatchesReturn(rate.lane, location, code)) continue;
+    const key = JSON.stringify([rate.carrier_id.trim().toUpperCase(), rate.carrier_name?.trim().toLowerCase() ?? ""]);
+    const saved = matches.get(key);
+    if (!saved || rate.updated_at > saved.updated_at) matches.set(key, rate);
+  }
+  return [...matches.values()];
+}

@@ -25,3 +25,14 @@ test('display labels normalize legacy addresses and aliases without requiring a 
  assert.equal(bookingReturnLocationLabel('Other location'),'Other location');
  assert.equal(bookingReturnLocationLabel(null),'Not set');
 });
+
+test("assignment picker uses return location aliases and one current rate per carrier", async () => {
+  const { carrierRatesForReturn } = await import("../lib/warehouse/outbound/return-location.ts");
+  const old = { lane: "BNSF Haslet", carrier_id: "SCMIRIGA", updated_at: "2026-11-01" };
+  const current = { ...old, lane: "BNSFHATX", updated_at: "2026-11-02" };
+  const wilmer = { ...current, lane: "UNIOWITX" };
+  assert.deepEqual(carrierRatesForReturn([old, current, wilmer], "BNSF Alliance"), [current]);
+  assert.deepEqual(carrierRatesForReturn([old, current, wilmer], "UP Wilmer"), [wilmer]);
+  assert.deepEqual(carrierRatesForReturn([old, current, wilmer]), []);
+  assert.deepEqual(carrierRatesForReturn([{ ...current, lane: "houport" }], null, "HOUPORT").length, 1);
+});
