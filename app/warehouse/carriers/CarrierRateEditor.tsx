@@ -116,8 +116,8 @@ export default function CarrierRateEditor({ initialRates, location }: { initialR
     </dialog>
     <dialog ref={importer} className={styles.dialog} aria-labelledby="carrier-import-title" onCancel={event => { if (busy) event.preventDefault(); }}>
       <h2 id="carrier-import-title">Import local dray rates</h2>
-      <p>Use the template headers on the first sheet of a CSV or XLSX up to 2 MB, with 1–500 rate rows. Enter a warehouse on each row when importing across yards. Enter carrier pay in dollars without currency symbols or commas. Use 0 for charges that do not apply.</p>
-      <p>Imports use the warehouse number on each row. A duplicate carrier code and delivery for the same warehouse rejects the entire import. Use Edit in the grid to change existing rates.</p>
+      <p>Use the template headers on the first sheet of a CSV or XLSX up to 2 MB, with 1–500 rate rows. Enter a warehouse on each row when importing across yards. Enter carrier pay in dollars, such as 45.00 or $45.00, without thousands separators. Use 0 for charges that do not apply.</p>
+      <p>Imports use the warehouse number on each row. A duplicate carrier code, carrier name, and delivery for the same warehouse rejects the entire import. Use Edit in the grid to change existing rates.</p>
       <a className={`${styles.button} ${styles.download}`} href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`} download="carrier-rate-import-template.csv">Download CSV template</a>
       <RateImportGuide columns={[
         ["carrierId", "Yes", "Use the 8-character McLeod carrier code, for example SCMIRIGA."],
