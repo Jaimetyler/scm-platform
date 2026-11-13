@@ -29,13 +29,13 @@ export function carrierRateMatchesReturn(lane: string, location?: string | null,
   return Boolean(target && returnKey(lane) === target);
 }
 
-export function carrierRatesForReturn<T extends { lane: string; carrier_id: string; updated_at: string }>(
+export function carrierRatesForReturn<T extends { lane: string; carrier_id: string; carrier_name?: string; updated_at: string }>(
   rates: T[], location?: string | null, code?: string | null,
 ) {
   const matches = new Map<string, T>();
   for (const rate of rates) {
     if (!carrierRateMatchesReturn(rate.lane, location, code)) continue;
-    const key = rate.carrier_id.trim().toUpperCase();
+    const key = JSON.stringify([rate.carrier_id.trim().toUpperCase(), rate.carrier_name?.trim().toLowerCase() ?? ""]);
     const saved = matches.get(key);
     if (!saved || rate.updated_at > saved.updated_at) matches.set(key, rate);
   }
