@@ -62,7 +62,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
   const href = (target: WarehouseSection) => workspaceHref(target, location, view, filters);
   const returnTo = path.startsWith("/warehouse/outbound/") ? safeOutboundReturn(query.get("returnTo")) : null;
   const site = getCheckinSite(location.terminal, location.siteCode);
-  const navigation: [WarehouseSection, string][] = [["overview", "Operations"], ["outbound", "Outbound"], ["inventory", "Inventory"], ["history", "History"]];
+  const navigation: [WarehouseSection, string][] = [["overview", "Operations"], ["outbound", "Outbound Bookings"], ["inventory", "Inventory"], ["history", "History"]];
   const locationHref = (next: WarehouseLocation) => workspaceHref(section, next, view, filters);
   return <Context.Provider value={{ location, ready, href }}>
     {visible && <header className="warehouse-workspace" aria-label="Warehouse workspace">
@@ -89,7 +89,7 @@ export default function WarehouseWorkspace({ children }: { children: ReactNode }
         <button type="submit">Search warehouse</button>
       </form>
       <nav aria-label="Warehouse navigation" className="warehouse-main-nav">{navigation.map(([key, label]) =>
-        <Link key={key} href={key === "outbound" && returnTo ? returnTo : href(key)} aria-current={section === key ? "page" : undefined}>{label}</Link>)}</nav>
+        <Link key={key} className={key === "outbound" ? "warehouse-bookings-tab" : undefined} href={key === "outbound" && returnTo ? returnTo : href(key)} aria-current={section === key ? "page" : undefined}>{label}</Link>)}</nav>
       {<nav aria-label="Check-in views" className="warehouse-subnav"><Link href={href("overview")} className="warehouse-back-operations">← Operations</Link>{(site ? availableCheckinViews(location) : (["line", "cotton", "domestic", "containers"] as CheckinView[]).map(key => ({ key, label: { line: "Active Line", cotton: "Cotton", domestic: "Lumber & Other", containers: "Containers" }[key], href: `/inbound/checkin?${new URLSearchParams({ ...(location.terminal !== "all" ? { terminal: location.terminal } : {}), warehouse: "all", view: key })}` }))).map((item) =>
         <Link key={item.key} href={item.href} aria-current={checkinViewForPath(path) === item.key ? "page" : undefined}>{item.label}</Link>)}</nav>}
       {section === "history" && <nav aria-label="History views" className="warehouse-subnav">
