@@ -31,11 +31,21 @@ export default function CottonLocationsPage(){
  const [policyBusy,setPolicyBusy]=useState(false);
  const [tab,setTab]=useState<"details"|"hours"|"fees"|"tariffs"|"equipment">("details");
  const [query,setQuery]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
- async function load(){
-  try{const res=await fetch("/api/cotton-locations",{cache:"no-store"});const json=await res.json();if(!res.ok||!json.ok)throw Error(json.error||"Unable to load locations");setRows(json.locations);}
+ async function load(): Promise<Location[] | undefined>{
+  try{const res=await fetch("/api/cotton-locations",{cache:"no-store"});const json=await res.json();if(!res.ok||!json.ok)throw Error(json.error||"Unable to load locations");setRows(json.locations);return json.locations;}
   catch(e){setError(e instanceof Error?e.message:"Unable to load locations");}
  }
- useEffect(()=>{void load()},[]);
+ useEffect(() => {
+  const code = new URLSearchParams(window.location.search).get("location")?.trim().toUpperCase();
+  void load().then(locations => {
+   if (!code || !locations) return;
+   setQuery(code);
+   const current = locations.filter(r => r.mcleod_code.trim().toUpperCase() === code);
+   const matches = current.length ? current : locations.filter(r => r.prev_code?.trim().toUpperCase() === code);
+   if (matches.length === 1) void openLocation(matches[0]);
+   else setNotice(matches.length ? "Multiple locations match this code. Choose the correct record." : "No location record matches this code.");
+  });
+ }, []);
  useEffect(()=>{
   if(!selected)return;
   const handler=(event:KeyboardEvent)=>{if(event.key==="Escape"&&!busy)setSelected(null)};
