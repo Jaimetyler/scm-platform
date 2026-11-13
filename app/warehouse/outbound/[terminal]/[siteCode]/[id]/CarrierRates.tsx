@@ -21,13 +21,14 @@ export function CarrierRateManager(props: { rates: CarrierRate[]; endpoint: stri
   </>;
 }
 
-export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId }: {
-  rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void; initialId?: string; onSaving?: (saving: boolean) => void;
+export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId, copyFrom }: {
+  rates: CarrierRate[]; endpoint: string; onSaved: (rate: CarrierRate) => void; initialId?: string; copyFrom?: CarrierRate; onSaving?: (saving: boolean) => void;
 }) {
   const [selected, setSelected] = useState(initialId ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const rate = rates.find(item => item.id === selected);
+  const defaults = rate ?? copyFrom;
   const nameInput = useRef<HTMLInputElement>(null);
   const lastFilledName = useRef("");
 
@@ -40,7 +41,7 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId 
     if (saved) {
       input.value = saved.carrier_name;
       lastFilledName.current = saved.carrier_name;
-    } else if (input.value === lastFilledName.current || input.value === rate?.carrier_name) {
+    } else if (input.value === lastFilledName.current || input.value === defaults?.carrier_name) {
       input.value = "";
       lastFilledName.current = "";
     }
@@ -75,17 +76,17 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId 
       <option value="">Add a carrier rate</option>
       {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
     </select></label>}
-    <form key={rate ? `${rate.id}:${rate.updated_at}` : "new"} onSubmit={submit}>
-      <fieldset disabled={saving} style={{ display: "grid", gap: 8, maxWidth: 620 }}>
-        <label>McLeod carrier code <input placeholder="e.g. SCMIRIGA" name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} onChange={event => fillCarrierName(event.target.value)} /></label>
-        <label>Carrier name <input ref={nameInput} name="name" required maxLength={100} defaultValue={rate?.carrier_name} /></label>
-        <label>Delivery <input placeholder="McLeod location code, e.g. BNSFHATX" name="lane" required maxLength={100} defaultValue={rate?.lane} /></label>
-        <table><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th></tr></thead>
+    <form className="carrier-rate-form" key={rate ? `${rate.id}:${rate.updated_at}` : "new"} onSubmit={submit}>
+      <fieldset disabled={saving} className="carrier-rate-fields">
+        <label>McLeod carrier code <input placeholder="e.g. SCMIRIGA" name="carrier" required maxLength={30} defaultValue={defaults?.carrier_id} onChange={event => fillCarrierName(event.target.value)} /></label>
+        <label>Carrier name <input ref={nameInput} name="name" required maxLength={100} defaultValue={defaults?.carrier_name} /></label>
+        <label>Delivery <input placeholder="McLeod location code, e.g. BNSFHATX" name="lane" required maxLength={100} defaultValue={defaults?.lane} /></label>
+        <table className="carrier-rate-amounts"><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th></tr></thead>
           <tbody>{rateItems.map(({ key, label, code }) => <tr key={key}>
             <th scope="row">{key === "chassisDays" ? "Chassis per day" : label}{code && ` (${code})`}</th>
-            <td><input aria-label={`${key === "chassisDays" ? "Chassis per day" : label} pay`} name={`${key}-pay`} type="number" min="0" max="999999.99" step="0.01" required defaultValue={rate ? dollars(rate.rates[key].pay) : ""} /></td>
+            <td><input aria-label={`${key === "chassisDays" ? "Chassis per day" : label} pay`} name={`${key}-pay`} type="number" min="0" max="999999.99" step="0.01" required defaultValue={defaults ? dollars(defaults.rates[key].pay) : ""} /></td>
           </tr>)}</tbody></table>
-        <button type="submit">{saving ? "Saving…" : "Save rate"}</button>
+        <button type="submit" className="carrier-primary-action">{saving ? "Saving…" : copyFrom && !rate ? "Save new rate" : "Save rate"}</button>
       </fieldset>
     </form>
     {message && <p role="status">{message}</p>}
