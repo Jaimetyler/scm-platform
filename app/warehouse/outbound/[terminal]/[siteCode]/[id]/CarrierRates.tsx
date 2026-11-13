@@ -60,9 +60,9 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId 
     </select></label>}
     <form key={rate ? `${rate.id}:${rate.updated_at}` : "new"} onSubmit={submit}>
       <fieldset disabled={saving} style={{ display: "grid", gap: 8, maxWidth: 620 }}>
-        <label>McLeod carrier ID <input name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>
+        <label>McLeod carrier code <input placeholder="e.g. ABC123" name="carrier" required maxLength={30} defaultValue={rate?.carrier_id} /></label>
         <label>Carrier name <input name="name" required maxLength={100} defaultValue={rate?.carrier_name} /></label>
-        <label>Lane / return location <input name="lane" required maxLength={100} defaultValue={rate?.lane} /></label>
+        <label>Delivery <input placeholder="McLeod location code, e.g. BNSFHATX" name="lane" required maxLength={100} defaultValue={rate?.lane} /></label>
         <table><thead><tr><th scope="col">Charge</th><th scope="col">Carrier pay ($)</th></tr></thead>
           <tbody>{rateItems.map(({ key, label, code }) => <tr key={key}>
             <th scope="row">{key === "chassisDays" ? "Chassis per day" : label}{code && ` (${code})`}</th>
