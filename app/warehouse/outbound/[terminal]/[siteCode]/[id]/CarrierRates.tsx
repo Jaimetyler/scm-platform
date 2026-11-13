@@ -10,10 +10,10 @@ export function CarrierRateManager(props: { rates: CarrierRate[]; endpoint: stri
   const dialog = useRef<HTMLDialogElement>(null);
   const [saving, setSaving] = useState(false);
   return <>
-    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Carrier rates</button>
+    <button type="button" className="carrier-rates-button" onClick={() => dialog.current?.showModal()}>Local Dray Rates</button>
     <dialog ref={dialog} className="carrier-details-dialog carrier-rates-dialog" aria-labelledby="carrier-rates-title">
       <div className="carrier-dialog-heading">
-        <h2 id="carrier-rates-title">Carrier rates</h2>
+        <h2 id="carrier-rates-title">Local Dray Rates</h2>
         <form method="dialog"><button type="submit" disabled={saving}>Close</button></form>
       </div>
       <CarrierRateForm {...props} onSaving={setSaving} />
