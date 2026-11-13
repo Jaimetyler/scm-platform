@@ -62,6 +62,7 @@ export default function CottonOutboundBookingPage() {
   const [selectionCount, setSelectionCount] = useState("");
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [chargesOnly, setChargesOnly] = useState(false);
   const [detailId, setDetailId] = useState("");
   const detailDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -663,7 +664,12 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         {canManage && <>
-          <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>
+          <td style={td}><div className="carrier-summary-actions">
+            <CarrierSummary plan={row.carrier_plan} />
+            {canWrite && row.carrier_plan && !locked && <button type="button" className="carrier-charge-plus"
+              aria-label={`Edit charges for load ${row.sequence_no}`} disabled={Boolean(working) || bulkSaving}
+              onClick={() => { setChargesOnly(true); setDetailId(row.id); }}>+</button>}
+          </div></td>
           <td style={td} className="carrier-total">{totals ? `$${(totals.pay / 100).toFixed(2)}` : "—"}</td>
           <td style={td} className="carrier-total">{totals?.bill != null ? `$${(totals.bill / 100).toFixed(2)}` : totals ? "Rate unavailable" : "—"}</td>
         </>}
@@ -676,7 +682,7 @@ export default function CottonOutboundBookingPage() {
               onClick={() => void save(row, draft)}>Save</button>
           </>}
           {canManage && (row.container_number || row.booking_line_id) && <button type="button" className="carrier-row-details" disabled={Boolean(working) || bulkSaving}
-            onClick={() => setDetailId(row.id)}>Carrier / charges</button>}
+            onClick={() => { setChargesOnly(false); setDetailId(row.id); }}>Carrier / charges</button>}
           {line && line.line_status !== "cancelled" && <details className="booking-mark-actions"><summary>Mark actions</summary><div>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, locked ? "resume" : "hold")}>{locked ? "Resume" : "Put on hold"}</button>
             <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11, color: "#bbc9c2" }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "cancel")}>Cancel mark</button>
@@ -688,18 +694,18 @@ export default function CottonOutboundBookingPage() {
     {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     </PlatformPanel>
-    {detailRow && <dialog ref={detailDialog} className="carrier-details-dialog" aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
+    {detailRow && <dialog ref={detailDialog} className={`carrier-details-dialog${chargesOnly ? " carrier-compact-dialog" : ""}`} aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
       <div className="carrier-dialog-heading">
         <h2 id="carrier-details-title">{detailRow.container_number || detailLine?.mark || "Container details"}</h2>
         <form method="dialog"><button type="submit">Close</button></form>
       </div>
-      <h3>Carrier and charges</h3>
+      <h3>{chargesOnly ? "Charges" : "Carrier and charges"}</h3>
       {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} billing={customerBilling} rates={carrierRates}
-        sequence={detailRow.sequence_no} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
+        sequence={detailRow.sequence_no} chargesOnly={chargesOnly} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
         onSave={selection => save(detailRow, detailDraft, selection)} />}
       {error && <p role="alert">{error}</p>}
-      {orderLookup && detailRow.container_number && <BookingOrderLookup key={detailRow.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${detailRow.id}`} />}
-      {hasletPilot && canWrite && detailRow.container_number && detailLine?.line_status === "active" && detailLine.load_source === "warehouse" &&
+      {!chargesOnly && orderLookup && detailRow.container_number && <BookingOrderLookup key={detailRow.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${detailRow.id}`} />}
+      {!chargesOnly && hasletPilot && canWrite && detailRow.container_number && detailLine?.line_status === "active" && detailLine.load_source === "warehouse" &&
         <DallasOrderPilot key={detailRow.updated_at} endpoint={`/api/warehouse/outbound/bookings/${id}/dallas-pilot`} containerId={detailRow.id} mark={detailLine.mark} />}
     </dialog>}
     {markAction && <div role="dialog" aria-modal="true" aria-labelledby="mark-action-title" style={{ position: "fixed", inset: 0, background: "rgba(2,6,23,.8)", zIndex: 50, display: "grid", placeItems: "center", padding: 20 }}>

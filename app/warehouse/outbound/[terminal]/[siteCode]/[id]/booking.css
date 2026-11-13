@@ -205,3 +205,25 @@
   cursor: pointer;
 }
 .carrier-rate-form .carrier-primary-action:disabled { opacity: .55; }
+
+.carrier-compact-dialog { width: min(390px, calc(100% - 32px)); padding: 14px; }
+.carrier-summary-actions { display: flex; align-items: center; gap: 8px; }
+.carrier-charge-plus {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #85a998;
+  border-radius: 7px;
+  background: #284c42;
+  color: #e1ece5;
+  cursor: pointer;
+}
+.charge-stepper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 3ch auto;
+  align-items: center;
+  gap: 6px;
+}
+.charge-stepper output { text-align: center; font-variant-numeric: tabular-nums; }
+.charge-stepper button { min-width: 36px; min-height: 34px; }
+.charge-stepper button:disabled, .carrier-charge-plus:disabled { opacity: .55; }

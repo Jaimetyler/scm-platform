@@ -94,9 +94,22 @@ export function CarrierRateForm({ rates, endpoint, onSaved, onSaving, initialId,
   </>;
 }
 
-export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave }: {
+function ChargeStepper({ label, value, disabled, onChange }: {
+  label: string; value: number; disabled: boolean; onChange: (value: number) => void;
+}) {
+  return <div className="charge-stepper" role="group" aria-label={label}>
+    <span>{label}</span>
+    <button type="button" aria-label={`Remove one: ${label}`} disabled={disabled || value === 0}
+      onClick={() => onChange(value - 1)}>−</button>
+    <output aria-label={`${label} quantity`}>{value}</output>
+    <button type="button" aria-label={`Add one: ${label}`} disabled={disabled || value === 999}
+      onClick={() => onChange(value + 1)}>+</button>
+  </div>;
+}
+
+export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave, chargesOnly = false }: {
   plan: CarrierPlan | null; rates: CarrierRate[]; billing: CustomerBillRates | null; sequence: number;
-  disabled: boolean; onSave: (selection: CarrierSelection | null) => Promise<unknown>;
+  chargesOnly?: boolean; disabled: boolean; onSave: (selection: CarrierSelection | null) => Promise<unknown>;
 }) {
   const [selection, setSelection] = useState(plan?.rate.id ?? "");
   const [quantities, setQuantities] = useState(() => Object.fromEntries(accessorials.map(({ key }) => [key, String(plan?.quantities[key] ?? 0)])));
@@ -110,31 +123,29 @@ export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave
   const validCounts = Object.values(quantities).every(count => /^\d{1,3}$/.test(count));
 
   return <>
-    <div className="carrier-editor">
+    {!chargesOnly && <div className="carrier-editor">
       <select aria-label={`Outside carrier for container ${sequence}`} value={selection} disabled={disabled} onChange={event => { setSelection(event.target.value); setBasePayOverride(event.target.value === plan?.rate.id ? savedOverride : ""); }}>
         <option value="">Unassigned</option>
         {rate && !rates.some(item => item.id === rate.id) && <option value={rate.id}>{rate.carrier_name} · {rate.lane}</option>}
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} ({item.carrier_id}) · {item.lane}</option>)}
       </select>
-    </div>
+    </div>}
     <div className="carrier-editor">
-      <label style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+      {!chargesOnly && <label style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         Base carrier pay override
         <input aria-label={`Base carrier pay override for container ${sequence}`} type="number" min={0} max={999999.99} step="0.01"
           style={{ width: 88 }} value={basePayOverride} placeholder={rate ? dollars(rate.rates.base.pay) : ""}
           disabled={disabled || !rate} onChange={event => setBasePayOverride(event.target.value)} />
-      </label>
-      {accessorials.map(({ key, label }) => <label key={key} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-        {label}
-        <input aria-label={`${label} for container ${sequence}`} type="number" min={0} max={999} step={1} style={{ width: 62 }}
-          value={quantities[key]} disabled={disabled || !rate} onChange={event => setQuantities({ ...quantities, [key]: event.target.value })} />
-      </label>)}
-      {plan && <details>
+      </label>}
+      {accessorials.map(({ key, label }) => <ChargeStepper key={key} label={label}
+        value={Number(quantities[key])} disabled={disabled || !rate}
+        onChange={value => setQuantities(current => ({ ...current, [key]: String(value) }))} />)}
+      {plan && !chargesOnly && <details>
         <summary>Saved pay ${dollars(lines.reduce((total, line) => total + line.payTotal, 0))}</summary>
         <ul>{lines.map(line => <li key={line.key}>{line.key === "chassisDays" ? "Chassis" : `${line.units} × ${line.label}`}{line.code && ` (${line.code})`} · pay {line.key === "chassisDays" && `${line.units} days, `}${dollars(line.payTotal)} · bill {line.billUnits !== line.units && `${line.billUnits} days, `}{line.billTotal == null ? "rate unavailable" : `$${dollars(line.billTotal)}`}</li>)}</ul>
       </details>}
       <button type="button" className="carrier-primary-action" disabled={!dirty || disabled || Boolean(selection) && (!rate || !validCounts || !validOverride)} onClick={() =>
-        void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>Save carrier details</button>
+        void onSave(rate ? { rateId: rate.id, rateVersion: rate.updated_at, quantities, basePayOverride } : null)}>{chargesOnly ? "Save charges" : "Save carrier details"}</button>
     </div>
   </>;
 }
@@ -211,10 +222,9 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
         <option value="">Choose carrier</option>
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
       </select></label> : <>
-        {accessorials.map(({ key, label }) => <label key={key}>{label} per container
-          <input type="number" min="0" max="999" step="1" placeholder="0" value={units[key]} disabled={disabled}
-            onChange={event => setUnits(current => ({ ...current, [key]: event.target.value }))} />
-        </label>)}
+        {accessorials.map(({ key, label }) => <ChargeStepper key={key} label={`${label} per container`}
+          value={Number(units[key])} disabled={disabled || !allAssigned}
+          onChange={value => setUnits(current => ({ ...current, [key]: String(value) }))} />)}
         {canAddCharges && <span>Added pay ${dollars(added.pay)} · {addedBill == null ? "Customer billing rate missing" : `Added bill $${dollars(addedBill)}`}</span>}
         {exceedsLimit && <span role="alert">A container can have up to 999 units per charge.</span>}
       </>}
