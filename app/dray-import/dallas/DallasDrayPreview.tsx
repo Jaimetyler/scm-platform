@@ -2,6 +2,7 @@
 import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-location";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 
+import { planOutboundDrayLoads } from "@/lib/dray/outbound-load-plan";
 import { useState, type FormEvent } from "react";
 import type { previewDallasBungeDrays } from "@/lib/dray/dallas-booking";
 import styles from "../../ecotton-import/review.module.css";
@@ -10,6 +11,7 @@ type Preview = ReturnType<typeof previewDallasBungeDrays>;
 
 export default function DallasDrayPreview() {
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [bookId, setBookId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,11 +30,19 @@ export default function DallasDrayPreview() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw Error(result.error || "Booking preview failed.");
       setPreview(result.preview);
+      setBookId(result.preview.customerReference ?? "");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Booking preview failed.");
     } finally {
       setBusy(false);
     }
+  }
+
+  let loads: ReturnType<typeof planOutboundDrayLoads> = [];
+  let loadIssue = "";
+  if (preview) {
+    try { loads = planOutboundDrayLoads(bookId, preview.containers, preview.pickupLocation, preview.deliveryLocation); }
+    catch (reason) { loadIssue = reason instanceof Error ? reason.message : "Could not plan loads."; }
   }
 
   return <main className={styles.page}>
@@ -57,6 +67,17 @@ export default function DallasDrayPreview() {
           <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}
       </dl>
       {preview.issues.map(issue => <p key={issue} className={styles.error}>{issue}</p>)}
+      <h3>Planned McLeod loads</h3>
+      <label>Book ID <input value={bookId} onChange={event => setBookId(event.target.value)} /></label>
+      {loadIssue && <p role="status">{loadIssue}</p>}
+      {loads.length > 0 && <div className={styles.tableWrap}><table className={styles.table}>
+        <thead><tr><th scope="col">Load</th><th scope="col">Initial BLNUM</th><th scope="col">Pickup</th><th scope="col">Delivery</th></tr></thead>
+        <tbody>{loads.map(load => <tr key={load.sequence}>
+          <td>{load.sequence}</td><td>{load.originalBlnum}</td><td>{load.pickup}</td><td>{load.delivery}</td>
+        </tr>)}</tbody>
+      </table></div>}
+      <details>
+      <summary>Available marks ({preview.lines.length})</summary>
       <div className={styles.tableWrap}><table className={styles.table}>
         <thead><tr>{["Shipping order", "Mark", "Container", "Bales", "Load by", "McLeod pickup", "McLeod delivery", "Review"].map(label =>
           <th key={label} scope="col">{label}</th>)}</tr></thead>
@@ -67,6 +88,7 @@ export default function DallasDrayPreview() {
           <td>{line.issues.join(" ") || "—"}</td>
         </tr>)}</tbody>
       </table></div>
+      </details>
     </section>}
   </main>;
 }
