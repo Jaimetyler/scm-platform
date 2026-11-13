@@ -9,6 +9,7 @@ import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-loca
 import styles from "./OutboundPlanningTable.module.css";
 
 type SortKey = "customer" | "booking_number" | "erd" | "cutoff" | "planned_containers" | "missing_marks";
+export type PlanningSort = { key: SortKey; descending: boolean };
 const columns: { label: string; width: number; key?: SortKey }[] = [
   { label: "Location", width: 8 }, { label: "Customer", width: 9, key: "customer" }, { label: "Book ID", width: 7 },
   { label: "Containers", width: 7, key: "planned_containers" }, { label: "To load", width: 4 }, { label: "Loaded", width: 4 }, { label: "SSL", width: 3 },
@@ -17,10 +18,10 @@ const columns: { label: string; width: number; key?: SortKey }[] = [
   { label: "Uncovered", width: 7 }, { label: "Comments / alerts", width: 13 }, { label: "", width: 8 },
 ];
 
-export default function OutboundPlanningTable({ bookings, activeBookings, returnTo, now }: {
+export default function OutboundPlanningTable({ bookings, activeBookings, returnTo, now, sort, onSort }: {
   bookings: DashboardBooking[]; activeBookings: DashboardBooking[]; returnTo: string; now: Date;
+  sort: PlanningSort; onSort: (sort: PlanningSort) => void;
 }) {
-  const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: "cutoff", descending: false });
   const [info, setInfo] = useState<Record<string, PlanningInfo>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
         <caption className={styles.caption}>Active outbound bookings with warehouse inventory alerts. Sort using column headings.</caption>
         <colgroup>{columns.map(column => <col key={column.label} style={{ width: `${column.width}%` }} />)}</colgroup>
         <thead role="rowgroup"><tr role="row">{columns.map(column => <th role="columnheader" key={column.label} scope="col" aria-sort={column.key && sort.key === column.key ? sort.descending ? "descending" : "ascending" : undefined}>
-          {column.key ? <button type="button" onClick={() => setSort(current => ({ key: column.key!, descending: current.key === column.key ? !current.descending : false }))}>{column.label}{sort.key === column.key ? sort.descending ? " ↓" : " ↑" : " ↕"}</button> : column.label}
+          {column.key ? <button type="button" onClick={() => onSort({ key: column.key!, descending: sort.key === column.key && !sort.descending })}>{column.label}{sort.key === column.key ? sort.descending ? " ↓" : " ↑" : " ↕"}</button> : column.label}
         </th>)}</tr></thead>
         <tbody role="rowgroup">{rows.map(item => { const pulled = info[item.id]; return <tr role="row" key={item.id}>
           <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.customer_reference || "—"}</td>
