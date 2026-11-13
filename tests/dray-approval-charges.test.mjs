@@ -87,3 +87,9 @@ test("changing billed FSC by week leaves a matching contract base unchanged", ()
    assert.equal(result.billedFsc, fuel);
  }
 });
+
+test("missing minimum chassis is flagged and split charges stay in extras", () => {
+ const result = approvalCharges(545, [{code:"CS", description:"Chassis split", amount:45}], rate);
+ assert.equal(result.chassisMinimumShortfall, 45);
+ assert.equal(result.extraTotal, 45);
+});

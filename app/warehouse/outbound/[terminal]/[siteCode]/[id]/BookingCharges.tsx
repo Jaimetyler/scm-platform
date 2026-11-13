@@ -100,7 +100,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   const standardLabel = verifiedStandard ? "Standard" : "Billed drayage";
   const intro = `${verifiedStandard ? "Please review and approve the additional charges" : "Please review the itemized charges"} for booking ${clean(bookingNumber)}${customerReference ? ` (customer ref. ${clean(customerReference)})` : ""}.`;
   const standardNote = verifiedStandard
-    ? `Standard uses ${approvalRate.fuelMode === "all_in" ? "all-in drayage" : negotiatedFuel ? "contract base plus billed FSC" : "flat drayage"} and ${approvalRate.includedChassisDays} included chassis day(s) at ${currency(approvalRate.chassisDailyRate)} per day.${approvalRate.baseRate != null ? ` Contract base: ${currency(approvalRate.baseRate)}.` : " Contract base is missing."}`
+    ? `Standard uses ${approvalRate.fuelMode === "all_in" ? "all-in drayage" : negotiatedFuel ? "contract base plus billed FSC" : "flat drayage"} and ${approvalRate.includedChassisDays} minimum billable chassis day(s), separate from the base, at ${currency(approvalRate.chassisDailyRate)} per day.${approvalRate.baseRate != null ? ` Contract base: ${currency(approvalRate.baseRate)}.` : " Contract base is missing."}`
     : "Customer rate allowances are not configured. Itemized charges are shown in full for review; no standard chassis or fuel allowance has been deducted.";
   const includedTotal = reviewTotal(orderRows.filter(order => selected.has(order.id)).map(order => order.total));
   const email = ["Hi,", "", intro, standardNote, "",
@@ -179,7 +179,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
                 {order.billedFsc !== null && <small>Billed FSC {currency(order.billedFsc)}</small>}
                 {negotiatedFuel && order.billedFsc === null && <small>FSC line unavailable</small>}
                 {order.baseVariance === 0 && (!negotiatedFuel || order.billedFsc !== null) && <small style={{ color: "#86efac" }}>Base matches contract</small>}
-                {order.baseVariance !== null && order.baseVariance !== 0 && <small>Base {currency(Math.abs(order.baseVariance))} {order.baseVariance > 0 ? "over" : "under"} contract</small>}{order.includedChassis > 0 && <small>Includes {currency(order.includedChassis)} chassis</small>}</td>
+                {order.baseVariance !== null && order.baseVariance !== 0 && <small>Base {currency(Math.abs(order.baseVariance))} {order.baseVariance > 0 ? "over" : "under"} contract</small>}{order.includedChassis > 0 && <small>Includes {currency(order.includedChassis)} chassis</small>}{(order.chassisMinimumShortfall ?? 0) > 0 && <small style={{ color: "#fde68a" }}>Chassis billed below minimum · review {currency(order.chassisMinimumShortfall)}</small>}</td>
               <td>{!order.charges.length && <small>{order.chargesAvailable ? "No extra charges" : "Charge lines unavailable"}</small>}
                 {order.charges.map((charge, index) => <div key={index} className="booking-charge-choice">
                   <span>{charge.label}{charge.includedAmount > 0 && <small>{currency(charge.includedAmount)} standard chassis excluded</small>}{!charge.includedAmount && charge.units !== null && charge.rate !== null &&

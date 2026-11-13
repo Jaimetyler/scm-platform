@@ -26,6 +26,7 @@ export const GET = withStaffAccess(async (_req: NextRequest, context: Context) =
   const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
   const customerBilling = customerRate ? {
     base: customerRate.fuel_mode === "all_in" ? cents(customerRate.base_rate) : null,
+    minimumChassisDays: Number(customerRate.included_chassis_days),
     chassisDays: cents(customerRate.chassis_daily_rate), chassisSplits: cents(customerRate.chassis_split_rate),
     stopoffs: cents(customerRate.stopoff_rate),
   } : null;

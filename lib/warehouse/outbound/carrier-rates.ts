@@ -9,7 +9,7 @@ export const accessorials = rateItems.filter(item => item.key !== "base");
 type RateKey = typeof rateItems[number]["key"];
 export type Quantities = Record<Exclude<RateKey, "base">, number>;
 export type RateAmounts = Record<RateKey, { pay: number }>;
-export type CustomerBillRates = Record<RateKey, number | null>;
+export type CustomerBillRates = Record<RateKey, number | null> & { minimumChassisDays?: number };
 export type CarrierRate = {
   id: string;
   carrier_id: string;
@@ -50,8 +50,9 @@ export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierP
     const { pay: cardPay } = rate.rates[item.key];
     const bill = billing?.[item.key] ?? null;
     const pay = item.key === "base" ? basePayOverride ?? cardPay : cardPay;
-    return { ...item, units, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: bill == null ? null : units * bill };
-  }).filter(line => line.units > 0);
+    const billUnits = item.key === "chassisDays" ? Math.max(units, billing?.minimumChassisDays ?? 0) : units;
+    return { ...item, units, billUnits, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: bill == null ? null : billUnits * bill };
+  }).filter(line => line.units > 0 || line.billUnits > 0);
 }
 
 export type CarrierSelection = { rateId: string; rateVersion: string; quantities: Record<string, string>; basePayOverride: string };

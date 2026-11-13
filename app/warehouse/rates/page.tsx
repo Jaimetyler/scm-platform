@@ -123,7 +123,7 @@ export default function WarehouseRates() {
     {error && !dialogOpen && <p role="alert" className={styles.error}>{error}</p>}
     {visible.length > 0 && <div className={styles.gridScroll} role="region" aria-label="Customer rates grid" tabIndex={0}>
       <table className={styles.grid} aria-label="Customer rates">
-        <thead><tr>{["Rate code", "Customer", "Warehouse", "Delivery", "Revenue code", "Contract base", "Fuel", "Included chassis", "Notes", "Actions"].map(label =>
+        <thead><tr>{["Rate code", "Customer", "Warehouse", "Delivery", "Revenue code", "Contract base", "Fuel", "Minimum chassis days", "Notes", "Actions"].map(label =>
           <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{visible.map(rate => <tr key={rate.rate_code}>
           <th scope="row">R-{rate.rate_code}</th>
@@ -160,8 +160,8 @@ export default function WarehouseRates() {
           ["return_location", "No", "Return ramp or location name or code, such as BNSF Haslet or BNSFHATX. Blank applies to any return location."],
           ["fuel_mode", "Yes", "All in (all_in) includes fuel. FSC (base_plus_fsc) means fuel is separate. FLAT (fuel_for_review) flags fuel for review."],
           ["base_rate", "Yes", "Contracted customer base charge in dollars. For All in, enter the amount including fuel."],
-          ["included_chassis_days", "Yes", "Number of chassis days included in the base. Use a whole number, or 0 for none."],
-          ["chassis_daily_rate", "Yes", "Customer charge per additional chassis day. Must be positive when included days are greater than 0."],
+          ["included_chassis_days", "Yes", "Minimum billable chassis days per load, charged separately from the base. Use a whole number, or 0 for no minimum."],
+          ["chassis_daily_rate", "Yes", "Customer charge per chassis day, including minimum days. Must be positive when a minimum is set."],
           ["chassis_split_rate", "No", "Customer charge per chassis split. Blank leaves the rate unset."],
           ["stopoff_rate", "No", "Customer charge per extra stop. Blank leaves the rate unset."],
           ["active", "No", "true or false. Blank defaults to true."],
@@ -192,7 +192,7 @@ export default function WarehouseRates() {
             {Object.entries(fuelModes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
           <label>Contract base per order<input required type="number" min="0" step=".01" value={draft.base_rate} onChange={event => change("base_rate", event.target.value)} /></label>
-          <label>Included chassis days<input required type="number" min="0" step="1" value={draft.included_chassis_days} onChange={event => change("included_chassis_days", event.target.value)} /></label>
+          <label>Minimum chassis days<input required type="number" min="0" step="1" value={draft.included_chassis_days} onChange={event => change("included_chassis_days", event.target.value)} /></label>
           <label>Chassis split rate<input type="number" min="0" step=".01" placeholder="Not set" value={draft.chassis_split_rate} onChange={event => change("chassis_split_rate", event.target.value)} /></label>
           <label>Stopoff rate<input type="number" min="0" step=".01" placeholder="Not set" value={draft.stopoff_rate} onChange={event => change("stopoff_rate", event.target.value)} /></label>
           <label>Chassis per day<input required type="number" min="0" step=".01" value={draft.chassis_daily_rate} onChange={event => change("chassis_daily_rate", event.target.value)} /></label>
