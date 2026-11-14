@@ -35,3 +35,15 @@ test("does not link the same order to two loads or fall back when a saved ID dis
   const stale = buildBookingSyncPreview([{ ...load, savedOrderId: "another" }], [order], "5656", null);
   assert.equal(stale.rows[0].issue, "Saved SCM order could not be verified");
 });
+
+test("links a delivered legacy order by its exact mark when equipment and SCM order number are blank", () => {
+  const delivered = { ...order, blnum: "EC124 88 BALES", status: "D" };
+  const preview = buildBookingSyncPreview([{ ...load, mark: "EC124", container: null }], [delivered], "61014901", null);
+  assert.equal(preview.rows[0].order.id, order.id);
+  assert.equal(preview.rows[0].order.status, "D");
+  const unrelated = { ...delivered, id: "456", blnum: "EC1240 88 BALES" };
+  const ambiguous = { ...delivered, id: "789" };
+  const input = [{ ...load, mark: "EC124", container: null }];
+  assert.equal(buildBookingSyncPreview(input, [unrelated], "61014901", null).rows[0].order, null);
+  assert.equal(buildBookingSyncPreview(input, [delivered, ambiguous], "61014901", null).rows[0].issue, "Ambiguous order match");
+});
