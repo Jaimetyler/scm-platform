@@ -13,6 +13,8 @@ export type PreviewLoad = {
 
 const text = (value: unknown) => String(value ?? "").trim();
 const key = (value: unknown) => text(value).toUpperCase();
+const markReference = (value: unknown) =>
+  key(value).replace(/\s+\d+\s+(?:BALES?|B\/?C)$/i, "");
 const money = (value: unknown) =>
   (typeof value === "string" || typeof value === "number") && text(value) && Number.isFinite(Number(value)) ? Number(value) : null;
 
@@ -49,9 +51,12 @@ export function buildBookingSyncPreview(
   const candidates = loads.map(load => {
     if (load.savedOrderId) return orders.filter(order => text(order.id) === load.savedOrderId);
     const numbered = key(bookId) ? key(`${bookId}-${load.sequence}`) : "";
-    return orders.filter(order =>
+    const direct = orders.filter(order =>
       (numbered && key(order.blnum) === numbered) ||
       (key(load.container) && key(order.consignee_refno) === key(load.container)));
+    if (direct.length || !key(load.mark)) return direct;
+    return orders.filter(order => markReference(order.blnum) === key(load.mark) ||
+      markReference(order.consignee_refno) === key(load.mark));
   });
   const claims = new Map<string, number>();
   for (const matches of candidates) {
