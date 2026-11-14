@@ -14,6 +14,8 @@ export default function DallasDrayPreview() {
   const [bookId, setBookId] = useState("");
   const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", steamshipLine: "" });
   const [check, setCheck] = useState<{ key: string; bookings: string[]; orders: { id: string; blnum: string }[]; error?: string } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [saved, setSaved] = useState<{ bookingId: string; siteCode: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -23,6 +25,7 @@ export default function DallasDrayPreview() {
     if (busy) return;
     const form = new FormData(event.currentTarget);
     setPreview(null);
+    setSaved(null);
     setError("");
     setBusy(true);
     try {
@@ -71,13 +74,33 @@ export default function DallasDrayPreview() {
     } finally { setChecking(false); }
   }
 
+  async function importBooking() {
+    const form = document.querySelector<HTMLFormElement>("#dallas-booking-upload");
+    if (!form || importing || saved) return;
+    setImporting(true);
+    setError("");
+    try {
+      const data = new FormData(form);
+      const file = data.get("booking");
+      if (!(file instanceof File) || !file.size) throw Error("Choose a booking request.");
+      await attachBookingFile(data, file, "DAL", undefined, "booking");
+      for (const [key, value] of Object.entries({ ...details, bookId, action: "import" })) data.set(key, value);
+      const response = await fetch("/api/dray-import/dallas", { method: "POST", body: data });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || "Could not save booking.");
+      setSaved(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save booking.");
+    } finally { setImporting(false); }
+  }
+
   return <main className={styles.page}>
     <h1>Dallas Dray Import</h1>
-    <p>Review a Bunge, Olam, or ED&F booking request before the drays run. Preview only.</p>
-    <form className={styles.toolbar} onSubmit={upload}>
-      <label>Booking request <input required name="booking" type="file" accept=".xlsx,.xlsb" disabled={busy || checking}
+    <p>Review a Bunge, Olam, or ED&F booking request before creating outbound dray orders.</p>
+    <form id="dallas-booking-upload" className={styles.toolbar} onSubmit={upload}>
+      <label>Booking request <input required name="booking" type="file" accept=".xlsx,.xlsb" disabled={busy || checking || importing}
         onChange={() => { setPreview(null); setError(""); }} /></label>
-      <button type="submit" disabled={busy || checking}>{busy ? "Reading…" : "Preview booking"}</button>
+      <button type="submit" disabled={busy || checking || importing}>{busy ? "Reading…" : "Preview booking"}</button>
     </form>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {preview && <section>
@@ -122,6 +145,11 @@ export default function DallasDrayPreview() {
         </>}
       </div>}
       {loadIssue && <p role="status">{loadIssue}</p>}
+      {check?.key === checkKey && !check.error && !check.bookings.length && !check.orders.length && !saved &&
+        <button type="button" disabled={importing || checking} onClick={() => void importBooking()}>
+          {importing ? "Saving…" : "Save booking and stage McLeod orders"}
+        </button>}
+      {saved && <p role="status"><a href={`/warehouse/outbound/dal/${saved.siteCode}/${saved.bookingId}`}>Open saved booking to create McLeod orders</a></p>}
       {loads.length > 0 && <div className={styles.tableWrap}><table className={styles.table}>
         <thead><tr><th scope="col">Load</th><th scope="col">Initial BLNUM</th><th scope="col">Pickup</th><th scope="col">Delivery</th></tr></thead>
         <tbody>{loads.map(load => <tr key={load.sequence}>
