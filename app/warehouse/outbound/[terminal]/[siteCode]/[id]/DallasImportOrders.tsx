@@ -86,7 +86,7 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
       </details>
     </>}
     {linked.length > 0 && <details>
-      <summary>Sync booking details to McLeod</summary>
+      <summary className="booking-charge-button">Sync booking details to McLeod</summary>
       <label>SCM order <select disabled={busy} value={orderId} onChange={event => {
         setOrderId(event.target.value); setReview(null); setMessage("");
       }}>
@@ -96,8 +96,16 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
       <label><input type="checkbox" disabled={busy} checked={bolt} onChange={event => {
         setBolt(event.target.checked); setReview(null);
       }} /> Bolt seals required</label>{" "}
-      <button type="button" disabled={!orderId || busy} onClick={() => void sync(false)}>Preview booking details</button>
+      <button type="button" className="booking-charge-button" disabled={!orderId || busy} onClick={() => void sync(false)}>Preview booking details</button>
       {review && (review.changes.length ? <>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, margin: "12px 0" }}>
+          <button type="button" className="booking-charge-button" style={{ background: "#285647", color: "#f5faf7", borderColor: "#81a797" }}
+            disabled={busy || !fields.length} onClick={() => void sync(true)}>
+            {busy ? "Applying…" : "Apply selected details"}
+          </button>
+          <span>{fields.length ? `${fields.length} selected · SCM order ${orderId}` :
+            "Select the fields below to enable Apply."}</span>
+        </div>
         <div className="booking-charge-table"><table>
           <thead><tr><th>Apply</th><th>McLeod field</th><th>Current</th><th>Proposed</th></tr></thead>
           <tbody>{review.changes.map(change => <tr key={change.field}>
@@ -106,7 +114,6 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
             <th scope="row">{change.field}</th><td>{change.before || "Blank"}</td><td>{change.after}</td>
           </tr>)}</tbody>
         </table></div>
-        <button type="button" disabled={busy || !fields.length} onClick={() => void sync(true)}>Apply selected details</button>
       </> : <p role="status">The booking details already match.</p>)}
       {message && <p role="status">{message}</p>}
     </details>}
