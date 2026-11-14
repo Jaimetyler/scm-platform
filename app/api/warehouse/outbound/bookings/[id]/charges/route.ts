@@ -26,25 +26,27 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   if (req.nextUrl.searchParams.get("view") === "booking-preview") {
     const scope = booking.data!;
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(75_000)]);
-    const [containers, marks, verified, rate] = await Promise.all([
+    const [containers, marks, verified, imported, rate] = await Promise.all([
       db.from("cotton_outbound_containers").select("id,sequence_no,container_number,booking_line_id,carrier_plan")
         .eq("booking_id", id).is("split_transfer_id", null).order("sequence_no").limit(501),
       db.from("cotton_outbound_booking_lines").select("id,mark,line_status").eq("booking_id", id).limit(501),
       db.from("dallas_outbound_pilot_writes").select("container_number,order_id")
         .eq("booking_number", scope.booking_number.trim().toUpperCase()).eq("state", "verified").limit(501),
+      db.from("dallas_dray_import_loads").select("sequence_no,order_id").eq("booking_id", id).eq("state", "verified").limit(501),
       readBookingCustomerRate(db, scope).catch(() => null),
     ]);
-    if ([containers, marks, verified].some(result => result.error || !result.data || result.data.length >= 501)) {
+    if ([containers, marks, verified, imported].some(result => result.error || !result.data || result.data.length >= 501)) {
       return NextResponse.json({ error: "Could not load a complete set of booking loads." }, { status: 503 });
     }
     const marksById = new Map(marks.data!.map(line => [line.id, line]));
     const savedOrders = new Map(verified.data!.map(row => [row.container_number, row.order_id]));
+    const importedOrders = new Map(imported.data!.map(row => [row.sequence_no, row.order_id]));
     const loads = containers.data!.flatMap(row => {
       const line = marksById.get(row.booking_line_id);
       if (line?.line_status === "cancelled") return [];
       return [{ id: row.id, sequence: row.sequence_no, mark: line?.mark ?? null,
         container: row.container_number, plan: row.carrier_plan,
-        savedOrderId: savedOrders.get(String(row.container_number ?? "").trim().toUpperCase()) ?? undefined }];
+        savedOrderId: importedOrders.get(row.sequence_no) ?? savedOrders.get(String(row.container_number ?? "").trim().toUpperCase()) ?? undefined }];
     });
     const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
     const billing = rate ? {

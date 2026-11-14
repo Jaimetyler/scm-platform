@@ -1,5 +1,6 @@
 "use client";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
+import { canUseBilling } from "@/lib/auth/policy";
 import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
 import { useWarehouseViewState } from "@/components/warehouse/useWarehouseViewState";
@@ -17,6 +18,7 @@ import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/w
 import "./booking.css";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
+import DallasImportOrders from "./DallasImportOrders";
 import DallasOrderPilot from "./DallasOrderPilot";
 import { BookingOrderLookup, CarrierBatchToolbar, CarrierEditor, CarrierRateManager, CarrierSummary } from "./CarrierRates";
 import { carrierBatchSelection, carrierPlanTotals, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection, type CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
@@ -50,7 +52,8 @@ export default function CottonOutboundBookingPage() {
   const params = useParams<{ terminal: string; siteCode: string; id: string }>();
   const terminal = String(params.terminal ?? "").toUpperCase();
   const canManage = useCanWrite(terminal);
-  const isAdmin = useStaff()?.role === "admin";
+  const staff = useStaff();
+  const isAdmin = staff?.role === "admin";
   const siteCode = String(params.siteCode ?? "");
   const id = String(params.id ?? "");
   const locationOptions = terminal === "DAL" ? CHECKIN_SITES.filter(site => site.terminal === terminal && site.materials.includes("cotton")) : [];
@@ -431,6 +434,8 @@ export default function CottonOutboundBookingPage() {
   const activeContainers = containers.filter((row) => !row.split_transfer_id && (!row.booking_line_id || lines.find((line) => line.id === row.booking_line_id)?.line_status === "active"));
   const complete = activeContainers.filter((row) => row.container_number && row.seal_number && row.chassis_number).length;
   const lineById = new Map(lines.map((line) => [line.id, line]));
+  const assignedMarkIds = new Set(activeContainers.map(row => row.booking_line_id));
+  const unassignedMarks = lines.filter(line => line.line_status === "active" && !assignedMarkIds.has(line.id));
   const term = search.trim().toUpperCase();
   const visibleContainers = containers.filter((row) => {
     const assigned = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
@@ -512,6 +517,7 @@ export default function CottonOutboundBookingPage() {
             <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("cancelled")}>Delete booking</button>
           : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
         </div></details></>} />
+    {booking.status === "draft" && canUseBilling(staff) && terminal === "DAL" && <DallasImportOrders key={id} bookingId={id} />}
     {canWrite && terminal === "DAL" && bookingChargeCustomer(booking.customer) && <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
     {canWrite && isSavannahE2openBooking(terminal, booking.customer) && <PlatformPanel>
       <button type="button" style={button} disabled={e2openLoading} onClick={() => void checkE2openDocuments()}>
@@ -660,7 +666,12 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : <span style={{ color: "#bbc9c2" }}>Extra container</span>}</td>
+        <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : terminal === "DAL" && canWrite && unassignedMarks.length ? <select aria-label={`Mark for load ${row.sequence_no}`}
+          value={draft.bookingLineId} disabled={Boolean(working)} style={input}
+          onChange={event => change(row, "bookingLineId", event.target.value)}>
+          <option value="">Assign mark</option>
+          {unassignedMarks.map(mark => <option key={mark.id} value={mark.id}>{mark.mark} · {mark.requested_bales} bales</option>)}
+        </select> : <span style={{ color: "#bbc9c2" }}>Extra container</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#bbc9c2" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
