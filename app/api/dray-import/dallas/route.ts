@@ -249,7 +249,7 @@ async function syncBookingDetails(input: {
           return null;
         return unwrap(entries[0][1], depth + 1);
       };
-      const rows = unwrap(payload);
+      const rows = payload === null ? [] : unwrap(payload);
       if (!rows || rows.some(row => !row || typeof row.deduct_code_id !== "string" ||
           !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount)))) {
         const fieldNames = (value: unknown) => value && typeof value === "object" && !Array.isArray(value)
