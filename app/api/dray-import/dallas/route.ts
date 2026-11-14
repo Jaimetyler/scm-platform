@@ -226,7 +226,12 @@ async function syncBookingDetails(input: {
     };
     const movement = movementFor(current);
     const currentPayee = String(movement.override_payee_id ?? "").trim();
-    const currentPay = movement.override_pay_amt == null ? null : Number(movement.override_pay_amt);
+    const currentPay = String(movement.override_pay_rate ?? "").trim() ? Number(movement.override_pay_rate) : null;
+    const hasExpectedPay = (saved: typeof movement) =>
+      String(saved.override_payee_id ?? "").trim() === carrier &&
+      String(saved.override_type ?? "").trim() === "F" && Number(saved.override_units) === 1 &&
+      [saved.override_pay_rate, saved.override_paye_rate, saved.override_pay_amt].every(value =>
+        String(value ?? "").trim() !== "" && Math.round(Number(value) * 100) === baseCents);
     const assignedCarrier = String(movement.carrier_id || movement.vendor_id || "").trim().toUpperCase();
     const otherPay = carrierPayLines(movement);
     const proposedExtras = lines.filter(line => line.key !== "base" && line.units > 0)
@@ -236,7 +241,7 @@ async function syncBookingDetails(input: {
       ...(assignedCarrier && assignedCarrier !== carrier ? ["McLeod has a different dispatched carrier. Review the swap in McLeod."] : []),
       ...(currentPayee && currentPayee !== carrier && otherPay?.length !== 0 ? ["Review existing Other Carrier Pay before changing the payee."] : []),
     ];
-    const changed = currentPayee !== carrier || currentPay === null || Math.round(currentPay * 100) !== baseCents;
+    const changed = !hasExpectedPay(movement);
     const token = hash([input.bookingId, input.orderId, row.data?.updated_at, movement, current.status, carrier, pay]);
     const headers = { "Cache-Control": "private, no-store" };
     if (!apply) return NextResponse.json({ token, currentPayee, assignedCarrier, currentPay, carrier, pay,
@@ -248,10 +253,12 @@ async function syncBookingDetails(input: {
       override_payee_id: carrier, override_type: "F", override_units: 1,
       override_pay_amt: pay, override_pay_rate: pay, override_paye_rate: pay,
     });
+    const updated = movementFor(await readLinkedOrder());
+    if (String(updated.id) !== String(movement.id) || String(updated.override_payee_id ?? "").trim() !== carrier)
+      return NextResponse.json({ verified: false }, { headers });
+    await write(`/carrierDispatch/setPay/${encodeURIComponent(movement.id)}?method=F&units=1&rate=${pay}&carrierPay=${pay}`);
     const verified = movementFor(await readLinkedOrder());
-    return NextResponse.json({ verified: String(verified.id) === String(movement.id) &&
-      String(verified.override_payee_id ?? "").trim() === carrier &&
-      verified.override_pay_amt != null && Math.round(Number(verified.override_pay_amt) * 100) === baseCents }, { headers });
+    return NextResponse.json({ verified: String(verified.id) === String(movement.id) && hasExpectedPay(verified) }, { headers });
   }
   const expected = dallasBookingFields(saved.booking_number, saved.erd, saved.cutoff.replace(" ", "T"), {
     bookId: saved.scm_file_number, steamshipLine: saved.steamship_line, docCutoff: saved.doc_cutoff?.replace(" ", "T"),
