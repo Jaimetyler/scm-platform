@@ -234,11 +234,27 @@ async function syncBookingDetails(input: {
     const assignedCarrier = String(movement.carrier_id || movement.vendor_id || "").trim().toUpperCase();
     const otherPayPath = `/movements/${encodeURIComponent(movement.id)}/otherPay`;
     const readExtras = async () => {
-      const rows = await read(otherPayPath);
-      if (!Array.isArray(rows) || rows.some(row => !row || typeof row.deduct_code_id !== "string" ||
-          !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount))))
+      const payload = await read(otherPayPath);
+      const unwrap = (value: unknown, depth = 0): Record<string, unknown>[] | null => {
+        if (Array.isArray(value)) return value;
+        if (depth > 2 || !value || typeof value !== "object") return null;
+        const entries = Object.entries(value);
+        if (entries.length !== 1 || !/^(?:data|response|result|rows|items|list|otherPay|driver_extra_pay|RowDriverExtraPay)$/i.test(entries[0][0]))
+          return null;
+        return unwrap(entries[0][1], depth + 1);
+      };
+      const rows = unwrap(payload);
+      if (!rows || rows.some(row => !row || typeof row.deduct_code_id !== "string" ||
+          !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount)))) {
+        const fieldNames = (value: unknown) => value && typeof value === "object" && !Array.isArray(value)
+          ? Object.keys(value).filter(key => /^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(key)).slice(0, 20) : [];
+        console.warn("Dallas Other Carrier Pay response shape", {
+          kind: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
+          fields: fieldNames(payload), firstRowFields: fieldNames(rows?.[0]),
+        });
         throw Error("McLeod Other Carrier Pay could not be verified.");
-      return rows.map(row => ({ code: row.deduct_code_id.trim(), payee: String(row.payee_id ?? "").trim(),
+      }
+      return rows.map(row => ({ code: String(row.deduct_code_id).trim(), payee: String(row.payee_id ?? "").trim(),
         description: String(row.descr ?? ""), amount: Number(row.amount), id: String(row.id ?? "") }));
     };
     let otherPayIssue = "";
