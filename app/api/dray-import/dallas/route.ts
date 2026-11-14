@@ -10,6 +10,7 @@ import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { hash, vendor } from "@/lib/dray/server";
 
 import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
+import { warehouseDate } from "@/lib/inbound/checkin/geofence";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
@@ -305,12 +306,14 @@ async function syncBookingDetails(input: {
     if (input.action === "apply-extras") {
       if (input.token !== token || extrasBlockers.length || !missingExtras.length)
         throw Error("Extra pay could not be applied. Preview the order again.");
+      const transactionDate = warehouseDate(new Date(), "DAL");
       for (const line of missingExtras) {
         const fresh = await readExtras();
         if (fresh.some(row => row.code === line.code)) throw Error("Extra pay changed. Preview the order again.");
         await write(otherPayPath, { __type: "driver_extra_pay", company_id: "TMS", movement_id: String(movement.id),
           order_id: input.orderId, payee_id: carrier, deduct_code_id: line.code,
-          descr: line.description, units: line.units, rate: line.rate, amount: line.amount });
+          transaction_date: transactionDate, descr: line.description, short_desc: line.description,
+          units: line.units, rate: line.rate, amount: line.amount });
         const verified = (await readExtras()).filter(row => row.code === line.code);
         if (verified.length !== 1 || !matchesExtra(verified[0], line)) return NextResponse.json({ verified: false }, { headers });
       }
