@@ -28,6 +28,7 @@ export function previewDallasBungeDrays(bytes: Buffer, options: BookingImportOpt
   const pickupLocation = pickups.length === 1 ? pickups[0] : null;
   if (!pickupLocation) issues.push("Resolve a single pickup warehouse for this booking.");
   return {
+    boltSealsRequired: Boolean(booking.boltSealsRequired || booking.detailNotes.some(note => /\bbolt seals? required\b/i.test(note))),
     sourceFormat: booking.sourceFormat,
     customerId: booking.sourceFormat === "bunge" ? "BUNGOMNE" : booking.sourceFormat === "olam" ? "OLAMRITX" : null, customer: booking.customer, bookingNumber: booking.bookingNumber, bookId: booking.bookId ?? "", customerReference: booking.customerReference,
     loadPort: booking.loadPort, steamshipLine: booking.steamshipLine, deliveryLocation, pickupLocation,

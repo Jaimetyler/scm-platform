@@ -12,7 +12,7 @@ type Preview = ReturnType<typeof previewDallasBungeDrays>;
 export default function DallasDrayPreview() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [bookId, setBookId] = useState("");
-  const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", steamshipLine: "" });
+  const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", steamshipLine: "", boltSealsRequired: false });
   const [check, setCheck] = useState<{ key: string; bookings: string[]; restoreId?: string | null; orders: { id: string; blnum: string }[]; error?: string } | null>(null);
   const [importing, setImporting] = useState(false);
   const [saved, setSaved] = useState<{ bookingId: string; siteCode: string } | null>(null);
@@ -39,7 +39,7 @@ export default function DallasDrayPreview() {
       const parsed: Preview = result.preview;
       setBookId(parsed.bookId);
       setDetails({ erd: parsed.erd ?? "", docCutoff: parsed.docCutoff ?? "", cutoff: parsed.cutoff ?? "",
-        vessel: parsed.vessel ?? "", steamshipLine: parsed.steamshipLine ?? "" });
+        vessel: parsed.vessel ?? "", steamshipLine: parsed.steamshipLine ?? "", boltSealsRequired: parsed.boltSealsRequired });
       setCheck(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Booking preview failed.");
@@ -84,7 +84,7 @@ export default function DallasDrayPreview() {
       const file = data.get("booking");
       if (!(file instanceof File) || !file.size) throw Error("Choose a booking request.");
       await attachBookingFile(data, file, "DAL", undefined, "booking");
-      for (const [key, value] of Object.entries({ ...details, bookId, action: "import" })) data.set(key, value);
+      for (const [key, value] of Object.entries({ ...details, bookId, action: "import" })) data.set(key, String(value));
       if (check?.restoreId) data.set("restoreBookingId", check.restoreId);
       const response = await fetch("/api/dray-import/dallas", { method: "POST", body: data });
       const result = await response.json();
@@ -134,6 +134,8 @@ export default function DallasDrayPreview() {
         </label>)}
         <label>Vessel / voyage <input value={details.vessel} onChange={event => setDetails({ ...details, vessel: event.target.value })} /></label>
         <label>Steamship line <input value={details.steamshipLine} onChange={event => setDetails({ ...details, steamshipLine: event.target.value })} /></label>
+        <label><input type="checkbox" checked={details.boltSealsRequired}
+          onChange={event => setDetails({ ...details, boltSealsRequired: event.target.checked })} /> Bolt seals required</label>
       </div>
       <h3>Planned McLeod loads</h3>
       <button type="button" disabled={!loads.length || checking} onClick={() => void checkBooking()}>
