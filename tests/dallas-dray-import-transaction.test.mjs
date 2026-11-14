@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
-import { dallasImportPayload } from "../lib/dray/dallas-import-orders.ts";
+import { dallasImportPayload, matchesDallasImportDate, stagedDallasLocalTime } from "../lib/dray/dallas-import-orders.ts";
 import { planOutboundDrayLoads } from "../lib/dray/outbound-load-plan.ts";
 
 test("Dallas import stages numbered blank loads and rolls back a duplicate Book ID", async () => {
@@ -27,10 +27,10 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
       assert.equal(payloads[0].order_type_id, "FSCD");
       assert.equal(payloads[0].booking_no_sucm, booking);
       assert.equal(payloads[0].ssl_sucm, "OOCL");
-      assert.equal(payloads[0].cutoff_date, "20261118172500-0600");
-      assert.equal(payloads[0].doc_cutoff_date, "20261116103000-0600");
+      assert.equal(payloads[0].cutoff_date, "2026-11-18T17:25:00");
+      assert.equal(payloads[0].doc_cutoff_date, "2026-11-16T10:30:00");
       assert.equal(payloads[0].planning_comment, `ID${bookId}: OOCL Bkg# ${booking} - ERD 11/13 - C/O 11/18 *Bolt Seals Required*`);
-      assert.match(payloads[0].stops[0].sched_arrive_late, /^20261118172500-0600$/);
+      assert.match(payloads[0].stops[0].sched_arrive_late, /^2026-11-18T17:25:00$/);
       assert.equal(payloads[0].consignee_refno, undefined);
       assert.equal(payloads[0].movements, undefined);
       return db.query(`select start_dallas_dray_import('SCMDDETX','Dallas - 2119','Bunge USA Agriculture LLC',$1,'61028280','request.xlsx',$2,$3,$4)`, [
@@ -57,4 +57,10 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     assert.equal((await db.query("select status from cotton_outbound_bookings where id=$1", [legacy])).rows[0].status, "draft");
     assert.equal((await db.query("select count(*)::int n from dallas_dray_import_loads where booking_id=$1", [legacy])).rows[0].n, 2);
   } finally { await db.close(); }
+});
+
+test("Dallas order timestamps preserve the displayed local time", () => {
+  assert.equal(stagedDallasLocalTime("20261118000000-0600"), "2026-11-18T00:00:00");
+  assert.equal(matchesDallasImportDate("20261118010000-0500", "2026-11-18T00:00:00"), false);
+  assert.equal(matchesDallasImportDate("20261118172500-0500", "2026-11-18T17:25:00"), true);
 });

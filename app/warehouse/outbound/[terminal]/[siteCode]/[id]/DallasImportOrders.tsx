@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+type PayLine = { code: string | null; description: string; amount: number | null };
+type CarrierReview = { token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
+  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; changed: boolean };
+const money = (amount: number | null) => amount == null ? "Unavailable" :
+  amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
+  lines.map(line => [line.code, line.description, money(line.amount)].filter(Boolean).join(" · ")).join(", ") : "None";
+
 type Load = { blnum: string; state: string; orderId: string | null };
 
 async function request(bookingId: string, action: string, signal?: AbortSignal): Promise<Load[]> {
@@ -19,6 +27,7 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
   const [orderId, setOrderId] = useState("");
   const [bolt, setBolt] = useState(false);
   const [review, setReview] = useState<{ token: string; changes: { field: string; before: string; after: string }[] } | null>(null);
+  const [carrierReview, setCarrierReview] = useState<CarrierReview | null>(null);
   const [fields, setFields] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -47,20 +56,25 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
     } finally { setBusy(false); }
   }
 
-  async function sync(apply: boolean) {
+  async function sync(apply: boolean, carrier = false) {
     setBusy(true);
     setError("");
     setMessage("");
-    if (!apply) setReview(null);
+    if (carrier) setCarrierReview(null);
+    else if (!apply) setReview(null);
     try {
       const response = await fetch("/api/dray-import/dallas", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: apply ? "apply-details" : "preview-details",
-          bookingId, orderId, boltSealsRequired: bolt, token: review?.token, fields }),
+        body: JSON.stringify({ action: `${apply ? "apply" : "preview"}-${carrier ? "carrier" : "details"}`,
+          bookingId, orderId, boltSealsRequired: bolt, token: carrier ? carrierReview?.token : review?.token, fields }),
       });
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Booking details sync failed.");
-      if (apply) {
+      if (carrier) {
+        if (apply) setMessage(result.verified ? `Verified carrier payee and base pay on SCM order ${orderId}.` :
+          "Carrier payee or base pay did not verify. Preview again before applying.");
+        else setCarrierReview(result);
+      } else if (apply) {
         setReview(null);
         setMessage(result.verified ? `Verified selected booking details on SCM order ${orderId}.` :
           `Read-back did not verify: ${result.differences.join(", ")}. Preview again before applying.`);
@@ -88,7 +102,7 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
     {linked.length > 0 && <details>
       <summary className="booking-charge-button">Sync booking details to McLeod</summary>
       <label>SCM order <select disabled={busy} value={orderId} onChange={event => {
-        setOrderId(event.target.value); setReview(null); setMessage("");
+        setOrderId(event.target.value); setReview(null); setCarrierReview(null); setMessage("");
       }}>
         <option value="">Select a verified order</option>
         {linked.map(load => <option key={load.blnum} value={load.orderId!}>{load.orderId} · {load.blnum}</option>)}
@@ -97,6 +111,22 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
         setBolt(event.target.checked); setReview(null);
       }} /> Bolt seals required</label>{" "}
       <button type="button" className="booking-charge-button" disabled={!orderId || busy} onClick={() => void sync(false)}>Preview booking details</button>
+      <button type="button" className="booking-charge-button" disabled={!orderId || busy}
+        onClick={() => void sync(false, true)}>Preview carrier and pay</button>
+      {carrierReview && <section aria-label="Carrier and pay comparison">
+        {carrierReview.blockers.map(blocker => <p key={blocker} role="status">{blocker}</p>)}
+        <button type="button" className="booking-charge-button" disabled={busy || !carrierReview.changed || !!carrierReview.blockers.length}
+          onClick={() => void sync(true, true)}>Apply carrier payee and base pay</button>
+        <div className="booking-charge-table"><table>
+          <thead><tr><th>Field</th><th>McLeod</th><th>Platform</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Carrier payee</th><td>{carrierReview.currentPayee || "Blank"}</td><td>{carrierReview.carrier}</td></tr>
+            <tr><th scope="row">Dispatched carrier</th><td>{carrierReview.assignedCarrier || "Blank"}</td><td>Review in McLeod</td></tr>
+            <tr><th scope="row">Base carrier pay</th><td>{money(carrierReview.currentPay)}</td><td>{money(carrierReview.pay)}</td></tr>
+            <tr><th scope="row">Other Carrier Pay · review only</th><td>{payLines(carrierReview.otherPay)}</td><td>{payLines(carrierReview.proposedExtras)}</td></tr>
+          </tbody>
+        </table></div>
+      </section>}
       {review && (review.changes.length ? <>
         <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, margin: "12px 0" }}>
           <button type="button" className="booking-charge-button" style={{ background: "#285647", color: "#f5faf7", borderColor: "#81a797" }}

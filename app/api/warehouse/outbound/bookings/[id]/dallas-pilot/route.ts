@@ -145,7 +145,7 @@ async function handler(req: NextRequest, context: { params: Promise<{ id: string
     }
     if (!orderId) throw Error("No SCM order number to verify.");
     const saved = payload ? await readOrder(read, orderId) : fresh;
-    if (payload && (key(saved.blnum) !== key(plan.bol) || key(saved.ordered_by) !== key(plan.orderedBy)))
+    if (payload && (key(saved.order_type_id) !== payload.order_type_id || key(saved.blnum) !== key(plan.bol) || key(saved.ordered_by) !== key(plan.orderedBy)))
       throw Error("New order references did not verify.");
     const billing = reviewDallasPilotOrder(saved, plan);
     if (billing.billing) {
