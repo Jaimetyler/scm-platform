@@ -39,12 +39,18 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
         JSON.stringify(payloads),
       ]);
     };
+    await db.exec("alter table cotton_outbound_containers add constraint outbound_carrier_plan_requires_load check (carrier_plan is null or booking_line_id is not null or container_number is not null)");
+    await db.exec(await readFile(new URL("../supabase/migrations/20261114090000_outbound_carrier_for_verified_order.sql", import.meta.url), "utf8"));
     await stage("BOOKING-1");
     assert.deepEqual((await db.query("select blnum,state from dallas_dray_import_loads order by sequence_no")).rows,
       [{ blnum: "41458-1", state: "pending" }, { blnum: "41458-2", state: "pending" }]);
     assert.equal((await db.query("select booking_line_id from cotton_outbound_containers where booking_line_id is not null")).rows.length, 0);
     assert.equal((await db.query("select mark from cotton_outbound_booking_lines")).rows[0].mark, "MARK-A");
     assert.equal((await db.query("select scm_file_number from cotton_outbound_bookings")).rows[0].scm_file_number, "41458");
+    const saveCarrier = () => db.exec("update cotton_outbound_containers set carrier_plan = '{}'::jsonb where sequence_no = 1");
+    await assert.rejects(saveCarrier(), /verified SCM order/);
+    await db.exec("update dallas_dray_import_loads set state = 'verified', order_id = '0830845' where blnum = '41458-1'");
+    await saveCarrier();
     await assert.rejects(stage("BOOKING-2"), /duplicate key/);
     assert.equal((await db.query("select id from cotton_outbound_bookings")).rows.length, 1);
     const legacy = (await db.query(`select create_cotton_outbound_booking_draft(

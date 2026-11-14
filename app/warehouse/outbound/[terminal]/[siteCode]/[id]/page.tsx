@@ -27,7 +27,7 @@ import { useVisiblePolling } from "@/components/warehouse/useVisiblePolling";
 import { bookingMarkBadges } from "@/lib/warehouse/outbound/marks";
 import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
-type Container = { id: string; sequence_no: number; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
+type Container = { id: string; sequence_no: number; scm_order_number?: string | null; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
   chassis_number: string | null; notes: string | null; updated_at: string; split_transfer_id: string | null;
   carrier_plan: CarrierPlan | null;
   split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
@@ -439,7 +439,7 @@ export default function CottonOutboundBookingPage() {
   const term = search.trim().toUpperCase();
   const visibleContainers = containers.filter((row) => {
     const assigned = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
-    return !term || [row.sequence_no, row.container_number, row.seal_number, row.chassis_number, row.notes,
+    return !term || [row.sequence_no, row.scm_order_number, row.container_number, row.seal_number, row.chassis_number, row.notes,
       assigned?.mark, assigned?.shipping_order, row.split?.mark, row.split?.target_booking_number].some((value) => String(value ?? "").toUpperCase().includes(term));
   }).sort((a, b) => {
     const rank = (row: Container) => {
@@ -450,7 +450,7 @@ export default function CottonOutboundBookingPage() {
   });
   const selectionEnabled = canWrite && !rollMode;
   const pending = pendingEquipment().drafts;
-  const selectableRows = selectionEnabled ? visibleContainers.filter(row => (row.container_number || row.booking_line_id) && !row.split_transfer_id &&
+  const selectableRows = selectionEnabled ? visibleContainers.filter(row => (row.container_number || row.booking_line_id || row.scm_order_number) && !row.split_transfer_id &&
     !pending[row.id] && drafts[row.id] && (!row.booking_line_id || lineById.get(row.booking_line_id)?.line_status === "active")) : [];
   const unassignedRows = selectableRows.filter(row => !row.carrier_plan);
   const requestedSelection = Number(selectionCount);
@@ -643,10 +643,10 @@ export default function CottonOutboundBookingPage() {
         checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
         disabled={!selectableRows.length || Boolean(working) || bulkSaving}
         onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
-      {[...(rollMode ? ['Select'] : []), '#', 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+      {[...(rollMode ? ['Select'] : []), '#', ...(terminal === 'DAL' ? ['SCM order number'] : []), 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#bbc9c2" }}>
-        {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>
+        {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>{terminal === "DAL" && <td style={td}>—</td>}
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
         <td style={td} colSpan={canManage ? 7 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
@@ -666,12 +666,13 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
+        {terminal === "DAL" && <td style={{ ...td, whiteSpace: "nowrap" }}>{row.scm_order_number || "—"}</td>}
         <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : terminal === "DAL" && canWrite && unassignedMarks.length ? <select aria-label={`Mark for load ${row.sequence_no}`}
           value={draft.bookingLineId} disabled={Boolean(working)} style={input}
           onChange={event => change(row, "bookingLineId", event.target.value)}>
           <option value="">Assign mark</option>
           {unassignedMarks.map(mark => <option key={mark.id} value={mark.id}>{mark.mark} · {mark.requested_bales} bales</option>)}
-        </select> : <span style={{ color: "#bbc9c2" }}>Extra container</span>}</td>
+        </select> : <span style={{ color: "#bbc9c2" }}>{row.scm_order_number ? "Unassigned mark" : "Extra container"}</span>}</td>
         <td style={td}>{line && (line.load_source === "source_load" || locked) ? <strong style={{ color: "#bbc9c2" }}>{line.requested_bales}</strong> : line ? <strong title={bookingBaleDisplay(line).title} style={{ color: bookingBaleDisplay(line).color, whiteSpace: "nowrap" }}>{bookingBaleDisplay(line).text}</strong> : "—"}</td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} number`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.containerNumber} onChange={(e) => change(row, "containerNumber", e.target.value)} placeholder="ABCD1234567" /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} seal`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.sealNumber} onChange={(e) => change(row, "sealNumber", e.target.value)} placeholder="Seal #" /></td>
@@ -679,7 +680,7 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         {canManage && <>
           <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>
-          <td style={td} className="carrier-total">{row.container_number || row.booking_line_id ?
+          <td style={td} className="carrier-total">{row.container_number || row.booking_line_id || row.scm_order_number ?
             <button type="button" className="carrier-rate-link" disabled={Boolean(working) || bulkSaving}
               aria-label={`View carrier and charges for load ${row.sequence_no}`}
               onClick={() => { setChargesOnly(false); setDetailId(row.id); }}>
