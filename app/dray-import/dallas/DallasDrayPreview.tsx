@@ -13,7 +13,7 @@ export default function DallasDrayPreview() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [bookId, setBookId] = useState("");
   const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", steamshipLine: "" });
-  const [check, setCheck] = useState<{ key: string; bookings: string[]; orders: { id: string; blnum: string }[]; error?: string } | null>(null);
+  const [check, setCheck] = useState<{ key: string; bookings: string[]; restoreId?: string | null; orders: { id: string; blnum: string }[]; error?: string } | null>(null);
   const [importing, setImporting] = useState(false);
   const [saved, setSaved] = useState<{ bookingId: string; siteCode: string } | null>(null);
   const [checking, setChecking] = useState(false);
@@ -85,6 +85,7 @@ export default function DallasDrayPreview() {
       if (!(file instanceof File) || !file.size) throw Error("Choose a booking request.");
       await attachBookingFile(data, file, "DAL", undefined, "booking");
       for (const [key, value] of Object.entries({ ...details, bookId, action: "import" })) data.set(key, value);
+      if (check?.restoreId) data.set("restoreBookingId", check.restoreId);
       const response = await fetch("/api/dray-import/dallas", { method: "POST", body: data });
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Could not save booking.");
@@ -145,9 +146,9 @@ export default function DallasDrayPreview() {
         </>}
       </div>}
       {loadIssue && <p role="status">{loadIssue}</p>}
-      {check?.key === checkKey && !check.error && !check.bookings.length && !check.orders.length && !saved &&
+      {check?.key === checkKey && !check.error && (!check.bookings.length || check.restoreId) && !check.orders.length && !saved &&
         <button type="button" disabled={importing || checking} onClick={() => void importBooking()}>
-          {importing ? "Saving…" : "Save booking and stage McLeod orders"}
+          {importing ? "Saving…" : check.restoreId ? "Restore and stage orders" : "Save booking and stage McLeod orders"}
         </button>}
       {saved && <p role="status"><a href={`/warehouse/outbound/dal/${saved.siteCode}/${saved.bookingId}`}>Open saved booking to create McLeod orders</a></p>}
       {loads.length > 0 && <div className={styles.tableWrap}><table className={styles.table}>

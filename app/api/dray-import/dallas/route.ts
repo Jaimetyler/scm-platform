@@ -54,12 +54,15 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
       const loads = planOutboundDrayLoads(String(input.bookId ?? ""), input.containers, input.pickup, input.delivery);
       const prefix = loads[0].originalBlnum.slice(0, -1);
       const [bookings, orders] = await Promise.all([
-        staffDatabase().from("cotton_outbound_bookings").select("site_name,status")
+        staffDatabase().from("cotton_outbound_bookings").select("id,site_code,site_name,status,planned_containers")
           .eq("terminal", "DAL").eq("booking_number", bookingNumber),
         findOrders(prefix, request.signal),
       ]);
       if (bookings.error) throw Error("Could not check platform bookings.");
-      return NextResponse.json({ bookings: bookings.data.map(row => `${row.site_name} (${row.status})`), orders },
+      const existing = bookings.data.length === 1 ? bookings.data[0] : null;
+      const restoreId = existing?.status === "cancelled" && existing.site_code === loads[0].pickup &&
+        existing.planned_containers === loads.length ? existing.id : null;
+      return NextResponse.json({ restoreId, bookings: bookings.data.map(row => `${row.site_name} (${row.status})`), orders },
         { headers: { "Cache-Control": "private, no-store" } });
     }
     const form = await request.formData();
@@ -88,10 +91,10 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
         p_booking_number: preview.bookingNumber, p_customer_reference: preview.customerReference,
         p_source_filename: source.name.slice(0, 200),
         p_lines: preview.lines.map(line => ({ ...line, containerNumber: null })),
-        p_details: { ...details, source_format: preview.sourceFormat },
+        p_details: { ...details, source_format: preview.sourceFormat, restore_booking_id: form.get("restoreBookingId") },
         p_loads: [first, ...remaining].map(load => dallasImportPayload(load, preview.bookingNumber, customer.code, details.erd!, details.cutoff!)),
       });
-      if (error) throw Error(error.code === "23505" ? "This booking or Book ID already exists." : "Could not save the Dallas import.");
+      if (error) throw Error(error.code === "23505" ? "This booking or Book ID already exists, or the cancelled booking has saved load details and cannot be restored for import." : "Could not save the Dallas import.");
       return NextResponse.json({ ok: true, bookingId: data, siteCode: site.siteCode });
     }
     return NextResponse.json({ ok: true, preview }, { headers: { "Cache-Control": "no-store" } });
