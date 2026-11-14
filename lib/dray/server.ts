@@ -76,11 +76,12 @@ export function vendor(readOnly = false): Vendor {
       throw new Error(
         "Dray creation and rating are disabled in this environment.",
       );
+    const otherPay = /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path);
     // Read-only credentials are never passed to a write endpoint.
     if (
       isRead
-        ? !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
-        : !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
+        ? !otherPay && !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
+        : !otherPay && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
             path,
           )
     )
@@ -89,7 +90,7 @@ export function vendor(readOnly = false): Vendor {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: path.startsWith("/carrierDispatch/setPay/")
+        Accept: (!isRead && otherPay) || path.startsWith("/carrierDispatch/setPay/")
           ? "text/plain, application/json"
           : "application/json",
         "Content-Type": "application/json",
@@ -101,7 +102,7 @@ export function vendor(readOnly = false): Vendor {
     const text = await r.text();
     if (!r.ok)
       throw new Error(`McLeod HTTP ${r.status}: ${text.slice(0, 350)}`);
-    if (path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
+    if ((!isRead && otherPay) || path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
     try {
       return JSON.parse(text);
     } catch {
@@ -113,7 +114,7 @@ export function vendor(readOnly = false): Vendor {
     write: (path, body) =>
       request(
         path,
-        ["/orders/create", "/movement/update", "/stop/update", "/orders/updateRow"].includes(path) ? "PUT" : "POST",
+        (["/orders/create", "/movement/update", "/stop/update", "/orders/updateRow"].includes(path) || /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path)) ? "PUT" : "POST",
         body,
       ),
   };
