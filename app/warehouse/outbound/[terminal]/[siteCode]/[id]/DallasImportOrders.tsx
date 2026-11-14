@@ -71,8 +71,8 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Booking details sync failed.");
       if (carrier) {
-        if (extraAction === "billing") setMessage(result.verified ? "Verified customer charges in McLeod." :
-          "Customer charges did not verify. Preview again before retrying.");
+        if (extraAction === "billing") setMessage(result.verified ? `Verified customer charges in McLeod. Bill total: ${money(Number(result.total))}.` :
+          `Customer charge read-back could not verify. ${result.differences.join(". ")}. Check the order in McLeod before retrying.`);
         else if (extraAction === "extras") setMessage(result.verified ? "Verified Other Carrier Pay in McLeod." : "Extra pay did not verify. Preview again before retrying.");
         else if (apply) setMessage(result.verified ? `Verified carrier payee and base pay on SCM order ${orderId}.` :
           "Carrier payee or base pay did not verify. Preview again before applying.");
