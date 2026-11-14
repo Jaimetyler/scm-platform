@@ -10,7 +10,6 @@ import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { hash, vendor } from "@/lib/dray/server";
 
 import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
-import { carrierPayLines } from "@/lib/warehouse/outbound/booking-sync-preview";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
@@ -45,7 +44,7 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     if (request.headers.get("content-type")?.startsWith("application/json")) {
       const input = await request.json();
-      if (input.action === "preview-details" || input.action === "apply-details" || input.action === "preview-carrier" || input.action === "apply-carrier")
+      if (input.action === "preview-details" || input.action === "apply-details" || input.action === "preview-carrier" || input.action === "apply-carrier" || input.action === "apply-extras")
         return await syncBookingDetails(input);
       if (input.action === "create-orders" || input.action === "import-status") {
         const id = String(input.bookingId ?? "");
@@ -180,7 +179,7 @@ async function syncBookingDetails(input: {
 }) {
   if (!/^[a-f0-9-]{36}$/i.test(input.bookingId) || !/^[A-Za-z0-9_-]{1,60}$/.test(input.orderId))
     throw Error("Choose a verified SCM order.");
-  const apply = input.action === "apply-details" || input.action === "apply-carrier";
+  const apply = ["apply-details", "apply-carrier", "apply-extras"].includes(input.action);
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
@@ -205,7 +204,7 @@ async function syncBookingDetails(input: {
     return order;
   }
   const current = await readLinkedOrder();
-  if (input.action.endsWith("-carrier")) {
+  if (input.action.endsWith("-carrier") || input.action === "apply-extras") {
     const row = await db.from("cotton_outbound_containers").select("carrier_plan,updated_at")
       .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
     const plan = row.data?.carrier_plan as CarrierPlan | null | undefined;
@@ -233,19 +232,57 @@ async function syncBookingDetails(input: {
       [saved.override_pay_rate, saved.override_paye_rate, saved.override_pay_amt].every(value =>
         String(value ?? "").trim() !== "" && Math.round(Number(value) * 100) === baseCents);
     const assignedCarrier = String(movement.carrier_id || movement.vendor_id || "").trim().toUpperCase();
-    const otherPay = carrierPayLines(movement);
-    const proposedExtras = lines.filter(line => line.key !== "base" && line.units > 0)
-      .map(line => ({ code: line.payCode, description: line.label, amount: line.payTotal / 100 }));
+    const otherPayPath = `/movements/${encodeURIComponent(movement.id)}/otherPay`;
+    const readExtras = async () => {
+      const rows = await read(otherPayPath);
+      if (!Array.isArray(rows) || rows.some(row => !row || typeof row.deduct_code_id !== "string" ||
+          !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount))))
+        throw Error("McLeod Other Carrier Pay could not be verified.");
+      return rows.map(row => ({ code: row.deduct_code_id.trim(), payee: String(row.payee_id ?? "").trim(),
+        description: String(row.descr ?? ""), amount: Number(row.amount), id: String(row.id ?? "") }));
+    };
+    const otherPay = await readExtras().catch(() => null);
+    const codes = { chassisDays: "001", stopoffs: "002", chassisSplits: "CS" };
+    const proposedExtras = lines.flatMap(line => line.key === "base" || line.units <= 0 || line.payTotal <= 0 ? [] : [{
+      code: codes[line.key], description: line.label, amount: line.payTotal / 100,
+      units: line.units, rate: line.pay / 100,
+    }]);
+    const matchesExtra = (row: NonNullable<typeof otherPay>[number], line: typeof proposedExtras[number]) =>
+      row.code === line.code && row.payee === carrier && Math.round(row.amount * 100) === Math.round(line.amount * 100);
+    const missingExtras = proposedExtras.filter(line => !otherPay?.some(row => row.code === line.code));
+    const conflict = proposedExtras.some(line => {
+      const sameCode = otherPay?.filter(row => row.code === line.code) ?? [];
+      return sameCode.length > 0 && (sameCode.length !== 1 || !matchesExtra(sameCode[0], line));
+    });
     const blockers = [
       ...(current.status !== "A" || (movement.status && movement.status !== "A") ? ["McLeod order and movement must be available."] : []),
       ...(assignedCarrier && assignedCarrier !== carrier ? ["McLeod has a different dispatched carrier. Review the swap in McLeod."] : []),
       ...(currentPayee && currentPayee !== carrier && otherPay?.length !== 0 ? ["Review existing Other Carrier Pay before changing the payee."] : []),
     ];
     const changed = !hasExpectedPay(movement);
-    const token = hash([input.bookingId, input.orderId, row.data?.updated_at, movement, current.status, carrier, pay]);
+    const token = hash([input.bookingId, input.orderId, row.data?.updated_at, movement, current.status, carrier, pay, otherPay, proposedExtras]);
     const headers = { "Cache-Control": "private, no-store" };
-    if (!apply) return NextResponse.json({ token, currentPayee, assignedCarrier, currentPay, carrier, pay,
+    const extrasBlockers = [...blockers,
+      ...(!otherPay ? ["McLeod Other Carrier Pay is unavailable."] : []),
+      ...(conflict ? ["An existing charge has the same code with different pay. Review it in McLeod."] : []),
+      ...(currentPayee !== carrier ? ["Apply the carrier payee before sending extra pay."] : []),
+    ];
+    if (!apply) return NextResponse.json({ token, extrasBlockers, missingExtras, currentPayee, assignedCarrier, currentPay, carrier, pay,
       otherPay, proposedExtras, blockers, changed }, { headers });
+    if (input.action === "apply-extras") {
+      if (input.token !== token || extrasBlockers.length || !missingExtras.length)
+        throw Error("Extra pay could not be applied. Preview the order again.");
+      for (const line of missingExtras) {
+        const fresh = await readExtras();
+        if (fresh.some(row => row.code === line.code)) throw Error("Extra pay changed. Preview the order again.");
+        await write(otherPayPath, { __type: "driver_extra_pay", company_id: "TMS", movement_id: String(movement.id),
+          order_id: input.orderId, payee_id: carrier, deduct_code_id: line.code,
+          descr: line.description, units: line.units, rate: line.rate, amount: line.amount });
+        const verified = (await readExtras()).filter(row => row.code === line.code);
+        if (verified.length !== 1 || !matchesExtra(verified[0], line)) return NextResponse.json({ verified: false }, { headers });
+      }
+      return NextResponse.json({ verified: true }, { headers });
+    }
     if (input.token !== token || blockers.length || !changed)
       throw Error("Carrier or pay could not be applied. Preview the order again.");
     await write("/movement/update", {
