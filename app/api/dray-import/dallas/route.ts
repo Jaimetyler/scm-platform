@@ -241,7 +241,18 @@ async function syncBookingDetails(input: {
       return rows.map(row => ({ code: row.deduct_code_id.trim(), payee: String(row.payee_id ?? "").trim(),
         description: String(row.descr ?? ""), amount: Number(row.amount), id: String(row.id ?? "") }));
     };
-    const otherPay = await readExtras().catch(() => null);
+    let otherPayIssue = "";
+    const otherPay = await readExtras().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "";
+      const status = /^McLeod HTTP (\d{3}):/.exec(message)?.[1];
+      otherPayIssue = status
+        ? `McLeod Other Carrier Pay lookup failed (HTTP ${status}).`
+        : message === "McLeod Other Carrier Pay could not be verified."
+          ? "McLeod returned an unrecognized Other Carrier Pay response."
+          : "McLeod Other Carrier Pay could not be reached or read.";
+      console.warn("Dallas Other Carrier Pay lookup failed", { status: status ?? null, issue: otherPayIssue });
+      return null;
+    });
     const codes = { chassisDays: "001", stopoffs: "002", chassisSplits: "CS" };
     const proposedExtras = lines.flatMap(line => line.key === "base" || line.units <= 0 || line.payTotal <= 0 ? [] : [{
       code: codes[line.key], description: line.label, amount: line.payTotal / 100,
@@ -263,7 +274,7 @@ async function syncBookingDetails(input: {
     const token = hash([input.bookingId, input.orderId, row.data?.updated_at, movement, current.status, carrier, pay, otherPay, proposedExtras]);
     const headers = { "Cache-Control": "private, no-store" };
     const extrasBlockers = [...blockers,
-      ...(!otherPay ? ["McLeod Other Carrier Pay is unavailable."] : []),
+      ...(!otherPay ? [otherPayIssue] : []),
       ...(conflict ? ["An existing charge has the same code with different pay. Review it in McLeod."] : []),
       ...(currentPayee !== carrier ? ["Apply the carrier payee before sending extra pay."] : []),
     ];

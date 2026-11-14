@@ -118,6 +118,7 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
         {carrierReview.blockers.map(blocker => <p key={blocker} role="status">{blocker}</p>)}
         <button type="button" className="booking-charge-button" disabled={busy || !carrierReview.changed || !!carrierReview.blockers.length}
           onClick={() => void sync(true, true)}>Apply carrier payee and base pay</button>
+        <h4>Other Carrier Pay</h4>
         {carrierReview.extrasBlockers.map(blocker => <p key={blocker}>{blocker}</p>)}
         <button type="button" className="booking-charge-button" disabled={busy || !!carrierReview.extrasBlockers.length || !carrierReview.missingExtras.length}
           onClick={() => void sync(true, true, true)}>Send missing Other Carrier Pay ({carrierReview.missingExtras.length})</button>
