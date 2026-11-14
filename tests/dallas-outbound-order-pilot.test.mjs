@@ -13,6 +13,7 @@ const order = {
 
 test("creates the verified DeSoto–Haslet lane with flat carrier pay", () => {
   const payload = createDallasPilotPayload(plan);
+  assert.equal(payload.order_type_id, "FSCD");
   assert.deepEqual(payload.stops.map(stop => stop.location_id), ["SCMDDETX", "BNSFHATX"]);
   assert.equal(payload.stops[0].sched_arrive_early, "20261110000000-0600");
   assert.equal(payload.movements[0].override_payee_id, "SCMIRIGA");

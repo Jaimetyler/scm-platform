@@ -18,7 +18,7 @@ const markReference = (value: unknown) =>
 const money = (value: unknown) =>
   (typeof value === "string" || typeof value === "number") && text(value) && Number.isFinite(Number(value)) ? Number(value) : null;
 
-function carrierPayLines(movement: Order | undefined) {
+export function carrierPayLines(movement: Order | undefined) {
   const lines = movement?.otherCarrierPay ?? movement?.other_carrier_pay ??
     movement?.otherPay ?? movement?.other_pay ?? movement?.otherPays;
   if (!Array.isArray(lines) || lines.some(line => !line || typeof line !== "object")) return null;

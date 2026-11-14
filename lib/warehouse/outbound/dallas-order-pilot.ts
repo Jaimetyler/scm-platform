@@ -32,7 +32,7 @@ export function createDallasPilotPayload(plan: DallasPilotPlan) {
   }
   if (plan.early > plan.late) throw Error("The schedule end must be on or after the start.");
   return {
-    __type: "orders", company_id: "TMS", status: "A", customer_id: customer, revenue_code_id: "DDRAY", order_type_id: "FLAT",
+    __type: "orders", company_id: "TMS", status: "A", customer_id: customer, revenue_code_id: "DDRAY", order_type_id: "FSCD",
     commodity_id: "COTTON", equipment_type_id: "C", order_mode: "T", collection_method: "T",
     blnum: plan.bol, ordered_by: plan.orderedBy, consignee_refno: plan.container, booking_no_sucm: plan.booking,
     planning_comment: `BKG: ${plan.booking}`, rate_type: "F", rate_units: 1, rate: 545, total_charge: 580,
@@ -52,7 +52,7 @@ function movementPay() {
 
 export function reviewDallasPilotOrder(order: any, plan: DallasPilotPlan) {
   if (!matchesDallasPilot(order, plan) || !/^[A-Z0-9_-]+$/i.test(String(order.id ?? "")) ||
-    key(order.status) !== "A" || key(order.order_type_id) !== "FLAT" ||
+    key(order.status) !== "A" || !["FLAT", "FSCD"].includes(key(order.order_type_id)) ||
     order.stops.some(stop => key(stop.status) !== "A" || stop.actual_arrival || stop.actual_departure)) {
     throw Error("The order identity or available status could not be verified.");
   }

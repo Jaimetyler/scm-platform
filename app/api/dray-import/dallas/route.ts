@@ -9,9 +9,11 @@ import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { hash, vendor } from "@/lib/dray/server";
 
+import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
+import { carrierPayLines } from "@/lib/warehouse/outbound/booking-sync-preview";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
-import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate } from "@/lib/dray/dallas-import-orders";
+import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
 import { mcleodOrderStops } from "@/lib/inbound/checkin/yard-stop";
 
 export const runtime = "nodejs";
@@ -43,7 +45,7 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     if (request.headers.get("content-type")?.startsWith("application/json")) {
       const input = await request.json();
-      if (input.action === "preview-details" || input.action === "apply-details")
+      if (input.action === "preview-details" || input.action === "apply-details" || input.action === "preview-carrier" || input.action === "apply-carrier")
         return await syncBookingDetails(input);
       if (input.action === "create-orders" || input.action === "import-status") {
         const id = String(input.bookingId ?? "");
@@ -127,26 +129,36 @@ async function createOrders(bookingId: string, signal: AbortSignal, apply: boole
     signal.throwIfAborted();
     const duplicates = await findOrders(load.blnum.slice(0, load.blnum.lastIndexOf("-") + 1), signal);
     const collision = duplicates.some(order => order.blnum === load.blnum);
+    const payload = {
+      ...load.payload, order_type_id: "FSCD",
+      ...Object.fromEntries(["cutoff_date", "doc_cutoff_date"].filter(field => load.payload[field])
+        .map(field => [field, stagedDallasLocalTime(load.payload[field])])),
+      stops: load.payload.stops.map((stop: { sched_arrive_early: string; sched_arrive_late: string }) => ({
+        ...stop,
+        sched_arrive_early: stagedDallasLocalTime(stop.sched_arrive_early),
+        sched_arrive_late: stagedDallasLocalTime(stop.sched_arrive_late),
+      })),
+    };
     const { data: claim, error: claimError } = await db.from("dallas_dray_import_loads")
-      .update({ state: collision ? "review" : "writing" }).eq("blnum", load.blnum).eq("state", "pending").select("blnum").maybeSingle();
+      .update(collision ? { state: "review" } : { state: "writing", payload }).eq("blnum", load.blnum).eq("state", "pending").select("blnum").maybeSingle();
     if (claimError) throw Error("Could not claim the next import load.");
     if (!claim) continue;
     load.state = "review";
     if (collision) continue;
     try {
-      const created = await write("/orders/create", load.payload);
+      const created = await write("/orders/create", payload);
       const orderId = String(created?.id ?? "");
       if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) throw Error("No SCM order number returned.");
       load.order_id = orderId;
       const found = await read(`/orders/${orderId}`);
       const stops = found ? mcleodOrderStops(found) : [];
       if (String(found?.id) !== orderId || found.blnum !== load.blnum ||
-          found.revenue_code_id !== "DDRAY" || found.order_type_id !== load.payload.order_type_id ||
+          found.revenue_code_id !== "DDRAY" || found.order_type_id !== payload.order_type_id ||
           String(found.planning_comment ?? "").trim() !== load.payload.planning_comment || found.customer_id !== load.payload.customer_id ||
           found.booking_no_sucm !== load.payload.booking_no_sucm ||
           (load.payload.ssl_sucm && String(found.ssl_sucm ?? "").trim() !== load.payload.ssl_sucm) ||
           (["cutoff_date", "doc_cutoff_date"] as const).some(field =>
-            load.payload[field] && !matchesDallasImportDate(found[field], load.payload[field])) ||
+            payload[field] && !matchesDallasImportDate(found[field], payload[field])) ||
           !load.payload.stops.every((stop: { stop_type: string; location_id: string }) =>
             stops.some(saved => saved.stop_type === stop.stop_type && saved.location_id === stop.location_id)))
         throw Error("Created order did not verify.");
@@ -168,13 +180,13 @@ async function syncBookingDetails(input: {
 }) {
   if (!/^[a-f0-9-]{36}$/i.test(input.bookingId) || !/^[A-Za-z0-9_-]{1,60}$/.test(input.orderId))
     throw Error("Choose a verified SCM order.");
-  const apply = input.action === "apply-details";
+  const apply = input.action === "apply-details" || input.action === "apply-carrier";
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
     db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line")
       .eq("id", input.bookingId).eq("terminal", "DAL").maybeSingle(),
-    db.from("dallas_dray_import_loads").select("blnum,payload").eq("booking_id", input.bookingId)
+    db.from("dallas_dray_import_loads").select("blnum,payload,sequence_no").eq("booking_id", input.bookingId)
       .eq("order_id", input.orderId).eq("state", "verified").maybeSingle(),
   ]);
   const saved = booking.data;
@@ -193,6 +205,54 @@ async function syncBookingDetails(input: {
     return order;
   }
   const current = await readLinkedOrder();
+  if (input.action.endsWith("-carrier")) {
+    const row = await db.from("cotton_outbound_containers").select("carrier_plan,updated_at")
+      .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
+    const plan = row.data?.carrier_plan as CarrierPlan | null | undefined;
+    if (row.error || !plan) throw Error("Save a carrier assignment on this load first.");
+    const carrier = plan.rate.carrier_id.trim().toUpperCase();
+    const lines = carrierPlanLines(plan);
+    const baseCents = lines.find(line => line.key === "base")?.payTotal;
+    if (!/^[A-Z0-9_-]{1,30}$/.test(carrier) || baseCents == null || !Number.isSafeInteger(baseCents) || baseCents < 0)
+      throw Error("The saved carrier or base pay is invalid.");
+    const pay = baseCents / 100;
+    const movementFor = (order: typeof current) => {
+      const movements = Array.isArray(order.movements) ? order.movements : [];
+      const movement = movements.length === 1 ? movements[0] : null;
+      if (!movement || String(movement.id) !== String(order.curr_movement_id) ||
+          !/^[A-Za-z0-9_-]{1,60}$/.test(String(movement.id)))
+        throw Error("Could not verify a single current McLeod movement.");
+      return movement;
+    };
+    const movement = movementFor(current);
+    const currentPayee = String(movement.override_payee_id ?? "").trim();
+    const currentPay = movement.override_pay_amt == null ? null : Number(movement.override_pay_amt);
+    const assignedCarrier = String(movement.carrier_id || movement.vendor_id || "").trim().toUpperCase();
+    const otherPay = carrierPayLines(movement);
+    const proposedExtras = lines.filter(line => line.key !== "base" && line.units > 0)
+      .map(line => ({ code: line.payCode, description: line.label, amount: line.payTotal / 100 }));
+    const blockers = [
+      ...(current.status !== "A" || (movement.status && movement.status !== "A") ? ["McLeod order and movement must be available."] : []),
+      ...(assignedCarrier && assignedCarrier !== carrier ? ["McLeod has a different dispatched carrier. Review the swap in McLeod."] : []),
+      ...(currentPayee && currentPayee !== carrier && otherPay?.length !== 0 ? ["Review existing Other Carrier Pay before changing the payee."] : []),
+    ];
+    const changed = currentPayee !== carrier || currentPay === null || Math.round(currentPay * 100) !== baseCents;
+    const token = hash([input.bookingId, input.orderId, row.data?.updated_at, movement, current.status, carrier, pay]);
+    const headers = { "Cache-Control": "private, no-store" };
+    if (!apply) return NextResponse.json({ token, currentPayee, assignedCarrier, currentPay, carrier, pay,
+      otherPay, proposedExtras, blockers, changed }, { headers });
+    if (input.token !== token || blockers.length || !changed)
+      throw Error("Carrier or pay could not be applied. Preview the order again.");
+    await write("/movement/update", {
+      __type: "movement", company_id: "TMS", id: String(movement.id),
+      override_payee_id: carrier, override_type: "F", override_units: 1,
+      override_pay_amt: pay, override_pay_rate: pay, override_paye_rate: pay,
+    });
+    const verified = movementFor(await readLinkedOrder());
+    return NextResponse.json({ verified: String(verified.id) === String(movement.id) &&
+      String(verified.override_payee_id ?? "").trim() === carrier &&
+      verified.override_pay_amt != null && Math.round(Number(verified.override_pay_amt) * 100) === baseCents }, { headers });
+  }
   const expected = dallasBookingFields(saved.booking_number, saved.erd, saved.cutoff.replace(" ", "T"), {
     bookId: saved.scm_file_number, steamshipLine: saved.steamship_line, docCutoff: saved.doc_cutoff?.replace(" ", "T"),
     boltSealsRequired: input.boltSealsRequired === true,
