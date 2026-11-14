@@ -7,6 +7,7 @@ import { bookingOrderCharges, bookingOrderMarks, readBookingMarkCharges } from "
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { readDallasBookingOrders } from "@/lib/warehouse/outbound/planning-info";
 import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
+import { buildBookingSyncPreview } from "@/lib/warehouse/outbound/booking-sync-preview";
 import { mapLimit } from "@/lib/http/map-limit";
 
 export const maxDuration = 120;
@@ -15,12 +16,51 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
   const { id } = await context.params;
   if (!/^[a-f0-9-]{36}$/i.test(id)) return NextResponse.json({ ok: false, error: "Invalid booking." }, { status: 400 });
   const db = staffDatabase();
-  const booking = await db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,return_location,return_location_code").eq("id", id).maybeSingle();
+  const booking = await db.from("cotton_outbound_bookings").select("terminal,site_code,customer,booking_number,customer_reference,return_location,return_location_code").eq("id", id).maybeSingle();
   if (booking.error) return NextResponse.json({ ok: false, error: "Could not load booking." }, { status: 503 });
   const site = CHECKIN_SITES.find(site => site.terminal === "DAL" && site.terminal === booking.data?.terminal && site.siteCode === booking.data.site_code);
   const customer = bookingChargeCustomer(String(booking.data?.customer ?? ""));
   if (!site || !customer) {
     return NextResponse.json({ ok: false, error: "Choose a supported Dallas dray booking." }, { status: 404 });
+  }
+  if (req.nextUrl.searchParams.get("view") === "booking-preview") {
+    const scope = booking.data!;
+    const signal = AbortSignal.any([req.signal, AbortSignal.timeout(75_000)]);
+    const [containers, marks, verified, rate] = await Promise.all([
+      db.from("cotton_outbound_containers").select("id,sequence_no,container_number,booking_line_id,carrier_plan")
+        .eq("booking_id", id).is("split_transfer_id", null).order("sequence_no").limit(501),
+      db.from("cotton_outbound_booking_lines").select("id,mark,line_status").eq("booking_id", id).limit(501),
+      db.from("dallas_outbound_pilot_writes").select("container_number,order_id")
+        .eq("booking_number", scope.booking_number.trim().toUpperCase()).eq("state", "verified").limit(501),
+      readBookingCustomerRate(db, scope).catch(() => null),
+    ]);
+    if ([containers, marks, verified].some(result => result.error || !result.data || result.data.length >= 501)) {
+      return NextResponse.json({ error: "Could not load a complete set of booking loads." }, { status: 503 });
+    }
+    const marksById = new Map(marks.data!.map(line => [line.id, line]));
+    const savedOrders = new Map(verified.data!.map(row => [row.container_number, row.order_id]));
+    const loads = containers.data!.flatMap(row => {
+      const line = marksById.get(row.booking_line_id);
+      if (line?.line_status === "cancelled") return [];
+      return [{ id: row.id, sequence: row.sequence_no, mark: line?.mark ?? null,
+        container: row.container_number, plan: row.carrier_plan,
+        savedOrderId: savedOrders.get(String(row.container_number ?? "").trim().toUpperCase()) ?? undefined }];
+    });
+    const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
+    const billing = rate ? {
+      base: rate.fuel_mode === "all_in" ? cents(rate.base_rate) : null,
+      minimumChassisDays: Number(rate.included_chassis_days),
+      chassisDays: cents(rate.chassis_daily_rate), chassisSplits: cents(rate.chassis_split_rate),
+      stopoffs: cents(rate.stopoff_rate),
+    } : null;
+    try {
+      const orders = await readDallasBookingOrders(vendor(true).read, scope.booking_number, site, customer.ids, signal);
+      return NextResponse.json(buildBookingSyncPreview(loads, orders, scope.customer_reference, billing), {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    } catch {
+      return NextResponse.json({ error: "McLeod booking lookup could not be completed. Retry the preview." }, { status: 502 });
+    }
   }
   let applicable;
   try { applicable = await readBookingCustomerRate(db, booking.data!); }
