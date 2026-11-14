@@ -16,6 +16,11 @@ async function request(bookingId: string, action: string, signal?: AbortSignal):
 export default function DallasImportOrders({ bookingId }: { bookingId: string }) {
   const [loads, setLoads] = useState<Load[]>([]);
   const [busy, setBusy] = useState(false);
+  const [orderId, setOrderId] = useState("");
+  const [bolt, setBolt] = useState(false);
+  const [review, setReview] = useState<{ token: string; changes: { field: string; before: string; after: string }[] } | null>(null);
+  const [fields, setFields] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
@@ -42,6 +47,34 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
     } finally { setBusy(false); }
   }
 
+  async function sync(apply: boolean) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    if (!apply) setReview(null);
+    try {
+      const response = await fetch("/api/dray-import/dallas", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: apply ? "apply-details" : "preview-details",
+          bookingId, orderId, boltSealsRequired: bolt, token: review?.token, fields }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || "Booking details sync failed.");
+      if (apply) {
+        setReview(null);
+        setMessage(result.verified ? `Verified selected booking details on SCM order ${orderId}.` :
+          `Read-back did not verify: ${result.differences.join(", ")}. Preview again before applying.`);
+      } else {
+        setReview(result);
+        setFields(result.changes.filter((change: { before: string }) => !change.before).map((change: { field: string }) => change.field));
+      }
+    } catch (cause) {
+      if (apply) setReview(null);
+      setError(cause instanceof Error ? cause.message : "Booking details sync failed.");
+    } finally { setBusy(false); }
+  }
+
+  const linked = loads.filter(load => load.state === "verified" && load.orderId);
   if (!loads.length && !error) return null;
   return <section aria-label="Dallas dray import">
     {loads.length > 0 && <>
@@ -52,6 +85,31 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
           {load.orderId && ` · SCM order ${load.orderId}`}</li>)}</ul>
       </details>
     </>}
+    {linked.length > 0 && <details>
+      <summary>Sync booking details to McLeod</summary>
+      <label>SCM order <select disabled={busy} value={orderId} onChange={event => {
+        setOrderId(event.target.value); setReview(null); setMessage("");
+      }}>
+        <option value="">Select a verified order</option>
+        {linked.map(load => <option key={load.blnum} value={load.orderId!}>{load.orderId} · {load.blnum}</option>)}
+      </select></label>{" "}
+      <label><input type="checkbox" disabled={busy} checked={bolt} onChange={event => {
+        setBolt(event.target.checked); setReview(null);
+      }} /> Bolt seals required</label>{" "}
+      <button type="button" disabled={!orderId || busy} onClick={() => void sync(false)}>Preview booking details</button>
+      {review && (review.changes.length ? <>
+        <div className="booking-charge-table"><table>
+          <thead><tr><th>Apply</th><th>McLeod field</th><th>Current</th><th>Proposed</th></tr></thead>
+          <tbody>{review.changes.map(change => <tr key={change.field}>
+            <td><input type="checkbox" aria-label={`Apply ${change.field}`} disabled={busy} checked={fields.includes(change.field)}
+              onChange={event => setFields(event.target.checked ? [...fields, change.field] : fields.filter(field => field !== change.field))} /></td>
+            <th scope="row">{change.field}</th><td>{change.before || "Blank"}</td><td>{change.after}</td>
+          </tr>)}</tbody>
+        </table></div>
+        <button type="button" disabled={busy || !fields.length} onClick={() => void sync(true)}>Apply selected details</button>
+      </> : <p role="status">The booking details already match.</p>)}
+      {message && <p role="status">{message}</p>}
+    </details>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

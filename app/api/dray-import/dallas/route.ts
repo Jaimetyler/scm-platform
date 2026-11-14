@@ -7,11 +7,11 @@ import { previewDallasBungeDrays } from "@/lib/dray/dallas-booking";
 import { planOutboundDrayLoads } from "@/lib/dray/outbound-load-plan";
 import { normalizeBookingDetails } from "@/lib/warehouse/outbound/details";
 import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
-import { vendor } from "@/lib/dray/server";
+import { hash, vendor } from "@/lib/dray/server";
 
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
-import { dallasImportPayload } from "@/lib/dray/dallas-import-orders";
+import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate } from "@/lib/dray/dallas-import-orders";
 import { mcleodOrderStops } from "@/lib/inbound/checkin/yard-stop";
 
 export const runtime = "nodejs";
@@ -43,6 +43,8 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     if (request.headers.get("content-type")?.startsWith("application/json")) {
       const input = await request.json();
+      if (input.action === "preview-details" || input.action === "apply-details")
+        return await syncBookingDetails(input);
       if (input.action === "create-orders" || input.action === "import-status") {
         const id = String(input.bookingId ?? "");
         if (!/^[a-f0-9-]{36}$/i.test(id)) throw Error("Choose a saved Dallas import.");
@@ -92,7 +94,9 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
         p_source_filename: source.name.slice(0, 200),
         p_lines: preview.lines.map(line => ({ ...line, containerNumber: null })),
         p_details: { ...details, source_format: preview.sourceFormat, restore_booking_id: form.get("restoreBookingId") },
-        p_loads: [first, ...remaining].map(load => dallasImportPayload(load, preview.bookingNumber, customer.code, details.erd!, details.cutoff!)),
+        p_loads: [first, ...remaining].map(load => dallasImportPayload(load, preview.bookingNumber, customer.code, details.erd!, details.cutoff!, {
+          bookId, docCutoff: details.doc_cutoff, steamshipLine: details.steamship_line ?? null, boltSealsRequired: form.get("boltSealsRequired") === "true",
+        })),
       });
       if (error) throw Error(error.code === "23505" ? "This booking or Book ID already exists, or the cancelled booking has saved load details and cannot be restored for import." : "Could not save the Dallas import.");
       return NextResponse.json({ ok: true, bookingId: data, siteCode: site.siteCode });
@@ -137,8 +141,12 @@ async function createOrders(bookingId: string, signal: AbortSignal, apply: boole
       const found = await read(`/orders/${orderId}`);
       const stops = found ? mcleodOrderStops(found) : [];
       if (String(found?.id) !== orderId || found.blnum !== load.blnum ||
-          found.revenue_code_id !== "DDRAY" || found.customer_id !== load.payload.customer_id ||
+          found.revenue_code_id !== "DDRAY" || found.order_type_id !== load.payload.order_type_id ||
+          String(found.planning_comment ?? "").trim() !== load.payload.planning_comment || found.customer_id !== load.payload.customer_id ||
           found.booking_no_sucm !== load.payload.booking_no_sucm ||
+          (load.payload.ssl_sucm && String(found.ssl_sucm ?? "").trim() !== load.payload.ssl_sucm) ||
+          (["cutoff_date", "doc_cutoff_date"] as const).some(field =>
+            load.payload[field] && !matchesDallasImportDate(found[field], load.payload[field])) ||
           !load.payload.stops.every((stop: { stop_type: string; location_id: string }) =>
             stops.some(saved => saved.stop_type === stop.stop_type && saved.location_id === stop.location_id)))
         throw Error("Created order did not verify.");
@@ -152,4 +160,57 @@ async function createOrders(bookingId: string, signal: AbortSignal, apply: boole
   }
   return NextResponse.json({ loads: loads.map(({ blnum, state, order_id }) => ({ blnum, state, orderId: order_id })) },
     { headers: { "Cache-Control": "private, no-store" } });
+}
+
+
+async function syncBookingDetails(input: {
+  action: string; bookingId: string; orderId: string; token?: string; fields?: string[]; boltSealsRequired?: boolean;
+}) {
+  if (!/^[a-f0-9-]{36}$/i.test(input.bookingId) || !/^[A-Za-z0-9_-]{1,60}$/.test(input.orderId))
+    throw Error("Choose a verified SCM order.");
+  const apply = input.action === "apply-details";
+  if (apply) requireWrites();
+  const db = staffDatabase();
+  const [booking, load] = await Promise.all([
+    db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line")
+      .eq("id", input.bookingId).eq("terminal", "DAL").maybeSingle(),
+    db.from("dallas_dray_import_loads").select("blnum,payload").eq("booking_id", input.bookingId)
+      .eq("order_id", input.orderId).eq("state", "verified").maybeSingle(),
+  ]);
+  const saved = booking.data;
+  if (booking.error || load.error || saved?.status !== "draft" || !load.data || !saved.scm_file_number || !saved.erd || !saved.cutoff)
+    throw Error("An active Dallas booking, sailing dates, and a verified linked order are required.");
+  const { read, write } = vendor(!apply);
+  const path = `/orders/${input.orderId}`;
+  async function readLinkedOrder() {
+    const order = await read(path);
+    if (String(order?.id) !== input.orderId || order.revenue_code_id !== "DDRAY" ||
+        order.customer_id !== load.data!.payload.customer_id ||
+        String(order.blnum ?? "").trim().split(/\s+/)[0] !== load.data!.blnum ||
+        (order.booking_no_sucm && String(order.booking_no_sucm).trim() !== saved!.booking_number) ||
+        [order.status, order.__statusDescr].some(status => /^(V|VOID|VOIDED|CANCELED|CANCELLED)$/i.test(String(status ?? "").trim())))
+      throw Error("McLeod order identity could not be verified.");
+    return order;
+  }
+  const current = await readLinkedOrder();
+  const expected = dallasBookingFields(saved.booking_number, saved.erd, saved.cutoff.replace(" ", "T"), {
+    bookId: saved.scm_file_number, steamshipLine: saved.steamship_line, docCutoff: saved.doc_cutoff?.replace(" ", "T"),
+    boltSealsRequired: input.boltSealsRequired === true,
+  });
+  const matches = (field: string, actual: unknown, value: string) =>
+    field === "cutoff_date" || field === "doc_cutoff_date"
+      ? matchesDallasImportDate(actual, value) : String(actual ?? "").trim() === value;
+  const changes = Object.entries(expected).filter(([field, value]) => !matches(field, current[field], value))
+    .map(([field, value]) => ({ field, before: String(current[field] ?? "").trim(), after: value }));
+  const token = hash([input.bookingId, input.orderId, changes]);
+  const headers = { "Cache-Control": "private, no-store" };
+  if (!apply) return NextResponse.json({ changes, token }, { headers });
+  if (input.token !== token) throw Error("Booking or McLeod values changed. Preview the order again.");
+  const selected = changes.filter(change => input.fields?.includes(change.field));
+  if (!selected.length) throw Error("Select at least one booking detail to apply.");
+  await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
+    ...Object.fromEntries(selected.map(change => [change.field, change.after])) });
+  const verified = await readLinkedOrder();
+  const differences = selected.filter(change => !matches(change.field, verified[change.field], change.after));
+  return NextResponse.json({ verified: differences.length === 0, differences: differences.map(change => change.field) }, { headers });
 }

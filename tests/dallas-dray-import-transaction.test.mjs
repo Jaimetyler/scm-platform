@@ -23,7 +23,13 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     await db.exec("alter table cotton_outbound_containers add column carrier_plan jsonb");
     const stage = (booking, restoreId, bookId = "41458") => {
       const loads = planOutboundDrayLoads(bookId, 2, "SCMDDETX", "BNSFHATX");
-      const payloads = loads.map(load => dallasImportPayload(load, booking, "BUNGOMNE", "2026-11-13", "2026-11-18T17:25"));
+      const payloads = loads.map(load => dallasImportPayload(load, booking, "BUNGOMNE", "2026-11-13", "2026-11-18T17:25", { bookId, steamshipLine: "ORIENT OVERSEAS CONTAINER LINE LIMITED", boltSealsRequired: true, docCutoff: "2026-11-16T10:30" }));
+      assert.equal(payloads[0].order_type_id, "FSCD");
+      assert.equal(payloads[0].booking_no_sucm, booking);
+      assert.equal(payloads[0].ssl_sucm, "OOCL");
+      assert.equal(payloads[0].cutoff_date, "20261118172500-0600");
+      assert.equal(payloads[0].doc_cutoff_date, "20261116103000-0600");
+      assert.equal(payloads[0].planning_comment, `ID${bookId}: OOCL Bkg# ${booking} - ERD 11/13 - C/O 11/18 *Bolt Seals Required*`);
       assert.match(payloads[0].stops[0].sched_arrive_late, /^20261118172500-0600$/);
       assert.equal(payloads[0].consignee_refno, undefined);
       assert.equal(payloads[0].movements, undefined);
