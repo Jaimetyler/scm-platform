@@ -118,12 +118,19 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
     const { data: alerts, error: alertError } = await sb.from("cotton_outbound_source_arrivals")
       .select("line_id,arrival_site_name,checkin_id").in("line_id", (lines ?? []).map((line) => line.id)).is("resolved_at", null);
     if (alertError) throw alertError;
+    const orderNumbers = new Map<number, string>();
+    if (terminal === "DAL") {
+      const { data: linked, error: linkError } = await sb.from("dallas_dray_import_loads")
+        .select("sequence_no,order_id").eq("booking_id", id).eq("state", "verified");
+      if (linkError) throw linkError;
+      for (const load of linked ?? []) if (load.order_id) orderNumbers.set(load.sequence_no, load.order_id);
+    }
     const staff = staffProfile(req);
     const canViewPricing = staff?.role === "admin" || staff?.role === "operator" && staff.terminal === terminal;
     return NextResponse.json({ ok: true, booking, containers: (containers ?? []).map((row) => {
       const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
       const target = transfer?.target as unknown as { booking_number: string } | null;
-      return { ...row, carrier_plan: canViewPricing ? row.carrier_plan : null, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
+      return { ...row, scm_order_number: row.split_transfer_id ? null : orderNumbers.get(row.sequence_no) ?? null, carrier_plan: canViewPricing ? row.carrier_plan : null, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
         target_booking_id: transfer.target_booking_id, target_booking_number: target?.booking_number ?? "—" } : null };
     }), lines: (lines ?? []).map((line) => ({ ...line,
       source_arrivals: (alerts ?? []).filter((alert) => alert.line_id === line.id),

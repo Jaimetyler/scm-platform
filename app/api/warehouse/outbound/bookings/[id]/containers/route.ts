@@ -48,7 +48,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     if (!booking)
       return NextResponse.json({ ok: false, error: "Booking not found at this warehouse" }, { status: 404 });
     const { data: current, error: currentError } = await database().from("cotton_outbound_containers")
-      .select("split_transfer_id,carrier_plan").eq("id", containerId).eq("booking_id", id).maybeSingle();
+      .select("split_transfer_id,carrier_plan,sequence_no").eq("id", containerId).eq("booking_id", id).maybeSingle();
     if (currentError) throw currentError;
     if (!current) return NextResponse.json({ ok: false, error: "Container not found" }, { status: 404 });
     if (current.split_transfer_id) return NextResponse.json({ ok: false, error: "This mark was split to another booking. Its history row is locked." }, { status: 409 });
@@ -59,6 +59,14 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
         .select("id").eq("id", bookingLineId).eq("booking_id", id).maybeSingle();
       if (lineError) throw lineError;
       if (!line) return NextResponse.json({ ok: false, error: "That mark is not on this booking" }, { status: 400 });
+    }
+    let hasLinkedOrder = false;
+    if (terminal === "DAL" && !bookingLineId && !String(body.containerNumber ?? "").trim() &&
+        (current.carrier_plan || body.carrierPlan)) {
+      const { data: linked, error: linkError } = await database().from("dallas_dray_import_loads")
+        .select("order_id").eq("booking_id", id).eq("sequence_no", current.sequence_no).eq("state", "verified").maybeSingle();
+      if (linkError) throw linkError;
+      hasLinkedOrder = Boolean(linked?.order_id);
     }
     let carrierPlan = current.carrier_plan;
     if (Object.hasOwn(body, "carrierPlan")) {
@@ -73,7 +81,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
         try {
           counts = parseQuantities(quantities);
           if (basePayOverride != null && basePayOverride !== "") override = parseRateAmount(basePayOverride, "base carrier pay");
-          if (!bookingLineId && !cleanEquipment(body.containerNumber, 20)) throw new Error("Choose a mark or enter a container number before assigning a carrier.");
+          if (!bookingLineId && !hasLinkedOrder && !cleanEquipment(body.containerNumber, 20)) throw new Error("Choose a mark or enter a container number before assigning a carrier.");
         } catch (error) {
           return NextResponse.json({ error: (error as Error).message }, { status: 400 });
         }
@@ -95,7 +103,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     try {
       values = { booking_line_id: bookingLineId, container_number: cleanEquipment(body?.containerNumber, 20), seal_number: cleanEquipment(body?.sealNumber, 40),
         carrier_plan: carrierPlan, chassis_number: cleanEquipment(body?.chassisNumber, 40), notes: cleanNotes(body?.notes), updated_by: user(req) };
-      if (carrierPlan && !bookingLineId && !values.container_number) throw new Error("Keep a mark or container number on a row with a carrier plan.");
+      if (carrierPlan && !bookingLineId && !hasLinkedOrder && !values.container_number) throw new Error("Keep a mark or container number on a row with a carrier plan.");
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
     }
