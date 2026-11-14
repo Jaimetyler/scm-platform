@@ -7,7 +7,7 @@ export type OutboundLine = {
   warehouse: string; warehouseCode: string; bales: number; sourceRow: number; containerNumber?: string; needsBales?: boolean; loadSource?: "warehouse" | "source_load";
 };
 export type BungeBooking = {
-  bookingNumber: string; customerReference: string; customer: string;
+  bookingNumber: string; bookId?: string; customerReference: string; customer: string;
   returnLocation?: string; loadPort?: string; steamshipLine?: string;
   erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[];
@@ -159,6 +159,9 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
 
   const bookingNumber = nearbyValue(rows, ["Booking #", "Booking Number"], headerRow).toUpperCase();
   if (!/^[A-Z0-9_/-]{3,40}$/.test(bookingNumber)) throw new Error("Missing or invalid booking number.");
+  const bookIdLabel = findLabel(rows, ["Book ID"], headerRow);
+  const bookId = bookIdLabel ? rows[bookIdLabel.row].slice(bookIdLabel.col + 1, bookIdLabel.col + 13)
+    .map(value => String(value ?? "").trim()).find(value => /^\d+$/.test(value)) : undefined;
   const customerReference = nearbyValue(rows, ["Customer Reference", "Customer Ref", "Customer's Ref.No"], headerRow);
   const customer = String(rows[findLabel(rows, ["Booking Request"], 25)!.row + 1]?.find((cell) => String(cell).trim()) ?? "").trim()
     || "Bunge USA Agriculture LLC";
@@ -198,7 +201,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
       warehouseDetails[code] = rows[row].slice(1).map((cell) => String(cell ?? "").trim()).filter(Boolean).join(" ");
     }
   }
-  return { ...sailingDetails(sheet, rows), bookingNumber, customerReference, customer,
+  return { ...sailingDetails(sheet, rows), bookingNumber, bookId, customerReference, customer,
     loadPort: String(labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
     returnLocation: String(labeledCell(sheet, rows, ["Loaded Return", "Full Return"])?.v ?? labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
     steamshipLine: String(labeledCell(sheet, rows, ["Ship Line", "Steamship Line", "S/S Line", "SSL"])?.v ?? "").trim(),
