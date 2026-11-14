@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 type PayLine = { code: string | null; description: string; amount: number | null };
 type CarrierReview = { token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
-  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; extrasBlockers: string[]; missingExtras: PayLine[]; changed: boolean };
+  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; missingBilling: PayLine[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; missingExtras: PayLine[]; changed: boolean };
 const money = (amount: number | null) => amount == null ? "Unavailable" :
   amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
@@ -56,7 +56,7 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
     } finally { setBusy(false); }
   }
 
-  async function sync(apply: boolean, carrier = false, extras = false) {
+  async function sync(apply: boolean, carrier = false, extraAction?: "extras" | "billing") {
     setBusy(true);
     setError("");
     setMessage("");
@@ -65,13 +65,15 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
     try {
       const response = await fetch("/api/dray-import/dallas", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: extras ? "apply-extras" : `${apply ? "apply" : "preview"}-${carrier ? "carrier" : "details"}`,
+        body: JSON.stringify({ action: extraAction ? `apply-${extraAction}` : `${apply ? "apply" : "preview"}-${carrier ? "carrier" : "details"}`,
           bookingId, orderId, boltSealsRequired: bolt, token: carrier ? carrierReview?.token : review?.token, fields }),
       });
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Booking details sync failed.");
       if (carrier) {
-        if (extras) setMessage(result.verified ? "Verified Other Carrier Pay in McLeod." : "Extra pay did not verify. Preview again before retrying.");
+        if (extraAction === "billing") setMessage(result.verified ? "Verified customer charges in McLeod." :
+          "Customer charges did not verify. Preview again before retrying.");
+        else if (extraAction === "extras") setMessage(result.verified ? "Verified Other Carrier Pay in McLeod." : "Extra pay did not verify. Preview again before retrying.");
         else if (apply) setMessage(result.verified ? `Verified carrier payee and base pay on SCM order ${orderId}.` :
           "Carrier payee or base pay did not verify. Preview again before applying.");
         else setCarrierReview(result);
@@ -121,13 +123,19 @@ export default function DallasImportOrders({ bookingId }: { bookingId: string })
         <h4>Other Carrier Pay</h4>
         {carrierReview.extrasBlockers.map(blocker => <p key={blocker}>{blocker}</p>)}
         <button type="button" className="booking-charge-button" disabled={busy || !!carrierReview.extrasBlockers.length || !carrierReview.missingExtras.length}
-          onClick={() => void sync(true, true, true)}>Send missing Other Carrier Pay ({carrierReview.missingExtras.length})</button>
+          onClick={() => void sync(true, true, "extras")}>Send missing Other Carrier Pay ({carrierReview.missingExtras.length})</button>
+        <h4>Customer billing</h4>
+        {carrierReview.billingBlockers.map(blocker => <p key={blocker}>{blocker}</p>)}
+        <button type="button" className="booking-charge-button"
+          disabled={busy || !!carrierReview.billingBlockers.length || !carrierReview.missingBilling.length}
+          onClick={() => void sync(true, true, "billing")}>Send missing customer charges ({carrierReview.missingBilling.length})</button>
         <div className="booking-charge-table"><table>
           <thead><tr><th>Field</th><th>McLeod</th><th>Platform</th></tr></thead>
           <tbody>
             <tr><th scope="row">Carrier payee</th><td>{carrierReview.currentPayee || "Blank"}</td><td>{carrierReview.carrier}</td></tr>
             <tr><th scope="row">Dispatched carrier</th><td>{carrierReview.assignedCarrier || "Blank"}</td><td>Review in McLeod</td></tr>
             <tr><th scope="row">Base carrier pay</th><td>{money(carrierReview.currentPay)}</td><td>{money(carrierReview.pay)}</td></tr>
+            <tr><th scope="row">Customer charges</th><td>{payLines(carrierReview.billed)}</td><td>{payLines(carrierReview.proposedBilling)}</td></tr>
             <tr><th scope="row">Other Carrier Pay</th><td>{payLines(carrierReview.otherPay)}</td><td>{payLines(carrierReview.proposedExtras)}</td></tr>
           </tbody>
         </table></div>
