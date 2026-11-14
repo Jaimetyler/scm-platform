@@ -17,9 +17,9 @@ export function previewDallasBungeDrays(bytes: Buffer, options: BookingImportOpt
   const pickupLocation = pickups.length === 1 ? pickups[0] : null;
   if (!pickupLocation) issues.push("Resolve a single pickup warehouse for this booking.");
   return {
-    customerId: booking.sourceFormat === "bunge" ? "BUNGOMNE" : booking.sourceFormat === "olam" ? "OLAMRITX" : null, customer: booking.customer, bookingNumber: booking.bookingNumber, customerReference: booking.customerReference,
+    customerId: booking.sourceFormat === "bunge" ? "BUNGOMNE" : booking.sourceFormat === "olam" ? "OLAMRITX" : null, customer: booking.customer, bookingNumber: booking.bookingNumber, bookId: booking.bookId ?? "", customerReference: booking.customerReference,
     loadPort: booking.loadPort, steamshipLine: booking.steamshipLine, deliveryLocation, pickupLocation,
-    vessel: booking.vessel, erd: booking.erd, sourceDates: booking.sourceDates,
+    vessel: booking.vessel, erd: booking.erd, docCutoff: booking.docCutoff, cutoff: booking.cutoff, sourceDates: booking.sourceDates,
     containers: booking.containers, totalBales: booking.totalBales, issues, lines,
   };
 }

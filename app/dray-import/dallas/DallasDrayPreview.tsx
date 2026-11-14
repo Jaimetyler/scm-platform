@@ -12,6 +12,9 @@ type Preview = ReturnType<typeof previewDallasBungeDrays>;
 export default function DallasDrayPreview() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [bookId, setBookId] = useState("");
+  const [details, setDetails] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", steamshipLine: "" });
+  const [check, setCheck] = useState<{ key: string; bookings: string[]; orders: { id: string; blnum: string }[]; error?: string } | null>(null);
+  const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -30,7 +33,11 @@ export default function DallasDrayPreview() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw Error(result.error || "Booking preview failed.");
       setPreview(result.preview);
-      setBookId(result.preview.customerReference ?? "");
+      const parsed: Preview = result.preview;
+      setBookId(parsed.bookId);
+      setDetails({ erd: parsed.erd ?? "", docCutoff: parsed.docCutoff ?? "", cutoff: parsed.cutoff ?? "",
+        vessel: parsed.vessel ?? "", steamshipLine: parsed.steamshipLine ?? "" });
+      setCheck(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Booking preview failed.");
     } finally {
@@ -45,13 +52,32 @@ export default function DallasDrayPreview() {
     catch (reason) { loadIssue = reason instanceof Error ? reason.message : "Could not plan loads."; }
   }
 
+  const checkKey = JSON.stringify([bookId, details]);
+  async function checkBooking() {
+    if (!preview || !loads.length || checking) return;
+    setChecking(true);
+    setCheck(null);
+    try {
+      const response = await fetch("/api/dray-import/dallas", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingNumber: preview.bookingNumber, bookId, containers: preview.containers,
+          pickup: preview.pickupLocation, delivery: preview.deliveryLocation, details }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || "Duplicate check failed.");
+      setCheck({ key: checkKey, ...result });
+    } catch (cause) {
+      setCheck({ key: checkKey, bookings: [], orders: [], error: cause instanceof Error ? cause.message : "Duplicate check failed." });
+    } finally { setChecking(false); }
+  }
+
   return <main className={styles.page}>
     <h1>Dallas Dray Import</h1>
     <p>Review a Bunge, Olam, or ED&F booking request before the drays run. Preview only.</p>
     <form className={styles.toolbar} onSubmit={upload}>
-      <label>Booking request <input required name="booking" type="file" accept=".xlsx,.xlsb" disabled={busy}
+      <label>Booking request <input required name="booking" type="file" accept=".xlsx,.xlsb" disabled={busy || checking}
         onChange={() => { setPreview(null); setError(""); }} /></label>
-      <button type="submit" disabled={busy}>{busy ? "Reading…" : "Preview booking"}</button>
+      <button type="submit" disabled={busy || checking}>{busy ? "Reading…" : "Preview booking"}</button>
     </form>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     {preview && <section>
@@ -60,15 +86,41 @@ export default function DallasDrayPreview() {
         {([
           ["Customer", preview.customer], ["Customer reference", preview.customerReference],
           ["Load port / ramp", bookingReturnLocationLabel(preview.loadPort, preview.deliveryLocation)], ["McLeod delivery", preview.deliveryLocation],
-          ["Steamship line", preview.steamshipLine], ["Vessel / voyage", preview.vessel],
-          ["Containers", preview.containers], ["Total bales", preview.totalBales || "Not supplied"], ["ERD", preview.erd],
+          ["Containers", preview.containers], ["Total bales", preview.totalBales || "Not supplied"],
           ...preview.sourceDates.map(date => [date.label, date.value]),
         ] as [string, string | number | null | undefined][]).map(([label, value]) =>
           <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}
       </dl>
       {preview.issues.map(issue => <p key={issue} className={styles.error}>{issue}</p>)}
+      <h3>Review booking details</h3>
+      <div className={styles.toolbar}>
+        <label>Book ID <input value={bookId} placeholder="Enter Book ID" onChange={event => setBookId(event.target.value)} /></label>
+        <label>ERD <input type="date" value={details.erd} onChange={event => setDetails({ ...details, erd: event.target.value })} /></label>
+        {(["docCutoff", "cutoff"] as const).map(field => <label key={field}>
+          {field === "docCutoff" ? "Doc cutoff" : "Cutoff"}{" "}
+          <input type="date" value={details[field].slice(0, 10)} onChange={event => {
+            const date = event.target.value;
+            setDetails({ ...details, [field]: date ? date + details[field].slice(10) : "" });
+          }} />{" "}
+          <input type="time" aria-label={field === "docCutoff" ? "Doc cutoff time" : "Cutoff time"}
+            disabled={!details[field]} value={details[field].slice(11, 16)} onChange={event => {
+              const time = event.target.value;
+              setDetails({ ...details, [field]: details[field].slice(0, 10) + (time ? "T" + time : "") });
+            }} />
+        </label>)}
+        <label>Vessel / voyage <input value={details.vessel} onChange={event => setDetails({ ...details, vessel: event.target.value })} /></label>
+        <label>Steamship line <input value={details.steamshipLine} onChange={event => setDetails({ ...details, steamshipLine: event.target.value })} /></label>
+      </div>
       <h3>Planned McLeod loads</h3>
-      <label>Book ID <input value={bookId} onChange={event => setBookId(event.target.value)} /></label>
+      <button type="button" disabled={!loads.length || checking} onClick={() => void checkBooking()}>
+        {checking ? "Checking platform and McLeod…" : "Check for duplicates"}
+      </button>
+      {check?.key === checkKey && <div role="status">
+        {check.error ? <p className={styles.error}>{check.error}</p> : <>
+          <p>{check.bookings.length ? `Existing platform booking at ${check.bookings.join(", ")}.` : "No existing platform booking found."}</p>
+          <p>{check.orders.length ? `Existing McLeod orders: ${check.orders.map(order => `${order.id} (${order.blnum || "no BLNUM"})`).join(", ")}.` : "No matching McLeod orders found."}</p>
+        </>}
+      </div>}
       {loadIssue && <p role="status">{loadIssue}</p>}
       {loads.length > 0 && <div className={styles.tableWrap}><table className={styles.table}>
         <thead><tr><th scope="col">Load</th><th scope="col">Initial BLNUM</th><th scope="col">Pickup</th><th scope="col">Delivery</th></tr></thead>
