@@ -343,10 +343,20 @@ async function syncBookingDetails(input: {
     if (input.action === "apply-billing") {
       if (input.token !== token || billingBlockers.length || !missingBilling.length)
         throw Error("Customer charges could not be applied. Preview the order again.");
-      const totalCents = Math.round(Number(current.total_charge) * 100) +
-        missingBilling.reduce((sum, line) => sum + Math.round(line.amount! * 100), 0);
+      const baseRate = Number(current.rate);
+      const rateUnits = Number(current.rate_units);
+      if (current.rate_type !== "F" || !String(current.rate ?? "").trim() ||
+          !Number.isFinite(baseRate) || !Number.isFinite(rateUnits) || rateUnits <= 0 ||
+          !Array.isArray(rawBilling) || rawBilling.some(row => !["Y", "N"].includes(row.incl_in_freight) ||
+            !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount))))
+        throw Error("Could not verify the existing flat rate and charges. Review billing in McLeod.");
+      const existingCents = Math.round(baseRate * rateUnits * 100) + rawBilling.reduce((sum, row) =>
+        sum + (row.incl_in_freight === "N" ? Math.round(Number(row.amount) * 100) : 0), 0);
+      const totalCents = existingCents + missingBilling.reduce((sum, line) => sum + Math.round(line.amount! * 100), 0);
+      if (![existingCents, totalCents].includes(Math.round(Number(current.total_charge) * 100)))
+        throw Error("The current bill total does not reconcile with the flat rate and charge lines. Review billing in McLeod.");
       await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
-        total_charge: totalCents / 100,
+        rate_type: current.rate_type, rate_units: rateUnits, rate: baseRate, total_charge: totalCents / 100,
         otherCharges: missingBilling.map(line => ({
           __type: "other_charge", __name: "otherCharges", company_id: "TMS",
           charge_id: line.code, descr: line.description, units: line.units, rate: line.rate, amount: line.amount,
@@ -355,14 +365,27 @@ async function syncBookingDetails(input: {
       });
       const after = await readLinkedOrder();
       const actual = after.otherCharges ?? after.other_charges ?? after.otherCharge;
-      const verified = Array.isArray(actual) && after.total_charge != null &&
-        Math.round(Number(after.total_charge) * 100) === totalCents && missingBilling.every(line => {
-          const rows = actual.filter(row => String(row.charge_id ?? "").trim().toUpperCase() === line.code);
-          return rows.length === 1 && matchesBill({ code: line.code, description: "",
-            amount: rows[0].amount == null ? null : Number(rows[0].amount),
-            units: Number(rows[0].units), rate: Number(rows[0].rate) }, line);
-        });
-      return NextResponse.json({ verified }, { headers });
+      const differences: string[] = [];
+      if (after.total_charge == null || !String(after.total_charge).trim() ||
+          Math.round(Number(after.total_charge) * 100) !== totalCents)
+        differences.push(`Bill total expected ${(totalCents / 100).toFixed(2)}, read back ${after.total_charge ?? "unavailable"}`);
+      if (Array.isArray(actual) && billed?.some(existing => !actual.some(row =>
+        String(row?.charge_id ?? "").trim().toUpperCase() === existing.code &&
+        row.amount != null && Number(row.amount) === existing.amount)))
+        differences.push("An existing McLeod charge changed during the update");
+      if (!Array.isArray(actual)) differences.push("McLeod did not return customer charge lines");
+      else for (const line of missingBilling) {
+        const rows = actual.filter(row => String(row?.charge_id ?? "").trim().toUpperCase() === line.code);
+        if (rows.length !== 1) {
+          differences.push(`${line.code}: expected one line, read back ${rows.length}`);
+          continue;
+        }
+        const [row] = rows;
+        const amount = row.amount == null ? null : Number(row.amount);
+        if (!matchesBill({ code: line.code, description: "", amount, units: Number(row.units), rate: Number(row.rate) }, line))
+          differences.push(`${line.code}: expected ${line.units} × ${line.rate} = ${line.amount}, read back ${row.units ?? "blank"} × ${row.rate ?? "blank"} = ${row.amount ?? "blank"}`);
+      }
+      return NextResponse.json({ verified: differences.length === 0, differences, total: after.total_charge ?? null }, { headers });
     }
     if (input.action === "apply-extras") {
       if (input.token !== token || extrasBlockers.length || !missingExtras.length)
