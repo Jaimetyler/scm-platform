@@ -10,7 +10,7 @@ const money = (amount: number | null) => amount == null ? "Unavailable" :
 const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
   lines.map(line => [line.code, line.description, money(line.amount)].filter(Boolean).join(" · ")).join(", ") : "None";
 
-export default function DallasLoadSync({ bookingId, orderId, disabled }: { bookingId: string; orderId: string; disabled: boolean }) {
+export default function DallasLoadSync({ bookingId, orderId, disabled, onContainerPull }: { bookingId: string; orderId: string; disabled: boolean; onContainerPull: () => void }) {
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<LoadReview | null>(null);
   const [message, setMessage] = useState("");
@@ -29,7 +29,8 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "McLeod sync failed.");
       if (apply) {
-        if (result.applied.length) setMessage(`Verified in McLeod: ${result.applied.join(", ")}.`);
+        if (result.applied.length) setMessage(`Verified: ${result.applied.join(", ")}.`);
+        if (result.applied.includes("Container pulled from McLeod")) onContainerPull();
         if (result.issues.length) setError(result.issues.join(" · "));
         if (!result.applied.length && !result.issues.length) setMessage("This load already matches McLeod.");
       } else setReview(result);
@@ -50,7 +51,7 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
           onClick={() => void sync(true)}>Send reviewed changes</button>
         {!!review.fuelChanges.length && <p>{review.fuelChanges.join(" · ")}</p>}
         {!!review.detailChanges.length && <div className="booking-charge-table"><table>
-          <thead><tr><th>Booking detail</th><th>McLeod</th><th>Platform</th></tr></thead>
+          <thead><tr><th>Booking detail</th><th>Current</th><th>Proposed</th></tr></thead>
           <tbody>{review.detailChanges.map(change => <tr key={change.field}>
             <th scope="row">{change.field === "blnum" ? "Mark" : change.field === "consignee_refno" ? "Container" : change.field}</th>
             <td>{change.before || "Blank"}</td><td>{change.after}</td>

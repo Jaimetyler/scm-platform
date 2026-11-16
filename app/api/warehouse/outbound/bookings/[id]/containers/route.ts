@@ -138,6 +138,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
         if (billingLock.receipt)
           await restoreDallasCustomerCharges(link.order_id, booking.booking_number, link, billingLock);
         await resetBlnum();
+        await billingLock.recordDetails({ blnum: link.blnum, consignee_refno: "" });
         if (billingLock.receipt) await billingLock.record();
       }
     }

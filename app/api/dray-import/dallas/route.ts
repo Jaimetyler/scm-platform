@@ -202,12 +202,19 @@ async function syncBookingDetails(input: {
     throw Error("An active Dallas booking and a verified linked order are required.");
   if ((packageSync || input.action.endsWith("-details")) && (!saved.scm_file_number || !saved.erd || !saved.cutoff))
     throw Error("Fill in the file number and sailing dates before syncing booking details.");
+  const hasBookingDetails = Boolean(saved.scm_file_number && saved.erd && saved.cutoff);
   const slot = await db.from("cotton_outbound_containers").select("container_number,booking_line_id,carrier_plan,updated_at")
     .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
   if (slot.error || !slot.data) throw Error("The linked booking load could not be found.");
   const { read, write } = vendor(!apply);
   const readLinkedOrder = () => readLinkedDallasOrder(read, input.orderId, saved.booking_number, load.data!);
   const current = await readLinkedOrder();
+  const baseline = load.data.payload.outboundSyncedDetails as Record<string, string> | undefined;
+  const fieldConflicts: string[] = [];
+  const localContainer = String(slot.data.container_number ?? "").trim();
+  const remoteContainer = String(current.consignee_refno ?? "").trim();
+  const pullContainer = unified && current.status === "A" && /^[A-Z]{4}\d{7}$/.test(remoteContainer) &&
+    remoteContainer !== localContainer && baseline?.consignee_refno === localContainer;
   const headers = { "Cache-Control": "private, no-store" };
   async function prepareDetails() {
     const markRow = slot.data!.booking_line_id ? await db.from("cotton_outbound_booking_lines")
@@ -215,7 +222,7 @@ async function syncBookingDetails(input: {
     if (markRow && (markRow.error || !markRow.data)) throw Error("Could not verify the saved mark.");
     const mark = markRow?.data?.line_status === "active" ? String(markRow.data.mark ?? "").trim() : "";
     const container = String(slot.data!.container_number ?? "").trim().toUpperCase();
-    const bookingFields = unified
+    const bookingFields = unified && !hasBookingDetails
       ? (mark && !String(current.booking_no_sucm ?? "").trim() ? { booking_no_sucm: saved!.booking_number } : {})
       : dallasBookingFields(saved!.booking_number, saved!.erd!, saved!.cutoff!.replace(" ", "T"), {
       bookId: saved!.scm_file_number!, steamshipLine: saved!.steamship_line, docCutoff: saved!.doc_cutoff?.replace(" ", "T"),
@@ -224,21 +231,31 @@ async function syncBookingDetails(input: {
     const requiredComment = withRequiredCottonBoltSeals(currentComment);
     const expected = packageSync ? bookingFields : { ...bookingFields,
       ...(!unified && currentComment && currentComment !== requiredComment ? { planning_comment: requiredComment } : {}), ...(mark ? { blnum: mark } : {}),
-      ...(/^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
+      ...(!pullContainer && /^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
     const matches = (field: string, actual: unknown, value: string) =>
       field === "cutoff_date" || field === "doc_cutoff_date"
         ? matchesDallasMcLeodDetailDate(actual, value, field === "cutoff_date" ? saved!.cutoff_has_time === false : saved!.doc_cutoff_has_time === false)
         : String(actual ?? "").trim() === value;
-    const changes = Object.entries(expected).filter(([field, value]) => !matches(field, current[field], value))
-      .map(([field, value]) => ({ field, before: String(current[field] ?? "").trim(), after: value,
-        required: field === "planning_comment" && currentComment !== requiredComment }));
+    const changes = Object.entries(expected).flatMap(([field, value]) => {
+      if (matches(field, current[field], value)) return [];
+      const before = String(current[field] ?? "").trim();
+      const previous = baseline?.[field] ?? (field === "booking_no_sucm"
+        ? load.data!.payload.outboundSyncedBookingNumber ?? load.data!.payload[field] : load.data!.payload[field]);
+      if (unified && (before || baseline?.[field] !== undefined) && (typeof previous !== "string" || !matches(field, before, previous))) {
+        fieldConflicts.push(`${field}: McLeod has ${before || "blank"} and the platform has ${value}. Review which value is current.`);
+        return [];
+      }
+      return [{ field, before, after: value, required: field === "planning_comment" && currentComment !== requiredComment }];
+    });
+    if (unified && !pullContainer && !container && /^[A-Z]{4}\d{7}$/.test(remoteContainer))
+      fieldConflicts.push(`Container: McLeod has ${current.consignee_refno} and the platform is blank. Review which value is current.`);
     async function sendDetails(selected: typeof changes) {
       if (!unified && selected.some(change => change.field === "blnum") &&
           String(current.booking_no_sucm ?? "").trim() !== saved!.booking_number &&
           !selected.some(change => change.field === "booking_no_sucm"))
         throw Error("Select the booking number together with the mark to preserve the McLeod link.");
       const fresh = await readLinkedOrder();
-      if (packageSync && fresh.status !== "A") throw Error("McLeod must show the order as available to update booking details.");
+      if ((packageSync || unified) && fresh.status !== "A") throw Error("McLeod must show the order as available to update booking details.");
       if (selected.some(change => String(fresh[change.field] ?? "").trim() !== change.before))
         throw Error("McLeod booking details changed during sync. Preview again.");
       await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
@@ -251,16 +268,7 @@ async function syncBookingDetails(input: {
     return { changes, sendDetails };
   }
   const details = unified || packageSync || input.action.endsWith("-details") ? await prepareDetails() : null;
-  const detailBlockers = unified && current.status !== "A" && details?.changes.length
-    ? ["McLeod must show the order as available to sync booking details."] : [];
-  const detailChanges = unified ? details!.changes : [];
-  const canSendDetails = detailChanges.length > 0 && !detailBlockers.length;
   const plan = slot.data.carrier_plan as CarrierPlan | null | undefined;
-
-  async function sendUnifiedDetails() {
-    const differences = await details!.sendDetails(detailChanges);
-    if (differences.length) throw Error(`McLeod did not verify ${differences.map(change => change.field).join(", ")}. Preview again before applying.`);
-  }
 
   async function verifyLoadVersion() {
     const { data: active, error } = await db.from("cotton_outbound_containers").select("updated_at")
@@ -273,16 +281,16 @@ async function syncBookingDetails(input: {
     return lockDallasBilling(db, input.bookingId, { ...load.data!, order_id: input.orderId });
   }
 
-  if (packageSync) {
-    const { changes, sendDetails } = details!;
-    const schedules = { sched_arrive_early: saved.erd!, sched_arrive_late: saved.cutoff!.replace(" ", "T") };
-    const stopDefinitions = load.data.payload.stops as { stop_type: string; location_id: string }[];
+  function prepareSchedules() {
     const issues: string[] = [];
-    if (current.status !== "A") issues.push("McLeod must show the order as available to update booking details.");
-    if (saved.erd! > saved.cutoff!.slice(0, 10)) issues.push("The cutoff must be on or after the ERD.");
+    if (!hasBookingDetails) return { stopUpdates: [], issues };
+    const schedules = { sched_arrive_early: saved.erd!, sched_arrive_late: saved.cutoff!.replace(" ", "T") };
+    const stopDefinitions = load.data!.payload.stops as { stop_type: string; location_id: string }[];
+    if (saved.erd! > saved.cutoff!.slice(0, 10))
+      return { stopUpdates: [], issues: ["The cutoff must be on or after the ERD."] };
     if (!stopDefinitions.some(stop => stop.stop_type === "PU" && stop.location_id === saved.site_code) ||
         (saved.return_location_code && !stopDefinitions.some(stop => stop.stop_type === "SO" && stop.location_id === saved.return_location_code)))
-      issues.push("The saved route differs from the linked McLeod order. Review the pickup and return locations before syncing dates.");
+      return { stopUpdates: [], issues: ["The saved route differs from the linked McLeod order. Review the pickup and return locations before syncing dates."] };
     const stops = mcleodOrderStops(current);
     const stopUpdates = stopDefinitions.flatMap(definition => {
       const candidates = stops.filter(stop => stop.stop_type === definition.stop_type && stop.location_id === definition.location_id);
@@ -292,8 +300,18 @@ async function syncBookingDetails(input: {
         issues.push(`${label} stop could not be uniquely verified in McLeod.`);
         return [];
       }
-      const changes = Object.entries(schedules).flatMap(([field, after]) => matchesDallasMcLeodDetailDate(stop[field], after) ? [] :
-        [{ field, label: `${label} scheduled ${field.endsWith("_early") ? "start" : "end"}`, before: String(stop[field] ?? "").trim(), after }]);
+      const changes = Object.entries(schedules).flatMap(([field, after]) => {
+        if (matchesDallasMcLeodDetailDate(stop[field], after)) return [];
+        const before = String(stop[field] ?? "").trim();
+        const caption = `${label} scheduled ${field.endsWith("_early") ? "start" : "end"}`;
+        const savedSchedule = baseline?.[`${stop.id}:${field}`];
+        const previous = savedSchedule ?? definition[field as keyof typeof definition];
+        if (unified && (before || savedSchedule !== undefined) && (typeof previous !== "string" || !matchesDallasMcLeodDetailDate(before, previous))) {
+          issues.push(`${caption}: McLeod has ${before || "blank"} and the platform has ${after}. Review which value is current.`);
+          return [];
+        }
+        return [{ field, label: caption, before, after }];
+      });
       if (!changes.length) return [];
       if (stop.actual_arrival || stop.actual_departure || (stop.status && stop.status !== "A")) {
         issues.push(`${label} already has activity in McLeod. Review that stop before changing its schedule.`);
@@ -301,64 +319,84 @@ async function syncBookingDetails(input: {
       }
       return [{ stop, label, changes }];
     });
-    const previewChanges = [...changes, ...stopUpdates.flatMap(update => update.changes.map(({ label, before, after }) =>
-      ({ field: label, before, after })))];
-    const token = hash([input.bookingId, input.orderId, slot.data!.updated_at, saved.updated_at, current.status,
-      previewChanges, stopUpdates.map(({ stop }) => [stop.id, stop.status, stop.actual_arrival, stop.actual_departure])]);
-    if (!apply) return NextResponse.json({ token, changes: previewChanges, issues }, { headers });
-    if (token !== input.token) throw Error("Booking or McLeod values changed. Preview again.");
-    if (issues.length || !previewChanges.length) return NextResponse.json({ applied: [], issues }, { headers });
-    const history = await lockLoad();
-    try {
-      await verifyLoadVersion();
-      if (history.receipt?.restoringFromTotal !== undefined)
-        throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
-      const active = await db.from("cotton_outbound_bookings").select("updated_at")
-        .eq("id", input.bookingId).eq("status", "draft").maybeSingle();
-      if (active.error || !active.data || active.data.updated_at !== saved.updated_at)
-        throw Error("The saved booking changed during sync. Preview again.");
-      const applied: string[] = [];
-      if (changes.length) {
-        const differences = await sendDetails(changes);
-        const unverified = new Set(differences.map(change => change.field));
-        if (!unverified.has("booking_no_sucm") && changes.some(change => change.field === "booking_no_sucm"))
-          await history.recordBookingNumber(saved.booking_number);
-        if (unverified.has("booking_no_sucm"))
-          return NextResponse.json({ applied, issues: ["McLeod did not verify the updated booking number. Preview again."] }, { headers });
-        for (const change of differences)
-          issues.push(`McLeod ${change.field} expected ${change.expected}, read back ${change.observed || "blank"}.`);
-        if (changes.length > differences.length)
-          applied.push(differences.length ? "Some booking details" : "Booking details");
-      }
-      for (const update of stopUpdates) {
-        try {
-          const order = await readLinkedOrder();
-          const fresh = mcleodOrderStops(order).find(stop => stop.id === update.stop.id);
-          if (!fresh || order.status !== "A" || fresh.actual_arrival || fresh.actual_departure ||
-              (fresh.status && fresh.status !== "A") ||
-              update.changes.some(change => String(fresh[change.field] ?? "").trim() !== change.before))
-            throw Error("The McLeod stop changed. Preview again.");
-          await write("/stop/update", { __type: "stop", company_id: "TMS", id: fresh.id,
-            ...Object.fromEntries(update.changes.map(change => [change.field, dallasMcLeodDetailDate(change.after)])) });
-          const verified = mcleodOrderStops(await readLinkedOrder()).find(stop => stop.id === fresh.id);
-          if (!verified || update.changes.some(change => !matchesDallasMcLeodDetailDate(verified[change.field], change.after)))
-            throw Error("McLeod did not verify the new schedule.");
-          applied.push(`${update.label} schedule`);
-        } catch (error) {
-          issues.push(`${update.label} schedule: ${error instanceof Error ? error.message : "Update failed"}`);
-        }
-      }
-      return NextResponse.json({ applied, issues }, { headers });
-    } finally {
-      await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
-    }
+    return { stopUpdates, issues };
   }
 
-  if (unified && !plan) {
-    const token = hash([input.bookingId, input.orderId, slot.data.updated_at, current.status, detailChanges]);
-    if (!apply) return NextResponse.json({ token, detailChanges, detailBlockers, canSendDetails,
-      canSendPay: false, canSendExtras: false, canSendBilling: false, fuelChanges: [],
-      blockers: [], extrasBlockers: [], billingBlockers: [], carrier: null }, { headers });
+  const { stopUpdates, issues: scheduleIssues } = (unified || packageSync) && current.status === "A"
+    ? prepareSchedules() : { stopUpdates: [], issues: [] };
+  const detailBlockers = [...fieldConflicts, ...scheduleIssues];
+  if ((unified || packageSync) && current.status !== "A" && (packageSync || details?.changes.length))
+    detailBlockers.push("McLeod must show the order as available to sync booking details.");
+  const changes = details?.changes ?? [];
+  const detailChanges = [...changes, ...(pullContainer ? [{ field: "Container (McLeod → Platform)", before: localContainer, after: remoteContainer }] : []), ...stopUpdates.flatMap(update => update.changes.map(({ label, before, after }) =>
+    ({ field: label, before, after })))];
+  const detailState = [saved.updated_at, current.status, detailChanges, detailBlockers,
+    stopUpdates.map(({ stop }) => [stop.id, stop.status, stop.actual_arrival, stop.actual_departure])];
+  const canSendDetails = detailChanges.length > 0 && current.status === "A";
+
+  async function syncReviewedDetails(history: Awaited<ReturnType<typeof lockDallasBilling>>, applied: string[], issues: string[]) {
+    const active = await db.from("cotton_outbound_bookings").select("updated_at")
+      .eq("id", input.bookingId).eq("status", "draft").maybeSingle();
+    if (active.error || !active.data || active.data.updated_at !== saved.updated_at)
+      throw Error("The saved booking changed during sync. Preview again.");
+    const verifiedFields: Record<string, string> = {};
+    if (changes.length) {
+      const differences = await details!.sendDetails(changes);
+      const unverified = new Set(differences.map(change => change.field));
+      if (!unverified.has("booking_no_sucm") && changes.some(change => change.field === "booking_no_sucm"))
+        await history.recordBookingNumber(saved.booking_number);
+      if (unverified.has("booking_no_sucm"))
+        throw Error("McLeod did not verify the updated booking number. Preview again.");
+      for (const change of differences)
+        issues.push(`McLeod ${change.field} expected ${change.expected}, read back ${change.observed || "blank"}.`);
+      for (const change of changes) if (!unverified.has(change.field)) verifiedFields[change.field] = change.after;
+      if (changes.length > differences.length)
+        applied.push(differences.length ? "Some booking details" : "Booking details");
+    }
+    for (const update of stopUpdates) {
+      try {
+        const order = await readLinkedOrder();
+        const fresh = mcleodOrderStops(order).find(stop => stop.id === update.stop.id);
+        if (!fresh || order.status !== "A" || fresh.actual_arrival || fresh.actual_departure ||
+            (fresh.status && fresh.status !== "A") ||
+            update.changes.some(change => String(fresh[change.field] ?? "").trim() !== change.before))
+          throw Error("The McLeod stop changed. Preview again.");
+        await write("/stop/update", { __type: "stop", company_id: "TMS", id: fresh.id,
+          ...Object.fromEntries(update.changes.map(change => [change.field, dallasMcLeodDetailDate(change.after)])) });
+        const verified = mcleodOrderStops(await readLinkedOrder()).find(stop => stop.id === fresh.id);
+        if (!verified || update.changes.some(change => !matchesDallasMcLeodDetailDate(verified[change.field], change.after)))
+          throw Error("McLeod did not verify the new schedule.");
+        for (const change of update.changes) verifiedFields[`${update.stop.id}:${change.field}`] = change.after;
+        applied.push(`${update.label} schedule`);
+      } catch (error) {
+        issues.push(`${update.label} schedule: ${error instanceof Error ? error.message : "Update failed"}`);
+      }
+    }
+    if (pullContainer) {
+      const fresh = await readLinkedOrder();
+      if (fresh.status !== "A" || String(fresh.consignee_refno ?? "").trim() !== remoteContainer) {
+        issues.push("The McLeod container changed during sync. Preview again.");
+      } else {
+        const updated = await db.from("cotton_outbound_containers").update({ container_number: remoteContainer })
+          .eq("booking_id", input.bookingId).eq("sequence_no", load.data!.sequence_no)
+          .eq("updated_at", slot.data!.updated_at).is("split_transfer_id", null).select("container_number").maybeSingle();
+        if (updated.error || updated.data?.container_number !== remoteContainer)
+          issues.push(updated.error?.code === "23505" ? "That McLeod container is already on this booking."
+            : "The platform container changed during sync. Preview again.");
+        else {
+          verifiedFields.consignee_refno = remoteContainer;
+          applied.push("Container pulled from McLeod");
+        }
+      }
+    }
+    if (Object.keys(verifiedFields).length) await history.recordDetails(verifiedFields);
+  }
+
+  if (packageSync || (unified && !plan)) {
+    const token = hash([input.bookingId, input.orderId, slot.data.updated_at, detailState]);
+    if (!apply) return NextResponse.json(packageSync ? { token, changes: detailChanges, issues: detailBlockers } :
+      { token, detailChanges, detailBlockers, canSendDetails, canSendPay: false, canSendExtras: false,
+        canSendBilling: false, fuelChanges: [], blockers: [], extrasBlockers: [], billingBlockers: [], carrier: null }, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
     if (!canSendDetails) return NextResponse.json({ applied: [], issues: detailBlockers }, { headers });
     const history = await lockLoad();
@@ -366,8 +404,10 @@ async function syncBookingDetails(input: {
       await verifyLoadVersion();
       if (history.receipt?.restoringFromTotal !== undefined)
         throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
-      await sendUnifiedDetails();
-      return NextResponse.json({ applied: ["Booking details"], issues: [] }, { headers });
+      const applied: string[] = [];
+      const issues = [...detailBlockers];
+      await syncReviewedDetails(history, applied, issues);
+      return NextResponse.json({ applied, issues }, { headers });
     } finally {
       await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
     }
@@ -459,7 +499,7 @@ async function syncBookingDetails(input: {
     const movementState = [movement.id, movement.status, assignedCarrier, currentPayee, movement.override_type,
       movement.override_units, movement.override_pay_rate, movement.override_paye_rate, movement.override_pay_amt];
     const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movementState, current.status, carrier, pay,
-      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits, current.order_type_id, fuelCorrection, detailChanges]);
+      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits, current.order_type_id, fuelCorrection, unified ? detailState : null]);
     const extrasBlockers = [...blockers,
       ...(proposedExtras.length && !otherPay ? [otherPayIssue] : []),
     ];
@@ -639,8 +679,13 @@ async function syncBookingDetails(input: {
       if (history.receipt?.restoringFromTotal !== undefined)
         throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
       await verifyLoadVersion();
-      if (canSendDetails) await send("Booking details", sendUnifiedDetails);
-      else issues.push(...detailBlockers);
+      if (unified) {
+        issues.push(...detailBlockers);
+        if (canSendDetails) {
+          try { await syncReviewedDetails(history, applied, issues); }
+          catch (error) { issues.push(`Booking details: ${error instanceof Error ? error.message : "Update failed"}`); }
+        }
+      }
       let payReady = !changed;
       if (canSendPay) payReady = await send("Carrier payee and base pay", sendBasePay);
       else if (changed) issues.push(...blockers);
@@ -656,7 +701,7 @@ async function syncBookingDetails(input: {
       await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
     }
   }
-  const { changes, sendDetails } = details!;
+  const { sendDetails } = details!;
   const token = hash([input.bookingId, input.orderId, changes]);
   if (!apply) return NextResponse.json({ changes, token }, { headers });
   if (input.token !== token) throw Error("Booking or McLeod values changed. Preview the order again.");
