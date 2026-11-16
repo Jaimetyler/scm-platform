@@ -37,6 +37,25 @@ export function matchesDallasImportDate(actual: unknown, expected: string) {
   return observed !== null && observed === wallTime(expected);
 }
 
+export function matchesDallasMcLeodDetailDate(actual: unknown, expected: string, dateOnly = false) {
+  const value = String(actual ?? "").trim();
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})$/;
+  const toIso = (date: string) => date.replace(compact, "$1-$2-$3T$4:$5:$6$7").replace(" ", "T");
+  const iso = toIso(value);
+  if (dateOnly && /^\d{8}$/.test(value)) return value === expected.slice(0, 10).replaceAll("-", "");
+  if (dateOnly && matchesDallasImportDate(iso.slice(0, 10), expected.slice(0, 10))) return true;
+  if (matchesDallasImportDate(value, expected)) return true;
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso)) return false;
+  const observed = Date.parse(iso);
+  if (!Number.isFinite(observed)) return false;
+  if (dateOnly) {
+    const localDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Chicago",
+      year: "numeric", month: "2-digit", day: "2-digit" }).format(observed);
+    return localDate === expected.slice(0, 10);
+  }
+  return observed === Date.parse(toIso(dallasMcLeodDetailDate(expected)));
+}
+
 export function withRequiredCottonBoltSeals(comment: string) {
   const text = comment.trim();
   return /\bbolt seals? required\b/i.test(text) ? text : [text, "*Bolt Seals Required*"].filter(Boolean).join(" ");
