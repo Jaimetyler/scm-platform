@@ -13,7 +13,7 @@ import { mcleodOrderStops } from "../lib/inbound/checkin/yard-stop.ts";
 const require = createRequire(import.meta.url);
 const bookingId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const orderId = "0830845";
-function fixture(withCarrier, packageDates = false) {
+function fixture(withCarrier, packageDates = false, cutoffReadback) {
   const stops = [
     { id: "STOP1", stop_type: "PU", location_id: "SCMDDETX", status: "A" },
     { id: "STOP2", stop_type: "SO", location_id: "BNSFHATX", status: "A" },
@@ -38,7 +38,10 @@ function fixture(withCarrier, packageDates = false) {
     write: async (path, body) => {
       assert.equal(readOnly, false);
       writes.push({ path, body });
-      if (path === "/orders/updateRow") Object.assign(order, body);
+      if (path === "/orders/updateRow") {
+        Object.assign(order, body);
+        if (body.cutoff_date && cutoffReadback !== undefined) order.cutoff_date = cutoffReadback;
+      }
       if (path === "/stop/update") Object.assign(stops.find(stop => stop.id === body.id), body);
       if (path === "/movement/update") Object.assign(order.movements[0], body);
     },
@@ -105,7 +108,7 @@ test("an explicit package replacement sends McLeod-format dates and skips load a
   process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
   process.env.MCLEOD_SYNC_ENABLED = "true";
   try {
-    const { request, writes } = fixture(true, true);
+    const { request, writes } = fixture(true, true, "20261118163000+0000");
     const preview = await (await request("preview-package")).json();
     assert.deepEqual(preview.issues, [], JSON.stringify(preview));
     assert.deepEqual(preview.changes.map(change => change.field).sort(), [
@@ -133,4 +136,30 @@ test("an explicit package replacement sends McLeod-format dates and skips load a
     if (original.sync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
     else process.env.MCLEOD_SYNC_ENABLED = original.sync;
   }
+});
+
+test("an unverified order cutoff reports the values and still verifies the stop schedules", async () => {
+  const original = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
+  process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
+  process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request } = fixture(true, true, "20261117103000-0600");
+    const preview = await (await request("preview-package")).json();
+    const applied = await (await request("apply-package", preview.token)).json();
+    assert.deepEqual(applied.applied, ["Some booking details", "Pickup schedule", "Delivery schedule"]);
+    assert.deepEqual(applied.issues, ["McLeod cutoff_date expected 2026-11-18T10:30:00, read back 20261117103000-0600."]);
+  } finally {
+    if (original.write === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = original.write;
+    if (original.sync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = original.sync;
+  }
+});
+
+test("order cutoff comparison honors the precision saved on the booking", () => {
+  const compare = booking.matchesDallasMcLeodDetailDate;
+  assert.equal(compare("20261118000000-0500", "2026-11-18T10:30:00", true), true);
+  assert.equal(compare("20261118000000-0500", "2026-11-18T10:30:00"), false);
+  assert.equal(compare("20261117", "2026-11-18T00:00:00", true), false);
+  assert.equal(compare("2026-11-18T16:30:00Z", "2026-11-18T10:30:00"), true);
 });

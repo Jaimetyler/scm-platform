@@ -17,7 +17,7 @@ import { dallasExtraPayDate, dallasExtraPayReference, dallasExtraPayLines, readD
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
-import { dallasBookingFields, dallasImportPayload, dallasMcLeodDetailDate, withRequiredCottonBoltSeals, matchesDallasImportDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
+import { dallasBookingFields, dallasImportPayload, dallasMcLeodDetailDate, withRequiredCottonBoltSeals, matchesDallasImportDate, matchesDallasMcLeodDetailDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
 import { mcleodOrderStops } from "@/lib/inbound/checkin/yard-stop";
 import { currentDallasMovement, readLinkedDallasOrder } from "@/lib/dray/dallas-linked-order";
 
@@ -192,7 +192,7 @@ async function syncBookingDetails(input: {
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
-    db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line,terminal,site_code,customer,return_location,return_location_code,updated_at")
+    db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line,terminal,site_code,customer,return_location,return_location_code,updated_at,cutoff_has_time,doc_cutoff_has_time")
       .eq("id", input.bookingId).eq("terminal", "DAL").maybeSingle(),
     db.from("dallas_dray_import_loads").select("blnum,payload,sequence_no").eq("booking_id", input.bookingId)
       .eq("order_id", input.orderId).eq("state", "verified").maybeSingle(),
@@ -227,7 +227,8 @@ async function syncBookingDetails(input: {
       ...(/^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
     const matches = (field: string, actual: unknown, value: string) =>
       field === "cutoff_date" || field === "doc_cutoff_date"
-        ? matchesDallasImportDate(actual, value) : String(actual ?? "").trim() === value;
+        ? matchesDallasMcLeodDetailDate(actual, value, field === "cutoff_date" ? saved!.cutoff_has_time === false : saved!.doc_cutoff_has_time === false)
+        : String(actual ?? "").trim() === value;
     const changes = Object.entries(expected).filter(([field, value]) => !matches(field, current[field], value))
       .map(([field, value]) => ({ field, before: String(current[field] ?? "").trim(), after: value,
         required: field === "planning_comment" && currentComment !== requiredComment }));
@@ -244,8 +245,8 @@ async function syncBookingDetails(input: {
         ...Object.fromEntries(selected.map(change => [change.field,
           change.field === "cutoff_date" || change.field === "doc_cutoff_date" ? dallasMcLeodDetailDate(change.after) : change.after])) });
       const verified = await readLinkedOrder();
-      const differences = selected.filter(change => !matches(change.field, verified[change.field], change.after));
-      return differences.map(change => change.field);
+      return selected.filter(change => !matches(change.field, verified[change.field], change.after))
+        .map(change => ({ field: change.field, expected: change.after, observed: String(verified[change.field] ?? "").trim() }));
     }
     return { changes, sendDetails };
   }
@@ -258,7 +259,7 @@ async function syncBookingDetails(input: {
 
   async function sendUnifiedDetails() {
     const differences = await details!.sendDetails(detailChanges);
-    if (differences.length) throw Error(`McLeod did not verify ${differences.join(", ")}. Preview again before applying.`);
+    if (differences.length) throw Error(`McLeod did not verify ${differences.map(change => change.field).join(", ")}. Preview again before applying.`);
   }
 
   async function verifyLoadVersion() {
@@ -291,7 +292,7 @@ async function syncBookingDetails(input: {
         issues.push(`${label} stop could not be uniquely verified in McLeod.`);
         return [];
       }
-      const changes = Object.entries(schedules).flatMap(([field, after]) => matchesDallasImportDate(stop[field], after) ? [] :
+      const changes = Object.entries(schedules).flatMap(([field, after]) => matchesDallasMcLeodDetailDate(stop[field], after) ? [] :
         [{ field, label: `${label} scheduled ${field.endsWith("_early") ? "start" : "end"}`, before: String(stop[field] ?? "").trim(), after }]);
       if (!changes.length) return [];
       if (stop.actual_arrival || stop.actual_departure || (stop.status && stop.status !== "A")) {
@@ -316,13 +317,19 @@ async function syncBookingDetails(input: {
         .eq("id", input.bookingId).eq("status", "draft").maybeSingle();
       if (active.error || !active.data || active.data.updated_at !== saved.updated_at)
         throw Error("The saved booking changed during sync. Preview again.");
+      const applied: string[] = [];
       if (changes.length) {
         const differences = await sendDetails(changes);
-        if (!differences.includes("booking_no_sucm") && changes.some(change => change.field === "booking_no_sucm"))
+        const unverified = new Set(differences.map(change => change.field));
+        if (!unverified.has("booking_no_sucm") && changes.some(change => change.field === "booking_no_sucm"))
           await history.recordBookingNumber(saved.booking_number);
-        if (differences.length) return NextResponse.json({ applied: [], issues: [`McLeod did not verify ${differences.join(", ")}. Preview again.`] }, { headers });
+        if (unverified.has("booking_no_sucm"))
+          return NextResponse.json({ applied, issues: ["McLeod did not verify the updated booking number. Preview again."] }, { headers });
+        for (const change of differences)
+          issues.push(`McLeod ${change.field} expected ${change.expected}, read back ${change.observed || "blank"}.`);
+        if (changes.length > differences.length)
+          applied.push(differences.length ? "Some booking details" : "Booking details");
       }
-      const applied = changes.length ? ["Booking details"] : [];
       for (const update of stopUpdates) {
         try {
           const order = await readLinkedOrder();
@@ -334,7 +341,7 @@ async function syncBookingDetails(input: {
           await write("/stop/update", { __type: "stop", company_id: "TMS", id: fresh.id,
             ...Object.fromEntries(update.changes.map(change => [change.field, dallasMcLeodDetailDate(change.after)])) });
           const verified = mcleodOrderStops(await readLinkedOrder()).find(stop => stop.id === fresh.id);
-          if (!verified || update.changes.some(change => !matchesDallasImportDate(verified[change.field], change.after)))
+          if (!verified || update.changes.some(change => !matchesDallasMcLeodDetailDate(verified[change.field], change.after)))
             throw Error("McLeod did not verify the new schedule.");
           applied.push(`${update.label} schedule`);
         } catch (error) {
@@ -656,5 +663,5 @@ async function syncBookingDetails(input: {
   const selected = changes.filter(change => input.fields?.includes(change.field) || change.required);
   if (!selected.length) throw Error("Select at least one booking detail to apply.");
   const differences = await sendDetails(selected);
-  return NextResponse.json({ verified: differences.length === 0, differences }, { headers });
+  return NextResponse.json({ verified: differences.length === 0, differences: differences.map(change => change.field) }, { headers });
 }
