@@ -796,7 +796,10 @@ export default function CottonOutboundBookingPage() {
       <h3>{chargesOnly ? "Charges" : "Carrier and charges"}</h3>
       {detailDraft && <CarrierEditor key={JSON.stringify(detailRow.carrier_plan)} plan={detailRow.carrier_plan} billing={customerBilling} rates={carrierRates}
         sequence={detailRow.sequence_no} chargesOnly={chargesOnly} disabled={!canWrite || Boolean(working) || Boolean(detailLine && detailLine.line_status !== "active")}
-        onSave={selection => save(detailRow, detailDraft, selection)} />}
+        onSave={selection => {
+          detailDialog.current?.close();
+          return save(detailRow, detailDraft, selection);
+        }} />}
       {error && <p role="alert">{error}</p>}
       {!chargesOnly && orderLookup && detailRow.container_number && <BookingOrderLookup key={detailRow.container_number} endpoint={`/api/warehouse/outbound/bookings/${id}/mcleod-order?containerId=${detailRow.id}`} />}
       {!chargesOnly && hasletPilot && canWrite && detailRow.container_number && detailLine?.line_status === "active" && detailLine.load_source === "warehouse" &&
