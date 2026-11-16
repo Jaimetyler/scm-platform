@@ -4,13 +4,14 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as extraPay from "../lib/dray/dallas-extra-pay.ts";
 
-function loadCase({ before = "CARRIER", after = null, writeFails = false, detail, extraPayRows = [] } = {}) {
+function loadCase({ before = "CARRIER", after = null, writeFails = false, detail, extraPayRows = [], blnums = ["MARK"], status = "A" } = {}) {
   const calls = [];
+  const writes = [];
   let reads = 0;
   let rows = [...extraPayRows];
   const order = carrier => ({
     id: "0830846", revenue_code_id: "DDRAY", customer_id: "CUSTOMER", booking_no_sucm: "2342071250",
-    blnum: "MARK", curr_movement_id: "9001", movements: [{ id: "9001", carrier_id: carrier }],
+    blnum: blnums[Math.min(reads - 1, blnums.length - 1)], status, curr_movement_id: "9001", movements: [{ id: "9001", carrier_id: carrier }],
   });
   const stops = [{ stop_type: "PU", location_id: "SCMDDETX" }, { stop_type: "SO", location_id: "UNIOWITX" }];
   const vendor = () => ({
@@ -23,8 +24,9 @@ function loadCase({ before = "CARRIER", after = null, writeFails = false, detail
       return result;
     },
     deleteOtherPay: async id => { calls.push(`delete ${id}`); rows = rows.filter(row => row.id !== id); },
-    write: async path => {
+    write: async (path, body) => {
       calls.push(path);
+      writes.push(body);
       if (writeFails) throw new Error("Request interrupted");
     },
   });
@@ -37,7 +39,9 @@ function loadCase({ before = "CARRIER", after = null, writeFails = false, detail
     if (name === "../inbound/checkin/yard-stop") return { mcleodOrderStops: () => stops };
     throw new Error(`Unexpected dependency ${name}`);
   }, module, module.exports);
-  return { calls, clear: (carrier = before, booking = "2342071250") =>
+  return { calls, writes, prepareBlnumReset: () =>
+    module.exports.prepareDallasBlnumReset("0830846", "2342071250", { blnum: "FILE-1", payload: { customer_id: "CUSTOMER", stops } }),
+    clear: (carrier = before, booking = "2342071250") =>
     module.exports.clearDallasCarrier("0830846", booking, { blnum: "FILE-1", payload: { customer_id: "CUSTOMER", stops } }, carrier ? { rate: { carrier_id: carrier, rates: { base: { pay: 0 }, chassisDays: { pay: 0 }, chassisSplits: { pay: 0 }, stopoffs: { pay: 0 } } }, quantities: { chassisDays: 0, chassisSplits: 0, stopoffs: 0 } } : null) };
 }
 
@@ -97,4 +101,27 @@ test("clears only matching tagged pay lines after dispatch removal", async () =>
 test("uses the current Dallas calendar day in McLeod date format", () => {
   assert.equal(extraPay.dallasExtraPayDate(new Date("2026-11-17T02:00:00Z")), "20261116000000-0600");
   assert.equal(extraPay.dallasExtraPayDate(new Date("2026-07-01T06:00:00Z")), "20260701000000-0500");
+});
+
+
+test("unassign restores and reads back the imported BLNUM without writing other order fields", async () => {
+  const { calls, writes, prepareBlnumReset } = loadCase({ blnums: ["MARK", "MARK", "FILE-1"] });
+  const reset = await prepareBlnumReset();
+  await reset();
+  assert.deepEqual(calls, ["/orders/0830846", "/orders/0830846", "/orders/updateRow", "/orders/0830846"]);
+  assert.deepEqual(writes, [{ __type: "orders", company_id: "TMS", id: "0830846", blnum: "FILE-1" }]);
+});
+
+test("BLNUM restoration skips the original value and guards against a concurrent edit", async () => {
+  const original = loadCase({ blnums: ["FILE-1"] });
+  await (await original.prepareBlnumReset())();
+  assert.deepEqual(original.writes, []);
+  const changed = loadCase({ blnums: ["MARK", "NEW-MARK"] });
+  await assert.rejects(await changed.prepareBlnumReset(), /BLNUM changed/);
+  assert.deepEqual(changed.writes, []);
+});
+
+test("BLNUM restoration must verify the read-back", async () => {
+  const { prepareBlnumReset } = loadCase();
+  await assert.rejects(await prepareBlnumReset(), /did not verify the original BLNUM/);
 });
