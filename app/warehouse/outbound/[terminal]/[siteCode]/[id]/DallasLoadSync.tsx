@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 type PayLine = { code: string | null; description: string; amount: number | null };
-type LoadReview = { detailChanges: { field: string; before: string; after: string }[]; detailBlockers: string[]; canSendDetails: boolean; token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
+type LoadReview = { clearContainerToken?: string | null; detailChanges: { field: string; before: string; after: string }[]; detailBlockers: string[]; canSendDetails: boolean; token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
   carrier: string | null; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; canSendPay: boolean; canSendExtras: boolean; canSendBilling: boolean; fuelChanges: string[] };
 const money = (amount: number | null) => amount == null ? "Unavailable" :
   amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -16,7 +16,7 @@ export default function DallasLoadSync({ bookingId, orderId, disabled, onContain
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function sync(apply: boolean) {
+  async function sync(apply: boolean, clearContainer = false) {
     setBusy(true);
     setError("");
     setMessage("");
@@ -24,7 +24,8 @@ export default function DallasLoadSync({ bookingId, orderId, disabled, onContain
     try {
       const response = await fetch("/api/dray-import/dallas", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: apply ? "apply-load" : "preview-load", bookingId, orderId, token: review?.token }),
+        body: JSON.stringify({ action: clearContainer ? "clear-container" : apply ? "apply-load" : "preview-load", bookingId, orderId,
+          token: clearContainer ? review?.clearContainerToken : review?.token }),
       });
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "McLeod sync failed.");
@@ -49,12 +50,14 @@ export default function DallasLoadSync({ bookingId, orderId, disabled, onContain
         <button type="button" className="booking-charge-button"
           disabled={!(review.canSendDetails || review.canSendPay || review.canSendExtras || review.canSendBilling || review.fuelChanges.length)}
           onClick={() => void sync(true)}>Send reviewed changes</button>
+        {review.clearContainerToken && <button type="button" className="booking-charge-button"
+          onClick={() => void sync(true, true)}>Clear container reference in McLeod</button>}
         {!!review.fuelChanges.length && <p>{review.fuelChanges.join(" · ")}</p>}
         {!!review.detailChanges.length && <div className="booking-charge-table"><table>
           <thead><tr><th>Booking detail</th><th>Current</th><th>Proposed</th></tr></thead>
           <tbody>{review.detailChanges.map(change => <tr key={change.field}>
             <th scope="row">{change.field === "blnum" ? "Mark" : change.field === "consignee_refno" ? "Container" : change.field}</th>
-            <td>{change.before || "Blank"}</td><td>{change.after}</td>
+            <td>{change.before || "Blank"}</td><td>{change.after || "Blank"}</td>
           </tr>)}</tbody>
         </table></div>}
         {review.carrier && <div className="booking-charge-table"><table>

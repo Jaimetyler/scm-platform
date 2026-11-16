@@ -286,3 +286,45 @@ test("regular sync retries pickup against an already verified delivery schedule"
     else process.env.MCLEOD_SYNC_ENABLED = original.sync;
   }
 });
+
+test("a blank platform container can clear the McLeod reference with a reviewed order token", async () => {
+  const original = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
+  process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
+  process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes, order, tables } = fixture(true);
+    order.blnum = "MARK1";
+    order.consignee_refno = "ABCD1234567";
+    tables.cotton_outbound_containers.container_number = null;
+    const preview = await (await request("preview-load")).json();
+    assert.ok(preview.clearContainerToken);
+    assert.equal(writes.length, 0);
+    order.consignee_refno = "EFGH1234567";
+    assert.equal((await request("clear-container", preview.clearContainerToken)).ok, false);
+    assert.equal(writes.length, 0);
+    order.consignee_refno = "ABCD1234567";
+    const cleared = await (await request("clear-container", preview.clearContainerToken)).json();
+    assert.deepEqual(cleared.applied, ["McLeod container reference cleared"]);
+    assert.equal(order.consignee_refno, "");
+    assert.deepEqual(writes, [{ path: "/orders/updateRow",
+      body: { __type: "orders", company_id: "TMS", id: orderId, consignee_refno: "" } }]);
+  } finally {
+    if (original.write === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = original.write;
+    if (original.sync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = original.sync;
+  }
+});
+
+test("regular sync proposes clearing a container that still matches the verified McLeod value", async () => {
+  const { request, writes, order, tables } = fixture(false);
+  order.blnum = "MARK1";
+  order.consignee_refno = "ABCD1234567";
+  tables.cotton_outbound_containers.container_number = null;
+  tables.dallas_dray_import_loads.payload.outboundSyncedDetails = { consignee_refno: "ABCD1234567" };
+  const preview = await (await request("preview-load")).json();
+  assert.deepEqual(preview.detailChanges, [{ field: "consignee_refno", before: "ABCD1234567", after: "", required: false }]);
+  assert.deepEqual(preview.detailBlockers, []);
+  assert.equal(preview.clearContainerToken, null);
+  assert.equal(writes.length, 0);
+});
