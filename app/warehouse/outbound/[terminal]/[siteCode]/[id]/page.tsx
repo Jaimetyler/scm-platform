@@ -67,7 +67,10 @@ export default function CottonOutboundBookingPage() {
   const canWrite = canManage && booking?.status === "draft";
   const carrierEndpoint = `/api/warehouse/outbound/bookings/${id}/carrier-rates`;
   const [syncRowId, setSyncRowId] = useState("");
-  const [mcleodPreview, setMcleodPreview] = useState<McLeodPreview | null>(null);
+  const [mcleodResult, setMcleodResult] = useState<{ bookingId: string; preview: McLeodPreview } | null>(null);
+  const mcleodPreview = mcleodResult?.bookingId === id ? mcleodResult.preview : null;
+  const autoPulledBooking = useRef("");
+  const canPullMcLeod = Boolean(canWrite && terminal === "DAL" && booking && bookingChargeCustomer(booking.customer));
   const [pullingMcLeod, setPullingMcLeod] = useState(false);
   const [mcleodPullError, setMcleodPullError] = useState("");
   const [selectionCount, setSelectionCount] = useState("");
@@ -80,12 +83,14 @@ export default function CottonOutboundBookingPage() {
   useEffect(() => {
     if (detailId && detailDialog.current && !detailDialog.current.open) detailDialog.current.showModal();
   }, [detailId]);
+  const [ratesLoaded, setRatesLoaded] = useState(false);
   const [customerBilling, setCustomerBilling] = useState<CustomerBillRates | null>(null);
   const [carrierRates, setCarrierRates] = useState<CarrierRate[]>([]);
   const [carrierError, setCarrierError] = useState("");
   useEffect(() => {
     if (!canManage) return;
     const controller = new AbortController();
+    setRatesLoaded(false);
     setCarrierRates([]);
     setCustomerBilling(null);
     setCarrierError("");
@@ -95,7 +100,7 @@ export default function CottonOutboundBookingPage() {
       if (!controller.signal.aborted) { setCarrierRates(result.rates); setCustomerBilling(result.customerBilling); }
     }).catch(error => {
       if (!controller.signal.aborted) setCarrierError(error.message || "Could not load carrier rates.");
-    });
+    }).finally(() => { if (!controller.signal.aborted) setRatesLoaded(true); });
     return () => controller.abort();
   }, [canManage, carrierEndpoint, siteCode, booking?.return_location, booking?.return_location_code]);
   const [containers, setContainers] = useState<Container[]>([]);
@@ -129,6 +134,29 @@ export default function CottonOutboundBookingPage() {
   const requestInput = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, number>>({});
   const savingRows = useRef(new Set<string>());
+
+  const pullMcLeod = useCallback(async () => {
+    autoPulledBooking.current = id;
+    setPullingMcLeod(true);
+    setMcleodPullError("");
+    try {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/charges?view=booking-preview`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not pull McLeod charges.");
+      setMcleodResult({ bookingId: id, preview: result });
+    } catch (cause) {
+      setMcleodPullError(cause instanceof Error ? cause.message : "Could not pull McLeod charges.");
+    } finally {
+      setPullingMcLeod(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!canPullMcLeod || booking?.id !== id || !ratesLoaded || pullingMcLeod || autoPulledBooking.current === id) return;
+    if (containers.some(row => !row.split_transfer_id && row.scm_order_number &&
+      (!row.carrier_plan || carrierPlanTotals(row.carrier_plan, customerBilling).bill == null)))
+      void pullMcLeod();
+  }, [booking?.id, canPullMcLeod, containers, customerBilling, id, pullMcLeod, pullingMcLeod, ratesLoaded]);
 
   const load = useCallback(async (preserve?: { containers: Record<string, Container>; drafts: Record<string, Draft> }) => {
     try {
@@ -482,25 +510,9 @@ export default function CottonOutboundBookingPage() {
   }
   const isDallas = terminal === "DAL";
   const canSyncDallas = isDallas && booking.status === "draft" && canUseBilling(staff);
-  const canPullMcLeod = Boolean(canWrite && isDallas && bookingChargeCustomer(booking.customer));
   const showMcLeodColumn = canSyncDallas || canPullMcLeod;
   const mcleodRows = new Map(mcleodPreview?.rows.map(row => [row.id, row]));
 
-  async function pullMcLeod() {
-    setPullingMcLeod(true);
-    setMcleodPreview(null);
-    setMcleodPullError("");
-    try {
-      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/charges?view=booking-preview`, { cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not pull McLeod charges.");
-      setMcleodPreview(result);
-    } catch (cause) {
-      setMcleodPullError(cause instanceof Error ? cause.message : "Could not pull McLeod charges.");
-    } finally {
-      setPullingMcLeod(false);
-    }
-  }
   const selectedToUnassign = isDallas ? selectedRows.filter(row => row.carrier_plan || (row.scm_order_number && row.booking_line_id)) : [];
 
   async function applyCarrierBatch(action: CarrierBatchAction | null) {
@@ -710,6 +722,10 @@ export default function CottonOutboundBookingPage() {
       const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes || row.carrier_plan);
       const totals = row.carrier_plan ? carrierPlanTotals(row.carrier_plan, customerBilling) : null;
       const mcleodRow = mcleodRows.get(row.id);
+      const bookedBill = mcleodRow?.order?.total;
+      const storedBill = totals?.bill;
+      const billSource = storedBill != null ? "Customer rates" : bookedBill != null ? "McLeod" : null;
+      const allInBill = storedBill != null ? storedBill / 100 : bookedBill;
       const canSend = canSyncDallas && Boolean(row.scm_order_number);
       const syncOpen = syncRowId === row.id && (canSend || Boolean(mcleodRow));
       return <Fragment key={row.id}><tr data-selected={selectionEnabled && selectedContainers.has(row.id)} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
@@ -739,7 +755,8 @@ export default function CottonOutboundBookingPage() {
               onClick={() => { setChargesOnly(false); setDetailId(row.id); }}>
               {totals ? `$${(totals.pay / 100).toFixed(2)}` : "Assign carrier"}
             </button> : "—"}</td>
-          <td style={td} className="carrier-total">{totals?.bill != null ? `$${(totals.bill / 100).toFixed(2)}` : totals ? "Rate unavailable" : "—"}</td>
+          <td style={td} className="carrier-total">{billSource ? <>{mcleodCurrency(allInBill)}<small style={{ display: "block" }}>{billSource}</small></> :
+            pullingMcLeod && row.scm_order_number ? "Looking up…" : totals ? "Rate unavailable" : "—"}</td>
         </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
