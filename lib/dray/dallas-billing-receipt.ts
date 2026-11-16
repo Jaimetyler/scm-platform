@@ -45,6 +45,9 @@ export async function lockDallasBilling(db: ReturnType<typeof staffDatabase>, bo
       else delete next.outboundBillingReceipt;
       await save(next);
     },
+    async recordBookingNumber(bookingNumber: string) {
+      await save({ ...payload, outboundSyncedBookingNumber: bookingNumber });
+    },
     async release() {
       const next = { ...payload };
       delete next.outboundBillingLock;

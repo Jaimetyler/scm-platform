@@ -165,6 +165,17 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     const lifecycleStatus = body.lifecycleStatus;
     if (lifecycleStatus !== undefined && !["draft", "archived", "cancelled"].includes(lifecycleStatus))
       return NextResponse.json({ ok: false, error: "Unknown booking status." }, { status: 400 });
+    let bookingIdentifiers = {};
+    if (terminal === "DAL" && lifecycleStatus === undefined) {
+      const bookingNumber = typeof body.bookingNumber === "string" ? body.bookingNumber.trim().toUpperCase() : "";
+      if (body.bookingNumber !== undefined && !/^[A-Z0-9][A-Z0-9._ /-]{0,79}$/.test(bookingNumber))
+        return NextResponse.json({ ok: false, error: "Enter a valid booking number." }, { status: 400 });
+      const reference = typeof body.customerReference === "string" ? body.customerReference.trim() : "";
+      if (body.customerReference !== undefined && (typeof body.customerReference !== "string" || reference.length > 200))
+        return NextResponse.json({ ok: false, error: "Enter a customer reference of 200 characters or fewer." }, { status: 400 });
+      bookingIdentifiers = { ...(body.bookingNumber !== undefined ? { booking_number: bookingNumber } : {}),
+        ...(body.customerReference !== undefined ? { customer_reference: reference } : {}) };
+    }
     let values;
     try { values = lifecycleStatus === undefined ? normalizeBookingDetails(body) : { status: lifecycleStatus }; }
     catch (error) { return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid booking details" }, { status: 400 }); }
@@ -172,15 +183,15 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) throw new Error("Missing Supabase environment variables");
     let update = createClient(url, key).from("cotton_outbound_bookings").update({
-      ...values,
+      ...values, ...bookingIdentifiers,
       ...(destination && lifecycleStatus === undefined ? { site_code: destination.siteCode, site_name: destination.siteName } : {}),
     })
       .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).eq("updated_at", expectedUpdatedAt);
     update = lifecycleStatus === "draft"
       ? update.in("status", ["archived", "cancelled"]) : update.eq("status", "draft");
     const { data, error } = await update.select("*").maybeSingle();
-    if (destination && error?.code === "23505")
-      return NextResponse.json({ ok: false, error: `This booking already exists at ${destination.siteName}.` }, { status: 409 });
+    if (error?.code === "23505")
+      return NextResponse.json({ ok: false, error: `This booking already exists at ${destination?.siteName ?? "this warehouse"}.` }, { status: 409 });
     if (error) throw error;
     if (!data) return NextResponse.json({ ok: false, error: "This booking changed or is no longer at this warehouse. Reload and review it." }, { status: 409 });
     return NextResponse.json({ ok: true, booking: data });

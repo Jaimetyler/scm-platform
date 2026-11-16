@@ -4,14 +4,15 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as extraPay from "../lib/dray/dallas-extra-pay.ts";
 
-function loadCase({ before = "CARRIER", after = null, writeFails = false, detail, extraPayRows = [], blnums = ["MARK"], status = "A" } = {}) {
+function loadCase({ before = "CARRIER", after = null, writeFails = false, detail, extraPayRows = [], blnums = ["MARK"], containers = [""], status = "A" } = {}) {
   const calls = [];
   const writes = [];
   let reads = 0;
   let rows = [...extraPayRows];
   const order = carrier => ({
     id: "0830846", revenue_code_id: "DDRAY", customer_id: "CUSTOMER", booking_no_sucm: "2342071250",
-    blnum: blnums[Math.min(reads - 1, blnums.length - 1)], status, curr_movement_id: "9001", movements: [{ id: "9001", carrier_id: carrier }],
+    blnum: blnums[Math.min(reads - 1, blnums.length - 1)],
+    consignee_refno: containers[Math.min(reads - 1, containers.length - 1)], status, curr_movement_id: "9001", movements: [{ id: "9001", carrier_id: carrier }],
   });
   const stops = [{ stop_type: "PU", location_id: "SCMDDETX" }, { stop_type: "SO", location_id: "UNIOWITX" }];
   const vendor = () => ({
@@ -124,4 +125,12 @@ test("BLNUM restoration skips the original value and guards against a concurrent
 test("BLNUM restoration must verify the read-back", async () => {
   const { prepareBlnumReset } = loadCase();
   await assert.rejects(await prepareBlnumReset(), /did not verify the original BLNUM/);
+});
+
+
+test("unassign clears the McLeod container reference even when BLNUM is already original", async () => {
+  const { writes, prepareBlnumReset } = loadCase({ blnums: ["FILE-1"], containers: ["ABCD1234567", "ABCD1234567", ""] });
+  await (await prepareBlnumReset())();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].consignee_refno, "");
 });
