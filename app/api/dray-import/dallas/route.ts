@@ -324,7 +324,7 @@ async function syncBookingDetails(input: {
           await write(line.previous ? "/other_charge/update" : "/other_charge/create", {
             ...(original || {}),
             __type: "other_charge", company_id: "TMS", order_id: input.orderId,
-            customer_id: current.customer_id, charge_id: line.code, descr: line.description,
+            charge_id: line.code, descr: line.description,
             units: line.units, rate: line.rate, amount: line.amount, incl_in_freight: "N",
             ...(line.previous ? {} : { bill_type: "F", calc_method: "F" }),
           });
@@ -386,7 +386,7 @@ async function syncBookingDetails(input: {
           __type: "driver_extra_pay", company_id: "TMS", movement_id: String(movement.id),
           order_id: input.orderId, payee_id: carrier, deduct_code_id: line.code,
           transaction_date: date, reference_no: line.previous?.reference || dallasExtraPayReference,
-          descr: line.description, short_desc: line.description, units: line.units, rate: line.rate, amount: line.amount,
+          descr: line.description, units: line.units, rate: line.rate, amount: line.amount,
         });
         const verified = (await readExtras()).filter(row => row.code === line.code);
         if (verified.length !== 1 || !matchesExtra(verified[0], line) ||
