@@ -25,7 +25,7 @@ export const GET = withStaffAccess(async (_req: NextRequest, context: Context) =
   if (error) throw new Error("Could not load carrier rates.");
   const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
   const customerBilling = customerRate ? {
-    base: customerRate.fuel_mode === "all_in" ? cents(customerRate.base_rate) : null,
+    base: customerRate.fuel_mode === "base_plus_fsc" ? null : cents(customerRate.base_rate),
     minimumChassisDays: Number(customerRate.included_chassis_days),
     chassisDays: cents(customerRate.chassis_daily_rate), chassisSplits: cents(customerRate.chassis_split_rate),
     stopoffs: cents(customerRate.stopoff_rate),

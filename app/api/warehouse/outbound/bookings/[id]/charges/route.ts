@@ -50,7 +50,7 @@ export const GET = withStaffAccess(async (req: NextRequest, context: { params: P
     });
     const cents = (value: number | null) => value == null ? null : Math.round(Number(value) * 100);
     const billing = rate ? {
-      base: rate.fuel_mode === "all_in" ? cents(rate.base_rate) : null,
+      base: rate.fuel_mode === "base_plus_fsc" ? null : cents(rate.base_rate),
       minimumChassisDays: Number(rate.included_chassis_days),
       chassisDays: cents(rate.chassis_daily_rate), chassisSplits: cents(rate.chassis_split_rate),
       stopoffs: cents(rate.stopoff_rate),
