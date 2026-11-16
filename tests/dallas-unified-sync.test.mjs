@@ -20,7 +20,7 @@ function fixture(withCarrier) {
   };
   const tables = {
     cotton_outbound_bookings: { booking_number: "BOOK-1", scm_file_number: "FILE", status: "draft",
-      erd: "2026-11-16", cutoff: "2026-11-18T10:00", terminal: "DAL" },
+      erd: null, cutoff: null, terminal: "DAL" },
     dallas_dray_import_loads: { blnum: "FILE-1", sequence_no: 1, payload: {} },
     cotton_outbound_containers: { container_number: "ABCD1234567", booking_line_id: "line", updated_at: "2026-11-16T10:00Z",
       carrier_plan: withCarrier ? { rate: { carrier_id: "CARRIER", rates: { base: { pay: 10000 }, chassisDays: { pay: 0 }, chassisSplits: { pay: 0 }, stopoffs: { pay: 0 } } },
@@ -81,7 +81,8 @@ for (const withCarrier of [false, true]) {
       assert.deepEqual(applied.applied, withCarrier ? ["Booking details", "Carrier payee and base pay"] : ["Booking details"]);
       assert.equal(writes[0].body.blnum, "MARK1");
       assert.equal(writes[0].body.consignee_refno, "ABCD1234567");
-      assert.equal(order.planning_comment, "Keep this note *Bolt Seals Required*");
+      assert.deepEqual(Object.keys(writes[0].body).sort(), ["__type", "blnum", "company_id", "consignee_refno", "id"].sort());
+      assert.equal(order.planning_comment, "Keep this note");
     } finally {
       if (writesEnabled === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
       else process.env.DRAY_IMPORT_WRITES_ENABLED = writesEnabled;

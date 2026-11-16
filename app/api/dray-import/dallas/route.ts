@@ -197,8 +197,10 @@ async function syncBookingDetails(input: {
       .eq("order_id", input.orderId).eq("state", "verified").maybeSingle(),
   ]);
   const saved = booking.data;
-  if (booking.error || load.error || saved?.status !== "draft" || !load.data || !saved.scm_file_number || !saved.erd || !saved.cutoff)
-    throw Error("An active Dallas booking, sailing dates, and a verified linked order are required.");
+  if (booking.error || load.error || saved?.status !== "draft" || !load.data)
+    throw Error("An active Dallas booking and a verified linked order are required.");
+  if (input.action.endsWith("-details") && (!saved.scm_file_number || !saved.erd || !saved.cutoff))
+    throw Error("Fill in the file number and sailing dates before syncing booking details.");
   const slot = await db.from("cotton_outbound_containers").select("container_number,booking_line_id,carrier_plan,updated_at")
     .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
   if (slot.error || !slot.data) throw Error("The linked booking load could not be found.");
@@ -212,13 +214,15 @@ async function syncBookingDetails(input: {
     if (markRow && (markRow.error || !markRow.data)) throw Error("Could not verify the saved mark.");
     const mark = markRow?.data?.line_status === "active" ? String(markRow.data.mark ?? "").trim() : "";
     const container = String(slot.data!.container_number ?? "").trim().toUpperCase();
-    const bookingFields = dallasBookingFields(saved!.booking_number, saved!.erd!, saved!.cutoff!.replace(" ", "T"), {
+    const bookingFields = unified
+      ? (mark && !String(current.booking_no_sucm ?? "").trim() ? { booking_no_sucm: saved!.booking_number } : {})
+      : dallasBookingFields(saved!.booking_number, saved!.erd!, saved!.cutoff!.replace(" ", "T"), {
       bookId: saved!.scm_file_number!, steamshipLine: saved!.steamship_line, docCutoff: saved!.doc_cutoff?.replace(" ", "T"),
     });
     const currentComment = String(current.planning_comment ?? "").trim();
     const requiredComment = withRequiredCottonBoltSeals(currentComment);
     const expected = { ...bookingFields,
-      ...(currentComment && (unified || currentComment !== requiredComment) ? { planning_comment: requiredComment } : {}), ...(mark ? { blnum: mark } : {}),
+      ...(!unified && currentComment && currentComment !== requiredComment ? { planning_comment: requiredComment } : {}), ...(mark ? { blnum: mark } : {}),
       ...(/^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
     const matches = (field: string, actual: unknown, value: string) =>
       field === "cutoff_date" || field === "doc_cutoff_date"
