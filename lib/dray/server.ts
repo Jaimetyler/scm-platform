@@ -54,7 +54,7 @@ export function databaseStore(
     },
   };
 }
-export function vendor(readOnly = false): Vendor {
+export function vendor(readOnly = false): Vendor & { deleteOtherPay: (id: string) => Promise<unknown> } {
   const readBase =
     process.env.MCLEOD_BILLING_READ_BASE_URL || process.env.MCLEOD_BASE_URL;
   const readToken =
@@ -77,12 +77,13 @@ export function vendor(readOnly = false): Vendor {
         "Dray creation and rating are disabled in this environment.",
       );
     const otherPay = /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path);
+    const deleteOtherPay = method === "DELETE" && /^\/driver_extra_pay\/[A-Za-z0-9_-]{1,32}$/.test(path);
     const clearCarrier = /^\/carrierDispatch\/clearCarrier\/[A-Za-z0-9_-]+\?reason=Outbound\+load\+plan\+unassignment$/.test(path);
     // Read-only credentials are never passed to a write endpoint.
     if (
       isRead
         ? !otherPay && !/^\/movements\/[A-Za-z0-9_-]+$/.test(path) && !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
-        : !otherPay && !clearCarrier && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
+        : !deleteOtherPay && !otherPay && !clearCarrier && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
             path,
           )
     )
@@ -91,7 +92,7 @@ export function vendor(readOnly = false): Vendor {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: (!isRead && (otherPay || clearCarrier)) || path.startsWith("/carrierDispatch/setPay/")
+        Accept: (!isRead && (otherPay || clearCarrier || deleteOtherPay)) || path.startsWith("/carrierDispatch/setPay/")
           ? "text/plain, application/json"
           : "application/json",
         "Content-Type": "application/json",
@@ -103,7 +104,7 @@ export function vendor(readOnly = false): Vendor {
     const text = await r.text();
     if (!r.ok)
       throw new Error(`McLeod HTTP ${r.status}: ${text.slice(0, 350)}`);
-    if ((!isRead && (otherPay || clearCarrier)) || path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
+    if ((!isRead && (otherPay || clearCarrier || deleteOtherPay)) || path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
     try {
       return JSON.parse(text);
     } catch {
@@ -112,6 +113,7 @@ export function vendor(readOnly = false): Vendor {
   }
   return {
     read: (path) => request(path, "GET"),
+    deleteOtherPay: (id: string) => request(`/driver_extra_pay/${encodeURIComponent(id)}`, "DELETE"),
     write: (path, body) =>
       request(
         path,

@@ -4,7 +4,7 @@ import { useState } from "react";
 
 type PayLine = { code: string | null; description: string; amount: number | null };
 type CarrierReview = { token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
-  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; canSendPay: boolean; canSendExtras: boolean; canSendBilling: boolean };
+  carrier: string; pay: number; billingBase: number | null; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; canSendPay: boolean; canSendExtras: boolean; canSendBilling: boolean };
 const money = (amount: number | null) => amount == null ? "Unavailable" :
   amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
@@ -75,6 +75,7 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
             <tr><th scope="row">Carrier payee</th><td>{carrierReview.currentPayee || "Blank"}</td><td>{carrierReview.carrier}</td></tr>
             <tr><th scope="row">Dispatched carrier</th><td>{carrierReview.assignedCarrier || "Blank"}</td><td>Review in McLeod</td></tr>
             <tr><th scope="row">Base carrier pay</th><td>{money(carrierReview.currentPay)}</td><td>{money(carrierReview.pay)}</td></tr>
+            {carrierReview.billingBase != null && <tr><th scope="row">Customer base rate</th><td>Unrated</td><td>{money(carrierReview.billingBase)}</td></tr>}
             <tr><th scope="row">Customer charges</th><td>{payLines(carrierReview.billed)}</td><td>{payLines(carrierReview.proposedBilling)}</td></tr>
             <tr><th scope="row">Other Carrier Pay</th><td>{payLines(carrierReview.otherPay)}</td><td>{payLines(carrierReview.proposedExtras)}</td></tr>
           </tbody>

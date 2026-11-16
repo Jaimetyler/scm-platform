@@ -1,5 +1,7 @@
 import { mcleodOrderStops } from "../inbound/checkin/yard-stop";
 import { vendor } from "./server";
+import { dallasExtraPayToRemove, readDallasExtraPay } from "./dallas-extra-pay";
+import type { CarrierPlan } from "../warehouse/outbound/carrier-rates";
 
 type DallasLink = { blnum: string; payload: { customer_id: string; stops: { stop_type: string; location_id: string }[] } };
 type ReadOrder = ReturnType<typeof vendor>["read"];
@@ -46,27 +48,50 @@ async function readCarrierMovement(read: ReadOrder, order: Awaited<ReturnType<ty
   return full;
 }
 
-export async function clearDallasCarrier(orderId: string, bookingNumber: string, link: DallasLink, plannedCarrier?: string) {
-  const { read, write } = vendor(false);
+export async function clearDallasCarrier(orderId: string, bookingNumber: string, link: DallasLink, plan?: CarrierPlan | null) {
+  const { read, write, deleteOtherPay } = vendor(false);
   const readOrder = () => readLinkedDallasOrder(read, orderId, bookingNumber, link);
   const order = await readOrder();
   const movement = await readCarrierMovement(read, order);
   const carrier = assignedCarrier(movement);
-  if (!carrier) return;
-  if (plannedCarrier && carrier !== plannedCarrier.trim().toUpperCase())
+  const plannedCarrier = plan?.rate.carrier_id.trim().toUpperCase();
+  if (carrier && plannedCarrier && carrier !== plannedCarrier)
     throw Error("McLeod has a different carrier on this load. Review its assignment before unassigning.");
+  if (!carrier && !plan) return;
   if ([order.status, order.__statusDescr, movement.status, movement.brokerage_status]
     .some(status => /^(D|B|DELIVERED|BILLED|FINISHED)$/i.test(String(status ?? "").trim())))
     throw Error("Review the completed movement in McLeod before changing its carrier.");
 
-  const reason = new URLSearchParams({ reason: "Outbound load plan unassignment" });
-  let writeError: unknown;
-  try {
-    await write(`/carrierDispatch/clearCarrier/${movement.id}?${reason}`);
-  } catch (error) {
-    writeError = error;
+  const readPay = () => readDallasExtraPay(read, String(movement.id));
+  const payee = plannedCarrier || carrier;
+  const targets = payee ? dallasExtraPayToRemove(await readPay(), { orderId, movementId: String(movement.id), payee, plan }) : [];
+  if (carrier) {
+    const reason = new URLSearchParams({ reason: "Outbound load plan unassignment" });
+    let writeError: unknown;
+    try {
+      await write(`/carrierDispatch/clearCarrier/${movement.id}?${reason}`);
+    } catch (error) {
+      writeError = error;
+    }
+    const updated = await readCarrierMovement(read, await readOrder());
+    if (String(updated.id) !== String(movement.id) || assignedCarrier(updated))
+      throw new Error("McLeod could not verify carrier removal. Review the movement before retrying.", { cause: writeError });
   }
-  const updated = await readCarrierMovement(read, await readOrder());
-  if (String(updated.id) !== String(movement.id) || assignedCarrier(updated))
-    throw new Error("McLeod could not verify carrier removal. Review the movement before retrying.", { cause: writeError });
+
+  // Use the saved plan on retry when carrier removal succeeded but pay cleanup did not.
+  for (const target of targets) {
+    const currentPay = await readPay();
+    const remaining = currentPay.filter(row => row.id === target.id);
+    if (!remaining.length) continue;
+    if (remaining.length !== 1 || !dallasExtraPayToRemove(remaining, { orderId, movementId: String(movement.id), payee: payee!, plan }).length)
+      throw Error("Other Carrier Pay changed during unassign. Review the movement before retrying.");
+    try {
+      await deleteOtherPay(target.id);
+    } catch (error) {
+      if ((await readPay()).some(row => row.id === target.id))
+        throw new Error("Carrier cleared, but McLeod could not remove Other Carrier Pay. Review the movement before retrying.", { cause: error });
+    }
+    if ((await readPay()).some(row => row.id === target.id))
+      throw Error("Carrier cleared, but Other Carrier Pay remains in McLeod. Review the movement before retrying.");
+  }
 }

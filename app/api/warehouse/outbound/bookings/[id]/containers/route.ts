@@ -127,7 +127,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
       if (link && link.state !== "pending") {
         if (link.state !== "verified" || !link.order_id)
           return NextResponse.json({ ok: false, error: "Verify the linked McLeod order before unassigning this load." }, { status: 409 });
-        await clearDallasCarrier(link.order_id, booking.booking_number, link, current.carrier_plan?.rate.carrier_id);
+        await clearDallasCarrier(link.order_id, booking.booking_number, link, current.carrier_plan);
       }
     }
     const { data, error } = await database().from("cotton_outbound_containers").update(values)

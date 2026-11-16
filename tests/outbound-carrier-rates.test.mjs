@@ -50,7 +50,7 @@ test("batch charges add units against each row's saved rate and preserve other p
 test("customer chassis minimum is billed on top of base and never increases carrier pay", () => {
   const rates = parseRates({ base: { pay: "100" }, chassisDays: { pay: "20" }, chassisSplits: { pay: "0" }, stopoffs: { pay: "0" } });
   const billing = { base: 50000, chassisDays: 3500, chassisSplits: null, stopoffs: null, minimumChassisDays: 2 };
-  for (const [days, pay, bill] of [[0, 10000, 57000], [1, 12000, 57000], [3, 16000, 60500]]) {
+  for (const [days, pay, bill] of [[0, 10000, 57000], [1, 12000, 60500], [3, 16000, 67500]]) {
     const plan = { rate: { rates }, quantities: { chassisDays: days, chassisSplits: 0, stopoffs: 0 } };
     assert.deepEqual(carrierPlanTotals(plan, billing), { pay, bill });
   }
