@@ -78,12 +78,13 @@ export function vendor(readOnly = false): Vendor & { deleteOtherPay: (id: string
       );
     const otherPay = /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path);
     const deleteOtherPay = method === "DELETE" && /^\/driver_extra_pay\/[A-Za-z0-9_-]{1,32}$/.test(path);
+    const chargeRow = method === "PUT" && /^\/(?:other_charge\/(?:create|update)|driver_extra_pay\/update)$/.test(path);
     const clearCarrier = /^\/carrierDispatch\/clearCarrier\/[A-Za-z0-9_-]+\?reason=Outbound\+load\+plan\+unassignment$/.test(path);
     // Read-only credentials are never passed to a write endpoint.
     if (
       isRead
         ? !otherPay && !/^\/movements\/[A-Za-z0-9_-]+$/.test(path) && !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
-        : !deleteOtherPay && !otherPay && !clearCarrier && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
+        : !chargeRow && !deleteOtherPay && !otherPay && !clearCarrier && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
             path,
           )
     )
@@ -117,7 +118,7 @@ export function vendor(readOnly = false): Vendor & { deleteOtherPay: (id: string
     write: (path, body) =>
       request(
         path,
-        (["/orders/create", "/movement/update", "/stop/update", "/orders/updateRow"].includes(path) || /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path)) ? "PUT" : "POST",
+        (["/orders/create", "/movement/update", "/stop/update", "/orders/updateRow", "/other_charge/create", "/other_charge/update", "/driver_extra_pay/update"].includes(path) || /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path)) ? "PUT" : "POST",
         body,
       ),
   };
