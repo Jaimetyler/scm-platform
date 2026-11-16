@@ -26,7 +26,7 @@ function fixture(withCarrier, packageDates = false, cutoffReadback) {
   const tables = {
     cotton_outbound_bookings: { booking_number: packageDates ? "BOOK-2" : "BOOK-1", site_code: "SCMDDETX", return_location_code: "BNSFHATX", scm_file_number: "FILE", status: "draft",
       erd: packageDates ? "2026-11-16" : null, cutoff: packageDates ? "2026-11-18T10:30" : null, terminal: "DAL" },
-    dallas_dray_import_loads: { blnum: "FILE-1", sequence_no: 1, payload: { stops: structuredClone(stops) } },
+    dallas_dray_import_loads: { blnum: "FILE-1", sequence_no: 1, payload: { stops: structuredClone(stops), blnum: "FILE-1", booking_no_sucm: "BOOK-1", planning_comment: "Keep this note" } },
     cotton_outbound_containers: { container_number: "ABCD1234567", booking_line_id: "line", updated_at: "2026-11-16T10:00Z",
       carrier_plan: withCarrier ? { rate: { carrier_id: "CARRIER", rates: { base: { pay: 10000 }, chassisDays: { pay: 0 }, chassisSplits: { pay: 0 }, stopoffs: { pay: 0 } } },
         quantities: { chassisDays: 0, stopoffs: 0, chassisSplits: 0 } } : null },
@@ -49,12 +49,13 @@ function fixture(withCarrier, packageDates = false, cutoffReadback) {
   const deps = {
     "@/lib/auth/session": { staffDatabase: () => ({ from: table => ({
       select() { return this; }, eq() { return this; }, is() { return this; },
+      update(values) { Object.assign(tables[table], values); return this; },
       async maybeSingle() { return { data: tables[table], error: null }; },
     }) }) },
     "@/lib/auth/guard": { withStaffAccess: fn => fn },
     "@/lib/dray/server": { hash: value => createHash("sha256").update(JSON.stringify(value)).digest("hex"), vendor },
     "@/lib/dray/dallas-linked-order": { readLinkedDallasOrder: async () => structuredClone(order), currentDallasMovement: value => value.movements[0] },
-    "@/lib/dray/dallas-billing-receipt": { lockDallasBilling: async () => ({ async recordBookingNumber(value) { assert.equal(value, "BOOK-2"); }, async release() {} }) },
+    "@/lib/dray/dallas-billing-receipt": { lockDallasBilling: async () => ({ async recordDetails() {}, async recordBookingNumber(value) { assert.equal(value, "BOOK-2"); }, async release() {} }) },
     "@/lib/dray/dallas-import-orders": booking,
     "@/lib/inbound/checkin/yard-stop": { mcleodOrderStops },
     "@/lib/warehouse/outbound/carrier-rates": carrier,
@@ -71,7 +72,7 @@ function fixture(withCarrier, packageDates = false, cutoffReadback) {
   const request = (action, token) => module.exports.POST(new Request("https://example.test", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, bookingId, orderId, token }),
   }));
-  return { writes, request, order };
+  return { writes, request, order, tables };
 }
 
 for (const withCarrier of [false, true]) {
@@ -103,7 +104,7 @@ for (const withCarrier of [false, true]) {
 }
 
 
-test("an explicit package replacement sends McLeod-format dates and skips load and pay fields", async () => {
+test("a booking-details sync sends McLeod-format dates and skips load and pay fields", async () => {
   const original = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
   process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
   process.env.MCLEOD_SYNC_ENABLED = "true";
@@ -162,4 +163,54 @@ test("order cutoff comparison honors the precision saved on the booking", () => 
   assert.equal(compare("20261118000000-0500", "2026-11-18T10:30:00"), false);
   assert.equal(compare("20261117", "2026-11-18T00:00:00", true), false);
   assert.equal(compare("2026-11-18T16:30:00Z", "2026-11-18T10:30:00"), true);
+});
+
+test("regular sync includes booking and stop changes and flags an independently changed McLeod field", async () => {
+  const previousWrite = process.env.DRAY_IMPORT_WRITES_ENABLED;
+  const previousSync = process.env.MCLEOD_SYNC_ENABLED;
+  process.env.DRAY_IMPORT_WRITES_ENABLED = process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes, order } = fixture(true, true);
+    order.consignee_refno = "EFGH1234567";
+    const preview = await (await request("preview-load")).json();
+    assert.equal(preview.canSendDetails, true);
+    assert.deepEqual(preview.detailBlockers, [
+      "consignee_refno: McLeod has EFGH1234567 and the platform has ABCD1234567. Review which value is current.",
+    ]);
+    assert.equal(preview.detailChanges.some(change => change.field === "Delivery scheduled end"), true);
+    const applied = await (await request("apply-load", preview.token)).json();
+    assert.deepEqual(applied.applied, ["Booking details", "Pickup schedule", "Delivery schedule", "Carrier payee and base pay"]);
+    assert.deepEqual(applied.issues, preview.detailBlockers);
+    assert.equal(writes[0].body.booking_no_sucm, "BOOK-2");
+    assert.equal(order.consignee_refno, "EFGH1234567");
+  } finally {
+    if (previousWrite === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = previousWrite;
+    if (previousSync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = previousSync;
+  }
+});
+
+test("regular sync pulls a McLeod container when the platform still matches the last verified value", async () => {
+  const previousWrite = process.env.DRAY_IMPORT_WRITES_ENABLED;
+  const previousSync = process.env.MCLEOD_SYNC_ENABLED;
+  process.env.DRAY_IMPORT_WRITES_ENABLED = process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes, order, tables } = fixture(false);
+    order.blnum = "MARK1";
+    order.consignee_refno = "EFGH1234567";
+    tables.dallas_dray_import_loads.payload.outboundSyncedDetails = { consignee_refno: "ABCD1234567" };
+    const preview = await (await request("preview-load")).json();
+    assert.deepEqual(preview.detailChanges, [{ field: "Container (McLeod → Platform)", before: "ABCD1234567", after: "EFGH1234567" }]);
+    assert.deepEqual(preview.detailBlockers, []);
+    const applied = await (await request("apply-load", preview.token)).json();
+    assert.deepEqual(applied.applied, ["Container pulled from McLeod"]);
+    assert.equal(tables.cotton_outbound_containers.container_number, "EFGH1234567");
+    assert.equal(writes.length, 0);
+  } finally {
+    if (previousWrite === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = previousWrite;
+    if (previousSync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = previousSync;
+  }
 });

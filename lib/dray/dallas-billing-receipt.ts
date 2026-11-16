@@ -13,6 +13,7 @@ type Entry = {
 export type BillingReceipt = { charges: Entry[]; restoringFromTotal?: number };
 type Payload = Record<string, unknown> & {
   outboundBillingReceipt?: BillingReceipt;
+  outboundSyncedDetails?: Record<string, string>;
   outboundBillingLock?: { id: string; expires: number };
 };
 type Link = { blnum: string; order_id: string; payload: Payload };
@@ -47,6 +48,9 @@ export async function lockDallasBilling(db: ReturnType<typeof staffDatabase>, bo
     },
     async recordBookingNumber(bookingNumber: string) {
       await save({ ...payload, outboundSyncedBookingNumber: bookingNumber });
+    },
+    async recordDetails(fields: Record<string, string>) {
+      await save({ ...payload, outboundSyncedDetails: { ...payload.outboundSyncedDetails, ...fields } });
     },
     async release() {
       const next = { ...payload };

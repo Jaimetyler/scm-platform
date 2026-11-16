@@ -122,7 +122,6 @@ export default function CottonOutboundBookingPage() {
   const [markAction, setMarkAction] = useState<{ line: Line; action: "hold" | "resume" | "cancel" | "warehouse" | "keep_source"; note: string } | null>(null);
   const [actionError, setActionError] = useState("");
   const [replacingPackage, setReplacingPackage] = useState(false);
-  const [reviewPackageSync, setReviewPackageSync] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [details, setDetails] = useState({ bookingNumber: "", customerReference: "", scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "", destinationSiteCode: siteCode });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
@@ -420,7 +419,6 @@ export default function CottonOutboundBookingPage() {
           (source.deliveryLocation && booking.return_location_code && source.deliveryLocation !== booking.return_location_code)))
         throw Error("The replacement package changes the pickup or return location. Review the route before saving.");
       setReplacingPackage(canReplace);
-      setReviewPackageSync(false);
       if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.steamshipLine && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
       setDetails({ bookingNumber: source.bookingNumber, customerReference: source.customerReference ?? booking.customer_reference ?? "", scmFileNumber: source.bookId || booking.scm_file_number || "", erd: source.erd ?? bookingDateInput(booking.erd),
         docCutoff: source.docCutoff ?? bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
@@ -478,7 +476,6 @@ export default function CottonOutboundBookingPage() {
         return;
       }
       setBooking(result.booking); setEditingDetails(false);
-      if (terminal === "DAL" && canUseBilling(staff) && containers.some(row => row.scm_order_number)) setReviewPackageSync(true);
       setReplacingPackage(false);
       setMessage(replacingPackage ? "Replacement details saved. Preview the linked McLeod orders below." : "Booking details updated.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update booking details"); }
@@ -579,8 +576,6 @@ export default function CottonOutboundBookingPage() {
           <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>{canSyncDallas && containers.some(row => row.scm_order_number) ? "Replace booking package" : "Import booking details"}</button>
-          {canSyncDallas && containers.some(row => row.scm_order_number) && <button type="button"
-            disabled={Boolean(working) || editingDetails} onClick={() => setReviewPackageSync(true)}>Sync booking details only</button>}
           {canManage && (booking.status === "draft" ?
             <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("cancelled")}>Delete booking</button>
           : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
@@ -725,18 +720,14 @@ export default function CottonOutboundBookingPage() {
       </button>
       <small>{unassignedRows.length} {term ? "matching" : "available"}</small>
     </form>}
-    {canSyncDallas && reviewPackageSync && <DallasBulkSync key={`package-${id}-${booking.updated_at}`} bookingId={id} bookingDetails
-      bookingLoads={activeContainers.map(row => ({ sequence: row.sequence_no, orderId: row.scm_order_number,
-        issue: row.scm_order_number ? undefined : "No verified McLeod order" }))}
-      selectedOrderIds={[]} disabled={Boolean(working) || editingDetails} onBusy={setBulkSaving} />}
     {canSyncDallas && activeContainers.length > 0 &&
-      <DallasBulkSync key={JSON.stringify([id, activeContainers.map(row => [row.id, row.updated_at]), [...selectedContainers].sort(), Object.keys(pending).sort()])} bookingId={id}
+      <DallasBulkSync key={JSON.stringify([id, booking.updated_at, activeContainers.map(row => [row.id, row.updated_at]), [...selectedContainers].sort(), Object.keys(pending).sort()])} bookingId={id}
         bookingLoads={activeContainers.map(row => ({
           sequence: row.sequence_no, orderId: row.scm_order_number,
           issue: pending[row.id] ? "Save changes before syncing" : !row.scm_order_number ? "No verified McLeod order" : undefined,
         }))}
         selectedOrderIds={selectedRows.flatMap(row => row.scm_order_number ? [row.scm_order_number] : [])}
-        disabled={Boolean(working)} onBusy={setBulkSaving} />}
+        disabled={Boolean(working) || editingDetails} onBusy={setBulkSaving} onContainerPull={() => void load(pendingEquipment())} />}
 
     {mcleodPullError && <p role="alert">{mcleodPullError}</p>}
     <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: canManage ? 1250 : 1020, borderCollapse: "collapse" }}><thead><tr>
@@ -832,7 +823,7 @@ export default function CottonOutboundBookingPage() {
         </tr>
         {syncOpen && <tr><td colSpan={(selectionEnabled || rollMode ? 1 : 0) + (canManage ? 13 : 10)} style={td}>
           {mcleodRow && <BookingSyncPreview row={mcleodRow} />}
-          {canSend && <DallasLoadSync bookingId={id} orderId={row.scm_order_number!} disabled={Boolean(working) || !saved} />}
+          {canSend && <DallasLoadSync bookingId={id} orderId={row.scm_order_number!} disabled={Boolean(working) || !saved} onContainerPull={() => void load(pendingEquipment())} />}
         </td></tr>}
       </Fragment>;
     })}</tbody></table></div>

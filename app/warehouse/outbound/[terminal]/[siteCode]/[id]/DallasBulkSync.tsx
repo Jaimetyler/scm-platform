@@ -13,8 +13,8 @@ type Review = {
 
 type BookingLoad = { sequence: number; orderId?: string | null; issue?: string };
 
-export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderIds, disabled, onBusy, bookingDetails = false }: {
-  bookingId: string; bookingLoads: BookingLoad[]; selectedOrderIds: string[]; disabled: boolean; onBusy: (busy: boolean) => void; bookingDetails?: boolean;
+export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderIds, disabled, onBusy, onContainerPull }: {
+  bookingId: string; bookingLoads: BookingLoad[]; selectedOrderIds: string[]; disabled: boolean; onBusy: (busy: boolean) => void; onContainerPull: () => void;
 }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [action, setAction] = useState<"preview" | "send" | null>(null);
@@ -44,17 +44,15 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
         try {
           const response = await fetch("/api/dray-import/dallas", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: `${send ? "apply" : "preview"}-${bookingDetails ? "package" : "load"}`, bookingId, orderId, token: reviewed?.token }),
+            body: JSON.stringify({ action: `${send ? "apply" : "preview"}-load`, bookingId, orderId, token: reviewed?.token }),
           });
           const result = await response.json();
           if (!response.ok) throw Error(result.error || "McLeod sync failed.");
-          next.push(send ? { orderId, parts: [], applied: result.applied, issues: result.issues } : bookingDetails ? {
-            orderId, token: result.token, parts: result.changes.length && !result.issues.length ? ["Booking details"] : [],
-            issues: result.issues, changes: result.changes,
-          } : {
+          next.push(send ? { orderId, parts: [], applied: result.applied, issues: result.issues } : {
             orderId, token: result.token,
             parts: [result.canSendDetails && "Booking details", result.canSendPay && "Carrier and base pay", result.canSendExtras && "Other Carrier Pay",
               result.canSendBilling && "Customer charges", ...(result.fuelChanges ?? [])].filter(Boolean),
+            changes: result.detailChanges,
             issues: [...new Set<string>([...result.detailBlockers, ...result.blockers, ...result.extrasBlockers, ...result.billingBlockers])],
           });
         } catch (error) {
@@ -63,6 +61,7 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
         setReviews([...next]);
       }
       setReviews(next);
+      if (next.some(row => row.applied?.includes("Container pulled from McLeod"))) onContainerPull();
     } finally {
       onBusy(false);
       setAction(null);
@@ -71,7 +70,7 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
 
   return <section aria-label="Bulk McLeod sync" className="booking-load-sync">
     <button type="button" className="booking-charge-button" disabled={disabled || Boolean(action)} onClick={() => void sync(false, "booking")}>
-      {action === "preview" && scope === "booking" ? "Previewing booking…" : bookingDetails ? "Preview booking details in McLeod" : "Sync booking"}
+      {action === "preview" && scope === "booking" ? "Previewing booking…" : "Sync booking"}
     </button>
     {!!selectedOrderIds.length && <button type="button" className="booking-charge-button" disabled={disabled || Boolean(action)}
       onClick={() => void sync(false, "selected")}>
