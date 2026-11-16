@@ -13,7 +13,7 @@ import { mcleodOrderStops } from "../lib/inbound/checkin/yard-stop.ts";
 const require = createRequire(import.meta.url);
 const bookingId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const orderId = "0830845";
-function fixture(withCarrier, packageDates = false, cutoffReadback) {
+function fixture(withCarrier, packageDates = false, cutoffReadback, validateSchedule = false) {
   const stops = [
     { id: "STOP1", stop_type: "PU", location_id: "SCMDDETX", status: "A" },
     { id: "STOP2", stop_type: "SO", location_id: "BNSFHATX", status: "A" },
@@ -42,7 +42,16 @@ function fixture(withCarrier, packageDates = false, cutoffReadback) {
         Object.assign(order, body);
         if (body.cutoff_date && cutoffReadback !== undefined) order.cutoff_date = cutoffReadback;
       }
-      if (path === "/stop/update") Object.assign(stops.find(stop => stop.id === body.id), body);
+      if (path === "/stop/update") {
+        const stop = stops.find(stop => stop.id === body.id);
+        if (validateSchedule) {
+          const pickupEnd = stop.stop_type === "PU" ? body.sched_arrive_late ?? stop.sched_arrive_late : stops[0].sched_arrive_late;
+          const deliveryStart = stop.stop_type === "SO" ? body.sched_arrive_early ?? stop.sched_arrive_early : stops[1].sched_arrive_early;
+          if (pickupEnd && deliveryStart && pickupEnd > deliveryStart)
+            throw Error("McLeod HTTP 406: The scheduled arrival at the shipper cannot be later than the scheduled arrival at the consignee");
+        }
+        Object.assign(stop, body);
+      }
       if (path === "/movement/update") Object.assign(order.movements[0], body);
     },
   });
@@ -109,7 +118,7 @@ test("a booking-details sync sends McLeod-format dates and skips load and pay fi
   process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
   process.env.MCLEOD_SYNC_ENABLED = "true";
   try {
-    const { request, writes } = fixture(true, true, "20261118163000+0000");
+    const { request, writes } = fixture(true, true, "20261118163000+0000", true);
     const preview = await (await request("preview-package")).json();
     assert.deepEqual(preview.issues, [], JSON.stringify(preview));
     assert.deepEqual(preview.changes.map(change => change.field).sort(), [
@@ -125,7 +134,7 @@ test("a booking-details sync sends McLeod-format dates and skips load and pay fi
     for (const { path, body } of writes.slice(1)) {
       assert.equal(path, "/stop/update");
       assert.equal(body.sched_arrive_early, "20261116000000-0600");
-      assert.equal(body.sched_arrive_late, "20261118103000-0600");
+      assert.equal(body.sched_arrive_late, body.id === "STOP1" ? "20261116000000-0600" : "20261118103000-0600");
     }
     assert.equal(writes[0].body.cutoff_date, "20261118103000-0600");
     assert.equal(writes[0].body.blnum, undefined);
@@ -225,11 +234,55 @@ test("regular sync compares compact staged dates even when McLeod returns a diff
   const preview = await response.json();
   assert.equal(response.ok, true, JSON.stringify(preview));
   assert.deepEqual(preview.detailBlockers, [
-    "Pickup scheduled end: McLeod has 20261118173000+0000 and the platform has 2026-11-18T10:30. Review which value is current.",
+    "Pickup scheduled end: McLeod has 20261118173000+0000 and the platform has 2026-11-16T00:00:00. Review which value is current.",
   ]);
   assert.equal(preview.detailChanges.some(change => change.field === "cutoff_date"), true);
   assert.equal(writes.length, 0);
   assert.equal(booking.matchesDallasMcLeodDetailDate("20261118163000+0000", "20261118103000-0600"), true);
   assert.equal(booking.matchesDallasMcLeodDetailDate("20261118173000+0000", "20261118103000-0600"), false);
   assert.equal(booking.matchesDallasMcLeodDetailDate("20261118163000+0000", "bad date"), false);
+});
+
+test("sync moves delivery first when both schedules advance beyond the old delivery date", async () => {
+  const original = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
+  process.env.DRAY_IMPORT_WRITES_ENABLED = process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes, order } = fixture(false, true, undefined, true);
+    for (const stop of order.stops) {
+      stop.sched_arrive_early = "20261115000000-0600";
+      stop.sched_arrive_late = "20261115000000-0600";
+    }
+    const preview = await (await request("preview-package")).json();
+    const applied = await (await request("apply-package", preview.token)).json();
+    assert.deepEqual(applied.issues, []);
+    assert.deepEqual(writes.filter(write => write.path === "/stop/update").map(write => write.body.id), ["STOP2", "STOP1"]);
+  } finally {
+    if (original.write === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = original.write;
+    if (original.sync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = original.sync;
+  }
+});
+
+test("regular sync retries pickup against an already verified delivery schedule", async () => {
+  const original = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
+  process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
+  process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes, order, tables } = fixture(false, true, undefined, true);
+    order.stops[0].sched_arrive_early = "20261115000000-0600";
+    order.stops[0].sched_arrive_late = "20261117103000-0600";
+    Object.assign(tables.dallas_dray_import_loads.payload.stops[0], order.stops[0]);
+    order.stops[1].sched_arrive_early = "20261116000000-0600";
+    order.stops[1].sched_arrive_late = "20261118103000-0600";
+    const preview = await (await request("preview-load")).json();
+    const applied = await (await request("apply-load", preview.token)).json();
+    assert.deepEqual(applied.issues, []);
+    assert.deepEqual(writes.filter(write => write.path === "/stop/update").map(write => write.body.id), ["STOP1"]);
+  } finally {
+    if (original.write === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = original.write;
+    if (original.sync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = original.sync;
+  }
 });
