@@ -671,9 +671,14 @@ export default function CottonOutboundBookingPage() {
       </button>
       <small>{unassignedRows.length} {term ? "matching" : "available"}</small>
     </form>}
-    {canSyncDallas && selectedRows.some(row => row.scm_order_number && row.carrier_plan) &&
-      <DallasBulkSync key={selectedRows.map(row => `${row.id}:${row.updated_at}`).join("|")} bookingId={id}
-        orderIds={selectedRows.flatMap(row => row.scm_order_number && row.carrier_plan ? [row.scm_order_number] : [])}
+    {canSyncDallas && activeContainers.length > 0 &&
+      <DallasBulkSync key={JSON.stringify([id, activeContainers.map(row => [row.id, row.updated_at]), [...selectedContainers].sort(), Object.keys(pending).sort()])} bookingId={id}
+        bookingLoads={activeContainers.map(row => ({
+          sequence: row.sequence_no, orderId: row.scm_order_number,
+          issue: pending[row.id] ? "Save changes before syncing" : !row.scm_order_number ? "No verified McLeod order" :
+            !row.carrier_plan ? "Assign a carrier before syncing pay and charges" : undefined,
+        }))}
+        selectedOrderIds={selectedRows.flatMap(row => row.scm_order_number && row.carrier_plan ? [row.scm_order_number] : [])}
         disabled={Boolean(working)} onBusy={setBulkSaving} />}
     {selectedToUnassign.length > 0 && <button type="button" style={{ ...button, margin: "8px 0" }}
       disabled={Boolean(working)} onClick={() => void applyCarrierBatch(null)}>Unassign selected ({selectedToUnassign.length})</button>}
