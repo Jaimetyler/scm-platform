@@ -1,7 +1,7 @@
 "use client";
 
 import BookingSyncPreview from "./BookingSyncPreview";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { approvalCharges, compareApprovalOrders, defaultApprovalSelection, type ApprovalRate } from "@/lib/dray/approval-charges";
 import type { readBookingMarkCharges } from "@/lib/dray/booking-charges";
 
@@ -15,8 +15,7 @@ const escape = (value: string) => clean(value).replace(/[&<>"']/g, char =>
 export default function BookingCharges({ bookingId, bookingNumber, customerReference }: {
   bookingId: string; bookingNumber: string; customerReference?: string | null;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const opener = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
   const [results, setResults] = useState<Result[] | null>(null);
   const [negotiatedFuel, setNegotiatedFuel] = useState(true);
@@ -134,18 +133,15 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     } catch { setCopyStatus("Clipboard access failed. You can copy the text from Email preview."); }
   }
 
-  return <>
-    <button ref={opener} type="button" className="booking-charge-button" onClick={() => {
-      dialog.current?.showModal();
-      if (!results && !busy) void lookup();
-    }}>Pull McLeod charges</button>
-    <dialog ref={dialog} className="booking-charge-dialog" aria-labelledby="booking-charge-title"
-      onClose={() => { setShowComparison(false); opener.current?.focus(); }}>
-      <header>
-        <div><h2 id="booking-charge-title">{showComparison ? "Booking comparison" : verifiedStandard ? "Extra charges for approval" : "McLeod charges"}</h2><p>Booking {bookingNumber} · DDRAY</p></div>
-        <button type="button" className="booking-charge-button" onClick={() => dialog.current?.close()}>Close</button>
-      </header>
-      <div className="booking-charge-body">
+  return <section className="booking-inline-charges" aria-label="McLeod charges">
+    <button type="button" className="booking-charge-button" aria-expanded={open} onClick={() => {
+      setOpen(!open);
+      if (!open) {
+        setShowComparison(false);
+        if (!busy) void lookup();
+      }
+    }}>{open ? "Hide McLeod charges" : "Pull McLeod charges"}</button>
+    {open && <div className="booking-charge-body">
         <button type="button" className="booking-charge-button" aria-pressed={showComparison}
           onClick={() => setShowComparison(current => !current)}>
           {showComparison ? "Back to charges" : "Compare whole booking"}
@@ -203,13 +199,12 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
           <textarea aria-label="Email preview" readOnly value={email} rows={10} />
         </details>}
         </>}
-      </div>
       {!showComparison && <footer>
         <button type="button" className="booking-charge-button" disabled={busy} onClick={() => void lookup()}>Refresh charges</button>
         <strong>{selected.size} loads selected · {total} {verifiedStandard ? "in extras" : "to review"}</strong>
         <button type="button" className="booking-charge-button" disabled={!chosen.length || busy} onClick={() => void copyEmail()}>{verifiedStandard ? "Copy approval email" : "Copy review email"}</button>
         <span role="status">{copyStatus}</span>
       </footer>}
-    </dialog>
-  </>;
+    </div>}
+  </section>;
 }
