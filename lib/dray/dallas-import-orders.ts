@@ -25,12 +25,17 @@ export function matchesDallasImportDate(actual: unknown, expected: string) {
   return observed !== null && observed === wallTime(expected);
 }
 
+export function withRequiredCottonBoltSeals(comment: string) {
+  const text = comment.trim();
+  return /\bbolt seals? required\b/i.test(text) ? text : [text, "*Bolt Seals Required*"].filter(Boolean).join(" ");
+}
+
 export function dallasBookingFields(booking: string, erd: string, cutoff: string,
-  details: { bookId: string; steamshipLine: string | null; boltSealsRequired: boolean; docCutoff?: string | null }) {
+  details: { bookId: string; steamshipLine: string | null; docCutoff?: string | null }) {
   const shortDate = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
   const ssl = details.steamshipLine?.trim() ?? "";
   const carrier = /^orient overseas container line(?: limited)?$/i.test(ssl) ? "OOCL" : ssl;
-  const planningComment = `ID${details.bookId}: ${carrier ? carrier + " " : ""}Bkg# ${booking} - ERD ${shortDate(erd)} - C/O ${shortDate(cutoff)}${details.boltSealsRequired ? " *Bolt Seals Required*" : ""}`;
+  const planningComment = withRequiredCottonBoltSeals(`ID${details.bookId}: ${carrier ? carrier + " " : ""}Bkg# ${booking} - ERD ${shortDate(erd)} - C/O ${shortDate(cutoff)}`);
   return {
     booking_no_sucm: booking, planning_comment: planningComment, cutoff_date: dallasDateTime(cutoff),
     ...(details.docCutoff ? { doc_cutoff_date: dallasDateTime(details.docCutoff) } : {}),
@@ -39,7 +44,7 @@ export function dallasBookingFields(booking: string, erd: string, cutoff: string
 }
 
 export function dallasImportPayload(load: ReturnType<typeof planOutboundDrayLoads>[number],
-  booking: string, customer: string, erd: string, cutoff: string, details: { bookId: string; steamshipLine: string | null; boltSealsRequired: boolean; docCutoff?: string | null }) {
+  booking: string, customer: string, erd: string, cutoff: string, details: { bookId: string; steamshipLine: string | null; docCutoff?: string | null }) {
   return {
     __type: "orders", company_id: "TMS", status: "A", customer_id: customer, revenue_code_id: "DDRAY",
     order_type_id: dallasFuelCode, commodity_id: "COTTON", equipment_type_id: "C", order_mode: "T", collection_method: "T",

@@ -1,3 +1,4 @@
+import { withRequiredCottonBoltSeals } from "../../dray/dallas-import-orders.ts";
 import { dateStamp } from "../../ecotton/mcleod.ts";
 import { dallasOrderBookingReferences } from "./planning-info.ts";
 
@@ -35,7 +36,7 @@ export function createDallasPilotPayload(plan: DallasPilotPlan) {
     __type: "orders", company_id: "TMS", status: "A", customer_id: customer, revenue_code_id: "DDRAY", order_type_id: "FSCD",
     commodity_id: "COTTON", equipment_type_id: "C", order_mode: "T", collection_method: "T",
     blnum: plan.bol, ordered_by: plan.orderedBy, consignee_refno: plan.container, booking_no_sucm: plan.booking,
-    planning_comment: `BKG: ${plan.booking}`, rate_type: "F", rate_units: 1, rate: 545, total_charge: 580,
+    planning_comment: withRequiredCottonBoltSeals(`BKG: ${plan.booking}`), rate_type: "F", rate_units: 1, rate: 545, total_charge: 580,
     stops: [{ stop_type: "PU", location_id: pickup }, { stop_type: "SO", location_id: haslet }].map((stop, index) => ({
       ...stop, __type: "stop", __name: "stops", company_id: "TMS", status: "A", order_sequence: index + 1,
       sched_arrive_early: dateStamp(plan.early, "America/Chicago"), sched_arrive_late: dateStamp(plan.late, "America/Chicago"),

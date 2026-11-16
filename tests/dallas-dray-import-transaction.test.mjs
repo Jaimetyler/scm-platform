@@ -23,7 +23,7 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     await db.exec("alter table cotton_outbound_containers add column carrier_plan jsonb");
     const stage = (booking, restoreId, bookId = "41458") => {
       const loads = planOutboundDrayLoads(bookId, 2, "SCMDDETX", "BNSFHATX");
-      const payloads = loads.map(load => dallasImportPayload(load, booking, "BUNGOMNE", "2026-11-13", "2026-11-18T17:25", { bookId, steamshipLine: "ORIENT OVERSEAS CONTAINER LINE LIMITED", boltSealsRequired: true, docCutoff: "2026-11-16T10:30" }));
+      const payloads = loads.map(load => dallasImportPayload(load, booking, "BUNGOMNE", "2026-11-13", "2026-11-18T17:25", { bookId, steamshipLine: "ORIENT OVERSEAS CONTAINER LINE LIMITED", docCutoff: "2026-11-16T10:30" }));
       assert.equal(payloads[0].order_type_id, "FSCD");
       assert.equal(payloads[0].booking_no_sucm, booking);
       assert.equal(payloads[0].ssl_sucm, "OOCL");
