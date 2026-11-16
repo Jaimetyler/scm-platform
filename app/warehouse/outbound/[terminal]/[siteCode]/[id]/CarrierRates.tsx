@@ -137,7 +137,11 @@ export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave
           style={{ width: 88 }} value={basePayOverride} placeholder={rate ? dollars(rate.rates.base.pay) : ""}
           disabled={disabled || !rate} onChange={event => setBasePayOverride(event.target.value)} />
       </label>}
-      {accessorials.map(({ key, label }) => <ChargeStepper key={key} label={label}
+      <label>Total chassis days
+        <input type="number" min={0} max={999} step={1} value={quantities.chassisDays} disabled={disabled || !rate}
+          onChange={event => setQuantities(current => ({ ...current, chassisDays: event.target.value }))} />
+      </label>
+      {accessorials.filter(({ key }) => key !== "chassisDays").map(({ key, label }) => <ChargeStepper key={key} label={label}
         value={Number(quantities[key])} disabled={disabled || !rate}
         onChange={value => setQuantities(current => ({ ...current, [key]: String(value) }))} />)}
       {plan && !chargesOnly && <details>
@@ -155,7 +159,7 @@ export function CarrierSummary({ plan }: { plan: CarrierPlan | null }) {
   const lines = carrierPlanLines(plan).filter(line => line.key !== "base");
   return <div className="carrier-summary">
     <strong>{plan.rate.carrier_name}</strong>
-    {lines.length > 0 && <small>{lines.map(line => `${line.units} ${line.label.toLowerCase()}`).join(" · ")}</small>}
+    {lines.length > 0 && <small>{lines.map(line => `${line.units} ${line.key === "chassisDays" ? "chassis days" : line.label.toLowerCase()}`).join(" · ")}</small>}
   </div>;
 }
 
@@ -174,33 +178,32 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
   const [units, setUnits] = useState<Record<keyof Quantities, string>>({ chassisDays: "", chassisSplits: "", stopoffs: "" });
   const rate = rates.find(item => item.id === rateId);
   const allAssigned = plans.every(Boolean);
-  const quantities = Object.fromEntries(accessorials.map(({ key }) => [key, Number(units[key])])) as Quantities;
-  const validUnits = Object.values(units).every(value => /^\d{0,3}$/.test(value)) && Object.values(quantities).some(value => value > 0);
+  const totalChassisDays = units.chassisDays === "" ? undefined : Number(units.chassisDays);
+  const quantities = { chassisDays: 0, chassisSplits: Number(units.chassisSplits), stopoffs: Number(units.stopoffs) };
+  const validUnits = Object.values(units).every(value => /^\d{0,3}$/.test(value)) &&
+    (totalChassisDays !== undefined || quantities.chassisSplits > 0 || quantities.stopoffs > 0);
   const exceedsLimit = validUnits && plans.some(plan => plan && accessorials.some(({ key }) => plan.quantities[key] + quantities[key] > 999));
   const canAddCharges = allAssigned && validUnits && !exceedsLimit;
-  const added = plans.reduce((total, plan) => {
-    if (plan && canAddCharges) for (const { key } of accessorials) {
-      total.pay += plan.rate.rates[key].pay * quantities[key];
-
+  let payChange = 0;
+  let billChange: number | null = 0;
+  for (const plan of plans) {
+    if (!plan || !canAddCharges) continue;
+    for (const { key } of accessorials) {
+      const current = plan.quantities[key];
+      const next = key === "chassisDays" && totalChassisDays !== undefined ? totalChassisDays : current + quantities[key];
+      const minimum = key === "chassisDays" ? billing?.minimumChassisDays ?? 0 : 0;
+      const billedChange = Math.max(next, minimum) - Math.max(current, minimum);
+      const rate = billing?.[key];
+      payChange += plan.rate.rates[key].pay * (next - current);
+      if (billedChange !== 0) billChange = billChange == null || rate == null ? null : billChange + rate * billedChange;
     }
-    return total;
-  }, { pay: 0 });
-  const addedBill = accessorials.reduce<number | null>((total, { key }) => {
-    if (!quantities[key]) return total;
-    const rate = billing?.[key];
-    const units = key === "chassisDays" ? plans.reduce((sum, plan) => {
-      const current = plan?.quantities.chassisDays ?? 0;
-      const minimum = billing?.minimumChassisDays ?? 0;
-      return sum + Math.max(current + quantities[key], minimum) - Math.max(current, minimum);
-    }, 0) : quantities[key] * plans.length;
-    return units === 0 ? total : total == null || rate == null ? null : total + rate * units;
-  }, 0);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (disabled) return;
     if (mode === "carrier" && rate) await onApply({ rate });
-    else if (mode === "charge" && canAddCharges) await onApply({ charges: quantities });
+    else if (mode === "charge" && canAddCharges) await onApply({ charges: quantities, totalChassisDays });
     else return;
     actionDialog.current?.close();
   }
@@ -222,15 +225,20 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
         <option value="">Choose carrier</option>
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
       </select></label> : <>
-        {accessorials.map(({ key, label }) => <ChargeStepper key={key} label={`${label} per container`}
+        <label>Total chassis days per container
+          <input type="number" min={0} max={999} step={1} placeholder="Leave blank to keep current days"
+            value={units.chassisDays} disabled={disabled || !allAssigned}
+            onChange={event => setUnits(current => ({ ...current, chassisDays: event.target.value }))} />
+        </label>
+        {accessorials.filter(({ key }) => key !== "chassisDays").map(({ key, label }) => <ChargeStepper key={key} label={`${label} per container`}
           value={Number(units[key])} disabled={disabled || !allAssigned}
           onChange={value => setUnits(current => ({ ...current, [key]: String(value) }))} />)}
-        {canAddCharges && <span>Added pay ${dollars(added.pay)} · {addedBill == null ? "Customer billing rate missing" : `Added bill $${dollars(addedBill)}`}</span>}
+        {canAddCharges && <span>Pay change $${dollars(payChange)} · {billChange == null ? "Customer billing rate missing" : `Bill change $${dollars(billChange)}`}</span>}
         {exceedsLimit && <span role="alert">A container can have up to 999 units per charge.</span>}
       </>}
       <footer className="carrier-batch-actions">
       <button type="submit" className="carrier-primary-action" disabled={disabled || (mode === "carrier" ? !rate : !canAddCharges)}>
-        {disabled ? "Saving…" : mode === "carrier" ? "Apply carrier" : "Add to selected"}
+        {disabled ? "Saving…" : mode === "carrier" ? "Apply carrier" : "Apply to selected"}
       </button>
       <button type="button" disabled={disabled} onClick={() => actionDialog.current?.close()}>Cancel</button>
       </footer>

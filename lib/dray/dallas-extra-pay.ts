@@ -37,7 +37,8 @@ export function dallasExtraPayToRemove(rows: Awaited<ReturnType<typeof readDalla
   const expected = plan ? dallasExtraPayLines(plan) : [];
   const matches = rows.filter(row => row.orderId === orderId && row.movementId === movementId && row.payee === payee &&
     (row.reference === dallasExtraPayReference || (!row.reference && expected.some(line =>
-      row.code === line.code && row.description === line.description && row.units === line.units && row.rate === line.rate &&
+      row.code === line.code && (row.description === line.description ||
+        (row.code === "001" && row.description === "Extra chassis days")) && row.units === line.units && row.rate === line.rate &&
       Math.round(row.amount * 100) === Math.round(line.amount * 100)))));
   if (matches.some(row => !/^[A-Za-z0-9_-]{1,32}$/.test(row.id) ||
       matches.filter(candidate => candidate.code === row.code).length !== 1 ||

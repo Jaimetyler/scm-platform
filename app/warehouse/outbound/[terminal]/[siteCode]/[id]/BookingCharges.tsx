@@ -73,12 +73,6 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     const group = grouped.get(order.marks);
     if (group) group.push(order); else grouped.set(order.marks, [order]);
   }
-  const sortedGroups = [...grouped].flatMap(([marks, orders]) => [
-    [marks, orders.filter(order => (order.extraTotal ?? 0) > 0)] as const,
-    [marks, orders.filter(order => (order.extraTotal ?? 0) <= 0)] as const,
-  ]).filter(([, orders]) => orders.length).sort(([, a], [, b]) => compareApprovalOrders(
-    { extraTotal: a.some(order => (order.extraTotal ?? 0) > 0) ? 1 : 0, total: a.reduce((sum, order) => sum + (order.total ?? 0), 0) },
-    { extraTotal: b.some(order => (order.extraTotal ?? 0) > 0) ? 1 : 0, total: b.reduce((sum, order) => sum + (order.total ?? 0), 0) }));
   const emailGroups = [...grouped].flatMap(([marks, orders]) => {
     const selectedOrders = orders.filter(order => selected.has(order.id));
     const extras = selectedOrders.flatMap(order => order.charges);
@@ -137,7 +131,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
       if (!open) {
         if (!busy) void lookup();
       }
-    }}>{open ? "Hide charge approval email" : "Review charges for approval email"}</button>
+    }}>{open ? "Hide extra charges" : "Pull extra charges"}</button>
     {open && <div className="booking-charge-body">
         <p>Select a load to include its itemized charges in the email. {approvalRate?.rateCode && <strong>Rate R-{approvalRate.rateCode}. </strong>}{standardNote} {verifiedStandard && "Extras appear first, highest total first."}</p>
         {busy && <p role="status">Looking up McLeod charges…</p>}
@@ -154,9 +148,8 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
             <th scope="col">{standardLabel}</th><th scope="col">{verifiedStandard ? "Extra charges" : "Itemized charges"}</th>
             <th scope="col" className="booking-charge-amount">Order total</th>
             <th scope="col" className="booking-charge-amount">Mark total</th></tr></thead>
-          {sortedGroups.map(([marks, orders], groupIndex) => <tbody key={`${marks}-${groupIndex}`}>
-            {orders.map((order, index) => <tr key={order.id} className={selected.has(order.id) ? "booking-charge-selected" : undefined}>
-              <td><input type="checkbox" aria-label={`Include load ${order.id} for ${marks}`} checked={selected.has(order.id)}
+          <tbody>{orderRows.map(order => <tr key={order.id} className={selected.has(order.id) ? "booking-charge-selected" : undefined}>
+              <td><input type="checkbox" aria-label={`Include load ${order.id} for ${order.marks}`} checked={selected.has(order.id)}
                 disabled={!order.charges.length || order.extraTotal === null}
                 onChange={event => {
                   const checked = event.target.checked;
@@ -167,7 +160,7 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
                     return next;
                   });
                 }} /></td>
-              {index === 0 && <th scope="rowgroup" rowSpan={orders.length}>{marks}</th>}
+              <th scope="row">{order.marks}</th>
               <td>#{order.id}{(order.extraTotal ?? 0) > 0 && <span className="booking-charge-pill">{verifiedStandard ? "Extra" : "Review"} {currency(order.extraTotal)}</span>}
                 {order.extraTotal === null && <span className="booking-charge-pill booking-charge-review">Review charges</span>}</td>
               <td>{drayage(order)}
@@ -183,9 +176,9 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
                 </div>)}
               </td>
               <td className="booking-charge-amount">{currency(order.total)}</td>
-              {index === 0 && <td rowSpan={orders.length} className="booking-charge-amount"><strong>{reviewTotal((grouped.get(marks) ?? []).map(order => order.total))}</strong></td>}
-            </tr>)}
-          </tbody>)}
+              <td className="booking-charge-amount">{grouped.get(order.marks)?.[0]?.id === order.id &&
+                <strong>{reviewTotal((grouped.get(order.marks) ?? []).map(markOrder => markOrder.total))}</strong>}</td>
+            </tr>)}</tbody>
         </table></div>}
         {!!chosen.length && <details><summary>Email preview</summary>
           <textarea aria-label="Email preview" readOnly value={email} rows={10} />

@@ -93,3 +93,11 @@ test("missing minimum chassis is flagged and split charges stay in extras", () =
  assert.equal(result.chassisMinimumShortfall, 45);
  assert.equal(result.extraTotal, 45);
 });
+
+
+test("a DSCM minimum is excluded from extra-charge checks and preselection", () => {
+  const dscm = (units) => ({ code: "DSCM", description: "", units, amount: units * 45 });
+  const orders = [{ id: "standard", total: 545, charges: [dscm(1)] }, { id: "extra", total: 590, charges: [dscm(2)] }];
+  assert.deepEqual([...defaultApprovalSelection(orders, rate, true)], ["extra"]);
+  assert.equal(approvalCharges(590, [dscm(2)], rate).extraTotal, 45);
+});
