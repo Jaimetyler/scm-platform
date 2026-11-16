@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planDallasCustomerExtras, readDallasCustomerCharges } from "../lib/dray/dallas-customer-extras.ts";
+import { dallasPendingBillExtras, planDallasCustomerExtras, readDallasCustomerCharges } from "../lib/dray/dallas-customer-extras.ts";
 
 const rate = { included_chassis_days: 1, chassis_daily_rate: 35, chassis_split_rate: 60, stopoff_rate: 75 };
 const quantities = { chassisDays: 3, chassisSplits: 1, stopoffs: 1 };
@@ -46,4 +46,14 @@ test("reconciles a missing freight flag and derives missing chassis units before
   assert.equal(result.changes[0].previous.units, 1);
   assert.equal(result.changes[0].amount, 105);
   assert.equal(readDallasCustomerCharges([{ charge_id: "DSCM", amount: 35 }], 50000, 52000)[0].inclusion, null);
+});
+
+test("the McLeod bill fallback stacks only unposted customer extras", () => {
+  const plan = { quantities };
+  const billing = { base: null, minimumChassisDays: 1, chassisDays: 3500, chassisSplits: 6000, stopoffs: 7500 };
+  assert.equal(dallasPendingBillExtras(plan, billing, [chassis, split]), 145);
+  const billed = [{ ...chassis, units: 3, amount: 105 }, split,
+    { id: "STOP", code: "006", amount: 75, units: 1, rate: 75, inclusion: "N", description: "Stopoff" }];
+  assert.equal(dallasPendingBillExtras(plan, billing, billed), 0);
+  assert.equal(dallasPendingBillExtras(plan, billing, [chassis, split], "MSC"), 75);
 });

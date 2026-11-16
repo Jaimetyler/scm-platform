@@ -244,3 +244,6 @@
 }
 .booking-inline-charges footer { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .booking-load-sync .booking-charge-button { margin: 4px; }
+
+.carrier-batch button.carrier-unassign-action { background: transparent; border-color: #a75c64; color: #f1a9ae; }
+.carrier-batch button.carrier-unassign-action:hover:not(:disabled) { background: #39252d; border-color: #d68189; }

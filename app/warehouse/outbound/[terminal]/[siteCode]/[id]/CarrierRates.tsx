@@ -159,13 +159,14 @@ export function CarrierSummary({ plan }: { plan: CarrierPlan | null }) {
   const lines = carrierPlanLines(plan).filter(line => line.key !== "base");
   return <div className="carrier-summary">
     <strong>{plan.rate.carrier_name}</strong>
-    {lines.length > 0 && <small>{lines.map(line => `${line.units} ${line.key === "chassisDays" ? "chassis days" : line.label.toLowerCase()}`).join(" · ")}</small>}
+    {lines.map(line => <small key={line.key}>{line.units} {line.key === "chassisDays" ? "chassis days" : line.label.toLowerCase()}</small>)}
   </div>;
 }
 
-export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, onClear }: {
+export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, onClear, unassignCount, onUnassign }: {
   rates: CarrierRate[]; plans: (CarrierPlan | null)[]; billing: CustomerBillRates | null; disabled: boolean;
   onApply: (action: CarrierBatchAction) => Promise<void>; onClear: () => void;
+  unassignCount: number; onUnassign: () => Promise<void>;
 }) {
   const [mode, setMode] = useState<"carrier" | "charge" | null>(null);
   const actionDialog = useRef<HTMLDialogElement>(null);
@@ -215,6 +216,8 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
       <strong>{plans.length} selected</strong>
       <button type="button" aria-pressed={mode === "carrier"} disabled={disabled || !rates.length} className="carrier-primary-action" onClick={() => openAction("carrier")}>Assign carrier</button>
       <button type="button" aria-pressed={mode === "charge"} disabled={disabled || !allAssigned} className="carrier-primary-action" onClick={() => openAction("charge")}>Add charges</button>
+      {unassignCount > 0 && <button type="button" className="carrier-unassign-action" disabled={disabled}
+        onClick={() => void onUnassign()}>Unassign ({unassignCount})</button>}
       <button type="button" disabled={disabled} onClick={onClear}>Clear selection</button>
     </div>
     {!rates.length && <small>Add a carrier rate card to assign a carrier.</small>}

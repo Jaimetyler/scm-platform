@@ -1,4 +1,4 @@
-import type { CarrierPlan } from "../warehouse/outbound/carrier-rates";
+import type { CarrierPlan, CustomerBillRates } from "../warehouse/outbound/carrier-rates";
 
 type CustomerRates = {
   included_chassis_days: number | string | null;
@@ -101,4 +101,15 @@ export function readDallasCustomerCharges(raw: unknown, baseCents: number, curre
   const inferred = currentTotalCents === known + unknownTotal && unknownTotal > 0 ? "N" :
     currentTotalCents === known ? "Y" : null;
   return lines.map(row => row.inclusion === null ? { ...row, inclusion: row.amount === 0 ? "N" : inferred } : row);
+}
+
+export function dallasPendingBillExtras(plan: CarrierPlan, billing: CustomerBillRates, billed: CustomerCharge[] | null,
+  steamshipLine?: string | null) {
+  const dollars = (cents: number | null) => cents === null ? null : cents / 100;
+  const customerSuppliesChassis = /^(?:MSC\b|MEDITERRANEAN SHIPPING COMPANY\b)/i.test(steamshipLine?.trim() ?? "");
+  const { changes } = planDallasCustomerExtras(plan.quantities, {
+    included_chassis_days: billing.minimumChassisDays ?? 0, chassis_daily_rate: dollars(billing.chassisDays),
+    chassis_split_rate: dollars(billing.chassisSplits), stopoff_rate: dollars(billing.stopoffs),
+  }, billed, customerSuppliesChassis);
+  return changes.reduce((total, line) => total + Math.round(line.amount * 100) - Math.round((line.previous?.amount ?? 0) * 100), 0) / 100;
 }
