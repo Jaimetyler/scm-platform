@@ -39,7 +39,7 @@ type Container = { id: string; sequence_no: number; scm_order_number?: string | 
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
   line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string;
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; has_break_inventory: boolean; inbound_bales: number; inbound_statuses: string[] };
-type Booking = { site_code: string; steamship_line?: string | null; return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
+type Booking = { source_format?: string; site_code: string; steamship_line?: string | null; return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
 type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; movementId: string | null; movementImagesAvailable: boolean; status: string; documentTypes: { id: string; description: string }[]; existingImages: { id: string; type: string; description: string; scanDate: string; scope: string }[] };
 type McLeodUploadResult = { container: string; orderId?: string; file?: string; status: string };
@@ -121,6 +121,8 @@ export default function CottonOutboundBookingPage() {
   const [markError, setMarkError] = useState("");
   const [markAction, setMarkAction] = useState<{ line: Line; action: "hold" | "resume" | "cancel" | "warehouse" | "keep_source"; note: string } | null>(null);
   const [actionError, setActionError] = useState("");
+  const [replacingPackage, setReplacingPackage] = useState(false);
+  const [reviewPackageSync, setReviewPackageSync] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [details, setDetails] = useState({ scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "", destinationSiteCode: siteCode });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
@@ -394,24 +396,36 @@ export default function CottonOutboundBookingPage() {
       cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "", returnLocation: booking.return_location ?? "", steamshipLine: booking.steamship_line ?? "", destinationSiteCode: siteCode });
     setEditingDetails(true);
     setImportedDateNotes([]);
+    setReplacingPackage(false);
   }
   async function importDetails(file: File) {
     if (!booking) return;
     setWorking("import-details"); setError(""); setMessage("");
     try {
       const body = new FormData();
-      await attachBookingFile(body, file, terminal); body.set("terminal", terminal); body.set("siteCode", siteCode);
-      const response = await fetch("/api/warehouse/outbound/preview", { method: "POST", body });
+      const canReplace = terminal === "DAL" && canUseBilling(staff) && containers.some(row => row.scm_order_number);
+      await attachBookingFile(body, file, terminal, undefined, canReplace ? "booking" : "file");
+      body.set("terminal", terminal); body.set("siteCode", siteCode);
+      const response = await fetch(canReplace ? "/api/dray-import/dallas" : "/api/warehouse/outbound/preview", { method: "POST", body });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
-      if (result.booking.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${result.booking.bookingNumber}, not ${booking.booking_number}.`);
-      const source = result.booking;
+      const source = canReplace ? result.preview : result.booking;
+      if (source.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${source.bookingNumber}. Open that booking to replace its package.`);
+      if (canReplace && source.bookId && booking.scm_file_number && source.bookId !== booking.scm_file_number)
+        throw new Error(`The package file number ${source.bookId} does not match ${booking.scm_file_number}.`);
+      if (canReplace && ["bunge", "olam", "edf"].includes(booking.source_format ?? "") && source.sourceFormat !== booking.source_format)
+        throw Error("Use the same Dallas dray package format as the original booking.");
+      if (canReplace && ((source.pickupLocation && source.pickupLocation !== siteCode) ||
+          (source.deliveryLocation && booking.return_location_code && source.deliveryLocation !== booking.return_location_code)))
+        throw Error("The replacement package changes the pickup or return location. Review the route before saving.");
+      setReplacingPackage(canReplace);
+      setReviewPackageSync(false);
       if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.steamshipLine && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
       setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: source.erd ?? bookingDateInput(booking.erd),
         docCutoff: source.docCutoff ?? bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
-        cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "", returnLocation: source.returnLocation || booking.return_location || "",
+        cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "", returnLocation: canReplace ? booking.return_location ?? "" : source.returnLocation || booking.return_location || "",
         steamshipLine: source.steamshipLine || booking.steamship_line || "", destinationSiteCode: siteCode });
-      setImportedDateNotes([...(source.sourceDates ?? []).map(({ label, value }: { label: string; value: string }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`), ...(source.detailNotes ?? [])]);
+      setImportedDateNotes([...(source.sourceDates ?? []).map(({ label, value }: { label: string; value: string }) => `${label}: ${formatBookingDate(value, value.includes("T"))}`), ...(source.detailNotes ?? source.issues ?? [])]);
       setEditingDetails(true); setMessage("Review the imported booking details, then save.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not import booking details"); }
     finally { setWorking(""); if (requestInput.current) requestInput.current.value = ""; }
@@ -462,7 +476,10 @@ export default function CottonOutboundBookingPage() {
         window.location.replace(`/warehouse/outbound/${terminal.toLowerCase()}/${result.booking.site_code}/${id}?returnTo=${returnTo}`);
         return;
       }
-      setBooking(result.booking); setEditingDetails(false); setMessage("Booking details updated.");
+      setBooking(result.booking); setEditingDetails(false);
+      if (replacingPackage) setReviewPackageSync(true);
+      setReplacingPackage(false);
+      setMessage(replacingPackage ? "Replacement details saved. Preview the linked McLeod orders below." : "Booking details updated.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update booking details"); }
     finally { setWorking(""); }
   }
@@ -560,7 +577,7 @@ export default function CottonOutboundBookingPage() {
           <a href={`/api/warehouse/outbound/bookings/${id}/container-info?terminal=${terminal}&siteCode=${siteCode}`}>Export Container Info</a>
           <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
-          <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>Import booking details</button>
+          <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>{canSyncDallas && containers.some(row => row.scm_order_number) ? "Replace booking package" : "Import booking details"}</button>
           {canManage && (booking.status === "draft" ?
             <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("cancelled")}>Delete booking</button>
           : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
@@ -622,21 +639,31 @@ export default function CottonOutboundBookingPage() {
     </div>
     <input ref={requestInput} type="file" accept=".xlsx,.xlsb" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importDetails(file); }} />
     {editingDetails ? <form onSubmit={(event) => void saveDetails(event)} style={{ marginTop: 16 }}>
+      {replacingPackage && <ul aria-label="Replacement booking changes">
+        {[
+          ["ERD", bookingDateInput(booking.erd), details.erd],
+          ["Cutoff", bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), details.cutoff],
+          ["Doc cutoff", bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false), details.docCutoff],
+          ["Steamship line", booking.steamship_line ?? "", details.steamshipLine],
+          ["Vessel", booking.vessel ?? "", details.vessel],
+        ].filter(([, before, after]) => before !== after).map(([label, before, after]) =>
+          <li key={label}>{label} · {before || "Blank"} → {after || "Blank"}</li>)}
+      </ul>}
       {importedDateNotes.length ? <p style={{ color: "#fbbf24", fontSize: 12 }}>{importedDateNotes.join(" · ")}</p> : null}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-        {locationOptions.length > 1 && <label>Warehouse location<select style={input} value={details.destinationSiteCode}
+        {!replacingPackage && locationOptions.length > 1 && <label>Warehouse location<select style={input} value={details.destinationSiteCode}
           onChange={event => setDetails(current => ({ ...current, destinationSiteCode: event.target.value }))}>
           {locationOptions.map(site => <option key={site.siteCode} value={site.siteCode}>{site.siteName}</option>)}
         </select></label>}
-        <label>SCM File #<input style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
+        <label>SCM File #<input readOnly={replacingPackage} style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
         <label>ERD<input type="date" style={input} value={details.erd} onChange={(event) => setDetails((current) => ({ ...current, erd: event.target.value }))} /></label>
         <CutoffInput label="Doc cutoff" value={details.docCutoff} onChange={(value) => setDetails((current) => ({ ...current, docCutoff: value }))} />
         <CutoffInput label="Cutoff" value={details.cutoff} onChange={(value) => setDetails((current) => ({ ...current, cutoff: value }))} />
-        <label>Return location<input style={input} maxLength={300} value={details.returnLocation} onChange={event => setDetails(current => ({ ...current, returnLocation: event.target.value }))} /></label>
+        <label>Return location<input readOnly={replacingPackage} style={input} maxLength={300} value={details.returnLocation} onChange={event => setDetails(current => ({ ...current, returnLocation: event.target.value }))} /></label>
         <label>Steamship line (SSL)<input style={input} maxLength={200} value={details.steamshipLine} onChange={event => setDetails(current => ({ ...current, steamshipLine: event.target.value }))} /></label>
         <label>Vessel<input style={input} maxLength={200} value={details.vessel} onChange={(event) => setDetails((current) => ({ ...current, vessel: event.target.value }))} /></label>
       </div><p style={{ color: "#bbc9c2", fontSize: 12 }}>Times are optional and local to {booking.site_name}.</p>
-      <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "details" ? "Saving…" : "Save details"}</button>
+      <div style={{ display: "flex", gap: 8 }}><button style={button} type="submit" disabled={!canWrite || Boolean(working)}>{working === "details" ? "Saving…" : replacingPackage ? "Save replacement details" : "Save details"}</button>
         <button style={button} type="button" disabled={!canWrite || Boolean(working)} onClick={() => { setEditingDetails(false); setMessage(""); }}>Cancel</button></div>
     </form> : null}
     </PlatformPanel>
@@ -686,6 +713,10 @@ export default function CottonOutboundBookingPage() {
       </button>
       <small>{unassignedRows.length} {term ? "matching" : "available"}</small>
     </form>}
+    {canSyncDallas && reviewPackageSync && <DallasBulkSync key={`package-${id}-${booking.updated_at}`} bookingId={id} bookingDetails
+      bookingLoads={activeContainers.map(row => ({ sequence: row.sequence_no, orderId: row.scm_order_number,
+        issue: row.scm_order_number ? undefined : "No verified McLeod order" }))}
+      selectedOrderIds={[]} disabled={Boolean(working) || editingDetails} onBusy={setBulkSaving} />}
     {canSyncDallas && activeContainers.length > 0 &&
       <DallasBulkSync key={JSON.stringify([id, activeContainers.map(row => [row.id, row.updated_at]), [...selectedContainers].sort(), Object.keys(pending).sort()])} bookingId={id}
         bookingLoads={activeContainers.map(row => ({

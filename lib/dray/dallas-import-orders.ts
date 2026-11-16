@@ -12,6 +12,18 @@ export function stagedDallasLocalTime(value: string) {
   return value.replace(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})[+-]\d{4}$/, "$1-$2-$3T$4:$5:$6");
 }
 
+export function dallasMcLeodDetailDate(value: string) {
+  const local = dallasDateTime(value);
+  const nominal = Date.parse(`${local}Z`);
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", timeZoneName: "shortOffset" });
+  const offsetAt = (instant: number) => Number(formatter.formatToParts(new Date(instant))
+    .find(part => part.type === "timeZoneName")?.value.replace("GMT", ""));
+  const offset = offsetAt(nominal - offsetAt(nominal) * 3_600_000);
+  if (!Number.isFinite(offset) || offset !== offsetAt(nominal - offset * 3_600_000))
+    throw Error("The Dallas cutoff time does not exist in local time.");
+  return `${local.replace(/[-:T]/g, "")}${offset < 0 ? "-" : "+"}${String(Math.abs(offset)).padStart(2, "0")}00`;
+}
+
 export function matchesDallasImportDate(actual: unknown, expected: string) {
   const value = String(actual ?? "").trim();
   // Compact McLeod timestamps carry the displayed wall time before the offset.

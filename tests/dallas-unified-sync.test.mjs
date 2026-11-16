@@ -12,7 +12,7 @@ import * as billing from "../lib/dray/dallas-customer-extras.ts";
 const require = createRequire(import.meta.url);
 const bookingId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const orderId = "0830845";
-function fixture(withCarrier) {
+function fixture(withCarrier, packageDates = false) {
   const order = {
     id: orderId, status: "A", order_type_id: "FSCD", booking_no_sucm: "BOOK-1", blnum: "FILE-1",
     consignee_refno: "", planning_comment: "Keep this note", rate_type: "F", rate: 500, rate_units: 1,
@@ -20,7 +20,7 @@ function fixture(withCarrier) {
   };
   const tables = {
     cotton_outbound_bookings: { booking_number: "BOOK-1", scm_file_number: "FILE", status: "draft",
-      erd: null, cutoff: null, terminal: "DAL" },
+      erd: packageDates ? "2026-11-16" : null, cutoff: packageDates ? "2026-11-18T10:30" : null, terminal: "DAL" },
     dallas_dray_import_loads: { blnum: "FILE-1", sequence_no: 1, payload: {} },
     cotton_outbound_containers: { container_number: "ABCD1234567", booking_line_id: "line", updated_at: "2026-11-16T10:00Z",
       carrier_plan: withCarrier ? { rate: { carrier_id: "CARRIER", rates: { base: { pay: 10000 }, chassisDays: { pay: 0 }, chassisSplits: { pay: 0 }, stopoffs: { pay: 0 } } },
@@ -91,3 +91,28 @@ for (const withCarrier of [false, true]) {
     }
   });
 }
+
+
+test("an explicit package replacement sends McLeod-format dates and skips load and pay fields", async () => {
+  const original = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
+  process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
+  process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes } = fixture(true, true);
+    const preview = await (await request("preview-package")).json();
+    assert.deepEqual(preview.changes.map(change => change.field).sort(), ["cutoff_date", "planning_comment"]);
+    assert.equal(writes.length, 0);
+    const applied = await (await request("apply-package", preview.token)).json();
+    assert.deepEqual(applied.applied, ["Booking details"]);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].body.cutoff_date, "20261118103000-0600");
+    assert.equal(writes[0].body.blnum, undefined);
+    assert.equal(writes[0].body.consignee_refno, undefined);
+    assert.equal(booking.dallasMcLeodDetailDate("2026-07-18T10:30"), "20260718103000-0500");
+  } finally {
+    if (original.write === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
+    else process.env.DRAY_IMPORT_WRITES_ENABLED = original.write;
+    if (original.sync === undefined) delete process.env.MCLEOD_SYNC_ENABLED;
+    else process.env.MCLEOD_SYNC_ENABLED = original.sync;
+  }
+});

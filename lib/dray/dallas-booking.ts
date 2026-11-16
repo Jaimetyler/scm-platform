@@ -30,7 +30,7 @@ export function previewDallasBungeDrays(bytes: Buffer, options: BookingImportOpt
   return {
     sourceFormat: booking.sourceFormat,
     customerId: booking.sourceFormat === "bunge" ? "BUNGOMNE" : booking.sourceFormat === "olam" ? "OLAMRITX" : null, customer: booking.customer, bookingNumber: booking.bookingNumber, bookId: booking.bookId ?? "", customerReference: booking.customerReference,
-    loadPort: booking.loadPort, steamshipLine: booking.steamshipLine, deliveryLocation, pickupLocation,
+    loadPort: booking.loadPort, returnLocation: booking.returnLocation, steamshipLine: booking.steamshipLine, deliveryLocation, pickupLocation,
     vessel: booking.vessel, erd: booking.erd, docCutoff, cutoff, sourceDates: booking.sourceDates,
     containers: booking.containers, totalBales: booking.totalBales, issues, lines,
   };
