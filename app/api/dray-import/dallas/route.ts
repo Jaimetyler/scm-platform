@@ -255,7 +255,7 @@ async function syncBookingDetails(input: {
     const proposedBilling = lines.flatMap(line => {
       if (line.key === "base" || line.units <= 0 || (msc && line.key === "chassisDays")) return [];
       const rate = rates[line.key];
-      const units = line.key === "chassisDays" ? line.units + Number(customerRate?.included_chassis_days ?? 0) : line.units;
+      const units = line.key === "chassisDays" ? Math.max(line.units, Number(customerRate?.included_chassis_days ?? 0)) : line.units;
       return [{ code: customerCodes[line.key], description: line.key === "chassisDays" ? "DAL Chassis Charges" :
         line.key === "stopoffs" ? "Stop Off Charge" : "Chassis Split", units,
         rate: rate == null ? null : Number(rate), amount: rate == null ? null : Math.round(Number(rate) * units * 100) / 100 }];

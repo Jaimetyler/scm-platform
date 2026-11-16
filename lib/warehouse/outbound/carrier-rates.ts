@@ -1,6 +1,6 @@
 export const rateItems = [
   { key: "base", label: "Base drayage", code: null },
-  { key: "chassisDays", label: "Extra chassis days", code: null },
+  { key: "chassisDays", label: "Total chassis days", code: null },
   { key: "chassisSplits", label: "Chassis splits", code: "CS" },
   { key: "stopoffs", label: "Stopoffs", code: null },
 ] as const;
@@ -50,13 +50,13 @@ export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierP
     const { pay: cardPay } = rate.rates[item.key];
     const bill = billing?.[item.key] ?? null;
     const pay = item.key === "base" ? basePayOverride ?? cardPay : cardPay;
-    const billUnits = item.key === "chassisDays" ? units + (billing?.minimumChassisDays ?? 0) : units;
+    const billUnits = item.key === "chassisDays" ? Math.max(units, billing?.minimumChassisDays ?? 0) : units;
     return { ...item, units, billUnits, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: bill == null ? null : billUnits * bill };
   }).filter(line => line.units > 0 || line.billUnits > 0);
 }
 
 export type CarrierSelection = { rateId: string; rateVersion: string; quantities: Record<string, string>; basePayOverride: string };
-export type CarrierBatchAction = { rate: CarrierRate } | { charges: Quantities };
+export type CarrierBatchAction = { rate: CarrierRate } | { charges: Quantities; totalChassisDays?: number };
 
 export function carrierBatchSelection(plan: CarrierPlan | null, action: CarrierBatchAction): CarrierSelection {
   const rate = "rate" in action ? plan?.rate.id === action.rate.id ? plan.rate : action.rate : plan?.rate;
@@ -65,8 +65,9 @@ export function carrierBatchSelection(plan: CarrierPlan | null, action: CarrierB
   if ("charges" in action) {
     for (const { key, label } of accessorials) {
       const units = action.charges[key];
-      const total = Number(quantities[key]) + units;
-      if (!Number.isInteger(units) || units < 0 || !Number.isInteger(total) || total > 999) {
+      const total = key === "chassisDays" && action.totalChassisDays !== undefined
+        ? action.totalChassisDays : Number(quantities[key]) + units;
+      if (!Number.isInteger(units) || units < 0 || !Number.isInteger(total) || total < 0 || total > 999) {
         throw Error(`${label} must be a whole number. A container can have up to 999 units per charge.`);
       }
       quantities[key] = String(total);
