@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import { parseQuantities, parseRateAmount } from "@/lib/warehouse/outbound/carrier-rates";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
+import { clearDallasCarrier } from "@/lib/dray/dallas-linked-order";
+
 export const runtime = "nodejs";
 function database() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -25,7 +27,7 @@ function validSite(terminal: string, siteCode: string) {
   return CHECKIN_SITES.some((site) => site.terminal === terminal && site.siteCode === siteCode && site.materials.includes("cotton"));
 }
 async function findBooking(id: string, terminal: string, siteCode: string) {
-  const { data, error } = await database().from("cotton_outbound_bookings").select("status")
+  const { data, error } = await database().from("cotton_outbound_bookings").select("status,booking_number")
     .eq("id", id).eq("terminal", terminal).eq("site_code", siteCode).maybeSingle();
   if (error) throw error;
   return data;
@@ -48,11 +50,14 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     if (!booking)
       return NextResponse.json({ ok: false, error: "Booking not found at this warehouse" }, { status: 404 });
     const { data: current, error: currentError } = await database().from("cotton_outbound_containers")
-      .select("split_transfer_id,carrier_plan,sequence_no").eq("id", containerId).eq("booking_id", id).maybeSingle();
+      .select("split_transfer_id,carrier_plan,sequence_no,booking_line_id,updated_at").eq("id", containerId).eq("booking_id", id).maybeSingle();
     if (currentError) throw currentError;
     if (!current) return NextResponse.json({ ok: false, error: "Container not found" }, { status: 404 });
     if (current.split_transfer_id) return NextResponse.json({ ok: false, error: "This mark was split to another booking. Its history row is locked." }, { status: 409 });
-    const bookingLineId = body?.bookingLineId ? String(body.bookingLineId) : null;
+    if (Date.parse(current.updated_at) !== Date.parse(expectedUpdatedAt))
+      return NextResponse.json({ ok: false, error: "This container changed in another browser. Reload and review it." }, { status: 409 });
+    const unassignDallas = terminal === "DAL" && body.carrierPlan === null;
+    const bookingLineId = unassignDallas ? null : body?.bookingLineId ? String(body.bookingLineId) : null;
     if (bookingLineId) {
       if (!/^[0-9a-f-]{36}$/i.test(bookingLineId)) return NextResponse.json({ ok: false, error: "Invalid mark assignment" }, { status: 400 });
       const { data: line, error: lineError } = await database().from("cotton_outbound_booking_lines")
@@ -107,6 +112,24 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
     }
+    if (unassignDallas) {
+      const db = database();
+      if (current.booking_line_id) {
+        const { data: mark, error: markError } = await db.from("cotton_outbound_booking_lines")
+          .select("line_status").eq("booking_id", id).eq("id", current.booking_line_id).maybeSingle();
+        if (markError) throw markError;
+        if (mark?.line_status !== "active")
+          return NextResponse.json({ ok: false, error: "Only active marks can be unassigned." }, { status: 409 });
+      }
+      const { data: link, error: linkError } = await db.from("dallas_dray_import_loads")
+        .select("order_id,blnum,payload,state").eq("booking_id", id).eq("sequence_no", current.sequence_no).maybeSingle();
+      if (linkError) throw linkError;
+      if (link && link.state !== "pending") {
+        if (link.state !== "verified" || !link.order_id)
+          return NextResponse.json({ ok: false, error: "Verify the linked McLeod order before unassigning this load." }, { status: 409 });
+        await clearDallasCarrier(link.order_id, booking.booking_number, link, current.carrier_plan?.rate.carrier_id);
+      }
+    }
     const { data, error } = await database().from("cotton_outbound_containers").update(values)
       .eq("id", containerId).eq("booking_id", id).eq("updated_at", expectedUpdatedAt).is("split_transfer_id", null)
       .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,carrier_plan").maybeSingle();
@@ -114,7 +137,9 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
       const duplicate = error.code === "23505";
       return NextResponse.json({ ok: false, error: duplicate ? "That container number is already on this booking." : error.message }, { status: duplicate ? 409 : 400 });
     }
-    if (!data) return NextResponse.json({ ok: false, error: "This container changed in another browser. Reload and review it." }, { status: 409 });
+    if (!data) return NextResponse.json({ ok: false, error: unassignDallas
+      ? "This load changed while unassigning. Reload the booking and review the carrier in McLeod."
+      : "This container changed in another browser. Reload and review it." }, { status: 409 });
     return NextResponse.json({ ok: true, container: data });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save container" }, { status: 500 });

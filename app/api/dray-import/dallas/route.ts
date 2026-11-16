@@ -16,6 +16,7 @@ import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
 import { mcleodOrderStops } from "@/lib/inbound/checkin/yard-stop";
+import { readLinkedDallasOrder } from "@/lib/dray/dallas-linked-order";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -197,22 +198,7 @@ async function syncBookingDetails(input: {
     .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
   if (slot.error || !slot.data) throw Error("The linked booking load could not be found.");
   const { read, write } = vendor(!apply);
-  const path = `/orders/${input.orderId}`;
-  async function readLinkedOrder() {
-    const order = await read(path);
-    if (String(order?.id) !== input.orderId || order.revenue_code_id !== "DDRAY" ||
-        order.customer_id !== load.data!.payload.customer_id ||
-        (String(order.blnum ?? "").trim().split(/\s+/)[0] !== load.data!.blnum &&
-          String(order.booking_no_sucm ?? "").trim() !== saved!.booking_number) ||
-        (order.booking_no_sucm && String(order.booking_no_sucm).trim() !== saved!.booking_number) ||
-        [order.status, order.__statusDescr].some(status => /^(V|VOID|VOIDED|CANCELED|CANCELLED)$/i.test(String(status ?? "").trim())))
-      throw Error("McLeod order identity could not be verified.");
-    const stops = mcleodOrderStops(order);
-    if (!load.data!.payload.stops.every((stop: { stop_type: string; location_id: string }) =>
-      stops.some(actual => actual.stop_type === stop.stop_type && actual.location_id === stop.location_id)))
-      throw Error("McLeod pickup and delivery could not be verified.");
-    return order;
-  }
+  const readLinkedOrder = () => readLinkedDallasOrder(read, input.orderId, saved.booking_number, load.data!);
   const current = await readLinkedOrder();
   if (input.action.endsWith("-carrier") || ["apply-extras", "apply-billing"].includes(input.action)) {
     const plan = slot.data.carrier_plan as CarrierPlan | null | undefined;

@@ -1,0 +1,112 @@
+"use client";
+
+import { useState } from "react";
+
+type PayLine = { code: string | null; description: string; amount: number | null };
+type CarrierReview = { token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
+  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; missingBilling: PayLine[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; missingExtras: PayLine[]; changed: boolean };
+const money = (amount: number | null) => amount == null ? "Unavailable" :
+  amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
+  lines.map(line => [line.code, line.description, money(line.amount)].filter(Boolean).join(" · ")).join(", ") : "None";
+
+export default function DallasLoadSync({ bookingId, orderId, disabled }: { bookingId: string; orderId: string; disabled: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [bolt, setBolt] = useState(false);
+  const [review, setReview] = useState<{ token: string; changes: { field: string; before: string; after: string }[] } | null>(null);
+  const [carrierReview, setCarrierReview] = useState<CarrierReview | null>(null);
+  const [fields, setFields] = useState<string[]>([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function sync(apply: boolean, carrier = false, extraAction?: "extras" | "billing") {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setCarrierReview(null);
+    setReview(null);
+    try {
+      const response = await fetch("/api/dray-import/dallas", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: extraAction ? `apply-${extraAction}` : `${apply ? "apply" : "preview"}-${carrier ? "carrier" : "details"}`,
+          bookingId, orderId, boltSealsRequired: bolt, token: carrier ? carrierReview?.token : review?.token, fields }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || "Booking details sync failed.");
+      if (carrier) {
+        if (extraAction === "billing") setMessage(result.verified ? `Verified customer charges in McLeod. Bill total: ${money(Number(result.total))}.` :
+          `Customer charge read-back could not verify. ${result.differences.join(". ")}. Check the order in McLeod before retrying.`);
+        else if (extraAction === "extras") setMessage(result.verified ? "Verified Other Carrier Pay in McLeod." : "Extra pay did not verify. Preview again before retrying.");
+        else if (apply) setMessage(result.verified ? `Verified carrier payee and base pay on SCM order ${orderId}.` :
+          "Carrier payee or base pay did not verify. Preview again before applying.");
+        else setCarrierReview(result);
+      } else if (apply) {
+        setReview(null);
+        setMessage(result.verified ? `Verified selected booking details on SCM order ${orderId}.` :
+          `Read-back did not verify: ${result.differences.join(", ")}. Preview again before applying.`);
+      } else {
+        setReview(result);
+        setFields(result.changes.filter((change: { before: string }) => !change.before).map((change: { field: string }) => change.field));
+      }
+    } catch (cause) {
+      if (apply) setReview(null);
+      setError(cause instanceof Error ? cause.message : "Booking details sync failed.");
+    } finally { setBusy(false); }
+  }
+
+  return <section aria-label={`McLeod sync for SCM order ${orderId}`} className="booking-load-sync">
+    <strong>SCM order {orderId}</strong>{" "}
+    <fieldset disabled={busy || disabled} style={{ border: 0, margin: 0, padding: 0 }}>
+      <label><input type="checkbox" disabled={busy} checked={bolt} onChange={event => {
+        setBolt(event.target.checked); setReview(null);
+      }} /> Bolt seals required</label>{" "}
+      <button type="button" className="booking-charge-button" disabled={!orderId || busy} onClick={() => void sync(false)}>Preview booking details</button>
+      <button type="button" className="booking-charge-button" disabled={!orderId || busy}
+        onClick={() => void sync(false, true)}>Preview carrier and pay</button>
+      {carrierReview && <section aria-label="Carrier and pay comparison">
+        {carrierReview.blockers.map(blocker => <p key={blocker} role="status">{blocker}</p>)}
+        <button type="button" className="booking-charge-button" disabled={busy || !carrierReview.changed || !!carrierReview.blockers.length}
+          onClick={() => void sync(true, true)}>Apply carrier payee and base pay</button>
+        <h4>Other Carrier Pay</h4>
+        {carrierReview.extrasBlockers.map(blocker => <p key={blocker}>{blocker}</p>)}
+        <button type="button" className="booking-charge-button" disabled={busy || !!carrierReview.extrasBlockers.length || !carrierReview.missingExtras.length}
+          onClick={() => void sync(true, true, "extras")}>Send missing Other Carrier Pay ({carrierReview.missingExtras.length})</button>
+        <h4>Customer billing</h4>
+        {carrierReview.billingBlockers.map(blocker => <p key={blocker}>{blocker}</p>)}
+        <button type="button" className="booking-charge-button"
+          disabled={busy || !!carrierReview.billingBlockers.length || !carrierReview.missingBilling.length}
+          onClick={() => void sync(true, true, "billing")}>Send missing customer charges ({carrierReview.missingBilling.length})</button>
+        <div className="booking-charge-table"><table>
+          <thead><tr><th>Field</th><th>McLeod</th><th>Platform</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Carrier payee</th><td>{carrierReview.currentPayee || "Blank"}</td><td>{carrierReview.carrier}</td></tr>
+            <tr><th scope="row">Dispatched carrier</th><td>{carrierReview.assignedCarrier || "Blank"}</td><td>Review in McLeod</td></tr>
+            <tr><th scope="row">Base carrier pay</th><td>{money(carrierReview.currentPay)}</td><td>{money(carrierReview.pay)}</td></tr>
+            <tr><th scope="row">Customer charges</th><td>{payLines(carrierReview.billed)}</td><td>{payLines(carrierReview.proposedBilling)}</td></tr>
+            <tr><th scope="row">Other Carrier Pay</th><td>{payLines(carrierReview.otherPay)}</td><td>{payLines(carrierReview.proposedExtras)}</td></tr>
+          </tbody>
+        </table></div>
+      </section>}
+      {review && (review.changes.length ? <>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, margin: "12px 0" }}>
+          <button type="button" className="booking-charge-button" style={{ background: "#285647", color: "#f5faf7", borderColor: "#81a797" }}
+            disabled={busy || !fields.length} onClick={() => void sync(true)}>
+            {busy ? "Applying…" : "Apply selected details"}
+          </button>
+          <span>{fields.length ? `${fields.length} selected · SCM order ${orderId}` :
+            "Select the fields below to enable Apply."}</span>
+        </div>
+        <div className="booking-charge-table"><table>
+          <thead><tr><th>Apply</th><th>McLeod field</th><th>Current</th><th>Proposed</th></tr></thead>
+          <tbody>{review.changes.map(change => <tr key={change.field}>
+            <td><input type="checkbox" aria-label={`Apply ${change.field}`} disabled={busy} checked={fields.includes(change.field)}
+              onChange={event => setFields(event.target.checked ? [...fields, change.field] : fields.filter(field => field !== change.field))} /></td>
+            <th scope="row">{change.field}</th><td>{change.before || "Blank"}</td><td>{change.after}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </> : <p role="status">The booking details already match.</p>)}
+      {message && <p role="status">{message}</p>}
+    </fieldset>
+    {error && <p role="alert">{error}</p>}
+  </section>;
+}

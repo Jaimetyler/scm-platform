@@ -77,11 +77,12 @@ export function vendor(readOnly = false): Vendor {
         "Dray creation and rating are disabled in this environment.",
       );
     const otherPay = /^\/movements\/[A-Za-z0-9_-]+\/otherPay$/.test(path);
+    const clearCarrier = /^\/carrierDispatch\/clearCarrier\/[A-Za-z0-9_-]+\?reason=Outbound\+load\+plan\+unassignment$/.test(path);
     // Read-only credentials are never passed to a write endpoint.
     if (
       isRead
         ? !otherPay && !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
-        : !otherPay && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
+        : !otherPay && !clearCarrier && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
             path,
           )
     )
@@ -90,7 +91,7 @@ export function vendor(readOnly = false): Vendor {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: (!isRead && otherPay) || path.startsWith("/carrierDispatch/setPay/")
+        Accept: (!isRead && (otherPay || clearCarrier)) || path.startsWith("/carrierDispatch/setPay/")
           ? "text/plain, application/json"
           : "application/json",
         "Content-Type": "application/json",
@@ -102,7 +103,7 @@ export function vendor(readOnly = false): Vendor {
     const text = await r.text();
     if (!r.ok)
       throw new Error(`McLeod HTTP ${r.status}: ${text.slice(0, 350)}`);
-    if ((!isRead && otherPay) || path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
+    if ((!isRead && (otherPay || clearCarrier)) || path.startsWith("/carrierDispatch/setPay/")) return { raw: text };
     try {
       return JSON.parse(text);
     } catch {
