@@ -284,7 +284,8 @@ async function syncBookingDetails(input: {
   function prepareSchedules() {
     const issues: string[] = [];
     if (!hasBookingDetails) return { stopUpdates: [], issues };
-    const schedules = { sched_arrive_early: saved.erd!, sched_arrive_late: saved.cutoff!.replace(" ", "T") };
+    const erd = `${saved.erd}T00:00:00`;
+    const cutoff = saved.cutoff!.replace(" ", "T");
     const stopDefinitions = load.data!.payload.stops as { stop_type: string; location_id: string }[];
     if (saved.erd! > saved.cutoff!.slice(0, 10))
       return { stopUpdates: [], issues: ["The cutoff must be on or after the ERD."] };
@@ -300,6 +301,7 @@ async function syncBookingDetails(input: {
         issues.push(`${label} stop could not be uniquely verified in McLeod.`);
         return [];
       }
+      const schedules = { sched_arrive_early: erd, sched_arrive_late: definition.stop_type === "PU" ? erd : cutoff };
       const changes = Object.entries(schedules).flatMap(([field, after]) => {
         if (matchesDallasMcLeodDetailDate(stop[field], after)) return [];
         const before = String(stop[field] ?? "").trim();
@@ -319,6 +321,12 @@ async function syncBookingDetails(input: {
       }
       return [{ stop, label, changes }];
     });
+    const delivery = stopUpdates.find(update => update.stop.stop_type === "SO");
+    const deliveryStart = delivery?.changes.find(change => change.field === "sched_arrive_early");
+    if (deliveryStart?.before && stagedDallasLocalTime(deliveryStart.before).replace(" ", "T").slice(0, 19) < erd) {
+      // When moving both stops forward, McLeod validates pickup against the existing delivery window.
+      return { stopUpdates: [delivery!, ...stopUpdates.filter(update => update !== delivery)], issues };
+    }
     return { stopUpdates, issues };
   }
 
