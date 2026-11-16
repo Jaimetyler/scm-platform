@@ -50,7 +50,7 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     if (request.headers.get("content-type")?.startsWith("application/json")) {
       const input = await request.json();
-      if (input.action === "preview-details" || input.action === "apply-details" || input.action === "preview-carrier" || input.action === "apply-carrier")
+      if (["preview-details", "apply-details", "preview-carrier", "apply-carrier", "preview-load", "apply-load"].includes(input.action))
         return await syncBookingDetails(input);
       if (input.action === "create-orders" || input.action === "import-status") {
         const id = String(input.bookingId ?? "");
@@ -186,7 +186,8 @@ async function syncBookingDetails(input: {
 }) {
   if (!/^[a-f0-9-]{36}$/i.test(input.bookingId) || !/^[A-Za-z0-9_-]{1,60}$/.test(input.orderId))
     throw Error("Choose a verified SCM order.");
-  const apply = ["apply-details", "apply-carrier"].includes(input.action);
+  const apply = ["apply-details", "apply-carrier", "apply-load"].includes(input.action);
+  const unified = input.action.endsWith("-load");
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
@@ -204,8 +205,86 @@ async function syncBookingDetails(input: {
   const { read, write } = vendor(!apply);
   const readLinkedOrder = () => readLinkedDallasOrder(read, input.orderId, saved.booking_number, load.data!);
   const current = await readLinkedOrder();
-  if (input.action.endsWith("-carrier")) {
-    const plan = slot.data.carrier_plan as CarrierPlan | null | undefined;
+  const headers = { "Cache-Control": "private, no-store" };
+  async function prepareDetails() {
+    const markRow = slot.data!.booking_line_id ? await db.from("cotton_outbound_booking_lines")
+      .select("mark,line_status").eq("booking_id", input.bookingId).eq("id", slot.data!.booking_line_id).maybeSingle() : null;
+    if (markRow && (markRow.error || !markRow.data)) throw Error("Could not verify the saved mark.");
+    const mark = markRow?.data?.line_status === "active" ? String(markRow.data.mark ?? "").trim() : "";
+    const container = String(slot.data!.container_number ?? "").trim().toUpperCase();
+    const bookingFields = dallasBookingFields(saved!.booking_number, saved!.erd!, saved!.cutoff!.replace(" ", "T"), {
+      bookId: saved!.scm_file_number!, steamshipLine: saved!.steamship_line, docCutoff: saved!.doc_cutoff?.replace(" ", "T"),
+    });
+    const currentComment = String(current.planning_comment ?? "").trim();
+    const requiredComment = withRequiredCottonBoltSeals(currentComment);
+    const expected = { ...bookingFields,
+      ...(currentComment && (unified || currentComment !== requiredComment) ? { planning_comment: requiredComment } : {}), ...(mark ? { blnum: mark } : {}),
+      ...(/^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
+    const matches = (field: string, actual: unknown, value: string) =>
+      field === "cutoff_date" || field === "doc_cutoff_date"
+        ? matchesDallasImportDate(actual, value) : String(actual ?? "").trim() === value;
+    const changes = Object.entries(expected).filter(([field, value]) => !matches(field, current[field], value))
+      .map(([field, value]) => ({ field, before: String(current[field] ?? "").trim(), after: value,
+        required: field === "planning_comment" && currentComment !== requiredComment }));
+    async function sendDetails(selected: typeof changes) {
+      if (selected.some(change => change.field === "blnum") &&
+          String(current.booking_no_sucm ?? "").trim() !== saved!.booking_number &&
+          !selected.some(change => change.field === "booking_no_sucm"))
+        throw Error("Select the booking number together with the mark to preserve the McLeod link.");
+      const fresh = await readLinkedOrder();
+      if (selected.some(change => String(fresh[change.field] ?? "").trim() !== change.before))
+        throw Error("McLeod booking details changed during sync. Preview again.");
+      await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
+        ...Object.fromEntries(selected.map(change => [change.field, change.after])) });
+      const verified = await readLinkedOrder();
+      const differences = selected.filter(change => !matches(change.field, verified[change.field], change.after));
+      return differences.map(change => change.field);
+    }
+    return { changes, sendDetails };
+  }
+  const details = unified || input.action.endsWith("-details") ? await prepareDetails() : null;
+  const detailBlockers = unified && current.status !== "A" && details?.changes.length
+    ? ["McLeod must show the order as available to sync booking details."] : [];
+  const detailChanges = unified ? details!.changes : [];
+  const canSendDetails = detailChanges.length > 0 && !detailBlockers.length;
+  const plan = slot.data.carrier_plan as CarrierPlan | null | undefined;
+
+  async function sendUnifiedDetails() {
+    const differences = await details!.sendDetails(detailChanges);
+    if (differences.length) throw Error(`McLeod did not verify ${differences.join(", ")}. Preview again before applying.`);
+  }
+
+  async function verifyLoadVersion() {
+    const { data: active, error } = await db.from("cotton_outbound_containers").select("updated_at")
+      .eq("booking_id", input.bookingId).eq("sequence_no", load.data!.sequence_no).is("split_transfer_id", null).maybeSingle();
+    if (error || active?.updated_at !== slot.data!.updated_at)
+      throw Error("The platform load changed during sync. Preview the differences again.");
+  }
+
+  function lockLoad() {
+    return lockDallasBilling(db, input.bookingId, { ...load.data!, order_id: input.orderId });
+  }
+
+  if (unified && !plan) {
+    const token = hash([input.bookingId, input.orderId, slot.data.updated_at, current.status, detailChanges]);
+    if (!apply) return NextResponse.json({ token, detailChanges, detailBlockers, canSendDetails,
+      canSendPay: false, canSendExtras: false, canSendBilling: false, fuelChanges: [],
+      blockers: [], extrasBlockers: [], billingBlockers: [], carrier: null }, { headers });
+    if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
+    if (!canSendDetails) return NextResponse.json({ applied: [], issues: detailBlockers }, { headers });
+    const history = await lockLoad();
+    try {
+      await verifyLoadVersion();
+      if (history.receipt?.restoringFromTotal !== undefined)
+        throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
+      await sendUnifiedDetails();
+      return NextResponse.json({ applied: ["Booking details"], issues: [] }, { headers });
+    } finally {
+      await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
+    }
+  }
+
+  if (unified || input.action.endsWith("-carrier")) {
     if (!plan) throw Error("Save a carrier assignment on this load first.");
     const carrier = plan.rate.carrier_id.trim().toUpperCase();
     const lines = carrierPlanLines(plan);
@@ -291,15 +370,14 @@ async function syncBookingDetails(input: {
     const movementState = [movement.id, movement.status, assignedCarrier, currentPayee, movement.override_type,
       movement.override_units, movement.override_pay_rate, movement.override_paye_rate, movement.override_pay_amt];
     const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movementState, current.status, carrier, pay,
-      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits, current.order_type_id, fuelCorrection]);
-    const headers = { "Cache-Control": "private, no-store" };
+      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits, current.order_type_id, fuelCorrection, detailChanges]);
     const extrasBlockers = [...blockers,
       ...(proposedExtras.length && !otherPay ? [otherPayIssue] : []),
     ];
     const canSendPay = changed && blockers.length === 0;
     const canSendExtras = extraChanges.length > 0 && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
     const canSendBilling = billingChanges.length > 0 && billingBlockers.length === 0;
-    const review = { token, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
+    const review = { token, detailChanges, canSendDetails, detailBlockers, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
       otherPay, proposedExtras, blockers, changed, canSendPay, canSendExtras, canSendBilling };
     if (!apply) return NextResponse.json(review, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
@@ -467,14 +545,13 @@ async function syncBookingDetails(input: {
         return false;
       }
     }
-    const history = await lockDallasBilling(db, input.bookingId, { ...load.data!, order_id: input.orderId });
+    const history = await lockLoad();
     try {
       if (history.receipt?.restoringFromTotal !== undefined)
         throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
-      const { data: active, error } = await db.from("cotton_outbound_containers").select("updated_at")
-        .eq("booking_id", input.bookingId).eq("sequence_no", load.data!.sequence_no).is("split_transfer_id", null).maybeSingle();
-      if (error || active?.updated_at !== slot.data!.updated_at)
-        throw Error("The platform load changed during sync. Preview the differences again.");
+      await verifyLoadVersion();
+      if (canSendDetails) await send("Booking details", sendUnifiedDetails);
+      else issues.push(...detailBlockers);
       let payReady = !changed;
       if (canSendPay) payReady = await send("Carrier payee and base pay", sendBasePay);
       else if (changed) issues.push(...blockers);
@@ -490,38 +567,12 @@ async function syncBookingDetails(input: {
       await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
     }
   }
-  const markRow = slot.data.booking_line_id ? await db.from("cotton_outbound_booking_lines")
-    .select("mark,line_status").eq("booking_id", input.bookingId).eq("id", slot.data.booking_line_id).maybeSingle() : null;
-  if (markRow && (markRow.error || !markRow.data)) throw Error("Could not verify the saved mark.");
-  const mark = markRow?.data?.line_status === "active" ? String(markRow.data.mark ?? "").trim() : "";
-  const container = String(slot.data.container_number ?? "").trim().toUpperCase();
-  const bookingFields = dallasBookingFields(saved.booking_number, saved.erd, saved.cutoff.replace(" ", "T"), {
-    bookId: saved.scm_file_number, steamshipLine: saved.steamship_line, docCutoff: saved.doc_cutoff?.replace(" ", "T"),
-  });
-  const currentComment = String(current.planning_comment ?? "").trim();
-  const requiredComment = withRequiredCottonBoltSeals(currentComment);
-  const expected = { ...bookingFields,
-    ...(currentComment && currentComment !== requiredComment ? { planning_comment: requiredComment } : {}), ...(mark ? { blnum: mark } : {}),
-    ...(/^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
-  const matches = (field: string, actual: unknown, value: string) =>
-    field === "cutoff_date" || field === "doc_cutoff_date"
-      ? matchesDallasImportDate(actual, value) : String(actual ?? "").trim() === value;
-  const changes = Object.entries(expected).filter(([field, value]) => !matches(field, current[field], value))
-    .map(([field, value]) => ({ field, before: String(current[field] ?? "").trim(), after: value,
-      required: field === "planning_comment" && currentComment !== requiredComment }));
+  const { changes, sendDetails } = details!;
   const token = hash([input.bookingId, input.orderId, changes]);
-  const headers = { "Cache-Control": "private, no-store" };
   if (!apply) return NextResponse.json({ changes, token }, { headers });
   if (input.token !== token) throw Error("Booking or McLeod values changed. Preview the order again.");
   const selected = changes.filter(change => input.fields?.includes(change.field) || change.required);
   if (!selected.length) throw Error("Select at least one booking detail to apply.");
-  if (selected.some(change => change.field === "blnum") &&
-      String(current.booking_no_sucm ?? "").trim() !== saved.booking_number &&
-      !selected.some(change => change.field === "booking_no_sucm"))
-    throw Error("Select the booking number together with the mark to preserve the McLeod link.");
-  await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
-    ...Object.fromEntries(selected.map(change => [change.field, change.after])) });
-  const verified = await readLinkedOrder();
-  const differences = selected.filter(change => !matches(change.field, verified[change.field], change.after));
-  return NextResponse.json({ verified: differences.length === 0, differences: differences.map(change => change.field) }, { headers });
+  const differences = await sendDetails(selected);
+  return NextResponse.json({ verified: differences.length === 0, differences }, { headers });
 }

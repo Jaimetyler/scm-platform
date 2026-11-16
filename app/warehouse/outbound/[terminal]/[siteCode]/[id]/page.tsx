@@ -690,10 +690,9 @@ export default function CottonOutboundBookingPage() {
       <DallasBulkSync key={JSON.stringify([id, activeContainers.map(row => [row.id, row.updated_at]), [...selectedContainers].sort(), Object.keys(pending).sort()])} bookingId={id}
         bookingLoads={activeContainers.map(row => ({
           sequence: row.sequence_no, orderId: row.scm_order_number,
-          issue: pending[row.id] ? "Save changes before syncing" : !row.scm_order_number ? "No verified McLeod order" :
-            !row.carrier_plan ? "Assign a carrier before syncing pay and charges" : undefined,
+          issue: pending[row.id] ? "Save changes before syncing" : !row.scm_order_number ? "No verified McLeod order" : undefined,
         }))}
-        selectedOrderIds={selectedRows.flatMap(row => row.scm_order_number && row.carrier_plan ? [row.scm_order_number] : [])}
+        selectedOrderIds={selectedRows.flatMap(row => row.scm_order_number ? [row.scm_order_number] : [])}
         disabled={Boolean(working)} onBusy={setBulkSaving} />}
 
     {mcleodPullError && <p role="alert">{mcleodPullError}</p>}
