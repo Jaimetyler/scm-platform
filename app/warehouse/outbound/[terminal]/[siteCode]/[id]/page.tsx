@@ -18,6 +18,8 @@ import { containerInfoRows, containerInfoText, containerInfoHtml } from "@/lib/w
 import "./booking.css";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import BookingCharges from "./BookingCharges";
+import BookingSyncPreview, { mcleodCurrency } from "./BookingSyncPreview";
+import type { BookingSyncPreview as McLeodPreview } from "@/lib/warehouse/outbound/booking-sync-preview";
 import DallasImportOrders from "./DallasImportOrders";
 import DallasLoadSync from "./DallasLoadSync";
 import DallasOrderPilot from "./DallasOrderPilot";
@@ -64,6 +66,9 @@ export default function CottonOutboundBookingPage() {
   const canWrite = canManage && booking?.status === "draft";
   const carrierEndpoint = `/api/warehouse/outbound/bookings/${id}/carrier-rates`;
   const [syncRowId, setSyncRowId] = useState("");
+  const [mcleodPreview, setMcleodPreview] = useState<McLeodPreview | null>(null);
+  const [pullingMcLeod, setPullingMcLeod] = useState(false);
+  const [mcleodPullError, setMcleodPullError] = useState("");
   const [selectionCount, setSelectionCount] = useState("");
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -476,6 +481,25 @@ export default function CottonOutboundBookingPage() {
   }
   const isDallas = terminal === "DAL";
   const canSyncDallas = isDallas && booking.status === "draft" && canUseBilling(staff);
+  const canPullMcLeod = Boolean(canWrite && isDallas && bookingChargeCustomer(booking.customer));
+  const showMcLeodColumn = canSyncDallas || canPullMcLeod;
+  const mcleodRows = new Map(mcleodPreview?.rows.map(row => [row.id, row]));
+
+  async function pullMcLeod() {
+    setPullingMcLeod(true);
+    setMcleodPreview(null);
+    setMcleodPullError("");
+    try {
+      const response = await fetch(`/api/warehouse/outbound/bookings/${id}/charges?view=booking-preview`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not pull McLeod charges.");
+      setMcleodPreview(result);
+    } catch (cause) {
+      setMcleodPullError(cause instanceof Error ? cause.message : "Could not pull McLeod charges.");
+    } finally {
+      setPullingMcLeod(false);
+    }
+  }
   const selectedToUnassign = isDallas ? selectedRows.filter(row => row.carrier_plan || (row.scm_order_number && row.booking_line_id)) : [];
 
   async function applyCarrierBatch(action: CarrierBatchAction | null) {
@@ -617,10 +641,6 @@ export default function CottonOutboundBookingPage() {
 
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}
     {message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
-    {canSyncDallas && <DallasImportOrders key={id} bookingId={id} onCreated={() => load(pendingEquipment())} />}
-    {canWrite && isDallas && bookingChargeCustomer(booking.customer) &&
-      <BookingCharges key={id} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
-
     {rollMode ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
       <strong>Split / roll {selectedLines.size} selected mark{selectedLines.size === 1 ? "" : "s"}</strong>
       <p style={{ color: "#cbd7d0", fontSize: 13, margin: "8px 0" }}>Select marks below, enter the destination booking, then move them. Adjust each selected quantity for a partial split. Marks with equipment entered must have that equipment cleared first.</p>
@@ -652,12 +672,17 @@ export default function CottonOutboundBookingPage() {
     </form>}
     {selectedToUnassign.length > 0 && <button type="button" style={{ ...button, margin: "8px 0" }}
       disabled={Boolean(working)} onClick={() => void applyCarrierBatch(null)}>Unassign selected ({selectedToUnassign.length})</button>}
+    {mcleodPullError && <p role="alert">{mcleodPullError}</p>}
     <div style={{ overflowX: "auto" }}><table className="carrier-load-grid" style={{ width: "100%", minWidth: canManage ? 1250 : 1020, borderCollapse: "collapse" }}><thead><tr>
       {selectionEnabled && <th style={th} scope="col"><input type="checkbox" aria-label="Select all visible containers"
         checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
         disabled={!selectableRows.length || Boolean(working) || bulkSaving}
         onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
       {[...(rollMode ? ['Select'] : []), '#', ...(terminal === 'DAL' ? ['SCM order number'] : []), 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+      {showMcLeodColumn && <th style={th} scope="col">McLeod
+        {canPullMcLeod && <div><button type="button" className="booking-charge-button" disabled={pullingMcLeod || Boolean(working)}
+          onClick={() => void pullMcLeod()}>{pullingMcLeod ? "Pulling…" : mcleodPreview ? "Refresh McLeod charges" : "Pull McLeod charges"}</button></div>}
+      </th>}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#bbc9c2" }}>
         {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>{terminal === "DAL" && <td style={td}>—</td>}
@@ -665,6 +690,7 @@ export default function CottonOutboundBookingPage() {
         <td style={td}>{row.split?.bales ?? "—"}</td>
         <td style={td} colSpan={canManage ? 7 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
         <td style={{ ...td, fontSize: 12, fontWeight: 600 }}>Locked</td>
+        {showMcLeodColumn && <td style={td}>—</td>}
       </tr>;
       const draft = drafts[row.id] ?? { bookingLineId: "", containerNumber: "", sealNumber: "", chassisNumber: "", notes: "" };
       const line = row.booking_line_id ? lineById.get(row.booking_line_id) : null;
@@ -673,7 +699,9 @@ export default function CottonOutboundBookingPage() {
         draft.chassisNumber === (row.chassis_number ?? "") && draft.notes === (row.notes ?? "");
       const hasEquipment = Boolean(draft.containerNumber || draft.sealNumber || draft.chassisNumber || draft.notes || row.carrier_plan);
       const totals = row.carrier_plan ? carrierPlanTotals(row.carrier_plan, customerBilling) : null;
-      const syncOpen = canSyncDallas && row.scm_order_number && syncRowId === row.id;
+      const mcleodRow = mcleodRows.get(row.id);
+      const canSend = canSyncDallas && Boolean(row.scm_order_number);
+      const syncOpen = syncRowId === row.id && (canSend || Boolean(mcleodRow));
       return <Fragment key={row.id}><tr data-selected={selectionEnabled && selectedContainers.has(row.id)} style={{ background: line && line.available_bales > 0 ? "rgba(34,197,94,.035)" : undefined }}>
         {selectionEnabled && <td style={td}><input type="checkbox" aria-label={`Select container ${row.container_number ?? row.sequence_no}`}
           checked={selectableIds.has(row.id) && selectedContainers.has(row.id)} disabled={!selectableIds.has(row.id) || Boolean(working) || bulkSaving}
@@ -706,9 +734,6 @@ export default function CottonOutboundBookingPage() {
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           <div className="booking-row-controls">
-          {canSyncDallas && row.scm_order_number && <button type="button" className="carrier-rate-link"
-            aria-expanded={Boolean(syncOpen)} disabled={Boolean(working) || !saved}
-            onClick={() => setSyncRowId(syncOpen ? "" : row.id)}>{syncOpen ? "Hide McLeod sync" : "McLeod sync"}</button>}
           {canManage && canWrite && row.carrier_plan && !locked && <button type="button" className="carrier-charge-plus"
             aria-label={`Edit charges for load ${row.sequence_no}`} disabled={Boolean(working) || bulkSaving}
             onClick={() => { setChargesOnly(true); setDetailId(row.id); }}>+</button>}
@@ -721,12 +746,35 @@ export default function CottonOutboundBookingPage() {
             {line.load_source === "source_load" && <button type="button" style={{ ...button, padding: "5px 7px", fontSize: 11 }} disabled={!canWrite || Boolean(working)} onClick={() => chooseMarkAction(line, "warehouse")}>Convert to warehouse load</button>}
           </div></details>}
           </div>
-        </td></tr>
-        {syncOpen && <tr><td colSpan={(selectionEnabled || rollMode ? 1 : 0) + (canManage ? 12 : 9)} style={td}>
-          <DallasLoadSync bookingId={id} orderId={row.scm_order_number!} disabled={Boolean(working) || !saved} />
+        </td>
+        {showMcLeodColumn && <td style={td}>
+          {mcleodRow?.order && <>
+            <strong>Bill {mcleodCurrency(mcleodRow.order.total)}</strong>
+            <small style={{ display: "block" }}>Base pay {mcleodCurrency(mcleodRow.order.basePay)}</small>
+            {mcleodRow.order.carrier && <small style={{ display: "block" }}>{mcleodRow.order.carrier}</small>}
+            {!row.scm_order_number && <small style={{ display: "block" }}>SCM order {mcleodRow.order.id}</small>}
+          </>}
+          {mcleodRow?.issue && <small style={{ display: "block" }}>{mcleodRow.issue}</small>}
+          {(canSend || mcleodRow?.order) && <button type="button" className="carrier-rate-link"
+            aria-expanded={Boolean(syncOpen)} disabled={Boolean(working) || !saved}
+            onClick={() => setSyncRowId(syncOpen ? "" : row.id)}>{syncOpen ? "Hide details" : canSend ? "Sync / review" : "Review charges"}</button>}
+          {!canSend && !mcleodRow && "—"}
+        </td>}
+        </tr>
+        {syncOpen && <tr><td colSpan={(selectionEnabled || rollMode ? 1 : 0) + (canManage ? 13 : 10)} style={td}>
+          {mcleodRow && <BookingSyncPreview row={mcleodRow} />}
+          {canSend && <DallasLoadSync bookingId={id} orderId={row.scm_order_number!} disabled={Boolean(working) || !saved} />}
         </td></tr>}
       </Fragment>;
     })}</tbody></table></div>
+    {canSyncDallas && <DallasImportOrders key={`import-${id}`} bookingId={id} onCreated={() => load(pendingEquipment())} />}
+    {canPullMcLeod && <BookingCharges key={`approval-${id}`} bookingId={id} bookingNumber={booking.booking_number} customerReference={booking.customer_reference} />}
+    {!!mcleodPreview?.unmatchedOrders.length && <details>
+      <summary>{mcleodPreview.unmatchedOrders.length} unmatched McLeod orders</summary>
+      <ul>{mcleodPreview.unmatchedOrders.map(order => <li key={order.id}>
+        {[order.id, order.blnum, order.container, order.carrier, mcleodCurrency(order.total)].filter(Boolean).join(" · ")}
+      </li>)}</ul>
+    </details>}
     {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())} />}
     </PlatformPanel>
