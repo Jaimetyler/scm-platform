@@ -21,6 +21,30 @@ export async function readLinkedDallasOrder(read: ReadOrder, orderId: string, bo
   return order;
 }
 
+export async function prepareDallasBlnumReset(orderId: string, bookingNumber: string, link: DallasLink) {
+  if (!/^[A-Z0-9][A-Z0-9._/-]{0,39}-[1-9]\d{0,2}$/.test(link.blnum))
+    throw Error("The original Dallas load reference could not be verified.");
+  const { read, write } = vendor(false);
+  const readOrder = () => readLinkedDallasOrder(read, orderId, bookingNumber, link);
+  const before = await readOrder();
+  const reference = (order: typeof before) => String(order.blnum ?? "").trim();
+  return async () => {
+    const current = await readOrder();
+    if (reference(current) === link.blnum) return;
+    if (reference(current) !== reference(before))
+      throw Error("The McLeod BLNUM changed during unassign. Reload and review the order.");
+    if (current.status !== "A") throw Error("McLeod must show the order as available to reset its BLNUM.");
+    let writeError: unknown;
+    try {
+      await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: orderId, blnum: link.blnum });
+    } catch (error) {
+      writeError = error;
+    }
+    if (reference(await readOrder()) !== link.blnum)
+      throw new Error("McLeod did not verify the original BLNUM. Review the order before retrying.", { cause: writeError });
+  };
+}
+
 export function currentDallasMovement(order: Awaited<ReturnType<typeof readLinkedDallasOrder>>) {
   const id = String(order.curr_movement_id ?? "");
   const matches = Array.isArray(order.movements) ? order.movements.filter(item => String(item?.id) === id) : [];

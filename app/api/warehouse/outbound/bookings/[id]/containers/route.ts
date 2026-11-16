@@ -6,7 +6,7 @@ import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
 import { lockDallasBilling } from "@/lib/dray/dallas-billing-receipt";
 import { restoreDallasCustomerCharges } from "@/lib/dray/dallas-billing-restore";
-import { clearDallasCarrier } from "@/lib/dray/dallas-linked-order";
+import { clearDallasCarrier, prepareDallasBlnumReset } from "@/lib/dray/dallas-linked-order";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -132,9 +132,11 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
         if (link.state !== "verified" || !link.order_id)
           return NextResponse.json({ ok: false, error: "Verify the linked McLeod order before unassigning this load." }, { status: 409 });
         billingLock = await lockDallasBilling(db, id, { ...link, order_id: link.order_id });
+        const resetBlnum = await prepareDallasBlnumReset(link.order_id, booking.booking_number, link);
         await clearDallasCarrier(link.order_id, booking.booking_number, link, current.carrier_plan);
         if (billingLock.receipt)
           await restoreDallasCustomerCharges(link.order_id, booking.booking_number, link, billingLock);
+        await resetBlnum();
         if (billingLock.receipt) await billingLock.record();
       }
     }
