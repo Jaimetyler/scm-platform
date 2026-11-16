@@ -12,8 +12,7 @@ const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : li
 
 export default function DallasLoadSync({ bookingId, orderId, disabled }: { bookingId: string; orderId: string; disabled: boolean }) {
   const [busy, setBusy] = useState(false);
-  const [bolt, setBolt] = useState(false);
-  const [review, setReview] = useState<{ token: string; changes: { field: string; before: string; after: string }[] } | null>(null);
+  const [review, setReview] = useState<{ token: string; changes: { field: string; before: string; after: string; required?: boolean }[] } | null>(null);
   const [carrierReview, setCarrierReview] = useState<CarrierReview | null>(null);
   const [fields, setFields] = useState<string[]>([]);
   const [message, setMessage] = useState("");
@@ -29,7 +28,7 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
       const response = await fetch("/api/dray-import/dallas", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: `${apply ? "apply" : "preview"}-${carrier ? "carrier" : "details"}`,
-          bookingId, orderId, boltSealsRequired: bolt, token: carrier ? carrierReview?.token : review?.token, fields }),
+          bookingId, orderId, token: carrier ? carrierReview?.token : review?.token, fields }),
       });
       const result = await response.json();
       if (!response.ok) throw Error(result.error || "Booking details sync failed.");
@@ -46,7 +45,8 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
           `Read-back did not verify: ${result.differences.join(", ")}. Preview again before applying.`);
       } else {
         setReview(result);
-        setFields(result.changes.filter((change: { before: string }) => !change.before).map((change: { field: string }) => change.field));
+        const changes: NonNullable<typeof review>["changes"] = result.changes;
+        setFields(changes.filter(change => !change.before || change.required).map(change => change.field));
       }
     } catch (cause) {
       if (apply) setReview(null);
@@ -57,9 +57,6 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
   return <section aria-label={`McLeod sync for SCM order ${orderId}`} className="booking-load-sync">
     <strong>SCM order {orderId}</strong>{" "}
     <fieldset disabled={busy || disabled} style={{ border: 0, margin: 0, padding: 0 }}>
-      <label><input type="checkbox" disabled={busy} checked={bolt} onChange={event => {
-        setBolt(event.target.checked); setReview(null);
-      }} /> Bolt seals required</label>{" "}
       <button type="button" className="booking-charge-button" disabled={!orderId || busy} onClick={() => void sync(false)}>Preview booking details</button>
       <button type="button" className="booking-charge-button" disabled={!orderId || busy}
         onClick={() => void sync(false, true)}>Preview pay and charges</button>
@@ -93,7 +90,7 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
         <div className="booking-charge-table"><table>
           <thead><tr><th>Apply</th><th>McLeod field</th><th>Current</th><th>Proposed</th></tr></thead>
           <tbody>{review.changes.map(change => <tr key={change.field}>
-            <td><input type="checkbox" aria-label={`Apply ${change.field}`} disabled={busy} checked={fields.includes(change.field)}
+            <td><input type="checkbox" aria-label={`Apply ${change.field}`} disabled={busy || change.required} checked={fields.includes(change.field)}
               onChange={event => setFields(event.target.checked ? [...fields, change.field] : fields.filter(field => field !== change.field))} /></td>
             <th scope="row">{change.field}</th><td>{change.before || "Blank"}</td><td>{change.after}</td>
           </tr>)}</tbody>
