@@ -3,16 +3,18 @@ import { vendor } from "./server";
 import { dallasExtraPayToRemove, readDallasExtraPay } from "./dallas-extra-pay";
 import type { CarrierPlan } from "../warehouse/outbound/carrier-rates";
 
-type DallasLink = { blnum: string; payload: { customer_id: string; stops: { stop_type: string; location_id: string }[] } };
+type DallasLink = { blnum: string; payload: { customer_id: string; booking_no_sucm?: string; outboundSyncedBookingNumber?: string; stops: { stop_type: string; location_id: string }[] } };
 type ReadOrder = ReturnType<typeof vendor>["read"];
 
 export async function readLinkedDallasOrder(read: ReadOrder, orderId: string, bookingNumber: string, link: DallasLink) {
   if (!/^[A-Za-z0-9_-]{1,60}$/.test(orderId)) throw Error("Choose a verified SCM order.");
   const order = await read(`/orders/${orderId}`);
   const remoteBooking = String(order?.booking_no_sucm ?? "").trim();
+  const knownBookings = [bookingNumber, link.payload.booking_no_sucm, link.payload.outboundSyncedBookingNumber];
+  const matchesBooking = Boolean(remoteBooking) && knownBookings.includes(remoteBooking);
   const blnum = String(order?.blnum ?? "").trim().split(/\s+/)[0];
   if (String(order?.id) !== orderId || order.revenue_code_id !== "DDRAY" || order.customer_id !== link.payload.customer_id ||
-      (blnum !== link.blnum && remoteBooking !== bookingNumber) || (remoteBooking && remoteBooking !== bookingNumber) ||
+      (blnum !== link.blnum && !matchesBooking) || (remoteBooking && !matchesBooking) ||
       [order.status, order.__statusDescr].some(status => /^(V|VOID|VOIDED|CANCELED|CANCELLED)$/i.test(String(status ?? "").trim())))
     throw Error("McLeod order identity could not be verified.");
   const stops = mcleodOrderStops(order);
@@ -28,20 +30,25 @@ export async function prepareDallasBlnumReset(orderId: string, bookingNumber: st
   const readOrder = () => readLinkedDallasOrder(read, orderId, bookingNumber, link);
   const before = await readOrder();
   const reference = (order: typeof before) => String(order.blnum ?? "").trim();
+  const container = (order: typeof before) => String(order.consignee_refno ?? "").trim();
   return async () => {
     const current = await readOrder();
-    if (reference(current) === link.blnum) return;
-    if (reference(current) !== reference(before))
+    if (reference(current) === link.blnum && !container(current)) return;
+    if (container(current) && container(current) !== container(before))
+      throw Error("The McLeod container changed during unassign. Reload and review the order.");
+    if (reference(current) !== link.blnum && reference(current) !== reference(before))
       throw Error("The McLeod BLNUM changed during unassign. Reload and review the order.");
     if (current.status !== "A") throw Error("McLeod must show the order as available to reset its BLNUM.");
     let writeError: unknown;
     try {
-      await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: orderId, blnum: link.blnum });
+      await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: orderId, blnum: link.blnum,
+        ...(container(current) ? { consignee_refno: "" } : {}) });
     } catch (error) {
       writeError = error;
     }
-    if (reference(await readOrder()) !== link.blnum)
-      throw new Error("McLeod did not verify the original BLNUM. Review the order before retrying.", { cause: writeError });
+    const verified = await readOrder();
+    if (reference(verified) !== link.blnum || container(verified))
+      throw new Error("McLeod did not verify the original BLNUM and cleared container. Review the order before retrying.", { cause: writeError });
   };
 }
 

@@ -192,7 +192,7 @@ async function syncBookingDetails(input: {
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
-    db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line,terminal,site_code,customer,return_location,return_location_code")
+    db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line,terminal,site_code,customer,return_location,return_location_code,updated_at")
       .eq("id", input.bookingId).eq("terminal", "DAL").maybeSingle(),
     db.from("dallas_dray_import_loads").select("blnum,payload,sequence_no").eq("booking_id", input.bookingId)
       .eq("order_id", input.orderId).eq("state", "verified").maybeSingle(),
@@ -232,7 +232,7 @@ async function syncBookingDetails(input: {
       .map(([field, value]) => ({ field, before: String(current[field] ?? "").trim(), after: value,
         required: field === "planning_comment" && currentComment !== requiredComment }));
     async function sendDetails(selected: typeof changes) {
-      if (selected.some(change => change.field === "blnum") &&
+      if (!unified && selected.some(change => change.field === "blnum") &&
           String(current.booking_no_sucm ?? "").trim() !== saved!.booking_number &&
           !selected.some(change => change.field === "booking_no_sucm"))
         throw Error("Select the booking number together with the mark to preserve the McLeod link.");
@@ -274,19 +274,74 @@ async function syncBookingDetails(input: {
 
   if (packageSync) {
     const { changes, sendDetails } = details!;
-    const issues = current.status === "A" || !changes.length ? [] : ["McLeod must show the order as available to update booking details."];
-    const token = hash([input.bookingId, input.orderId, slot.data!.updated_at, saved!.booking_number, current.status, changes]);
-    if (!apply) return NextResponse.json({ token, changes, issues }, { headers });
+    const schedules = { sched_arrive_early: saved.erd!, sched_arrive_late: saved.cutoff!.replace(" ", "T") };
+    const stopDefinitions = load.data.payload.stops as { stop_type: string; location_id: string }[];
+    const issues: string[] = [];
+    if (current.status !== "A") issues.push("McLeod must show the order as available to update booking details.");
+    if (saved.erd! > saved.cutoff!.slice(0, 10)) issues.push("The cutoff must be on or after the ERD.");
+    if (!stopDefinitions.some(stop => stop.stop_type === "PU" && stop.location_id === saved.site_code) ||
+        (saved.return_location_code && !stopDefinitions.some(stop => stop.stop_type === "SO" && stop.location_id === saved.return_location_code)))
+      issues.push("The saved route differs from the linked McLeod order. Review the pickup and return locations before syncing dates.");
+    const stops = mcleodOrderStops(current);
+    const stopUpdates = stopDefinitions.flatMap(definition => {
+      const candidates = stops.filter(stop => stop.stop_type === definition.stop_type && stop.location_id === definition.location_id);
+      const stop = candidates[0];
+      const label = definition.stop_type === "PU" ? "Pickup" : "Delivery";
+      if (candidates.length !== 1 || !/^[A-Za-z0-9_-]{1,60}$/.test(String(stop?.id ?? ""))) {
+        issues.push(`${label} stop could not be uniquely verified in McLeod.`);
+        return [];
+      }
+      const changes = Object.entries(schedules).flatMap(([field, after]) => matchesDallasImportDate(stop[field], after) ? [] :
+        [{ field, label: `${label} scheduled ${field.endsWith("_early") ? "start" : "end"}`, before: String(stop[field] ?? "").trim(), after }]);
+      if (!changes.length) return [];
+      if (stop.actual_arrival || stop.actual_departure || (stop.status && stop.status !== "A")) {
+        issues.push(`${label} already has activity in McLeod. Review that stop before changing its schedule.`);
+        return [];
+      }
+      return [{ stop, label, changes }];
+    });
+    const previewChanges = [...changes, ...stopUpdates.flatMap(update => update.changes.map(({ label, before, after }) =>
+      ({ field: label, before, after })))];
+    const token = hash([input.bookingId, input.orderId, slot.data!.updated_at, saved.updated_at, current.status,
+      previewChanges, stopUpdates.map(({ stop }) => [stop.id, stop.status, stop.actual_arrival, stop.actual_departure])]);
+    if (!apply) return NextResponse.json({ token, changes: previewChanges, issues }, { headers });
     if (token !== input.token) throw Error("Booking or McLeod values changed. Preview again.");
-    if (issues.length || !changes.length) return NextResponse.json({ applied: [], issues }, { headers });
+    if (issues.length || !previewChanges.length) return NextResponse.json({ applied: [], issues }, { headers });
     const history = await lockLoad();
     try {
       await verifyLoadVersion();
       if (history.receipt?.restoringFromTotal !== undefined)
         throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
-      const differences = await sendDetails(changes);
-      return NextResponse.json({ applied: differences.length ? [] : ["Booking details"],
-        issues: differences.length ? [`McLeod did not verify ${differences.join(", ")}. Preview again.`] : [] }, { headers });
+      const active = await db.from("cotton_outbound_bookings").select("updated_at")
+        .eq("id", input.bookingId).eq("status", "draft").maybeSingle();
+      if (active.error || !active.data || active.data.updated_at !== saved.updated_at)
+        throw Error("The saved booking changed during sync. Preview again.");
+      if (changes.length) {
+        const differences = await sendDetails(changes);
+        if (!differences.includes("booking_no_sucm") && changes.some(change => change.field === "booking_no_sucm"))
+          await history.recordBookingNumber(saved.booking_number);
+        if (differences.length) return NextResponse.json({ applied: [], issues: [`McLeod did not verify ${differences.join(", ")}. Preview again.`] }, { headers });
+      }
+      const applied = changes.length ? ["Booking details"] : [];
+      for (const update of stopUpdates) {
+        try {
+          const order = await readLinkedOrder();
+          const fresh = mcleodOrderStops(order).find(stop => stop.id === update.stop.id);
+          if (!fresh || order.status !== "A" || fresh.actual_arrival || fresh.actual_departure ||
+              (fresh.status && fresh.status !== "A") ||
+              update.changes.some(change => String(fresh[change.field] ?? "").trim() !== change.before))
+            throw Error("The McLeod stop changed. Preview again.");
+          await write("/stop/update", { __type: "stop", company_id: "TMS", id: fresh.id,
+            ...Object.fromEntries(update.changes.map(change => [change.field, dallasMcLeodDetailDate(change.after)])) });
+          const verified = mcleodOrderStops(await readLinkedOrder()).find(stop => stop.id === fresh.id);
+          if (!verified || update.changes.some(change => !matchesDallasImportDate(verified[change.field], change.after)))
+            throw Error("McLeod did not verify the new schedule.");
+          applied.push(`${update.label} schedule`);
+        } catch (error) {
+          issues.push(`${update.label} schedule: ${error instanceof Error ? error.message : "Update failed"}`);
+        }
+      }
+      return NextResponse.json({ applied, issues }, { headers });
     } finally {
       await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
     }

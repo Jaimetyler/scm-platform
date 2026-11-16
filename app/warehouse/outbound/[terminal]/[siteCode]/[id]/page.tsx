@@ -124,7 +124,7 @@ export default function CottonOutboundBookingPage() {
   const [replacingPackage, setReplacingPackage] = useState(false);
   const [reviewPackageSync, setReviewPackageSync] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
-  const [details, setDetails] = useState({ scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "", destinationSiteCode: siteCode });
+  const [details, setDetails] = useState({ bookingNumber: "", customerReference: "", scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "", destinationSiteCode: siteCode });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
   const [e2openDocuments, setE2openDocuments] = useState<E2openDocuments | null>(null);
   const [e2openLoading, setE2openLoading] = useState(false);
@@ -222,7 +222,7 @@ export default function CottonOutboundBookingPage() {
       if (!response.ok) throw new Error(result.error);
       const persisted: Container = result.container;
       setContainers((current) => current.map((item) => item.id === row.id ? { ...item, ...persisted } : item));
-      setDrafts((current) => current[row.id] !== draftToSave ? current : {
+      setDrafts((current) => current[row.id] !== draftToSave && !(terminal === "DAL" && carrierPlan === null) ? current : {
         ...current,
         [row.id]: { bookingLineId: persisted.booking_line_id ?? "", containerNumber: persisted.container_number ?? "",
           sealNumber: persisted.seal_number ?? "", chassisNumber: persisted.chassis_number ?? "", notes: persisted.notes ?? "" },
@@ -392,7 +392,7 @@ export default function CottonOutboundBookingPage() {
 
   function editDetails() {
     if (!booking) return;
-    setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
+    setDetails({ bookingNumber: booking.booking_number, customerReference: booking.customer_reference ?? "", scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
       cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "", returnLocation: booking.return_location ?? "", steamshipLine: booking.steamship_line ?? "", destinationSiteCode: siteCode });
     setEditingDetails(true);
     setImportedDateNotes([]);
@@ -410,9 +410,10 @@ export default function CottonOutboundBookingPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
       const source = canReplace ? result.preview : result.booking;
-      if (source.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${source.bookingNumber}. Open that booking to replace its package.`);
-      if (canReplace && source.bookId && booking.scm_file_number && source.bookId !== booking.scm_file_number)
-        throw new Error(`The package file number ${source.bookId} does not match ${booking.scm_file_number}.`);
+      if (!canReplace && source.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${source.bookingNumber}. Open that booking to replace its package.`);
+      if (canReplace && source.bookingNumber !== booking.booking_number &&
+          (!source.bookId || source.bookId !== booking.scm_file_number))
+        throw Error("Match either the booking number or the file number when importing a corrected package. You can edit both numbers in the form.");
       if (canReplace && ["bunge", "olam", "edf"].includes(booking.source_format ?? "") && source.sourceFormat !== booking.source_format)
         throw Error("Use the same Dallas dray package format as the original booking.");
       if (canReplace && ((source.pickupLocation && source.pickupLocation !== siteCode) ||
@@ -421,7 +422,7 @@ export default function CottonOutboundBookingPage() {
       setReplacingPackage(canReplace);
       setReviewPackageSync(false);
       if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.steamshipLine && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
-      setDetails({ scmFileNumber: booking.scm_file_number ?? "", erd: source.erd ?? bookingDateInput(booking.erd),
+      setDetails({ bookingNumber: source.bookingNumber, customerReference: source.customerReference ?? booking.customer_reference ?? "", scmFileNumber: source.bookId || booking.scm_file_number || "", erd: source.erd ?? bookingDateInput(booking.erd),
         docCutoff: source.docCutoff ?? bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
         cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "", returnLocation: canReplace ? booking.return_location ?? "" : source.returnLocation || booking.return_location || "",
         steamshipLine: source.steamshipLine || booking.steamship_line || "", destinationSiteCode: siteCode });
@@ -477,7 +478,7 @@ export default function CottonOutboundBookingPage() {
         return;
       }
       setBooking(result.booking); setEditingDetails(false);
-      if (replacingPackage) setReviewPackageSync(true);
+      if (terminal === "DAL" && canUseBilling(staff) && containers.some(row => row.scm_order_number)) setReviewPackageSync(true);
       setReplacingPackage(false);
       setMessage(replacingPackage ? "Replacement details saved. Preview the linked McLeod orders below." : "Booking details updated.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update booking details"); }
@@ -578,6 +579,8 @@ export default function CottonOutboundBookingPage() {
           <button type="button" disabled={Boolean(working)} onClick={() => void copyContainerInfo()}>Copy Container Info</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={editDetails}>Edit booking details</button>
           <button type="button" disabled={!canWrite || Boolean(working) || editingDetails} onClick={() => requestInput.current?.click()}>{canSyncDallas && containers.some(row => row.scm_order_number) ? "Replace booking package" : "Import booking details"}</button>
+          {canSyncDallas && containers.some(row => row.scm_order_number) && <button type="button"
+            disabled={Boolean(working) || editingDetails} onClick={() => setReviewPackageSync(true)}>Sync booking details only</button>}
           {canManage && (booking.status === "draft" ?
             <button type="button" disabled={Boolean(working) || mcleodSending || editingDetails} onClick={() => void changeBookingStatus("cancelled")}>Delete booking</button>
           : <button type="button" disabled={Boolean(working)} onClick={() => void changeBookingStatus("draft")}>Restore to active bookings</button>)}
@@ -641,6 +644,9 @@ export default function CottonOutboundBookingPage() {
     {editingDetails ? <form onSubmit={(event) => void saveDetails(event)} style={{ marginTop: 16 }}>
       {replacingPackage && <ul aria-label="Replacement booking changes">
         {[
+          ["Booking number", booking.booking_number, details.bookingNumber],
+          ["SCM File # / Book ID", booking.scm_file_number ?? "", details.scmFileNumber],
+          ["Customer reference", booking.customer_reference ?? "", details.customerReference],
           ["ERD", bookingDateInput(booking.erd), details.erd],
           ["Cutoff", bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), details.cutoff],
           ["Doc cutoff", bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false), details.docCutoff],
@@ -655,7 +661,13 @@ export default function CottonOutboundBookingPage() {
           onChange={event => setDetails(current => ({ ...current, destinationSiteCode: event.target.value }))}>
           {locationOptions.map(site => <option key={site.siteCode} value={site.siteCode}>{site.siteName}</option>)}
         </select></label>}
-        <label>SCM File #<input readOnly={replacingPackage} style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
+        {isDallas && <>
+          <label>Booking number<input required style={input} maxLength={80} value={details.bookingNumber}
+            onChange={event => setDetails(current => ({ ...current, bookingNumber: event.target.value }))} /></label>
+          <label>Customer reference<input style={input} maxLength={200} value={details.customerReference}
+            onChange={event => setDetails(current => ({ ...current, customerReference: event.target.value }))} /></label>
+        </>}
+        <label>SCM File #{isDallas ? " / Book ID" : ""}<input style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
         <label>ERD<input type="date" style={input} value={details.erd} onChange={(event) => setDetails((current) => ({ ...current, erd: event.target.value }))} /></label>
         <CutoffInput label="Doc cutoff" value={details.docCutoff} onChange={(value) => setDetails((current) => ({ ...current, docCutoff: value }))} />
         <CutoffInput label="Cutoff" value={details.cutoff} onChange={(value) => setDetails((current) => ({ ...current, cutoff: value }))} />

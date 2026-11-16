@@ -112,6 +112,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     try {
       values = { booking_line_id: bookingLineId, container_number: cleanEquipment(body?.containerNumber, 20), seal_number: cleanEquipment(body?.sealNumber, 40),
         carrier_plan: carrierPlan, chassis_number: cleanEquipment(body?.chassisNumber, 40), notes: cleanNotes(body?.notes), updated_by: user(req) };
+      if (unassignDallas) Object.assign(values, { container_number: null, seal_number: null, chassis_number: null, notes: null });
       if (carrierPlan && !bookingLineId && !hasLinkedOrder && !values.container_number) throw new Error("Keep a mark or container number on a row with a carrier plan.");
     } catch (error) {
       return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Invalid equipment details" }, { status: 400 });
