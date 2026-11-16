@@ -1,3 +1,4 @@
+import { readDallasCustomerCharges } from "../../dray/dallas-customer-extras.ts";
 import { bookingOrderCharges } from "../../dray/booking-charges.ts";
 import { carrierPlanLines, type CarrierPlan, type CustomerBillRates } from "./carrier-rates.ts";
 
@@ -35,8 +36,13 @@ function summarizeOrder(order: Order) {
   const movementId = text(order.warehousePickup?.movement_id ?? order.curr_movement_id);
   const movement = movementId ? movements.find(item => text(item.id) === movementId) :
     movements.length === 1 ? movements[0] : undefined;
+  const customerBill = bookingOrderCharges(order);
+  const baseCents = order.rate_type === "F" && customerBill.rate !== null && customerBill.rateUnits !== null
+    ? Math.round(customerBill.rate * customerBill.rateUnits * 100) : NaN;
   return {
-    ...bookingOrderCharges(order),
+    ...customerBill,
+    billingCharges: readDallasCustomerCharges(order.otherCharges ?? order.other_charges ?? order.otherCharge,
+      baseCents, customerBill.total === null ? NaN : Math.round(customerBill.total * 100)),
     blnum: text(order.blnum),
     container: text(order.consignee_refno),
     carrier: text(movement?.carrier_id || movement?.vendor_id || movement?.override_payee_id),
