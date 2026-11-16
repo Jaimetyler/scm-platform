@@ -569,7 +569,12 @@ export default function CottonOutboundBookingPage() {
         {canWrite && <button type="button" style={{ ...button, borderColor: "#659481", background: "#285647", color: "#e2eee7" }}
           disabled={Boolean(working) || mcleodSending || editingDetails}
           onClick={() => void changeBookingStatus("archived")}>Complete booking</button>}
-        <details className="booking-actions"><summary style={button}>Actions ▾</summary><div className="booking-actions-menu">
+        <details className="booking-actions"><summary style={button}>Actions ▾</summary><div className="booking-actions-menu"
+          onClick={event => {
+            if (!(event.target instanceof Element) || !event.target.closest("a[href], button:not(:disabled)")) return;
+            const menu = event.currentTarget.closest("details");
+            if (menu) menu.open = false;
+          }}>
           <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/print`} target="_blank">Print File</Link>
           <a href={`/api/warehouse/outbound/bookings/${id}/export?terminal=${terminal}&siteCode=${siteCode}`}>Export Booking</a>
           <a href={`/api/warehouse/outbound/bookings/${id}/container-info?terminal=${terminal}&siteCode=${siteCode}`}>Export Container Info</a>
