@@ -56,13 +56,13 @@ export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierP
 }
 
 export type CarrierSelection = { rateId: string; rateVersion: string; quantities: Record<string, string>; basePayOverride: string };
-export type CarrierBatchAction = { rate: CarrierRate } | { charges: Quantities; totalChassisDays?: number };
+export type CarrierBatchAction = { rate: CarrierRate; charges?: Quantities; totalChassisDays?: number } | { charges: Quantities; totalChassisDays?: number };
 
 export function carrierBatchSelection(plan: CarrierPlan | null, action: CarrierBatchAction): CarrierSelection {
   const rate = "rate" in action ? plan?.rate.id === action.rate.id ? plan.rate : action.rate : plan?.rate;
   if (!rate) throw Error("Assign a carrier before adding charges.");
   const quantities = Object.fromEntries(accessorials.map(({ key }) => [key, String(plan?.quantities[key] ?? 0)]));
-  if ("charges" in action) {
+  if (action.charges) {
     for (const { key, label } of accessorials) {
       const units = action.charges[key];
       const total = key === "chassisDays" && action.totalChassisDays !== undefined

@@ -48,12 +48,21 @@ export function planDallasCustomerExtras(quantities: CarrierPlan["quantities"], 
       return [];
     }
 
-    const previous = existing[0] ?? null;
+    const saved = existing[0];
+    const previous = saved ? { ...saved } : null;
+    if (previous && previous.amount !== null) {
+      if (!Number.isFinite(previous.rate)) previous.rate = rate;
+      if (!Number.isFinite(previous.units) && previous.rate === rate) {
+        const inferredUnits = Math.round(previous.amount * 100) / Math.round(rate * 100);
+        if (Number.isInteger(inferredUnits)) previous.units = inferredUnits;
+      }
+    }
+    if (previous && existing.length === 1 && previous.units >= line.units) return [];
     if (previous && (existing.length !== 1 || !/^[A-Za-z0-9_-]{1,32}$/.test(previous.id) ||
         previous.inclusion !== "N" || !Number.isFinite(previous.units) || previous.units < minimum ||
         previous.amount === null || previous.rate !== rate ||
         Math.round(previous.amount * 100) !== Math.round(previous.units * rate * 100))) {
-      blockers.push("The existing DSCM charge could not be safely increased. Check its units, rate, and freight setting in McLeod.");
+      blockers.push(`DSCM could not be increased. McLeod returned ${existing.length} line(s), units ${Number.isFinite(previous.units) ? previous.units : "blank"}, rate ${previous.rate}, amount ${previous.amount ?? "blank"}, freight flag ${previous.inclusion ?? "unverified"}. Customer rate is ${rate}, minimum ${minimum}.`);
       return [];
     }
 
@@ -61,4 +70,35 @@ export function planDallasCustomerExtras(quantities: CarrierPlan["quantities"], 
       amount: Math.round(rate * line.units * 100) / 100, previous }];
   });
   return { changes, blockers };
+}
+
+function numberField(value: unknown) {
+  return (typeof value === "number" || typeof value === "string") && String(value).trim() && Number.isFinite(Number(value))
+    ? Number(value) : null;
+}
+
+export function readDallasCustomerCharges(raw: unknown, baseCents: number, currentTotalCents: number) {
+  if (!Array.isArray(raw) || raw.some(row => !row || !String(row.charge_id ?? "").trim())) return null;
+  const lines: CustomerCharge[] = raw.map(row => {
+    const units = numberField(row.units);
+    const rate = numberField(row.rate);
+    const flag = String(row.incl_in_freight ?? "").trim().toUpperCase();
+    const inclusion = ["Y", "TRUE", "1"].includes(flag) ? "Y" : ["N", "FALSE", "0"].includes(flag) ? "N" : null;
+    return {
+      id: String(row.id ?? ""), code: String(row.charge_id).trim().toUpperCase(), description: String(row.descr ?? ""),
+      amount: numberField(row.amount) ?? (units === null || rate === null ? null : Math.round(units * rate * 100) / 100),
+      units: units ?? NaN, rate: rate ?? NaN, inclusion,
+    };
+  });
+  const unclassified = lines.filter(row => row.inclusion === null);
+  if (!unclassified.length || lines.some(row => row.amount === null)) return lines;
+  const known = baseCents + lines.filter(row => row.inclusion === "N")
+    .reduce((sum, row) => sum + Math.round(row.amount! * 100), 0);
+  const unknown = unclassified.map(row => Math.round(row.amount! * 100));
+  // Infer missing freight flags only when the order total identifies the treatment for every unclassified charge.
+  if (unknown.some(cents => cents < 0)) return lines;
+  const unknownTotal = unknown.reduce((sum, cents) => sum + cents, 0);
+  const inferred = currentTotalCents === known + unknownTotal && unknownTotal > 0 ? "N" :
+    currentTotalCents === known ? "Y" : null;
+  return lines.map(row => row.inclusion === null ? { ...row, inclusion: row.amount === 0 ? "N" : inferred } : row);
 }

@@ -171,6 +171,7 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
   const actionDialog = useRef<HTMLDialogElement>(null);
 
   function openAction(next: "carrier" | "charge") {
+    setUnits({ chassisDays: "", chassisSplits: "", stopoffs: "" });
     setMode(next);
     actionDialog.current?.showModal();
   }
@@ -180,10 +181,12 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
   const allAssigned = plans.every(Boolean);
   const totalChassisDays = units.chassisDays === "" ? undefined : Number(units.chassisDays);
   const quantities = { chassisDays: 0, chassisSplits: Number(units.chassisSplits), stopoffs: Number(units.stopoffs) };
-  const validUnits = Object.values(units).every(value => /^\d{0,3}$/.test(value)) &&
-    (totalChassisDays !== undefined || quantities.chassisSplits > 0 || quantities.stopoffs > 0);
+  const validUnits = Object.values(units).every(value => /^\d{0,3}$/.test(value));
+  const hasCharges = totalChassisDays !== undefined || quantities.chassisSplits > 0 || quantities.stopoffs > 0;
   const exceedsLimit = validUnits && plans.some(plan => plan && accessorials.some(({ key }) => plan.quantities[key] + quantities[key] > 999));
-  const canAddCharges = allAssigned && validUnits && !exceedsLimit;
+  const canEditCharges = mode === "carrier" || allAssigned;
+  const canAddCharges = canEditCharges && validUnits && hasCharges && !exceedsLimit;
+  const canSubmit = mode === "carrier" ? Boolean(rate) && validUnits && !exceedsLimit : canAddCharges;
   let payChange = 0;
   let billChange: number | null = 0;
   for (const plan of plans) {
@@ -201,11 +204,10 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (disabled) return;
-    if (mode === "carrier" && rate) await onApply({ rate });
-    else if (mode === "charge" && canAddCharges) await onApply({ charges: quantities, totalChassisDays });
-    else return;
+    if (disabled || !canSubmit) return;
     actionDialog.current?.close();
+    if (mode === "carrier" && rate) await onApply({ rate, ...(hasCharges ? { charges: quantities, totalChassisDays } : {}) });
+    else if (mode === "charge") await onApply({ charges: quantities, totalChassisDays });
   }
 
   return <div className="carrier-batch">
@@ -224,20 +226,20 @@ export function CarrierBatchToolbar({ rates, plans, billing, disabled, onApply, 
       {mode === "carrier" ? <label>Carrier rate card <select value={rateId} disabled={disabled} onChange={event => setRateId(event.target.value)}>
         <option value="">Choose carrier</option>
         {rates.map(item => <option key={item.id} value={item.id}>{item.carrier_name} · {item.lane}</option>)}
-      </select></label> : <>
-        <label>Total chassis days per container
+      </select></label> : null}
+      {mode === "carrier" && <strong>Optional charges</strong>}
+      <label>Total chassis days per container
           <input type="number" min={0} max={999} step={1} placeholder="Leave blank to keep current days"
-            value={units.chassisDays} disabled={disabled || !allAssigned}
+            value={units.chassisDays} disabled={disabled || !canEditCharges}
             onChange={event => setUnits(current => ({ ...current, chassisDays: event.target.value }))} />
         </label>
         {accessorials.filter(({ key }) => key !== "chassisDays").map(({ key, label }) => <ChargeStepper key={key} label={`${label} per container`}
-          value={Number(units[key])} disabled={disabled || !allAssigned}
+          value={Number(units[key])} disabled={disabled || !canEditCharges}
           onChange={value => setUnits(current => ({ ...current, [key]: String(value) }))} />)}
-        {canAddCharges && <span>Pay change $${dollars(payChange)} · {billChange == null ? "Customer billing rate missing" : `Bill change $${dollars(billChange)}`}</span>}
+        {mode === "charge" && canAddCharges && <span>Pay change $${dollars(payChange)} · {billChange == null ? "Customer billing rate missing" : `Bill change $${dollars(billChange)}`}</span>}
         {exceedsLimit && <span role="alert">A container can have up to 999 units per charge.</span>}
-      </>}
       <footer className="carrier-batch-actions">
-      <button type="submit" className="carrier-primary-action" disabled={disabled || (mode === "carrier" ? !rate : !canAddCharges)}>
+      <button type="submit" className="carrier-primary-action" disabled={disabled || !canSubmit}>
         {disabled ? "Saving…" : mode === "carrier" ? "Apply carrier" : "Apply to selected"}
       </button>
       <button type="button" disabled={disabled} onClick={() => actionDialog.current?.close()}>Cancel</button>
