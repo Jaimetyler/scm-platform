@@ -44,16 +44,13 @@ export default function DallasImportOrders({ bookingId, onCreated }: { bookingId
     }
   }
 
-  if (!loads.length && !error) return null;
+  if (!error && !loads.some(load => load.state !== "verified")) return null;
   return <section aria-label="Dallas dray import">
-    {loads.length > 0 && <>
-      <button type="button" className="booking-charge-button" disabled={busy || !loads.some(load => load.state === "pending")}
-        onClick={() => void create()}>{busy ? "Creating McLeod orders…" : "Create McLeod orders"}</button>
-      <details open><summary>{loads.filter(load => load.state === "verified").length} of {loads.length} McLeod orders verified</summary>
-        <ul>{loads.map(load => <li key={load.blnum}>{load.blnum} · {load.state === "writing" || load.state === "review" ? "Review in McLeod" : load.state}
-          {load.orderId && ` · SCM order ${load.orderId}`}</li>)}</ul>
-      </details>
-    </>}
+    {loads.some(load => load.state === "pending") &&
+      <button type="button" className="booking-charge-button" disabled={busy}
+        onClick={() => void create()}>{busy ? "Creating McLeod orders…" : "Create McLeod orders"}</button>}
+    {loads.some(load => load.state === "writing" || load.state === "review") &&
+      <p role="status">Review McLeod order creation for {loads.filter(load => load.state === "writing" || load.state === "review").map(load => load.blnum).join(", ")}.</p>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

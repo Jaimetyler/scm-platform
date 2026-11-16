@@ -1,6 +1,5 @@
 "use client";
 
-import BookingSyncPreview from "./BookingSyncPreview";
 import { useState } from "react";
 import { approvalCharges, compareApprovalOrders, defaultApprovalSelection, type ApprovalRate } from "@/lib/dray/approval-charges";
 import type { readBookingMarkCharges } from "@/lib/dray/booking-charges";
@@ -16,7 +15,6 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
   bookingId: string; bookingNumber: string; customerReference?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [showComparison, setShowComparison] = useState(false);
   const [results, setResults] = useState<Result[] | null>(null);
   const [negotiatedFuel, setNegotiatedFuel] = useState(true);
   const [approvalRate, setApprovalRate] = useState<ApprovalRate | null>(null);
@@ -137,16 +135,10 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
     <button type="button" className="booking-charge-button" aria-expanded={open} onClick={() => {
       setOpen(!open);
       if (!open) {
-        setShowComparison(false);
         if (!busy) void lookup();
       }
-    }}>{open ? "Hide McLeod charges" : "Pull McLeod charges"}</button>
+    }}>{open ? "Hide charge approval email" : "Review charges for approval email"}</button>
     {open && <div className="booking-charge-body">
-        <button type="button" className="booking-charge-button" aria-pressed={showComparison}
-          onClick={() => setShowComparison(current => !current)}>
-          {showComparison ? "Back to charges" : "Compare whole booking"}
-        </button>
-        {showComparison ? <BookingSyncPreview bookingId={bookingId} /> : <>
         <p>Select a load to include its itemized charges in the email. {approvalRate?.rateCode && <strong>Rate R-{approvalRate.rateCode}. </strong>}{standardNote} {verifiedStandard && "Extras appear first, highest total first."}</p>
         {busy && <p role="status">Looking up McLeod charges…</p>}
         {error && <p role="alert">{error}</p>}
@@ -198,13 +190,12 @@ export default function BookingCharges({ bookingId, bookingNumber, customerRefer
         {!!chosen.length && <details><summary>Email preview</summary>
           <textarea aria-label="Email preview" readOnly value={email} rows={10} />
         </details>}
-        </>}
-      {!showComparison && <footer>
+      <footer>
         <button type="button" className="booking-charge-button" disabled={busy} onClick={() => void lookup()}>Refresh charges</button>
         <strong>{selected.size} loads selected · {total} {verifiedStandard ? "in extras" : "to review"}</strong>
         <button type="button" className="booking-charge-button" disabled={!chosen.length || busy} onClick={() => void copyEmail()}>{verifiedStandard ? "Copy approval email" : "Copy review email"}</button>
         <span role="status">{copyStatus}</span>
-      </footer>}
+      </footer>
     </div>}
   </section>;
 }
