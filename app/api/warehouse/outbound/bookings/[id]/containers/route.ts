@@ -4,9 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 import { parseQuantities, parseRateAmount } from "@/lib/warehouse/outbound/carrier-rates";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 
+import { lockDallasBilling } from "@/lib/dray/dallas-billing-receipt";
+import { restoreDallasCustomerCharges } from "@/lib/dray/dallas-billing-restore";
 import { clearDallasCarrier } from "@/lib/dray/dallas-linked-order";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 function database() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -35,6 +38,7 @@ async function findBooking(id: string, terminal: string, siteCode: string) {
 function user(req: NextRequest) { return staffActor(req); }
 
 async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  let billingLock: Awaited<ReturnType<typeof lockDallasBilling>> | undefined;
   try {
     const { id } = await context.params;
     const body = await req.json();
@@ -127,7 +131,11 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
       if (link && link.state !== "pending") {
         if (link.state !== "verified" || !link.order_id)
           return NextResponse.json({ ok: false, error: "Verify the linked McLeod order before unassigning this load." }, { status: 409 });
+        billingLock = await lockDallasBilling(db, id, { ...link, order_id: link.order_id });
         await clearDallasCarrier(link.order_id, booking.booking_number, link, current.carrier_plan);
+        if (billingLock.receipt)
+          await restoreDallasCustomerCharges(link.order_id, booking.booking_number, link, billingLock);
+        if (billingLock.receipt) await billingLock.record();
       }
     }
     const { data, error } = await database().from("cotton_outbound_containers").update(values)
@@ -143,6 +151,8 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     return NextResponse.json({ ok: true, container: data });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Could not save container" }, { status: 500 });
+  } finally {
+    if (billingLock) await billingLock.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
   }
 }
 

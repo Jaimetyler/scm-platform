@@ -10,6 +10,7 @@ import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { hash, vendor } from "@/lib/dray/server";
 
 import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
+import { lockDallasBilling, rememberDallasCharge } from "@/lib/dray/dallas-billing-receipt";
 import { planDallasCustomerExtras, readDallasCustomerCharges, type CustomerCharge } from "@/lib/dray/dallas-customer-extras";
 import { dallasExtraPayDate, dallasExtraPayReference, dallasExtraPayLines, readDallasExtraPay } from "@/lib/dray/dallas-extra-pay";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
@@ -296,7 +297,7 @@ async function syncBookingDetails(input: {
     if (!apply) return NextResponse.json(review, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
 
-    async function sendBilling() {
+    async function writeBilling(history: Awaited<ReturnType<typeof lockDallasBilling>>) {
       const fresh = await readLinkedOrder();
       const billingSnapshot = (order: typeof current) => [order.status, order.rate_type, order.rate, order.rate_units,
         order.total_charge, order.otherCharges ?? order.other_charges ?? order.otherCharge];
@@ -319,6 +320,7 @@ async function syncBookingDetails(input: {
         if (hash(billingSnapshot(billingState)) !== hash(billingSnapshot(before)))
           throw Error("Customer billing changed during sync. Preview the differences again.");
         const original = line.previous && rawBilling.find(row => String(row.id ?? "") === line.previous?.id);
+        await history.record(rememberDallasCharge(history.receipt, line.code, line.previous, line));
         let writeFailure: unknown;
         try {
           await write(line.previous ? "/other_charge/update" : "/other_charge/create", {
@@ -338,6 +340,10 @@ async function syncBookingDetails(input: {
         const matches = charges?.filter(row => row.code === line.code) ?? [];
         if (matches.length !== 1 || !matchesBill(matches[0], line) || (line.previous && matches[0].id !== line.previous.id))
           throw new Error(`${line.code} did not verify after the direct charge-row write${writeFailure instanceof Error ? `: ${writeFailure.message}` : "."}`);
+        if (!/^[A-Za-z0-9_-]{1,32}$/.test(matches[0].id))
+          throw Error(`McLeod did not return the ${line.code} charge ID for unassignment.`);
+        const receipt = history.receipt!;
+        await history.record({ charges: receipt.charges.map(entry => entry.code === line.code ? { ...entry, chargeId: matches[0].id } : entry) });
         const unchangedRows = (order: typeof current) => (order.otherCharges ?? order.other_charges ?? order.otherCharge)
           .filter((row: Record<string, unknown>) => String(row.charge_id ?? "").trim().toUpperCase() !== line.code);
         const expectedOtherRows = unchangedRows(updated);
@@ -425,16 +431,27 @@ async function syncBookingDetails(input: {
         return false;
       }
     }
-    let payReady = !changed;
-    if (canSendPay) payReady = await send("Carrier payee and base pay", sendBasePay);
-    else if (changed) issues.push(...blockers);
-    if (canSendExtras && payReady) await send("Other Carrier Pay", sendExtras);
-    else if (extraChanges.length || (proposedExtras.length && !otherPay))
-      issues.push(...(extrasBlockers.length ? extrasBlockers : ["Other Carrier Pay needs a verified carrier payee and base pay."]));
-    if (canSendBilling) await send("Customer charges", sendBilling);
-    else issues.push(...billingBlockers);
-    issues.push(...billingLineIssues, ...extraIssues);
-    return NextResponse.json({ applied, issues: [...new Set(issues)] }, { headers });
+    const history = await lockDallasBilling(db, input.bookingId, { ...load.data!, order_id: input.orderId });
+    try {
+      if (history.receipt?.restoringFromTotal !== undefined)
+        throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
+      const { data: active, error } = await db.from("cotton_outbound_containers").select("updated_at")
+        .eq("booking_id", input.bookingId).eq("sequence_no", load.data!.sequence_no).is("split_transfer_id", null).maybeSingle();
+      if (error || active?.updated_at !== slot.data!.updated_at)
+        throw Error("The platform load changed during sync. Preview the differences again.");
+      let payReady = !changed;
+      if (canSendPay) payReady = await send("Carrier payee and base pay", sendBasePay);
+      else if (changed) issues.push(...blockers);
+      if (canSendExtras && payReady) await send("Other Carrier Pay", sendExtras);
+      else if (extraChanges.length || (proposedExtras.length && !otherPay))
+        issues.push(...(extrasBlockers.length ? extrasBlockers : ["Other Carrier Pay needs a verified carrier payee and base pay."]));
+      if (canSendBilling) await send("Customer charges", () => writeBilling(history));
+      else issues.push(...billingBlockers);
+      issues.push(...billingLineIssues, ...extraIssues);
+      return NextResponse.json({ applied, issues: [...new Set(issues)] }, { headers });
+    } finally {
+      await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
+    }
   }
   const markRow = slot.data.booking_line_id ? await db.from("cotton_outbound_booking_lines")
     .select("mark,line_status").eq("booking_id", input.bookingId).eq("id", slot.data.booking_line_id).maybeSingle() : null;
