@@ -4,7 +4,7 @@ import { useState } from "react";
 
 type PayLine = { code: string | null; description: string; amount: number | null };
 type CarrierReview = { token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
-  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; canSendPay: boolean; canSendExtras: boolean; canSendBilling: boolean };
+  carrier: string; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; canSendPay: boolean; canSendExtras: boolean; canSendBilling: boolean; fuelChanges: string[] };
 const money = (amount: number | null) => amount == null ? "Unavailable" :
   amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
@@ -67,8 +67,9 @@ export default function DallasLoadSync({ bookingId, orderId, disabled }: { booki
         {[...new Set([...carrierReview.blockers, ...carrierReview.extrasBlockers, ...carrierReview.billingBlockers])].map(blocker =>
           <p key={blocker} role="status">{blocker}</p>)}
         <button type="button" className="booking-charge-button"
-          disabled={busy || !(carrierReview.canSendPay || carrierReview.canSendExtras || carrierReview.canSendBilling)}
+          disabled={busy || !(carrierReview.canSendPay || carrierReview.canSendExtras || carrierReview.canSendBilling || carrierReview.fuelChanges.length)}
           onClick={() => void sync(true, true)}>Send pay and charge differences</button>
+        {!!carrierReview.fuelChanges.length && <p>{carrierReview.fuelChanges.join(" · ")}</p>}
         <div className="booking-charge-table"><table>
           <thead><tr><th>Field</th><th>McLeod</th><th>Platform</th></tr></thead>
           <tbody>

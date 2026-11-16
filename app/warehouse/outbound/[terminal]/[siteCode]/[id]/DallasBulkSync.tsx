@@ -50,7 +50,7 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
           next.push(send ? { orderId, parts: [], applied: result.applied, issues: result.issues } : {
             orderId, token: result.token,
             parts: [result.canSendPay && "Carrier and base pay", result.canSendExtras && "Other Carrier Pay",
-              result.canSendBilling && "Customer charges"].filter(Boolean),
+              result.canSendBilling && "Customer charges", ...(result.fuelChanges ?? [])].filter(Boolean),
             issues: [...new Set<string>([...result.blockers, ...result.extrasBlockers, ...result.billingBlockers])],
           });
         } catch (error) {

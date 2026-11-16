@@ -10,6 +10,7 @@ import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { hash, vendor } from "@/lib/dray/server";
 
 import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
+import { dallasFuelCode, planDallasFuelCorrection } from "@/lib/dray/dallas-fuel";
 import { lockDallasBilling, rememberDallasCharge } from "@/lib/dray/dallas-billing-receipt";
 import { planDallasCustomerExtras, readDallasCustomerCharges, type CustomerCharge } from "@/lib/dray/dallas-customer-extras";
 import { dallasExtraPayDate, dallasExtraPayReference, dallasExtraPayLines, readDallasExtraPay } from "@/lib/dray/dallas-extra-pay";
@@ -134,7 +135,7 @@ async function createOrders(bookingId: string, signal: AbortSignal, apply: boole
     const duplicates = await findOrders(load.blnum.slice(0, load.blnum.lastIndexOf("-") + 1), signal);
     const collision = duplicates.some(order => order.blnum === load.blnum);
     const payload = {
-      ...load.payload, order_type_id: "FSCD",
+      ...load.payload, order_type_id: dallasFuelCode,
       ...Object.fromEntries(["cutoff_date", "doc_cutoff_date"].filter(field => load.payload[field])
         .map(field => [field, stagedDallasLocalTime(load.payload[field])])),
       stops: load.payload.stops.map((stop: { sched_arrive_early: string; sched_arrive_late: string }) => ({
@@ -264,6 +265,11 @@ async function syncBookingDetails(input: {
     const customerRate = await readBookingCustomerRate(db, saved).catch(() => null);
     const msc = /^(?:MSC\b|MEDITERRANEAN SHIPPING COMPANY\b)/i.test(String(saved.steamship_line ?? "").trim());
     const rawBilling = current.otherCharges ?? current.other_charges ?? current.otherCharge;
+    const fuelCorrection = planDallasFuelCorrection(current, rawBilling);
+    const fuelChanges = [
+      ...(fuelCorrection.types ? ["Order type FSC → FSCD"] : []),
+      ...(fuelCorrection.fuel ? ["Customer fuel charge FSC → FSCD"] : []),
+    ];
     const currentTotal = Number(current.total_charge);
     const baseRate = Number(current.rate);
     const rateUnits = Number(current.rate_units);
@@ -284,7 +290,7 @@ async function syncBookingDetails(input: {
     const movementState = [movement.id, movement.status, assignedCarrier, currentPayee, movement.override_type,
       movement.override_units, movement.override_pay_rate, movement.override_paye_rate, movement.override_pay_amt];
     const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movementState, current.status, carrier, pay,
-      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits]);
+      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits, current.order_type_id, fuelCorrection]);
     const headers = { "Cache-Control": "private, no-store" };
     const extrasBlockers = [...blockers,
       ...(proposedExtras.length && !otherPay ? [otherPayIssue] : []),
@@ -292,7 +298,7 @@ async function syncBookingDetails(input: {
     const canSendPay = changed && blockers.length === 0;
     const canSendExtras = extraChanges.length > 0 && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
     const canSendBilling = billingChanges.length > 0 && billingBlockers.length === 0;
-    const review = { token, billingBlockers: [...billingLineIssues, ...billingBlockers], billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
+    const review = { token, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
       otherPay, proposedExtras, blockers, changed, canSendPay, canSendExtras, canSendBilling };
     if (!apply) return NextResponse.json(review, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
@@ -380,6 +386,35 @@ async function syncBookingDetails(input: {
       }
       if (differences.length) throw Error(differences.join(". "));
     }
+    async function sendFuel() {
+      const before = await readLinkedOrder();
+      const orderCharges = (order: typeof current) => order.otherCharges ?? order.other_charges ?? order.otherCharge;
+      if (hash(planDallasFuelCorrection(before, orderCharges(before))) !== hash(fuelCorrection))
+        throw Error("Dallas fuel changed during sync. Preview the differences again.");
+      const total = Number(before.total_charge);
+      if (!String(before.total_charge ?? "").trim() || !Number.isFinite(total))
+        throw Error("McLeod did not return a verifiable bill total for the fuel correction.");
+      let latest = before;
+      if (fuelCorrection.fuel) {
+        const fuel = fuelCorrection.fuel;
+        await write("/other_charge/update", { ...fuel, __type: "other_charge", company_id: "TMS",
+          order_id: input.orderId, charge_id: dallasFuelCode });
+        latest = await readLinkedOrder();
+        const rows = orderCharges(latest);
+        const saved = Array.isArray(rows) ? rows.find(row => String(row.id ?? "") === String(fuel.id)) : null;
+        if (!saved || saved.charge_id !== dallasFuelCode || ["amount", "rate", "units", "incl_in_freight"].some(field =>
+            String(saved[field] ?? "") !== String(fuel[field] ?? "")) || Number(latest.total_charge) !== total)
+          throw Error("McLeod did not verify the FSCD charge with the original billing values.");
+      }
+      if (fuelCorrection.types) {
+        await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId, order_type_id: dallasFuelCode });
+        const after = await readLinkedOrder();
+        if (after.order_type_id !== dallasFuelCode || Number(after.total_charge) !== total ||
+            hash(orderCharges(after)) !== hash(orderCharges(latest)))
+          throw Error("McLeod did not verify the FSCD order type with the same charges.");
+      }
+    }
+
     async function sendExtras() {
       const transactionDate = dallasExtraPayDate(new Date());
       for (const line of extraChanges) {
@@ -447,7 +482,8 @@ async function syncBookingDetails(input: {
         issues.push(...(extrasBlockers.length ? extrasBlockers : ["Other Carrier Pay needs a verified carrier payee and base pay."]));
       if (canSendBilling) await send("Customer charges", () => writeBilling(history));
       else issues.push(...billingBlockers);
-      issues.push(...billingLineIssues, ...extraIssues);
+      if (fuelChanges.length) await send("Dallas fuel code FSCD", sendFuel);
+      issues.push(...billingLineIssues, ...extraIssues, ...fuelCorrection.issues);
       return NextResponse.json({ applied, issues: [...new Set(issues)] }, { headers });
     } finally {
       await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
