@@ -95,7 +95,7 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
       {row.applied?.length ? `Verified ${row.applied.join(", ")}` : row.parts.length ? row.parts.join(", ") :
         row.issues.length ? "Review required" : "Already matches"}
       {!!row.changes?.length && <ul>{row.changes.map(change => <li key={change.field}>
-        {change.field} · {change.before || "Blank"} → {change.after}
+        {change.field} · {change.before || "Blank"} → {change.after || "Blank"}
       </li>)}</ul>}
       {!!row.issues.length && <small style={{ display: "block" }}>{row.issues.join(" · ")}</small>}
     </li>)}</ul>}

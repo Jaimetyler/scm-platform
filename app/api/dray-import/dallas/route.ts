@@ -50,7 +50,7 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     if (request.headers.get("content-type")?.startsWith("application/json")) {
       const input = await request.json();
-      if (["preview-details", "apply-details", "preview-carrier", "apply-carrier", "preview-load", "apply-load", "preview-package", "apply-package"].includes(input.action))
+      if (["preview-details", "apply-details", "preview-carrier", "apply-carrier", "preview-load", "apply-load", "preview-package", "apply-package", "clear-container"].includes(input.action))
         return await syncBookingDetails(input);
       if (input.action === "create-orders" || input.action === "import-status") {
         const id = String(input.bookingId ?? "");
@@ -186,7 +186,7 @@ async function syncBookingDetails(input: {
 }) {
   if (!/^[a-f0-9-]{36}$/i.test(input.bookingId) || !/^[A-Za-z0-9_-]{1,60}$/.test(input.orderId))
     throw Error("Choose a verified SCM order.");
-  const apply = ["apply-details", "apply-carrier", "apply-load", "apply-package"].includes(input.action);
+  const apply = ["apply-details", "apply-carrier", "apply-load", "apply-package", "clear-container"].includes(input.action);
   const packageSync = input.action.endsWith("-package");
   const unified = input.action.endsWith("-load");
   if (apply) requireWrites();
@@ -215,7 +215,33 @@ async function syncBookingDetails(input: {
   const remoteContainer = String(current.consignee_refno ?? "").trim();
   const pullContainer = unified && current.status === "A" && /^[A-Z]{4}\d{7}$/.test(remoteContainer) &&
     remoteContainer !== localContainer && baseline?.consignee_refno === localContainer;
+  const clearContainer = unified && !localContainer && !!remoteContainer && baseline?.consignee_refno === remoteContainer;
+  const clearContainerToken = current.status === "A" && !localContainer && remoteContainer
+    ? hash(["clear-container", input.bookingId, input.orderId, slot.data.updated_at, saved.updated_at, remoteContainer])
+    : null;
   const headers = { "Cache-Control": "private, no-store" };
+
+  if (input.action === "clear-container") {
+    if (!clearContainerToken || clearContainerToken !== input.token)
+      throw Error("The container or order changed. Preview again before clearing the reference.");
+    const history = await lockLoad();
+    try {
+      await verifyLoadVersion();
+      if (history.receipt?.restoringFromTotal !== undefined)
+        throw Error("Customer charge restoration is pending. Finish unassigning this load first.");
+      const fresh = await readLinkedOrder();
+      if (fresh.status !== "A" || String(fresh.consignee_refno ?? "").trim() !== remoteContainer)
+        throw Error("The McLeod container or order changed. Preview again.");
+      await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId, consignee_refno: "" });
+      if (String((await readLinkedOrder()).consignee_refno ?? "").trim())
+        throw Error("McLeod did not verify the cleared container reference.");
+      await history.recordDetails({ consignee_refno: "" });
+      return NextResponse.json({ applied: ["McLeod container reference cleared"], issues: [] }, { headers });
+    } finally {
+      await history.release().catch(error => console.error("Could not release Dallas billing lock", error.message));
+    }
+  }
+
   async function prepareDetails() {
     const markRow = slot.data!.booking_line_id ? await db.from("cotton_outbound_booking_lines")
       .select("mark,line_status").eq("booking_id", input.bookingId).eq("id", slot.data!.booking_line_id).maybeSingle() : null;
@@ -231,7 +257,7 @@ async function syncBookingDetails(input: {
     const requiredComment = withRequiredCottonBoltSeals(currentComment);
     const expected = packageSync ? bookingFields : { ...bookingFields,
       ...(!unified && currentComment && currentComment !== requiredComment ? { planning_comment: requiredComment } : {}), ...(mark ? { blnum: mark } : {}),
-      ...(!pullContainer && /^[A-Z]{4}\d{7}$/.test(container) ? { consignee_refno: container } : {}) };
+      ...(!pullContainer && (clearContainer || /^[A-Z]{4}\d{7}$/.test(container)) ? { consignee_refno: container } : {}) };
     const matches = (field: string, actual: unknown, value: string) =>
       field === "cutoff_date" || field === "doc_cutoff_date"
         ? matchesDallasMcLeodDetailDate(actual, value, field === "cutoff_date" ? saved!.cutoff_has_time === false : saved!.doc_cutoff_has_time === false)
@@ -247,7 +273,7 @@ async function syncBookingDetails(input: {
       }
       return [{ field, before, after: value, required: field === "planning_comment" && currentComment !== requiredComment }];
     });
-    if (unified && !pullContainer && !container && /^[A-Z]{4}\d{7}$/.test(remoteContainer))
+    if (unified && !pullContainer && !clearContainer && !container && remoteContainer)
       fieldConflicts.push(`Container: McLeod has ${current.consignee_refno} and the platform is blank. Review which value is current.`);
     async function sendDetails(selected: typeof changes) {
       if (!unified && selected.some(change => change.field === "blnum") &&
@@ -403,7 +429,7 @@ async function syncBookingDetails(input: {
   if (packageSync || (unified && !plan)) {
     const token = hash([input.bookingId, input.orderId, slot.data.updated_at, detailState]);
     if (!apply) return NextResponse.json(packageSync ? { token, changes: detailChanges, issues: detailBlockers } :
-      { token, detailChanges, detailBlockers, canSendDetails, canSendPay: false, canSendExtras: false,
+      { token, clearContainerToken: clearContainer ? null : clearContainerToken, detailChanges, detailBlockers, canSendDetails, canSendPay: false, canSendExtras: false,
         canSendBilling: false, fuelChanges: [], blockers: [], extrasBlockers: [], billingBlockers: [], carrier: null }, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
     if (!canSendDetails) return NextResponse.json({ applied: [], issues: detailBlockers }, { headers });
@@ -514,7 +540,7 @@ async function syncBookingDetails(input: {
     const canSendPay = changed && blockers.length === 0;
     const canSendExtras = extraChanges.length > 0 && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
     const canSendBilling = billingChanges.length > 0 && billingBlockers.length === 0;
-    const review = { token, detailChanges, canSendDetails, detailBlockers, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
+    const review = { token, clearContainerToken: clearContainer ? null : clearContainerToken, detailChanges, canSendDetails, detailBlockers, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
       otherPay, proposedExtras, blockers, changed, canSendPay, canSendExtras, canSendBilling };
     if (!apply) return NextResponse.json(review, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
