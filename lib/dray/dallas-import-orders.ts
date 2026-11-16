@@ -1,3 +1,4 @@
+import { dallasFuelCode } from "./dallas-fuel.ts";
 import type { planOutboundDrayLoads } from "./outbound-load-plan.ts";
 
 // McLeod accepts local wall time for appointment fields, as in the cotton inbound importer.
@@ -41,7 +42,7 @@ export function dallasImportPayload(load: ReturnType<typeof planOutboundDrayLoad
   booking: string, customer: string, erd: string, cutoff: string, details: { bookId: string; steamshipLine: string | null; boltSealsRequired: boolean; docCutoff?: string | null }) {
   return {
     __type: "orders", company_id: "TMS", status: "A", customer_id: customer, revenue_code_id: "DDRAY",
-    order_type_id: "FSCD", commodity_id: "COTTON", equipment_type_id: "C", order_mode: "T", collection_method: "T",
+    order_type_id: dallasFuelCode, commodity_id: "COTTON", equipment_type_id: "C", order_mode: "T", collection_method: "T",
     blnum: load.originalBlnum, ...dallasBookingFields(booking, erd, cutoff, details),
     stops: [{ stop_type: "PU", location_id: load.pickup }, { stop_type: "SO", location_id: load.delivery }].map((stop, index) => ({
       ...stop, __type: "stop", __name: "stops", company_id: "TMS", status: "A", order_sequence: index + 1,
