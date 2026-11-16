@@ -50,7 +50,7 @@ export function carrierPlanLines({ rate, quantities, basePayOverride }: CarrierP
     const { pay: cardPay } = rate.rates[item.key];
     const bill = billing?.[item.key] ?? null;
     const pay = item.key === "base" ? basePayOverride ?? cardPay : cardPay;
-    const billUnits = item.key === "chassisDays" ? Math.max(units, billing?.minimumChassisDays ?? 0) : units;
+    const billUnits = item.key === "chassisDays" ? units + (billing?.minimumChassisDays ?? 0) : units;
     return { ...item, units, billUnits, payCode: item.code, billCode: item.code, pay, bill, payTotal: units * pay, billTotal: bill == null ? null : billUnits * bill };
   }).filter(line => line.units > 0 || line.billUnits > 0);
 }

@@ -10,7 +10,7 @@ import { extractSearchOrders } from "@/lib/mcleod/inbound/search-response";
 import { hash, vendor } from "@/lib/dray/server";
 
 import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
-import { warehouseDate } from "@/lib/inbound/checkin/geofence";
+import { dallasExtraPayDate, dallasExtraPayReference, dallasExtraPayLines, readDallasExtraPay } from "@/lib/dray/dallas-extra-pay";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
@@ -220,30 +220,7 @@ async function syncBookingDetails(input: {
         String(value ?? "").trim() !== "" && Math.round(Number(value) * 100) === baseCents);
     const assignedCarrier = String(movement.carrier_id || movement.vendor_id || "").trim().toUpperCase();
     const otherPayPath = `/movements/${encodeURIComponent(movement.id)}/otherPay`;
-    const readExtras = async () => {
-      const payload = await read(otherPayPath);
-      const unwrap = (value: unknown, depth = 0): Record<string, unknown>[] | null => {
-        if (Array.isArray(value)) return value;
-        if (depth > 2 || !value || typeof value !== "object") return null;
-        const entries = Object.entries(value);
-        if (entries.length !== 1 || !/^(?:data|response|result|rows|items|list|otherPay|driver_extra_pay|RowDriverExtraPay)$/i.test(entries[0][0]))
-          return null;
-        return unwrap(entries[0][1], depth + 1);
-      };
-      const rows = payload === null ? [] : unwrap(payload);
-      if (!rows || rows.some(row => !row || typeof row.deduct_code_id !== "string" ||
-          !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount)))) {
-        const fieldNames = (value: unknown) => value && typeof value === "object" && !Array.isArray(value)
-          ? Object.keys(value).filter(key => /^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(key)).slice(0, 20) : [];
-        console.warn("Dallas Other Carrier Pay response shape", {
-          kind: payload === null ? "null" : Array.isArray(payload) ? "array" : typeof payload,
-          fields: fieldNames(payload), firstRowFields: fieldNames(rows?.[0]),
-        });
-        throw Error("McLeod Other Carrier Pay could not be verified.");
-      }
-      return rows.map(row => ({ code: String(row.deduct_code_id).trim(), payee: String(row.payee_id ?? "").trim(),
-        description: String(row.descr ?? ""), amount: Number(row.amount), id: String(row.id ?? "") }));
-    };
+    const readExtras = () => readDallasExtraPay(read, movement.id);
     let otherPayIssue = "";
     const otherPay = await readExtras().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "";
@@ -256,11 +233,7 @@ async function syncBookingDetails(input: {
       console.warn("Dallas Other Carrier Pay lookup failed", { status: status ?? null, issue: otherPayIssue });
       return null;
     });
-    const codes = { chassisDays: "001", stopoffs: "002", chassisSplits: "CS" };
-    const proposedExtras = lines.flatMap(line => line.key === "base" || line.units <= 0 || line.payTotal <= 0 ? [] : [{
-      code: codes[line.key], description: line.label, amount: line.payTotal / 100,
-      units: line.units, rate: line.pay / 100,
-    }]);
+    const proposedExtras = dallasExtraPayLines(plan);
     const matchesExtra = (row: NonNullable<typeof otherPay>[number], line: typeof proposedExtras[number]) =>
       row.code === line.code && row.payee === carrier && Math.round(row.amount * 100) === Math.round(line.amount * 100);
     const missingExtras = proposedExtras.filter(line => !otherPay?.some(row => row.code === line.code));
@@ -282,7 +255,7 @@ async function syncBookingDetails(input: {
     const proposedBilling = lines.flatMap(line => {
       if (line.key === "base" || line.units <= 0 || (msc && line.key === "chassisDays")) return [];
       const rate = rates[line.key];
-      const units = line.key === "chassisDays" ? Math.max(line.units, Number(customerRate?.included_chassis_days ?? 0)) : line.units;
+      const units = line.key === "chassisDays" ? line.units + Number(customerRate?.included_chassis_days ?? 0) : line.units;
       return [{ code: customerCodes[line.key], description: line.key === "chassisDays" ? "DAL Chassis Charges" :
         line.key === "stopoffs" ? "Stop Off Charge" : "Chassis Split", units,
         rate: rate == null ? null : Number(rate), amount: rate == null ? null : Math.round(Number(rate) * units * 100) / 100 }];
@@ -304,9 +277,18 @@ async function syncBookingDetails(input: {
       if (entries.length !== 1 || matchesBill(previous, line) || !previous.id || previous.inclusion !== "N") return [];
       return [{ ...line, previous }];
     }) : [];
+    const currentBase = Number(current.rate ?? 0);
+    const currentTotal = Number(current.total_charge ?? 0);
+    const contractedBase = Number(customerRate?.base_rate ?? 0);
+    const initializeBilling = billable.length > 0 && billed?.length === 0 && currentBase === 0 && currentTotal === 0 &&
+      ["fuel_for_review", "all_in"].includes(customerRate?.fuel_mode ?? "") && Number.isFinite(contractedBase) && contractedBase > 0;
+    const baseRate = initializeBilling ? contractedBase : currentBase;
+    const rateUnits = initializeBilling ? 1 : Number(current.rate_units);
+    const validFlatRate = current.rate_type === "F" && String(current.rate ?? "").trim() &&
+      Number.isFinite(baseRate) && Number.isFinite(rateUnits) && rateUnits > 0;
     const billingBlockers = [
       ...(proposedBilling.some(line => line.rate === null || !Number.isFinite(line.rate) || line.rate < 0)
-        ? ["A customer accessorial rate is missing or invalid. Check Customer Rates."] : []),
+        ? [`Customer rate missing or invalid for ${proposedBilling.filter(line => line.rate === null || !Number.isFinite(line.rate) || line.rate < 0).map(line => line.description).join(", ")}. Check Customer Rates for this customer, warehouse and return lane.`] : []),
       ...(!billed && billable.length ? ["McLeod customer charges could not be verified."] : []),
       ...(billable.some(line => {
         const existing = billed?.filter(row => row.code === line.code) ?? [];
@@ -314,13 +296,15 @@ async function syncBookingDetails(input: {
           (!existing[0].id || existing[0].inclusion !== "N"));
       }) ? ["A differing customer charge has no unique editable line. Review it in McLeod."] : []),
       ...(billable.length && current.status !== "A" ? ["McLeod order must be available to add customer charges."] : []),
-      ...(billable.length && (current.total_charge == null || !String(current.total_charge).trim() || !Number.isFinite(Number(current.total_charge)))
+      ...(billingChanges.length && !initializeBilling && !validFlatRate
+        ? ["McLeod has no verified flat base rate and there is no flat or all-in contract rate to initialize it. Rate the order in McLeod before syncing customer charges."] : []),
+      ...(billable.length && !initializeBilling && (current.total_charge == null || !String(current.total_charge).trim() || !Number.isFinite(Number(current.total_charge)))
         ? ["McLeod customer bill total could not be verified."] : []),
     ];
     const movementState = [movement.id, movement.status, assignedCarrier, currentPayee, movement.override_type,
       movement.override_units, movement.override_pay_rate, movement.override_paye_rate, movement.override_pay_amt];
     const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movementState, current.status, carrier, pay,
-      otherPay, proposedExtras, current.total_charge, billed, proposedBilling]);
+      otherPay, proposedExtras, current.total_charge, billed, proposedBilling, initializeBilling, baseRate, rateUnits]);
     const headers = { "Cache-Control": "private, no-store" };
     const extrasBlockers = [...blockers,
       ...(proposedExtras.length && !otherPay ? [otherPayIssue] : []),
@@ -329,7 +313,7 @@ async function syncBookingDetails(input: {
     const canSendPay = changed && blockers.length === 0;
     const canSendExtras = missingExtras.length > 0 && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
     const canSendBilling = billingChanges.length > 0 && billingBlockers.length === 0;
-    const review = { token, billingBlockers, billed, proposedBilling, extrasBlockers, currentPayee, assignedCarrier, currentPay, carrier, pay,
+    const review = { token, billingBlockers, billed, proposedBilling, billingBase: initializeBilling ? contractedBase : null, extrasBlockers, currentPayee, assignedCarrier, currentPay, carrier, pay,
       otherPay, proposedExtras, blockers, changed, canSendPay, canSendExtras, canSendBilling };
     if (!apply) return NextResponse.json(review, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
@@ -340,20 +324,16 @@ async function syncBookingDetails(input: {
         order.total_charge, order.otherCharges ?? order.other_charges ?? order.otherCharge];
       if (hash(billingSnapshot(current)) !== hash(billingSnapshot(fresh)))
         throw Error("Customer billing changed during sync. Preview the differences again.");
-      const baseRate = Number(current.rate);
-      const rateUnits = Number(current.rate_units);
-      if (current.rate_type !== "F" || !String(current.rate ?? "").trim() ||
-          !Number.isFinite(baseRate) || !Number.isFinite(rateUnits) || rateUnits <= 0 ||
-          !Array.isArray(rawBilling) || rawBilling.some(row => !["Y", "N"].includes(row.incl_in_freight) ||
+      if ((!initializeBilling && !validFlatRate) || !Array.isArray(rawBilling) || rawBilling.some(row => !["Y", "N"].includes(row.incl_in_freight) ||
             !String(row.amount ?? "").trim() || !Number.isFinite(Number(row.amount))))
         throw Error("Could not verify the existing flat rate and charges. Review billing in McLeod.");
       const existingCents = Math.round(baseRate * rateUnits * 100) + rawBilling.reduce((sum, row) =>
         sum + (row.incl_in_freight === "N" ? Math.round(Number(row.amount) * 100) : 0), 0);
       const totalCents = existingCents + billingChanges.reduce((sum, line) => sum + Math.round(line.amount! * 100) - Math.round((line.previous?.amount ?? 0) * 100), 0);
-      if (![existingCents, totalCents].includes(Math.round(Number(current.total_charge) * 100)))
+      if (!initializeBilling && ![existingCents, totalCents].includes(Math.round(currentTotal * 100)))
         throw Error("The current bill total does not reconcile with the flat rate and charge lines. Review billing in McLeod.");
       await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
-        rate_type: current.rate_type, rate_units: rateUnits, rate: baseRate, total_charge: totalCents / 100,
+        rate_type: "F", rate_units: rateUnits, rate: baseRate, total_charge: totalCents / 100,
         otherCharges: billingChanges.map(line => ({
           ...(line.previous ? { id: line.previous.id } : {}),
           __type: "other_charge", __name: "otherCharges", company_id: "TMS",
@@ -386,16 +366,18 @@ async function syncBookingDetails(input: {
       if (differences.length) throw Error(differences.join(". "));
     }
     async function sendExtras() {
-      const transactionDate = warehouseDate(new Date(), "DAL");
+      const transactionDate = dallasExtraPayDate(new Date());
       for (const line of missingExtras) {
         const fresh = await readExtras();
         if (fresh.some(row => row.code === line.code)) throw Error("Extra pay changed. Preview the order again.");
         await write(otherPayPath, { __type: "driver_extra_pay", company_id: "TMS", movement_id: String(movement.id),
           order_id: input.orderId, payee_id: carrier, deduct_code_id: line.code,
-          transaction_date: transactionDate, descr: line.description, short_desc: line.description,
+          transaction_date: transactionDate, reference_no: dallasExtraPayReference, descr: line.description, short_desc: line.description,
           units: line.units, rate: line.rate, amount: line.amount });
         const verified = (await readExtras()).filter(row => row.code === line.code);
         if (verified.length !== 1 || !matchesExtra(verified[0], line)) throw Error(`McLeod did not verify extra pay code ${line.code}.`);
+        if (verified[0].transactionDate.slice(0, 8) !== transactionDate.slice(0, 8))
+          throw Error(`McLeod returned a different transaction date for extra pay code ${line.code}.`);
       }
     }
 
