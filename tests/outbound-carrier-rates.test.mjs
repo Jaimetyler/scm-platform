@@ -59,3 +59,14 @@ test("customer chassis minimum is billed on top of base and never increases carr
     assert.deepEqual(carrierPlanTotals(plan, billing), { pay, bill });
   }
 });
+
+test("bulk carrier assignment can set total chassis days and add optional charges in the same save", () => {
+  const rate = { id: "new", updated_at: "new-version" };
+  assert.deepEqual(carrierBatchSelection(null, {
+    rate, totalChassisDays: 3, charges: { chassisDays: 0, chassisSplits: 1, stopoffs: 2 },
+  }), {
+    rateId: "new", rateVersion: "new-version", basePayOverride: "",
+    quantities: { chassisDays: "3", chassisSplits: "1", stopoffs: "2" },
+  });
+  assert.deepEqual(carrierBatchSelection(null, { rate }).quantities, { chassisDays: "0", chassisSplits: "0", stopoffs: "0" });
+});

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planDallasCustomerExtras } from "../lib/dray/dallas-customer-extras.ts";
+import { planDallasCustomerExtras, readDallasCustomerCharges } from "../lib/dray/dallas-customer-extras.ts";
 
 const rate = { included_chassis_days: 1, chassis_daily_rate: 35, chassis_split_rate: 60, stopoff_rate: 75 };
 const quantities = { chassisDays: 3, chassisSplits: 1, stopoffs: 1 };
@@ -27,7 +27,7 @@ test("applies the MSC chassis exception and permits a missing stopoff when an ex
   const badChassis = { ...chassis, id: "" };
   const result = planDallasCustomerExtras(quantities, rate, [badChassis, split], false);
   assert.deepEqual(result.changes.map(line => line.code), ["006"]);
-  assert.match(result.blockers[0], /existing DSCM/);
+  assert.match(result.blockers[0], /DSCM could not/);
   assert.deepEqual(planDallasCustomerExtras(quantities, rate, [badChassis, split], true).blockers, []);
 });
 
@@ -36,4 +36,14 @@ test("a missing standard chassis charge is flagged without blocking other missin
   const result = planDallasCustomerExtras(quantities, rate, [], false);
   assert.deepEqual(result.changes.map(line => line.code), ["CS", "006"]);
   assert.match(result.blockers[0], /standard DSCM charge is missing/);
+});
+
+test("reconciles a missing freight flag and derives missing chassis units before increasing DSCM", () => {
+  const billed = readDallasCustomerCharges([{ id: "CHASSIS1", charge_id: "DSCM", amount: "35.00" }], 50000, 53500);
+  assert.equal(billed[0].inclusion, "N");
+  const result = planDallasCustomerExtras({ ...quantities, chassisSplits: 0, stopoffs: 0 }, rate, billed, false);
+  assert.deepEqual(result.blockers, []);
+  assert.equal(result.changes[0].previous.units, 1);
+  assert.equal(result.changes[0].amount, 105);
+  assert.equal(readDallasCustomerCharges([{ charge_id: "DSCM", amount: 35 }], 50000, 52000)[0].inclusion, null);
 });

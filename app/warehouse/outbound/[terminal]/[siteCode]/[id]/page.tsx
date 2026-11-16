@@ -22,6 +22,7 @@ import BookingSyncPreview, { mcleodCurrency } from "./BookingSyncPreview";
 import type { BookingSyncPreview as McLeodPreview } from "@/lib/warehouse/outbound/booking-sync-preview";
 import DallasImportOrders from "./DallasImportOrders";
 import DallasLoadSync from "./DallasLoadSync";
+import DallasBulkSync from "./DallasBulkSync";
 import DallasOrderPilot from "./DallasOrderPilot";
 import { BookingOrderLookup, CarrierBatchToolbar, CarrierEditor, CarrierRateManager, CarrierSummary } from "./CarrierRates";
 import { carrierBatchSelection, carrierPlanTotals, type CarrierBatchAction, type CarrierPlan, type CarrierRate, type CarrierSelection, type CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
@@ -670,6 +671,10 @@ export default function CottonOutboundBookingPage() {
       </button>
       <small>{unassignedRows.length} {term ? "matching" : "available"}</small>
     </form>}
+    {canSyncDallas && selectedRows.some(row => row.scm_order_number && row.carrier_plan) &&
+      <DallasBulkSync key={selectedRows.map(row => `${row.id}:${row.updated_at}`).join("|")} bookingId={id}
+        orderIds={selectedRows.flatMap(row => row.scm_order_number && row.carrier_plan ? [row.scm_order_number] : [])}
+        disabled={Boolean(working)} onBusy={setBulkSaving} />}
     {selectedToUnassign.length > 0 && <button type="button" style={{ ...button, margin: "8px 0" }}
       disabled={Boolean(working)} onClick={() => void applyCarrierBatch(null)}>Unassign selected ({selectedToUnassign.length})</button>}
     {mcleodPullError && <p role="alert">{mcleodPullError}</p>}
