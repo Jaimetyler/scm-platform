@@ -43,15 +43,15 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
         try {
           const response = await fetch("/api/dray-import/dallas", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: send ? "apply-carrier" : "preview-carrier", bookingId, orderId, token: reviewed?.token }),
+            body: JSON.stringify({ action: send ? "apply-load" : "preview-load", bookingId, orderId, token: reviewed?.token }),
           });
           const result = await response.json();
           if (!response.ok) throw Error(result.error || "McLeod sync failed.");
           next.push(send ? { orderId, parts: [], applied: result.applied, issues: result.issues } : {
             orderId, token: result.token,
-            parts: [result.canSendPay && "Carrier and base pay", result.canSendExtras && "Other Carrier Pay",
+            parts: [result.canSendDetails && "Booking details", result.canSendPay && "Carrier and base pay", result.canSendExtras && "Other Carrier Pay",
               result.canSendBilling && "Customer charges", ...(result.fuelChanges ?? [])].filter(Boolean),
-            issues: [...new Set<string>([...result.blockers, ...result.extrasBlockers, ...result.billingBlockers])],
+            issues: [...new Set<string>([...result.detailBlockers, ...result.blockers, ...result.extrasBlockers, ...result.billingBlockers])],
           });
         } catch (error) {
           next.push({ orderId, parts: [], issues: [error instanceof Error ? error.message : "McLeod sync failed."] });
