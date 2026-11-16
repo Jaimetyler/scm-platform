@@ -724,7 +724,6 @@ export default function CottonOutboundBookingPage() {
       const mcleodRow = mcleodRows.get(row.id);
       const bookedBill = mcleodRow?.order?.total;
       const storedBill = totals?.bill;
-      const billSource = storedBill != null ? "Customer rates" : bookedBill != null ? "McLeod" : null;
       const allInBill = storedBill != null ? storedBill / 100 : bookedBill;
       const canSend = canSyncDallas && Boolean(row.scm_order_number);
       const syncOpen = syncRowId === row.id && (canSend || Boolean(mcleodRow));
@@ -755,7 +754,7 @@ export default function CottonOutboundBookingPage() {
               onClick={() => { setChargesOnly(false); setDetailId(row.id); }}>
               {totals ? `$${(totals.pay / 100).toFixed(2)}` : "Assign carrier"}
             </button> : "—"}</td>
-          <td style={td} className="carrier-total">{billSource ? <>{mcleodCurrency(allInBill)}<small style={{ display: "block" }}>{billSource}</small></> :
+          <td style={td} className="carrier-total">{allInBill != null ? mcleodCurrency(allInBill) :
             pullingMcLeod && row.scm_order_number ? "Looking up…" : totals ? "Rate unavailable" : "—"}</td>
         </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
