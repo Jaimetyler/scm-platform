@@ -17,7 +17,7 @@ import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineVie
 import styles from "./outbound.module.css";
 
 type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
-  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; returnLocation?: string; steamshipLine?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
+  sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; edfScheduleOnly?: boolean; returnLocation?: string; steamshipLine?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[]; warnings: string[];
   lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
   mismatches: { row: number; warehouse: string }[] };
@@ -204,9 +204,11 @@ export default function CottonOutboundPage() {
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
       {preview.booking.sourceFormat === "edf" && <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
         <label><input type="checkbox" checked={customerConfirmed} onChange={event => setCustomerConfirmed(event.target.checked)} /> This export is for ED&amp;F Man Cotton.</label>
-        <label><input type="checkbox" checked={warehouseConfirmed} onChange={event => setWarehouseConfirmed(event.target.checked)} /> USDAL means {site?.siteName} for these loads.</label>
+        <label><input type="checkbox" checked={warehouseConfirmed} onChange={event => setWarehouseConfirmed(event.target.checked)} /> These loads belong to {site?.siteName}.</label>
+        {!preview.booking.edfScheduleOnly && <>
         <label>Year for the source dates <input aria-label="Source date year" type="number" min="2000" max="2100" style={input} value={dateYear} onChange={event => { setDateYear(event.target.value); setDatesConfirmed(false); }} /></label>
         <button type="button" style={button} disabled={working || !dateYear} onClick={event => void upload(event, false)}>Apply year and review dates</button>
+        </>}
       </div>}
       {preview.booking.sourceFormat === "ldc" && <label style={{ display: "block", marginBottom: 12 }}>
         <input type="checkbox" checked={warehouseConfirmed} onChange={event => setWarehouseConfirmed(event.target.checked)} /> These Port Wentworth loads belong to {site?.siteName}.
@@ -232,7 +234,7 @@ export default function CottonOutboundPage() {
       </tbody></table></div>
       <button style={{ ...button, marginTop: 14 }} disabled={!canWrite || working || !datesConfirmed || !!preview.booking.warnings.length ||
         (preview.booking.warehouseNeedsConfirmation && !warehouseConfirmed) ||
-        (preview.booking.sourceFormat === "edf" && (!customerConfirmed || preview.booking.needsDateYear || !dateYear)) ||
+        (preview.booking.sourceFormat === "edf" && (!customerConfirmed || (!preview.booking.edfScheduleOnly && (preview.booking.needsDateYear || !dateYear)))) ||
         preview.booking.lines.some(line => line.needsBales && (!Number.isSafeInteger(Number(lineBales[String(line.sourceRow)])) || Number(lineBales[String(line.sourceRow)]) < 1))} onClick={(event) => void upload(event, true)}>{working ? "Saving draft…" : "Save draft booking"}</button>
     </PlatformPanel>}
 
