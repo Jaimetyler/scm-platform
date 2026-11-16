@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 
-function loadCase({ before = "CARRIER", after = null, writeFails = false } = {}) {
+function loadCase({ before = "CARRIER", after = null, writeFails = false, detail } = {}) {
   const calls = [];
   const order = carrier => ({
     id: "0830846", revenue_code_id: "DDRAY", customer_id: "CUSTOMER", booking_no_sucm: "2342071250",
@@ -13,7 +13,10 @@ function loadCase({ before = "CARRIER", after = null, writeFails = false } = {})
   const vendor = () => ({
     read: async path => {
       calls.push(path);
-      return order(calls.length === 1 ? before : after);
+      if (path === "/movements/9001") return detail;
+      const result = order(calls.length === 1 ? before : after);
+      if (detail) delete result.movements[0].carrier_id;
+      return result;
     },
     write: async path => {
       calls.push(path);
@@ -58,4 +61,17 @@ test("a different live carrier or mismatched booking stops before mutation", asy
 test("requires read-back after a failed or ambiguous McLeod write", async () => {
   await loadCase({ writeFails: true }).clear();
   await assert.rejects(loadCase({ after: "CARRIER" }).clear(), /could not verify carrier removal/);
+});
+
+
+test("uses the current movement endpoint when the order omits carrier fields", async () => {
+  const { calls, clear } = loadCase({ detail: { id: "9001", __brokerageStatusDescr: "Available" } });
+  await clear();
+  assert.deepEqual(calls, ["/orders/0830846", "/movements/9001"]);
+});
+
+test("an ambiguous movement response still blocks unassignment", async () => {
+  const { calls, clear } = loadCase({ detail: { id: "9001" } });
+  await assert.rejects(clear(), /did not return carrier assignment fields/);
+  assert.deepEqual(calls, ["/orders/0830846", "/movements/9001"]);
 });

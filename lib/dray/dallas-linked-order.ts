@@ -19,24 +19,38 @@ export async function readLinkedDallasOrder(read: ReadOrder, orderId: string, bo
   return order;
 }
 
-function currentMovement(order: Awaited<ReturnType<typeof readLinkedDallasOrder>>) {
-  const movement = Array.isArray(order.movements) && order.movements.length === 1 ? order.movements[0] : null;
-  if (!movement || String(movement.id) !== String(order.curr_movement_id) ||
-      !/^[A-Za-z0-9_-]{1,60}$/.test(String(movement.id)) ||
-      (!Object.hasOwn(movement, "carrier_id") && !Object.hasOwn(movement, "vendor_id")))
-    throw Error("Could not verify the assigned carrier on the current McLeod movement.");
-  return movement;
+export function currentDallasMovement(order: Awaited<ReturnType<typeof readLinkedDallasOrder>>) {
+  const id = String(order.curr_movement_id ?? "");
+  const matches = Array.isArray(order.movements) ? order.movements.filter(item => String(item?.id) === id) : [];
+  if (matches.length !== 1 || !/^[A-Za-z0-9_-]{1,60}$/.test(id))
+    throw Error("Could not identify the current McLeod movement for this order.");
+  return matches[0];
 }
 
-function assignedCarrier(movement: ReturnType<typeof currentMovement>) {
-  return [movement.carrier_id, movement.vendor_id].map(value => String(value ?? "").trim().toUpperCase()).find(Boolean);
+function assignedCarrier(movement: ReturnType<typeof currentDallasMovement>) {
+  return [movement.carrier_id, movement.vendor_id, movement.carrier?.id, movement.vendor?.id]
+    .map(value => String(value ?? "").trim().toUpperCase()).find(Boolean);
+}
+
+async function readCarrierMovement(read: ReadOrder, order: Awaited<ReturnType<typeof readLinkedDallasOrder>>) {
+  const movement = currentDallasMovement(order);
+  const hasCarrierFields = (row: typeof movement) =>
+    ["carrier_id", "vendor_id", "carrier", "vendor"].some(field => Object.hasOwn(row, field));
+  if (hasCarrierFields(movement)) return movement;
+  const full = await read(`/movements/${movement.id}`);
+  if (String(full?.id) !== String(movement.id))
+    throw Error("Could not verify the current McLeod movement details.");
+  const brokerageStatus = String(full.__brokerageStatusDescr ?? full.brokerage_status ?? "").trim();
+  if (!hasCarrierFields(full) && !/^(AVAILABLE|UNASSIGNED|UNCOVERED)$/i.test(brokerageStatus))
+    throw Error("McLeod did not return carrier assignment fields or an unassigned brokerage status.");
+  return full;
 }
 
 export async function clearDallasCarrier(orderId: string, bookingNumber: string, link: DallasLink, plannedCarrier?: string) {
   const { read, write } = vendor(false);
   const readOrder = () => readLinkedDallasOrder(read, orderId, bookingNumber, link);
   const order = await readOrder();
-  const movement = currentMovement(order);
+  const movement = await readCarrierMovement(read, order);
   const carrier = assignedCarrier(movement);
   if (!carrier) return;
   if (plannedCarrier && carrier !== plannedCarrier.trim().toUpperCase())
@@ -52,7 +66,7 @@ export async function clearDallasCarrier(orderId: string, bookingNumber: string,
   } catch (error) {
     writeError = error;
   }
-  const updated = currentMovement(await readOrder());
+  const updated = await readCarrierMovement(read, await readOrder());
   if (String(updated.id) !== String(movement.id) || assignedCarrier(updated))
     throw new Error("McLeod could not verify carrier removal. Review the movement before retrying.", { cause: writeError });
 }

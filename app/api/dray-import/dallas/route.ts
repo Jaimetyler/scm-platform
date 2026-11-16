@@ -16,7 +16,7 @@ import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
 import { dallasBookingFields, dallasImportPayload, matchesDallasImportDate, stagedDallasLocalTime } from "@/lib/dray/dallas-import-orders";
 import { mcleodOrderStops } from "@/lib/inbound/checkin/yard-stop";
-import { readLinkedDallasOrder } from "@/lib/dray/dallas-linked-order";
+import { currentDallasMovement, readLinkedDallasOrder } from "@/lib/dray/dallas-linked-order";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -47,7 +47,7 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
   try {
     if (request.headers.get("content-type")?.startsWith("application/json")) {
       const input = await request.json();
-      if (input.action === "preview-details" || input.action === "apply-details" || input.action === "preview-carrier" || input.action === "apply-carrier" || input.action === "apply-extras" || input.action === "apply-billing")
+      if (input.action === "preview-details" || input.action === "apply-details" || input.action === "preview-carrier" || input.action === "apply-carrier")
         return await syncBookingDetails(input);
       if (input.action === "create-orders" || input.action === "import-status") {
         const id = String(input.bookingId ?? "");
@@ -182,7 +182,7 @@ async function syncBookingDetails(input: {
 }) {
   if (!/^[a-f0-9-]{36}$/i.test(input.bookingId) || !/^[A-Za-z0-9_-]{1,60}$/.test(input.orderId))
     throw Error("Choose a verified SCM order.");
-  const apply = ["apply-details", "apply-carrier", "apply-extras", "apply-billing"].includes(input.action);
+  const apply = ["apply-details", "apply-carrier"].includes(input.action);
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
@@ -200,7 +200,7 @@ async function syncBookingDetails(input: {
   const { read, write } = vendor(!apply);
   const readLinkedOrder = () => readLinkedDallasOrder(read, input.orderId, saved.booking_number, load.data!);
   const current = await readLinkedOrder();
-  if (input.action.endsWith("-carrier") || ["apply-extras", "apply-billing"].includes(input.action)) {
+  if (input.action.endsWith("-carrier")) {
     const plan = slot.data.carrier_plan as CarrierPlan | null | undefined;
     if (!plan) throw Error("Save a carrier assignment on this load first.");
     const carrier = plan.rate.carrier_id.trim().toUpperCase();
@@ -209,14 +209,7 @@ async function syncBookingDetails(input: {
     if (!/^[A-Z0-9_-]{1,30}$/.test(carrier) || baseCents == null || !Number.isSafeInteger(baseCents) || baseCents < 0)
       throw Error("The saved carrier or base pay is invalid.");
     const pay = baseCents / 100;
-    const movementFor = (order: typeof current) => {
-      const movements = Array.isArray(order.movements) ? order.movements : [];
-      const movement = movements.length === 1 ? movements[0] : null;
-      if (!movement || String(movement.id) !== String(order.curr_movement_id) ||
-          !/^[A-Za-z0-9_-]{1,60}$/.test(String(movement.id)))
-        throw Error("Could not verify a single current McLeod movement.");
-      return movement;
-    };
+    const movementFor = currentDallasMovement;
     const movement = movementFor(current);
     const currentPayee = String(movement.override_payee_id ?? "").trim();
     const currentPay = String(movement.override_pay_rate ?? "").trim() ? Number(movement.override_pay_rate) : null;
@@ -297,38 +290,56 @@ async function syncBookingDetails(input: {
     const rawBilling = current.otherCharges ?? current.other_charges ?? current.otherCharge;
     const billed = Array.isArray(rawBilling) && rawBilling.every(row => row && String(row.charge_id ?? "").trim()) ?
       rawBilling.map(row => ({ code: String(row.charge_id).trim().toUpperCase(), description: String(row.descr ?? ""),
-        amount: row.amount == null ? null : Number(row.amount), units: Number(row.units), rate: Number(row.rate) })) : null;
-    const matchesBill = (row: NonNullable<typeof billed>[number], line: typeof proposedBilling[number]) =>
+        amount: row.amount == null ? null : Number(row.amount), units: Number(row.units), rate: Number(row.rate),
+        id: String(row.id ?? ""), inclusion: row.incl_in_freight })) : null;
+    const matchesBill = (row: Pick<NonNullable<typeof billed>[number], "code" | "amount" | "units" | "rate">, line: typeof proposedBilling[number]) =>
       row.code === line.code && row.amount !== null && line.amount !== null &&
       Math.round(row.amount * 100) === Math.round(line.amount * 100) && row.units === line.units &&
       row.rate === line.rate;
     const billable = proposedBilling.filter(line => line.amount !== null && line.amount > 0);
-    const missingBilling = billed ? billable.filter(line => !billed.some(row => row.code === line.code)) : [];
+    const billingChanges = billed ? billable.flatMap(line => {
+      const entries = billed.filter(row => row.code === line.code);
+      if (!entries.length) return [{ ...line, previous: null as NonNullable<typeof billed>[number] | null }];
+      const [previous] = entries;
+      if (entries.length !== 1 || matchesBill(previous, line) || !previous.id || previous.inclusion !== "N") return [];
+      return [{ ...line, previous }];
+    }) : [];
     const billingBlockers = [
       ...(proposedBilling.some(line => line.rate === null || !Number.isFinite(line.rate) || line.rate < 0)
         ? ["A customer accessorial rate is missing or invalid. Check Customer Rates."] : []),
       ...(!billed && billable.length ? ["McLeod customer charges could not be verified."] : []),
       ...(billable.some(line => {
         const existing = billed?.filter(row => row.code === line.code) ?? [];
-        return existing.length > 0 && (existing.length !== 1 || !matchesBill(existing[0], line));
-      }) ? ["An existing customer charge differs. Review it in McLeod."] : []),
-      ...(current.status !== "A" ? ["McLeod order must be available to add customer charges."] : []),
-      ...(current.total_charge == null || !String(current.total_charge).trim() || !Number.isFinite(Number(current.total_charge))
+        return existing.length > 1 || (existing.length === 1 && !matchesBill(existing[0], line) &&
+          (!existing[0].id || existing[0].inclusion !== "N"));
+      }) ? ["A differing customer charge has no unique editable line. Review it in McLeod."] : []),
+      ...(billable.length && current.status !== "A" ? ["McLeod order must be available to add customer charges."] : []),
+      ...(billable.length && (current.total_charge == null || !String(current.total_charge).trim() || !Number.isFinite(Number(current.total_charge)))
         ? ["McLeod customer bill total could not be verified."] : []),
     ];
-    const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movement, current.status, carrier, pay,
+    const movementState = [movement.id, movement.status, assignedCarrier, currentPayee, movement.override_type,
+      movement.override_units, movement.override_pay_rate, movement.override_paye_rate, movement.override_pay_amt];
+    const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movementState, current.status, carrier, pay,
       otherPay, proposedExtras, current.total_charge, billed, proposedBilling]);
     const headers = { "Cache-Control": "private, no-store" };
     const extrasBlockers = [...blockers,
-      ...(!otherPay ? [otherPayIssue] : []),
+      ...(proposedExtras.length && !otherPay ? [otherPayIssue] : []),
       ...(conflict ? ["An existing charge has the same code with different pay. Review it in McLeod."] : []),
-      ...(currentPayee !== carrier ? ["Apply the carrier payee before sending extra pay."] : []),
     ];
-    if (!apply) return NextResponse.json({ token, billingBlockers, missingBilling, billed, proposedBilling, extrasBlockers, missingExtras, currentPayee, assignedCarrier, currentPay, carrier, pay,
-      otherPay, proposedExtras, blockers, changed }, { headers });
-    if (input.action === "apply-billing") {
-      if (input.token !== token || billingBlockers.length || !missingBilling.length)
-        throw Error("Customer charges could not be applied. Preview the order again.");
+    const canSendPay = changed && blockers.length === 0;
+    const canSendExtras = missingExtras.length > 0 && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
+    const canSendBilling = billingChanges.length > 0 && billingBlockers.length === 0;
+    const review = { token, billingBlockers, billed, proposedBilling, extrasBlockers, currentPayee, assignedCarrier, currentPay, carrier, pay,
+      otherPay, proposedExtras, blockers, changed, canSendPay, canSendExtras, canSendBilling };
+    if (!apply) return NextResponse.json(review, { headers });
+    if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
+
+    async function sendBilling() {
+      const fresh = await readLinkedOrder();
+      const billingSnapshot = (order: typeof current) => [order.status, order.rate_type, order.rate, order.rate_units,
+        order.total_charge, order.otherCharges ?? order.other_charges ?? order.otherCharge];
+      if (hash(billingSnapshot(current)) !== hash(billingSnapshot(fresh)))
+        throw Error("Customer billing changed during sync. Preview the differences again.");
       const baseRate = Number(current.rate);
       const rateUnits = Number(current.rate_units);
       if (current.rate_type !== "F" || !String(current.rate ?? "").trim() ||
@@ -338,12 +349,13 @@ async function syncBookingDetails(input: {
         throw Error("Could not verify the existing flat rate and charges. Review billing in McLeod.");
       const existingCents = Math.round(baseRate * rateUnits * 100) + rawBilling.reduce((sum, row) =>
         sum + (row.incl_in_freight === "N" ? Math.round(Number(row.amount) * 100) : 0), 0);
-      const totalCents = existingCents + missingBilling.reduce((sum, line) => sum + Math.round(line.amount! * 100), 0);
+      const totalCents = existingCents + billingChanges.reduce((sum, line) => sum + Math.round(line.amount! * 100) - Math.round((line.previous?.amount ?? 0) * 100), 0);
       if (![existingCents, totalCents].includes(Math.round(Number(current.total_charge) * 100)))
         throw Error("The current bill total does not reconcile with the flat rate and charge lines. Review billing in McLeod.");
       await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId,
         rate_type: current.rate_type, rate_units: rateUnits, rate: baseRate, total_charge: totalCents / 100,
-        otherCharges: missingBilling.map(line => ({
+        otherCharges: billingChanges.map(line => ({
+          ...(line.previous ? { id: line.previous.id } : {}),
           __type: "other_charge", __name: "otherCharges", company_id: "TMS",
           charge_id: line.code, descr: line.description, units: line.units, rate: line.rate, amount: line.amount,
           incl_in_freight: "N", bill_type: "F", calc_method: "F",
@@ -355,12 +367,12 @@ async function syncBookingDetails(input: {
       if (after.total_charge == null || !String(after.total_charge).trim() ||
           Math.round(Number(after.total_charge) * 100) !== totalCents)
         differences.push(`Bill total expected ${(totalCents / 100).toFixed(2)}, read back ${after.total_charge ?? "unavailable"}`);
-      if (Array.isArray(actual) && billed?.some(existing => !actual.some(row =>
+      if (Array.isArray(actual) && billed?.some(existing => !billingChanges.some(line => line.code === existing.code) && !actual.some(row =>
         String(row?.charge_id ?? "").trim().toUpperCase() === existing.code &&
         row.amount != null && Number(row.amount) === existing.amount)))
         differences.push("An existing McLeod charge changed during the update");
       if (!Array.isArray(actual)) differences.push("McLeod did not return customer charge lines");
-      else for (const line of missingBilling) {
+      else for (const line of billingChanges) {
         const rows = actual.filter(row => String(row?.charge_id ?? "").trim().toUpperCase() === line.code);
         if (rows.length !== 1) {
           differences.push(`${line.code}: expected one line, read back ${rows.length}`);
@@ -368,14 +380,12 @@ async function syncBookingDetails(input: {
         }
         const [row] = rows;
         const amount = row.amount == null ? null : Number(row.amount);
-        if (!matchesBill({ code: line.code, description: "", amount, units: Number(row.units), rate: Number(row.rate) }, line))
+        if (!matchesBill({ code: line.code, amount, units: Number(row.units), rate: Number(row.rate) }, line))
           differences.push(`${line.code}: expected ${line.units} × ${line.rate} = ${line.amount}, read back ${row.units ?? "blank"} × ${row.rate ?? "blank"} = ${row.amount ?? "blank"}`);
       }
-      return NextResponse.json({ verified: differences.length === 0, differences, total: after.total_charge ?? null }, { headers });
+      if (differences.length) throw Error(differences.join(". "));
     }
-    if (input.action === "apply-extras") {
-      if (input.token !== token || extrasBlockers.length || !missingExtras.length)
-        throw Error("Extra pay could not be applied. Preview the order again.");
+    async function sendExtras() {
       const transactionDate = warehouseDate(new Date(), "DAL");
       for (const line of missingExtras) {
         const fresh = await readExtras();
@@ -385,23 +395,47 @@ async function syncBookingDetails(input: {
           transaction_date: transactionDate, descr: line.description, short_desc: line.description,
           units: line.units, rate: line.rate, amount: line.amount });
         const verified = (await readExtras()).filter(row => row.code === line.code);
-        if (verified.length !== 1 || !matchesExtra(verified[0], line)) return NextResponse.json({ verified: false }, { headers });
+        if (verified.length !== 1 || !matchesExtra(verified[0], line)) throw Error(`McLeod did not verify extra pay code ${line.code}.`);
       }
-      return NextResponse.json({ verified: true }, { headers });
     }
-    if (input.token !== token || blockers.length || !changed)
-      throw Error("Carrier or pay could not be applied. Preview the order again.");
-    await write("/movement/update", {
-      __type: "movement", company_id: "TMS", id: String(movement.id),
-      override_payee_id: carrier, override_type: "F", override_units: 1,
-      override_pay_amt: pay, override_pay_rate: pay, override_paye_rate: pay,
-    });
-    const updated = movementFor(await readLinkedOrder());
-    if (String(updated.id) !== String(movement.id) || String(updated.override_payee_id ?? "").trim() !== carrier)
-      return NextResponse.json({ verified: false }, { headers });
-    await write(`/carrierDispatch/setPay/${encodeURIComponent(movement.id)}?method=F&units=1&rate=${pay}&carrierPay=${pay}`);
-    const verified = movementFor(await readLinkedOrder());
-    return NextResponse.json({ verified: String(verified.id) === String(movement.id) && hasExpectedPay(verified) }, { headers });
+
+    async function sendBasePay() {
+      await write("/movement/update", {
+        __type: "movement", company_id: "TMS", id: String(movement.id),
+        override_payee_id: carrier, override_type: "F", override_units: 1,
+        override_pay_amt: pay, override_pay_rate: pay, override_paye_rate: pay,
+      });
+      const updated = movementFor(await readLinkedOrder());
+      if (String(updated.id) !== String(movement.id) || String(updated.override_payee_id ?? "").trim() !== carrier)
+        throw Error("McLeod did not verify the carrier payee.");
+      await write(`/carrierDispatch/setPay/${encodeURIComponent(movement.id)}?method=F&units=1&rate=${pay}&carrierPay=${pay}`);
+      const verified = movementFor(await readLinkedOrder());
+      if (String(verified.id) !== String(movement.id) || !hasExpectedPay(verified))
+        throw Error("McLeod did not verify the base carrier pay.");
+    }
+
+    const applied: string[] = [];
+    const issues: string[] = [];
+    async function send(label: string, action: () => Promise<void>) {
+      try {
+        await action();
+        applied.push(label);
+        return true;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "The update could not be verified.";
+        issues.push(`${label}: ${reason}`);
+        return false;
+      }
+    }
+    let payReady = !changed;
+    if (canSendPay) payReady = await send("Carrier payee and base pay", sendBasePay);
+    else if (changed) issues.push(...blockers);
+    if (canSendExtras && payReady) await send("Other Carrier Pay", sendExtras);
+    else if (missingExtras.length || (proposedExtras.length && !otherPay) || conflict)
+      issues.push(...(extrasBlockers.length ? extrasBlockers : ["Other Carrier Pay needs a verified carrier payee and base pay."]));
+    if (canSendBilling) await send("Customer charges", sendBilling);
+    else if (proposedBilling.length && billingBlockers.length) issues.push(...billingBlockers);
+    return NextResponse.json({ applied, issues: [...new Set(issues)] }, { headers });
   }
   const markRow = slot.data.booking_line_id ? await db.from("cotton_outbound_booking_lines")
     .select("mark,line_status").eq("booking_id", input.bookingId).eq("id", slot.data.booking_line_id).maybeSingle() : null;
