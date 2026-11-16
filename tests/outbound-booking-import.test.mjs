@@ -39,7 +39,7 @@ test('ED&F confirmation and explicit year/counts prepare a complete Dallas draft
  assert.equal(b.cutoff,'2026-11-01T19:00'); // source is odd; never silently reorder its dates
  assert(b.lines.every(l=>l.loadSource==='warehouse'&&l.warehouseCode==='SCMDDATX'));
  for(const key of ['customerConfirmed','warehouseConfirmed'])assert.throws(()=>prepareBookingImport(b,'DAL','SCMDDETX',{...confirmed,[key]:false},true),/Confirm/);
- assert.throws(()=>prepareBookingImport(b,'SAV','984',confirmed,true),/Dallas only/);
+ assert.throws(()=>prepareBookingImport(b,'SAV','984',confirmed,true),/Dallas and Houston/);
 });
 test('missing/invalid bale edits and impossible dates cannot save as invented data',()=>{
  for(const bad of ['0','-1','1.5','abc'])assert.throws(()=>parseBookingRequest(workbook(edf),{...confirmed,bales:{2:bad}}),/positive bale/);
@@ -58,4 +58,22 @@ test('Bunge remains recognized and unsupported identities cannot inherit a Bunge
  assert.equal(parseBookingRequest(workbook(rows)).sourceFormat,'bunge');
  assert.equal(parseBookingRequest(workbook(rows)).steamshipLine,'MSC');
  rows[1][0]='Unknown customer'; assert.throws(()=>parseBookingRequest(workbook(rows)),/not recognized/);
+});
+
+
+test('Houston ED&F schedule imports as warehouse loads with manual bales and no inferred cutoffs', () => {
+  const heads = ['ocean_carrier_name','ocean_vessel_name','ocean_pol','ocean_pod','etd','eta','delivery_order_status','exporter_ref_po_number','carrier_booking_number','stuffing_reference','container_num_stuffed','stuffing_date'];
+  const row = ['HAPAG-LLOYD','EXAMPLE VESSEL','Houston','Salerno','23 Nov 14:00','22 Dec 14:00','New','REF','BOOK-01','MARK01','','15 Nov 18:00'];
+  const options = { customerConfirmed: true, warehouseConfirmed: true, bales: { 2: 90 } };
+  const parsed = parseBookingRequest(workbook([heads,row]), options);
+  const saved = prepareBookingImport(parsed,'HOU','5300',options,true);
+  assert.equal(saved.bookingNumber,'BOOK-01');
+  assert.equal(saved.needsDateYear,false);
+  assert.equal(saved.erd,null);
+  assert.equal(saved.cutoff,null);
+  assert.equal(saved.lines[0].warehouseCode,'5300');
+  assert.equal(saved.lines[0].loadSource,'warehouse');
+  assert.equal(saved.lines[0].bales,90);
+  assert.throws(() => prepareBookingImport(parsed,'HOU','5300',{...options,warehouseConfirmed:false},true), /Confirm ED&F/);
+  assert.throws(() => prepareBookingImport(parsed,'DAL','SCMDDETX',options,true), /Houston warehouse/);
 });

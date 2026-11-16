@@ -6,7 +6,7 @@ import { isSavannahE2openBooking } from "./e2open-customer.ts";
 const XLSX = XlsxModule as typeof XlsxTypes;
 export type BookingImport = BungeBooking & {
   sourceFormat: "bunge" | "olam" | "edf" | "ldc";
-  customerNeedsConfirmation?: boolean; needsDateYear?: boolean; warehouseNeedsConfirmation?: boolean;
+  customerNeedsConfirmation?: boolean; needsDateYear?: boolean; warehouseNeedsConfirmation?: boolean; edfScheduleOnly?: boolean;
 };
 export type BookingImportOptions = { dateYear?: string; bales?: Record<string, unknown>; customerConfirmed?: boolean; warehouseConfirmed?: boolean };
 const text = (v: unknown) => String(v ?? "").trim().replace(/\s+/g, " ");
@@ -21,7 +21,9 @@ const count = (v: unknown, label: string) => {
   if (!Number.isSafeInteger(n) || n <= 0 || n > 1000000) throw Error(`Enter a positive ${label}.`);
   return n;
 };
-const edfHeaders = ["ocean_carrier_name", "ocean_vessel_name", "stuffing_reference", "carrier_booking_number", "exporter_ref_po_number", "container_num_stuffed", "stuffing_place", "earliest_return_date", "terminal_cutoff", "document_cutoff", "full_return_place"];
+const edfCommonHeaders = ["ocean_carrier_name", "ocean_vessel_name", "stuffing_reference", "carrier_booking_number", "exporter_ref_po_number", "container_num_stuffed"];
+const edfDispatchHeaders = ["stuffing_place", "earliest_return_date", "terminal_cutoff", "document_cutoff", "full_return_place"];
+const edfScheduleHeaders = ["ocean_pol", "ocean_pod", "etd", "eta", "delivery_order_status", "stuffing_date"];
 
 const ldcHeaders = ["TMS ID", "Order Ref", "Shipper", "Origin Name", "Destination Name", "Trailer", "Shipment References"];
 
@@ -47,7 +49,11 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
       ? XLSX.utils.sheet_to_json<unknown[]>(sheet, { ...rowOptions, range: 0 })
       : rows;
     const first = rows.slice(0, 25).flat().map(norm);
-    const edf = rows.findIndex(row => edfHeaders.every(h => row.map(text).includes(h)));
+    const edf = rows.findIndex(row => {
+      const headers = new Set(row.map(text));
+      return edfCommonHeaders.every(h => headers.has(h)) &&
+        (edfDispatchHeaders.every(h => headers.has(h)) || edfScheduleHeaders.every(h => headers.has(h)));
+    });
     const ldc = fullRows.findIndex(row => ldcHeaders.every(h => row.map(norm).includes(norm(h))));
     const olam = first.includes("DRAY DISPATCH") && first.some(v => /^OLAM AGRI AMERICAS INC\.?$/.test(v));
     const bunge = first.includes("BOOKING REQUEST") && first.some(v => /^BUNGE USA AGRICULTURE\s*,?\s*LLC\.?$/.test(v));
@@ -141,6 +147,7 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
         ...rows.slice(0, headerRow).flat().map(text).filter(v => /fuel|bolt seals|required|24 hours/i.test(v))] };
   }
   const c = (label: string) => rows[header].findIndex(v => text(v) === label);
+  const edfScheduleOnly = !edfDispatchHeaders.every(label => c(label) >= 0);
   const data = rows.slice(header + 1).map((row, index) => ({ row, sourceRow: header + index + 2 })).filter(({row}) => row.some(v => text(v)));
   if (!data.length || data.length > 500) throw Error("ED&F export must contain between 1 and 500 load rows.");
   const one = (label: string) => {
@@ -170,30 +177,35 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
       needsBales: true, containerNumber, warehouse: text(row[c("stuffing_place")]), warehouseCode: "", loadBy: null, confirmed: false, sourceRow};
   });
   return { ...base, sourceFormat: "edf", customer: "ED&F Man Cotton", customerNeedsConfirmation: true, warehouseNeedsConfirmation: true,
-    needsDateYear: !year, bookingNumber: identifier(one("carrier_booking_number"), "booking number"), customerReference: one("exporter_ref_po_number"),
+    edfScheduleOnly, needsDateYear: !edfScheduleOnly && !year, bookingNumber: identifier(one("carrier_booking_number"), "booking number"), customerReference: one("exporter_ref_po_number"),
     containers: lines.length, totalBales: lines.reduce((sum,l) => sum+l.bales,0), lines, warehouses: [...new Set(lines.map(l=>l.warehouse))],
     erd: parseDate(rawDates.erd,"ERD")?.slice(0,10) ?? null, docCutoff: parseDate(rawDates.docCutoff,"Doc cutoff"), cutoff: parseDate(rawDates.cutoff,"Cutoff"),
     returnLocation: [...new Set([one("full_return_place"), one("full_return_place_address")].filter(Boolean))].join(" · "),
     vessel: one("ocean_vessel_name") || null, loadPort: one("full_return_place"), steamshipLine: one("ocean_carrier_name"),
     detailNotes: ["ED&F inland drayage layout recognized. The export does not name the customer; confirm ED&F before saving.",
       "Bale counts are missing. Enter the count for each load before saving.",
-      `Source dates (no year or timezone supplied): ERD ${rawDates.erd}; Doc cutoff ${rawDates.docCutoff}; Cutoff ${rawDates.cutoff}. Confirm dates in warehouse local time.`,
-      `Empty pickup: ${one("empty_pickup_place")}. Full return: ${one("full_return_place")}. Stuffing place: ${one("stuffing_place")}.`] };
+      ...(edfScheduleOnly ? [
+        `Vessel schedule: ${one("ocean_pol")} to ${one("ocean_pod")} · ETD ${one("etd")} · ETA ${one("eta")}.`,
+        "Enter the ERD, cutoffs, and return location if known. This export supplies vessel schedule dates and does not list the receiving warehouse.",
+      ] : [`Source dates (no year or timezone supplied): ERD ${rawDates.erd}; Doc cutoff ${rawDates.docCutoff}; Cutoff ${rawDates.cutoff}. Confirm dates in warehouse local time.`,
+      `Empty pickup: ${one("empty_pickup_place")}. Full return: ${one("full_return_place")}. Stuffing place: ${one("stuffing_place")}.`])] };
 }
 
 export function prepareBookingImport(booking: BookingImport, terminal: string, siteCode: string, options: BookingImportOptions = {}, saving = false) {
   if (booking.sourceFormat === "edf") {
-    if (terminal !== "DAL") throw Error("This ED&F inland drayage layout is currently supported for Dallas only.");
+    if (booking.edfScheduleOnly ? terminal !== "HOU" : !["DAL", "HOU"].includes(terminal))
+      throw Error(booking.edfScheduleOnly ? "Choose a Houston warehouse for this ED&F schedule export." :
+        "This ED&F inland drayage layout is supported for Dallas and Houston.");
     if (saving && (!options.customerConfirmed || !options.warehouseConfirmed || booking.needsDateYear))
-      throw Error("Confirm ED&F, the receiving warehouse, and the year of the source dates before saving.");
-    if (options.warehouseConfirmed) booking.lines = booking.lines.map(line => ({...line, warehouseCode: siteCode}));
+      throw Error(booking.edfScheduleOnly ? "Confirm ED&F and the receiving warehouse before saving." :
+        "Confirm ED&F, the receiving warehouse, and the year of the source dates before saving.");
   }
   if (booking.sourceFormat === "ldc") {
     if (terminal !== "SAV") throw Error("LDC e2open exports are supported for Savannah only.");
     if (saving && !options.warehouseConfirmed) throw Error("Confirm which Savannah warehouse handled the LDC loads before saving.");
   }
   if (saving && booking.lines.some(line => !Number.isSafeInteger(line.bales) || line.bales < 1)) throw Error("Enter a positive bale count for every load before saving.");
-  booking.lines = booking.sourceFormat === "ldc"
+  booking.lines = booking.sourceFormat === "ldc" || booking.sourceFormat === "edf"
     ? booking.lines.map(line => ({ ...line, warehouseCode: options.warehouseConfirmed ? siteCode : "", loadSource: "warehouse" }))
     : classifyBookingLoads(booking, terminal, siteCode);
   if (terminal === "DAL") {
