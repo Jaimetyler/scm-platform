@@ -214,3 +214,22 @@ test("regular sync pulls a McLeod container when the platform still matches the 
     else process.env.MCLEOD_SYNC_ENABLED = previousSync;
   }
 });
+
+test("regular sync compares compact staged dates even when McLeod returns a different time", async () => {
+  const { request, writes, order, tables } = fixture(false, true);
+  order.cutoff_date = "20261118160000+0000";
+  order.stops[0].sched_arrive_late = "20261118173000+0000";
+  tables.dallas_dray_import_loads.payload.cutoff_date = "20261118100000-0600";
+  tables.dallas_dray_import_loads.payload.stops[0].sched_arrive_late = "20261118103000-0600";
+  const response = await request("preview-load");
+  const preview = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(preview));
+  assert.deepEqual(preview.detailBlockers, [
+    "Pickup scheduled end: McLeod has 20261118173000+0000 and the platform has 2026-11-18T10:30. Review which value is current.",
+  ]);
+  assert.equal(preview.detailChanges.some(change => change.field === "cutoff_date"), true);
+  assert.equal(writes.length, 0);
+  assert.equal(booking.matchesDallasMcLeodDetailDate("20261118163000+0000", "20261118103000-0600"), true);
+  assert.equal(booking.matchesDallasMcLeodDetailDate("20261118173000+0000", "20261118103000-0600"), false);
+  assert.equal(booking.matchesDallasMcLeodDetailDate("20261118163000+0000", "bad date"), false);
+});

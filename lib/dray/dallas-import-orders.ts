@@ -15,6 +15,7 @@ export function stagedDallasLocalTime(value: string) {
 export function dallasMcLeodDetailDate(value: string) {
   const local = dallasDateTime(value);
   const nominal = Date.parse(`${local}Z`);
+  if (!Number.isFinite(nominal)) throw Error("Enter a valid Dallas date and time before syncing.");
   const formatter = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", timeZoneName: "shortOffset" });
   const offsetAt = (instant: number) => Number(formatter.formatToParts(new Date(instant))
     .find(part => part.type === "timeZoneName")?.value.replace("GMT", ""));
@@ -39,11 +40,13 @@ export function matchesDallasImportDate(actual: unknown, expected: string) {
 
 export function matchesDallasMcLeodDetailDate(actual: unknown, expected: string, dateOnly = false) {
   const value = String(actual ?? "").trim();
-  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})$/;
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})([+-]\d{4})?$/;
   const toIso = (date: string) => date.replace(compact, "$1-$2-$3T$4:$5:$6$7").replace(" ", "T");
   const iso = toIso(value);
-  if (dateOnly && /^\d{8}$/.test(value)) return value === expected.slice(0, 10).replaceAll("-", "");
-  if (dateOnly && matchesDallasImportDate(iso.slice(0, 10), expected.slice(0, 10))) return true;
+  const expectedIso = toIso(expected.trim());
+  const expectedDay = expectedIso.slice(0, 10);
+  if (dateOnly && /^\d{8}$/.test(value)) return value === expectedDay.replaceAll("-", "");
+  if (dateOnly && matchesDallasImportDate(iso.slice(0, 10), expectedDay)) return true;
   if (matchesDallasImportDate(value, expected)) return true;
   if (!/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso)) return false;
   const observed = Date.parse(iso);
@@ -51,9 +54,16 @@ export function matchesDallasMcLeodDetailDate(actual: unknown, expected: string,
   if (dateOnly) {
     const localDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Chicago",
       year: "numeric", month: "2-digit", day: "2-digit" }).format(observed);
-    return localDate === expected.slice(0, 10);
+    return localDate === expectedDay;
   }
-  return observed === Date.parse(toIso(dallasMcLeodDetailDate(expected)));
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(expectedIso))
+    return observed === Date.parse(expectedIso);
+  if (!matchesDallasImportDate(expectedIso, expectedIso)) return false;
+  try {
+    return observed === Date.parse(toIso(dallasMcLeodDetailDate(expectedIso)));
+  } catch {
+    return false;
+  }
 }
 
 export function withRequiredCottonBoltSeals(comment: string) {
