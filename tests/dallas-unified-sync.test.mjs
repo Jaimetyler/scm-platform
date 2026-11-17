@@ -13,7 +13,7 @@ import { mcleodOrderStops } from "../lib/inbound/checkin/yard-stop.ts";
 const require = createRequire(import.meta.url);
 const bookingId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const orderId = "0830845";
-function fixture(withCarrier, packageDates = false, cutoffReadback, validateSchedule = false) {
+function fixture(withCarrier, packageDates = false, cutoffReadback, validateSchedule = false, timestamps = {}) {
   const stops = [
     { id: "STOP1", stop_type: "PU", location_id: "SCMDDETX", status: "A" },
     { id: "STOP2", stop_type: "SO", location_id: "BNSFHATX", status: "A" },
@@ -56,7 +56,7 @@ function fixture(withCarrier, packageDates = false, cutoffReadback, validateSche
     },
   });
   const deps = {
-    "@/lib/auth/session": { staffDatabase: () => ({ from: table => ({
+    "@/lib/auth/session": { staffDatabase: () => ({ rpc: async () => ({ data: timestamps }), from: table => ({
       select() { return this; }, eq() { return this; }, is() { return this; },
       update(values) { Object.assign(tables[table], values); return this; },
       async maybeSingle() { return { data: tables[table], error: null }; },
@@ -327,4 +327,14 @@ test("regular sync proposes clearing a container that still matches the verified
   assert.deepEqual(preview.detailBlockers, []);
   assert.equal(preview.clearContainerToken, null);
   assert.equal(writes.length, 0);
+});
+
+test("sync shows the platform's audited edit time on a booking conflict", async () => {
+  const { request, order } = fixture(false, true, undefined, false, {
+    [bookingId]: { cutoff: "2026-11-16T23:42:00+00:00" },
+  });
+  order.cutoff_date = "20261119103000-0600";
+  const preview = await (await request("preview-load")).json();
+  assert.ok(preview.detailBlockers.some(issue =>
+    issue.startsWith("cutoff_date:") && issue.includes("Nov 16, 2026, 5:42:00 PM Dallas time")));
 });

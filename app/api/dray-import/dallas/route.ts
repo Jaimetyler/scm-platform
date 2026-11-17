@@ -203,7 +203,7 @@ async function syncBookingDetails(input: {
   if ((packageSync || input.action.endsWith("-details")) && (!saved.scm_file_number || !saved.erd || !saved.cutoff))
     throw Error("Fill in the file number and sailing dates before syncing booking details.");
   const hasBookingDetails = Boolean(saved.scm_file_number && saved.erd && saved.cutoff);
-  const slot = await db.from("cotton_outbound_containers").select("container_number,booking_line_id,carrier_plan,updated_at")
+  const slot = await db.from("cotton_outbound_containers").select("id,container_number,booking_line_id,carrier_plan,updated_at")
     .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
   if (slot.error || !slot.data) throw Error("The linked booking load could not be found.");
   const { read, write } = vendor(!apply);
@@ -242,6 +242,22 @@ async function syncBookingDetails(input: {
     }
   }
 
+  const trackedIds = [input.bookingId, slot.data.id, slot.data.booking_line_id].filter(Boolean);
+  const { data: timestamps } = unified
+    ? await db.rpc("outbound_field_timestamps", { p_row_ids: trackedIds })
+    : { data: null };
+  const platformTimes = (timestamps ?? {}) as Record<string, Record<string, string>>;
+  function platformChangeTime(rowId: string | null, ...fields: string[]) {
+    const times = rowId && platformTimes[rowId];
+    if (!times) return "";
+    const latest = fields.map(field => times[field]).filter(Boolean).sort().at(-1);
+    if (!latest) return "";
+    const changed = new Date(latest);
+    if (Number.isNaN(changed.getTime())) return "";
+    return ` Platform last edited ${new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago", dateStyle: "medium", timeStyle: "medium",
+    }).format(changed)} Dallas time.`;
+  }
   async function prepareDetails() {
     const markRow = slot.data!.booking_line_id ? await db.from("cotton_outbound_booking_lines")
       .select("mark,line_status").eq("booking_id", input.bookingId).eq("id", slot.data!.booking_line_id).maybeSingle() : null;
@@ -268,13 +284,20 @@ async function syncBookingDetails(input: {
       const previous = baseline?.[field] ?? (field === "booking_no_sucm"
         ? load.data!.payload.outboundSyncedBookingNumber ?? load.data!.payload[field] : load.data!.payload[field]);
       if (unified && (before || baseline?.[field] !== undefined) && (typeof previous !== "string" || !matches(field, before, previous))) {
-        fieldConflicts.push(`${field}: McLeod has ${before || "blank"} and the platform has ${value}. Review which value is current.`);
+        const bookingFields: Record<string, string[]> = {
+          booking_no_sucm: ["booking_number"], planning_comment: ["scm_file_number", "steamship_line", "booking_number", "erd", "cutoff"],
+          cutoff_date: ["cutoff", "cutoff_has_time"], doc_cutoff_date: ["doc_cutoff", "doc_cutoff_has_time"], ssl_sucm: ["steamship_line"],
+        };
+        const edited = field === "consignee_refno" ? platformChangeTime(slot.data!.id, "container_number") :
+          field === "blnum" ? platformChangeTime(slot.data!.booking_line_id, "mark", "line_status") || platformChangeTime(slot.data!.id, "booking_line_id") :
+          platformChangeTime(input.bookingId, ...(bookingFields[field] ?? []));
+        fieldConflicts.push(`${field}: McLeod has ${before || "blank"} and the platform has ${value}.${edited} Review which value is current.`);
         return [];
       }
       return [{ field, before, after: value, required: field === "planning_comment" && currentComment !== requiredComment }];
     });
     if (unified && !pullContainer && !clearContainer && !container && remoteContainer)
-      fieldConflicts.push(`Container: McLeod has ${current.consignee_refno} and the platform is blank. Review which value is current.`);
+      fieldConflicts.push(`Container: McLeod has ${current.consignee_refno} and the platform is blank.${platformChangeTime(slot.data!.id, "container_number")} Review which value is current.`);
     async function sendDetails(selected: typeof changes) {
       if (!unified && selected.some(change => change.field === "blnum") &&
           String(current.booking_no_sucm ?? "").trim() !== saved!.booking_number &&
@@ -335,7 +358,9 @@ async function syncBookingDetails(input: {
         const savedSchedule = baseline?.[`${stop.id}:${field}`];
         const previous = savedSchedule ?? definition[field as keyof typeof definition];
         if (unified && (before || savedSchedule !== undefined) && (typeof previous !== "string" || !matchesDallasMcLeodDetailDate(before, previous))) {
-          issues.push(`${caption}: McLeod has ${before || "blank"} and the platform has ${after}. Review which value is current.`);
+          const edited = field === "sched_arrive_early" || definition.stop_type === "PU"
+            ? platformChangeTime(input.bookingId, "erd") : platformChangeTime(input.bookingId, "cutoff", "cutoff_has_time");
+          issues.push(`${caption}: McLeod has ${before || "blank"} and the platform has ${after}.${edited} Review which value is current.`);
           return [];
         }
         return [{ field, label: caption, before, after }];
