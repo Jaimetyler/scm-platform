@@ -77,3 +77,36 @@ test('Houston ED&F schedule imports as warehouse loads with manual bales and no 
   assert.throws(() => prepareBookingImport(parsed,'HOU','5300',{...options,warehouseConfirmed:false},true), /Confirm ED&F/);
   assert.throws(() => prepareBookingImport(parsed,'DAL','SCMDDETX',options,true), /Houston warehouse/);
 });
+
+test('Bunge normalizes booking suffixes and SSLs, and keeps a split-warehouse mark on one container', () => {
+  const base = [
+    ['Booking Request'], ['Bunge USA Agriculture LLC'], ['Book ID:', 41512, 'other value'],
+    ['Booking #:', 'EBKG19382131 - HOU'], ['Customer Reference:', 61001186],
+    ['Mark', 'S.O.', '', 'Warehouse', 'Bales'],
+    ['C0986', 2602137, 858054, 'Moody #02', 70], ['', '', 858056, 'Moody #04', 16],
+    ['Warehouse Contact Summary'], ['Total Bales:', 86], ['Containers:', 1],
+  ];
+  for (const [number, name, expectedNumber, expectedLine] of [
+    ['EBKG19382131 - HOU', 'Mediterranean Shipping Company', 'EBKG19382131', 'MSC'],
+    ['RICGEN524500', 'Ocean Netword Express PTE', 'RICGEN524500', 'ONE'],
+    ['RICGEN524500', '', 'RICGEN524500', 'ONE'],
+    ['NAM8826147-HOU', 'CMACGM', 'NAM8826147', 'CMA'],
+    ['NAM8826147 - DALLAS', '', 'NAM8826147', 'CMA'],
+    ['TEST-123', 'Hyndai', 'TEST-123', 'HHM'],
+  ]) {
+    const rows = base.map(row => [...row]);
+    rows[3][1] = number;
+    if (name) rows.push(['Ship Line:', name]);
+    const booking = parseBookingRequest(workbook(rows));
+    for (const [terminal, site] of [['HOU', '5300'], ['SAV', '984'], ['DAL', 'SCMDDETX']])
+      assert.equal(prepareBookingImport(booking, terminal, site, {}, true).bookingNumber, expectedNumber);
+    assert.equal(booking.steamshipLine, expectedLine);
+    assert.equal(booking.bookId, '41512');
+    assert.equal(booking.customerReference, '61001186');
+    assert.equal(booking.lines.length, 1);
+    assert.equal(booking.containers, 1);
+    assert.equal(booking.totalBales, 86);
+    assert.deepEqual(booking.lines[0].sourceBales.map(source => [source.warehouseCode, source.bales]), [['858054', 70], ['858056', 16]]);
+    assert.deepEqual(booking.warnings, []);
+  }
+});

@@ -45,7 +45,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
     if (error) throw error;
     if (!booking) return NextResponse.json({ ok: false, error: "Booking not found" }, { status: 404 });
     const { data: lines, error: lineError } = await sb.from("cotton_outbound_booking_lines")
-      .select("id,source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse,line_status,load_source,status_note,status_changed_at,status_changed_by")
+      .select("id,source_row,mark,requested_bales,load_by,date_confirmed,shipping_order,source_warehouse_code,source_warehouse,source_bales,line_status,load_source,status_note,status_changed_at,status_changed_by")
       .eq("booking_id", id).order("source_row");
     if (lineError) throw lineError;
     if (params.get("view") === "active-line") {
@@ -166,14 +166,14 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
     if (lifecycleStatus !== undefined && !["draft", "archived", "cancelled"].includes(lifecycleStatus))
       return NextResponse.json({ ok: false, error: "Unknown booking status." }, { status: 400 });
     let bookingIdentifiers = {};
-    if (terminal === "DAL" && lifecycleStatus === undefined) {
+    if (lifecycleStatus === undefined) {
       const bookingNumber = typeof body.bookingNumber === "string" ? body.bookingNumber.trim().toUpperCase() : "";
-      if (body.bookingNumber !== undefined && !/^[A-Z0-9][A-Z0-9._ /-]{0,79}$/.test(bookingNumber))
+      if (terminal === "DAL" && body.bookingNumber !== undefined && !/^[A-Z0-9][A-Z0-9._ /-]{0,79}$/.test(bookingNumber))
         return NextResponse.json({ ok: false, error: "Enter a valid booking number." }, { status: 400 });
       const reference = typeof body.customerReference === "string" ? body.customerReference.trim() : "";
       if (body.customerReference !== undefined && (typeof body.customerReference !== "string" || reference.length > 200))
         return NextResponse.json({ ok: false, error: "Enter a customer reference of 200 characters or fewer." }, { status: 400 });
-      bookingIdentifiers = { ...(body.bookingNumber !== undefined ? { booking_number: bookingNumber } : {}),
+      bookingIdentifiers = { ...(terminal === "DAL" && body.bookingNumber !== undefined ? { booking_number: bookingNumber } : {}),
         ...(body.customerReference !== undefined ? { customer_reference: reference } : {}) };
     }
     let values;

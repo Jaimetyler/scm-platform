@@ -21,6 +21,10 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     const dallasMigration = await readFile(new URL("../supabase/migrations/20261106193215_dallas_warehouse_sites.sql", import.meta.url), "utf8");
     await db.exec(dallasMigration.match(/alter table public.cotton_outbound_bookings[\s\S]*?;/i)[0]);
     await db.exec("alter table cotton_outbound_containers add column carrier_plan jsonb");
+    for (const name of [
+      "20261113141000_outbound_booking_uncovered", "20261113153000_outbound_booking_carrier_breakdown",
+      "20261117150000_outbound_booking_identifiers",
+    ]) await db.exec(await readFile(new URL(`../supabase/migrations/${name}.sql`, import.meta.url), "utf8"));
     const stage = (booking, restoreId, bookId = "41458") => {
       const loads = planOutboundDrayLoads(bookId, 2, "SCMDDETX", "BNSFHATX");
       const payloads = loads.map(load => dallasImportPayload(load, booking, "BUNGOMNE", "2026-11-13", "2026-11-18T17:25", { bookId, steamshipLine: "ORIENT OVERSEAS CONTAINER LINE LIMITED", docCutoff: "2026-11-16T10:30" }));
@@ -35,7 +39,7 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
       assert.equal(payloads[0].movements, undefined);
       return db.query(`select start_dallas_dray_import('SCMDDETX','Dallas - 2119','Bunge USA Agriculture LLC',$1,'61028280','request.xlsx',$2,$3,$4)`, [
         booking, JSON.stringify([{ sourceRow: 1, mark: "MARK-A", bales: 90, confirmed: false, warehouse: "Dallas" }]),
-        JSON.stringify({ scm_file_number: bookId, restore_booking_id: restoreId, doc_cutoff_has_time: false, cutoff: "2026-11-18T17:25", cutoff_has_time: true }),
+        JSON.stringify({ book_id: bookId, restore_booking_id: restoreId, doc_cutoff_has_time: false, cutoff: "2026-11-18T17:25", cutoff_has_time: true }),
         JSON.stringify(payloads),
       ]);
     };
@@ -46,7 +50,8 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
       [{ blnum: "41458-1", state: "pending" }, { blnum: "41458-2", state: "pending" }]);
     assert.equal((await db.query("select booking_line_id from cotton_outbound_containers where booking_line_id is not null")).rows.length, 0);
     assert.equal((await db.query("select mark from cotton_outbound_booking_lines")).rows[0].mark, "MARK-A");
-    assert.equal((await db.query("select scm_file_number from cotton_outbound_bookings")).rows[0].scm_file_number, "41458");
+    assert.deepEqual((await db.query("select book_id, scm_file_number, customer_reference from cotton_outbound_booking_search_dashboard")).rows,
+      [{ book_id: "41458", scm_file_number: null, customer_reference: "61028280" }]);
     const saveCarrier = () => db.exec("update cotton_outbound_containers set carrier_plan = '{}'::jsonb where sequence_no = 1");
     await assert.rejects(saveCarrier(), /verified SCM order/);
     await db.exec("update dallas_dray_import_loads set state = 'verified', order_id = '0830845' where blnum = '41458-1'");
@@ -60,7 +65,21 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     await assert.rejects(stage("LEGACY", legacy), /duplicate key/);
     assert.equal((await db.query("select status from cotton_outbound_bookings where id=$1", [legacy])).rows[0].status, "cancelled");
     await stage("LEGACY", legacy, "41459");
-    assert.equal((await db.query("select status from cotton_outbound_bookings where id=$1", [legacy])).rows[0].status, "draft");
+    assert.deepEqual((await db.query("select status, book_id, scm_file_number, customer_reference from cotton_outbound_bookings where id=$1", [legacy])).rows,
+      [{ status: "draft", book_id: "41459", scm_file_number: null, customer_reference: "61028280" }]);
+    const sourceBales = [
+      { sourceRow: 18, warehouse: "Moody #02", warehouseCode: "858054", bales: 70 },
+      { sourceRow: 19, warehouse: "Moody #04", warehouseCode: "858056", bales: 16 },
+    ];
+    const houston = (await db.query(`select create_cotton_outbound_booking_import(
+      'HOU','5300','Houston','Bunge','RICGEN524500','61014910',1,86,'request.xlsx',$1,$2) id`, [
+      JSON.stringify([{ sourceRow: 18, mark: "C0986", bales: 86, confirmed: true, warehouse: "Moody #02", sourceBales }]),
+      JSON.stringify({ book_id: "41503", steamship_line: "ONE" }),
+    ])).rows[0].id;
+    assert.deepEqual((await db.query("select requested_bales, source_bales from cotton_outbound_booking_lines where booking_id=$1", [houston])).rows,
+      [{ requested_bales: 86, source_bales: sourceBales }]);
+    assert.deepEqual((await db.query("select book_id, scm_file_number, customer_reference, planned_containers from cotton_outbound_booking_search_dashboard where id=$1", [houston])).rows,
+      [{ book_id: "41503", scm_file_number: null, customer_reference: "61014910", planned_containers: 1 }]);
     assert.equal((await db.query("select count(*)::int n from dallas_dray_import_loads where booking_id=$1", [legacy])).rows[0].n, 2);
   } finally { await db.close(); }
 });
