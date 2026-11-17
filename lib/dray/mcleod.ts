@@ -12,6 +12,8 @@ function approved(i: Invoice): DrayInvoice {
   // blocked before this rule can finish through the existing repair workflow.
   if (d.customerId === "BUNGOMNE" && !d.charges.some(c => c.code === "040" && c.description === "DRAY"))
     return {...d, charges:[{code:"040",description:"DRAY",units:1,cents:0},...d.charges]};
+  if (d.customerId === "NOBLHOTX")
+    return {...d, charges:[{code:"002",description:"DRAY INVOICE",units:1,cents:0},...d.charges]};
   return d;
 }
 function routeMatches(order: any, d: DrayInvoice, p: Profile) {
