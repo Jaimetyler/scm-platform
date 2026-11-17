@@ -563,9 +563,14 @@ export default function CottonOutboundBookingPage() {
       if (failed.length) setError(`Review ${failed.length} container${failed.length === 1 ? "" : "s"} before retrying. ${failed.join(" · ")}`);
     } finally { setBulkSaving(false); }
   }
+  const dallasBookId = isDallas ? booking.book_id || booking.scm_file_number : null;
+  const bookingTitle = dallasBookId ? `Book ID ${dallasBookId}`
+    : !isDallas && booking.scm_file_number ? `SCM File # ${booking.scm_file_number}`
+    : `Booking ${booking.booking_number}`;
+  const showBookingInSubtitle = Boolean(dallasBookId || (!isDallas && booking.scm_file_number));
   return <main className="outbound-booking" style={{ maxWidth: "none", width: "100%", margin: "0 auto", color: "#e2e8f0" }}>
-    <PlatformPageHeader compact title={booking.scm_file_number ? `SCM File # ${booking.scm_file_number}` : `Booking ${booking.booking_number}`}
-      subtitle={`${booking.customer} · ${booking.scm_file_number ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
+    <PlatformPageHeader compact title={bookingTitle}
+      subtitle={`${booking.customer} · ${showBookingInSubtitle ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
       actions={<><Link href={backHref} style={button}>← Booking list</Link>
         {canWrite && <button type="button" style={{ ...button, borderColor: "#659481", background: "#285647", color: "#e2eee7" }}
           disabled={Boolean(working) || mcleodSending || editingDetails}
@@ -629,11 +634,13 @@ export default function CottonOutboundBookingPage() {
         {!e2openDocuments.containers.length && <p>No saved container numbers to check.</p>}
       </div>}
     </PlatformPanel>}
-    <PlatformPanel style={{ padding: 12, marginBottom: 12, borderRadius: 12, boxShadow: "none" }}><div style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", fontSize: 13 }}>
+    <PlatformPanel style={{ padding: 12, marginBottom: 12, borderRadius: 12, boxShadow: "none", ...(isDallas ? {background:"#172438", borderColor:"#39516b"} : {}) }}><div className={isDallas ? "booking-summary-dallas" : undefined} style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", fontSize: 13 }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
-      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Book ID {booking.book_id || "—"}</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status === "draft" ? "Active" : booking.status === "cancelled" ? "Deleted" : "Archived"}</span>
+      <span>{complete} of {activeContainers.length} equipment rows complete</span>{!isDallas && <span>Book ID {booking.book_id || "—"}</span>}
+      {isDallas && booking.book_id && booking.scm_file_number && <span>SCM File # {booking.scm_file_number}</span>}
+      <span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status === "draft" ? "Active" : booking.status === "cancelled" ? "Deleted" : "Archived"}</span>
     </div>
-    <div style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", alignItems: "center", marginTop: 7, fontSize: 13 }}>
+    <div className={isDallas ? "booking-details-dallas" : undefined} style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", alignItems: "center", marginTop: 7, fontSize: 13 }}>
       <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>
       <span><strong>Doc cutoff</strong> {formatBookingDate(booking.doc_cutoff, booking.doc_cutoff_has_time !== false)}</span>
       <span><strong>Cutoff</strong> {formatBookingDate(booking.cutoff, booking.cutoff_has_time !== false)}</span>
