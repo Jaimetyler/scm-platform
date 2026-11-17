@@ -531,7 +531,7 @@ export default function CottonOutboundBookingPage() {
   const showMcLeodColumn = canSyncDallas || canPullMcLeod;
   const mcleodRows = new Map(mcleodPreview?.rows.map(row => [row.id, row]));
 
-  const selectedToUnassign = isDallas ? selectedRows.filter(row => row.carrier_plan || (row.scm_order_number && row.booking_line_id)) : [];
+  const selectedToUnassign = selectedRows.filter(row => row.carrier_plan || (isDallas && row.scm_order_number && row.booking_line_id));
 
   async function applyCarrierBatch(action: CarrierBatchAction | null) {
     const rows = action === null ? selectedToUnassign : selectedRows;
@@ -725,6 +725,8 @@ export default function CottonOutboundBookingPage() {
 
     {canManage && <div style={{ marginBottom: 8 }}><Link href="/warehouse/rates">Customer billing rates</Link></div>}
     {canManage && carrierError && <p role="alert">{carrierError}</p>}
+    {canManage && terminal === "HOU" && ratesLoaded && !carrierError && !customerBilling &&
+      <p role="status">No customer billing rate matches this booking’s customer, warehouse, and return location. Review Customer billing rates to calculate the all-in bill.</p>}
     {selectionEnabled && canManage && <form className="booking-quick-select" onSubmit={event => {
       event.preventDefault();
       if (working || bulkSaving || !validSelectionCount || !unassignedRows.length) return;
