@@ -186,3 +186,14 @@ test("Bunge report reuploads retain the original source invoice while expected b
  const saved=structuredClone(i);expectedCharges(i,PROFILE);buildPayload(i,PROFILE);assert.deepEqual(i,saved);
  const changedPay={...i,carrierCents:i.carrierCents+100};assert.notEqual(JSON.stringify(changedPay),JSON.stringify(i));
 });
+
+test("COFCO keeps its native zero DRAY INVOICE line and rejects a nonzero charge", () => {
+ const i = parseDrays(csv([source({Shipper:"COFCO Americans Resources Corp"})]),first()).invoices[0];
+ const saved = order(i);
+ const wording = saved.otherCharges.find(c => c.charge_id === "002" && c.descr === "DRAY INVOICE");
+ assert.equal(wording.amount, 0);
+ assert.equal(billingNormalizationPayload(saved,i,PROFILE,saved.id), null);
+ assert.deepEqual(verifyRatedOrder(saved,i,PROFILE), []);
+ wording.amount = 1;
+ assert.throws(() => billingNormalizationPayload(saved,i,PROFILE,saved.id), /Unexpected billing charge/);
+});
