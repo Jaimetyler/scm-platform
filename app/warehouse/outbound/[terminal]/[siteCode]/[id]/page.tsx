@@ -572,6 +572,10 @@ export default function CottonOutboundBookingPage() {
     <PlatformPageHeader compact title={bookingTitle}
       subtitle={`${booking.customer} · ${showBookingInSubtitle ? `Booking ${booking.booking_number} · ` : ""}${booking.site_name}`}
       actions={<><Link href={backHref} style={button}>← Booking list</Link>
+        {terminal === "HOU" && <>
+          <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/forms/empty-request`} target="_blank" rel="noopener" style={button}>Empty Request</Link>
+          <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/forms/manifest`} target="_blank" rel="noopener" style={button}>Manifest</Link>
+        </>}
         {canWrite && <button type="button" style={{ ...button, borderColor: "#659481", background: "#285647", color: "#e2eee7" }}
           disabled={Boolean(working) || mcleodSending || editingDetails}
           onClick={() => void changeBookingStatus("archived")}>Complete booking</button>}
