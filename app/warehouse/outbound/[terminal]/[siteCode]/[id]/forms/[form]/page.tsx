@@ -50,7 +50,7 @@ export default function HoustonBookingFormPage() {
   }, [printable]);
 
   const date = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", dateStyle: "medium" }).format(new Date());
-  return <main className="hou-form">
+  return <main className={manifest ? "hou-form" : "hou-form hou-empty-print"}>
     <div className="hou-form-toolbar">
       <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}`}>← Booking</Link>
       <button type="button" disabled={!printable} onClick={() => window.print()}>Print / Save PDF</button>

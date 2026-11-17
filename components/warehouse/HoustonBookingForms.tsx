@@ -64,7 +64,7 @@ export default function HoustonBookingForms({ booking, lines, containers, manife
         <Field label="CONTAINER">{row?.container_number}</Field>
         <Field label="SEAL #">{row?.seal_number ?? "UL-"}</Field>
         <div className="hou-form-dispatch">
-          <div className="hou-form-pair"><Field label="TRUCK COMPANY">{row?.carrier_name ?? "SCM INTERMODAL"}</Field><Field label="DATE" /></div>
+          <div className="hou-form-pair"><Field label="TRUCK COMPANY">{row?.carrier_name}</Field><Field label="DATE" /></div>
           <div className="hou-form-pair"><Field label="DRIVER" /><Field label="TRUCK #" /></div>
         </div>
       </article>;
@@ -75,25 +75,29 @@ export default function HoustonBookingForms({ booking, lines, containers, manife
   return Array.from({ length: Math.max(1, Math.ceil(count / 40)) }, (_, page) => {
     const offset = page * 40;
     const slots = Math.min(40, count - offset);
-    return <article className="hou-form-page" key={page}>
+    const columns = slots > 20 ? [Math.min(20, slots), slots - 20] : [slots];
+    return <article className="hou-form-page hou-empty-request" key={page}>
       <Letterhead title="REQUEST FOR EMPTIES" />
-      <div className="hou-form-pair">
-        <div>
-          <div className="hou-form-field" aria-hidden="true" />
-          <Field label="BOOKING #">{booking.booking_number}</Field>
-          <Field label="VESSEL">{booking.vessel}</Field>
-          <Field label="NUMBER">{count}</Field>
-        </div>
-        <div>
-          <Field label="DATE">{date}</Field>
-          <Field label="LINE">{line}</Field>
-          <Field label="CUT OFF">{cutoff}</Field>
-          <Field label="SIZE">40′</Field>
-        </div>
+      <div className="hou-empty-details">
+        <Field label="BOOKING #">{booking.booking_number}</Field>
+        <Field label="DATE">{date}</Field>
+        <Field label="VESSEL">{booking.vessel}</Field>
+        <Field label="LINE">{line}</Field>
+        <Field label="CUT OFF">{cutoff}</Field>
+        <Field label="SIZE">40′</Field>
+        <Field label="CONTAINERS">{count}</Field>
       </div>
-      <ol className="hou-form-slots" start={offset + 1}>
-        {Array.from({ length: slots }, (_, index) => <li key={index}>{offset + index + 1}.</li>)}
-      </ol>
+      {slots > 0 && <section className="hou-empty-containers" aria-label="Container numbers">
+        <h2>Container numbers</h2>
+        <div className="hou-empty-lists">
+          {columns.map((length, column) => {
+            const start = offset + column * 20 + 1;
+            return <ol className="hou-form-slots" start={start} key={start}>
+              {Array.from({ length }, (_, index) => <li key={index}>{start + index}.</li>)}
+            </ol>;
+          })}
+        </div>
+      </section>}
     </article>;
   });
 }

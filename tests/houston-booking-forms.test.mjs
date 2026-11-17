@@ -42,10 +42,18 @@ test("empty request uses the planned count and carries numbering across sheets",
   const form = render(false);
   assert.equal((form.match(/<article/g) ?? []).length, 2);
   assert.equal((form.match(/<li>/g) ?? []).length, 41);
+  assert.match(form, /<ol class="hou-form-slots" start="21">/);
   assert.match(form, /<li>41\.<\/li>/);
   assert.match(form, /<strong>LINE<\/strong><span>CMA/);
   assert.match(form, /<strong>CUT OFF<\/strong><span>Nov 20, 2026, 4:00 PM/);
   assert.doesNotMatch(form, /TEST1234567/);
+});
+
+test("eight empties print as one sequential list with eight writing lines", () => {
+  const form = render(false, { booking: { ...booking, planned_containers: 8 } });
+  assert.equal((form.match(/<ol/g) ?? []).length, 1);
+  assert.deepEqual(Array.from(form.matchAll(/<li>(\d+)\.<\/li>/g), entry => Number(entry[1])),
+    [1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
 test("manifest prints active marks in one document and uses only their current equipment", () => {
@@ -54,6 +62,8 @@ test("manifest prints active marks in one document and uses only their current e
   assert.match(form, /ACTIVE001.*ACTIVE002/);
   assert.match(form, /<strong>FILE #<\/strong><span>12345/);
   assert.match(form, /<strong>VG #<\/strong><span>123W/);
+  assert.match(form, /<strong>TRUCK COMPANY<\/strong><span><\/span>/);
+  assert.doesNotMatch(form, /SCM INTERMODAL/);
   assert.match(form, /TEST1234567.*UL-123.*Outside Carrier/);
   assert.doesNotMatch(form, /ONHOLD001|REMOVED001|MOVED1234567/);
   assert.match(render(true, { lines: [] }), /no active marks/);
