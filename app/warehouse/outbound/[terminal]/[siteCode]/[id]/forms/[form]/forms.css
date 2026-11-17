@@ -12,7 +12,7 @@
   overflow-wrap: anywhere;
 }
 .hou-form-letterhead { text-align: center; font-weight: bold; line-height: 1.5; }
-.hou-form-letterhead img { display: block; margin: 0 auto .1in; object-fit: contain; }
+.hou-form-letterhead img { display: block; margin: 0 auto .1in; object-fit: contain; filter: brightness(0); }
 .hou-form-letterhead h1 { margin: .14in 0 .18in; font-size: 18px; line-height: 1.3; }
 .hou-form-pair { display: grid; grid-template-columns: 1fr 1fr; gap: .22in; align-items: end; }
 .hou-form-field { display: flex; gap: .08in; align-items: end; min-height: .34in; padding-bottom: .04in; }
