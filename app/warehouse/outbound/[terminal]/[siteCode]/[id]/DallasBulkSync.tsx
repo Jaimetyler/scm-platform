@@ -11,6 +11,8 @@ type Review = {
   changes?: { field: string; before: string; after: string }[];
 };
 
+type ProposedCharge = { code: string; description: string; remove?: boolean };
+
 type BookingLoad = { sequence: number; orderId?: string | null; issue?: string };
 
 export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderIds, disabled, onBusy, onContainerPull }: {
@@ -55,7 +57,13 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
             orderId, token: result.token,
             parts: [result.canSendDetails && "Booking details", result.canSendPay && "Carrier and base pay", result.canSendExtras && "Other Carrier Pay",
               result.canSendBilling && "Customer charges", ...(result.fuelChanges ?? [])].filter(Boolean),
-            changes: result.detailChanges,
+            changes: [...result.detailChanges,
+              ...([["Customer charge", result.canSendBilling && result.proposedBilling],
+                ["Other Carrier Pay", result.canSendExtras && result.proposedExtras]] as [string, ProposedCharge[] | false | undefined][])
+                .flatMap(([label, rows]) => (rows || []).filter(row => row.remove).map(row => ({
+                  field: `${label} ${row.code}`, before: row.description, after: "Remove",
+                }))),
+            ],
             issues: [...new Set<string>([...result.detailBlockers, ...result.blockers, ...result.extrasBlockers, ...result.billingBlockers])],
           });
         } catch (error) {

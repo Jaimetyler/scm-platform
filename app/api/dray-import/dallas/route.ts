@@ -11,9 +11,9 @@ import { hash, vendor } from "@/lib/dray/server";
 
 import { carrierPlanLines, type CarrierPlan } from "@/lib/warehouse/outbound/carrier-rates";
 import { dallasFuelCode, planDallasFuelCorrection } from "@/lib/dray/dallas-fuel";
-import { lockDallasBilling, rememberDallasCharge } from "@/lib/dray/dallas-billing-receipt";
+import { lockDallasBilling, rememberDallasCharge, type BillingReceipt } from "@/lib/dray/dallas-billing-receipt";
 import { planDallasCustomerExtras, readDallasCustomerCharges, type CustomerCharge } from "@/lib/dray/dallas-customer-extras";
-import { dallasExtraPayDate, dallasExtraPayReference, dallasExtraPayLines, readDallasExtraPay } from "@/lib/dray/dallas-extra-pay";
+import { dallasExtraPayDate, dallasExtraPayReference, dallasExtraPayLines, dallasExtraPayToRemove, readDallasExtraPay } from "@/lib/dray/dallas-extra-pay";
 import { CHECKIN_SITES } from "@/lib/inbound/checkin/sites";
 import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { bookingChargeCustomer } from "@/lib/dray/booking-customers";
@@ -207,7 +207,7 @@ async function syncBookingDetails(input: {
   const slot = await db.from("cotton_outbound_containers").select("id,container_number,booking_line_id,carrier_plan,updated_at")
     .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
   if (slot.error || !slot.data) throw Error("The linked booking load could not be found.");
-  const { read, write } = vendor(!apply);
+  const { read, write, deleteOtherPay, deleteCustomerCharge } = vendor(!apply);
   const readLinkedOrder = () => readLinkedDallasOrder(read, input.orderId, saved.booking_number, load.data!);
   const current = await readLinkedOrder();
   const baseline = load.data.payload.outboundSyncedDetails as Record<string, string> | undefined;
@@ -531,6 +531,19 @@ async function syncBookingDetails(input: {
       extraIssues.push(`Other Carrier Pay ${line.code} differs and could not be uniquely linked to this load and carrier.`);
       return [];
     });
+    const obsoletePay = (otherPay ?? []).filter(row => ["001", "002", "CS"].includes(row.code) &&
+      !proposedExtras.some(line => line.code === row.code) && row.reference === dallasExtraPayReference);
+    let extraRemovals: NonNullable<typeof otherPay> = [];
+    if (obsoletePay.length && otherPay) {
+      try {
+        extraRemovals = dallasExtraPayToRemove(otherPay, { orderId: input.orderId, movementId: String(movement.id), payee: carrier })
+          .filter(row => obsoletePay.includes(row));
+        if (extraRemovals.length !== obsoletePay.length)
+          extraIssues.push("Removed Other Carrier Pay could not be linked to this load and carrier.");
+      } catch (error) {
+        extraIssues.push((error as Error).message);
+      }
+    }
     const blockers = [
       ...(current.status !== "A" || (movement.status && movement.status !== "A") ? ["McLeod order and movement must be available."] : []),
       ...(assignedCarrier && assignedCarrier !== carrier ? ["McLeod has a different dispatched carrier. Review the swap in McLeod."] : []),
@@ -552,12 +565,15 @@ async function syncBookingDetails(input: {
       Number.isFinite(baseRate) && Number.isFinite(rateUnits) && rateUnits > 0;
     const customerBaseCents = validFlatRate ? Math.round(baseRate * rateUnits * 100) : NaN;
     const billed = readDallasCustomerCharges(rawBilling, customerBaseCents, Math.round(currentTotal * 100));
-    const { changes: billingChanges, blockers: billingLineIssues } = planDallasCustomerExtras(plan.quantities, customerRate, billed, msc);
+    const billingReceipt = load.data.payload.outboundBillingReceipt as BillingReceipt | undefined;
+    const pendingReduction = billingReceipt?.pendingReduction;
+    const { changes: billingChanges, blockers: billingLineIssues } = planDallasCustomerExtras(plan.quantities, customerRate, billed, msc, billingReceipt);
+    const hasBillingWork = billingChanges.length > 0 || Boolean(pendingReduction);
     const matchesBill = (row: Pick<CustomerCharge, "code" | "amount" | "units" | "rate">, line: typeof billingChanges[number]) =>
       row.code === line.code && row.amount !== null &&
       Math.round(row.amount * 100) === Math.round(line.amount * 100) && row.units === line.units && row.rate === line.rate;
-    const billingBlockers = billingChanges.length ? [
-      ...(current.status !== "A" ? ["McLeod order must be available to add customer charges."] : []),
+    const billingBlockers = hasBillingWork ? [
+      ...(current.status !== "A" ? ["McLeod order must be available to sync customer charges."] : []),
       ...(!validFlatRate ? ["McLeod has no verified flat base rate. Apply the customer’s standard rate before syncing extras."] : []),
       ...(current.total_charge == null || !String(current.total_charge).trim() || !Number.isFinite(currentTotal)
         ? ["McLeod customer bill total could not be verified."] : []),
@@ -565,19 +581,21 @@ async function syncBookingDetails(input: {
     const movementState = [movement.id, movement.status, assignedCarrier, currentPayee, movement.override_type,
       movement.override_units, movement.override_pay_rate, movement.override_paye_rate, movement.override_pay_amt];
     const token = hash([input.bookingId, input.orderId, slot.data.updated_at, movementState, current.status, carrier, pay,
-      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingLineIssues, baseRate, rateUnits, current.order_type_id, fuelCorrection, unified ? detailState : null]);
+      otherPay, proposedExtras, current.total_charge, billed, billingChanges, billingReceipt, billingLineIssues, extraRemovals, baseRate, rateUnits, current.order_type_id, fuelCorrection, unified ? detailState : null]);
     const extrasBlockers = [...blockers,
-      ...(proposedExtras.length && !otherPay ? [otherPayIssue] : []),
+      ...(!otherPay ? [otherPayIssue] : []),
     ];
     const canSendPay = changed && blockers.length === 0;
-    const canSendExtras = extraChanges.length > 0 && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
-    const canSendBilling = billingChanges.length > 0 && billingBlockers.length === 0;
-    const review = { token, clearContainerToken: clearContainer ? null : clearContainerToken, detailChanges, canSendDetails, detailBlockers, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: billingChanges, extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
-      otherPay, proposedExtras, blockers, changed, canSendPay, canSendExtras, canSendBilling };
+    const canSendExtras = (extraChanges.length > 0 || extraRemovals.length > 0) && extrasBlockers.length === 0 && (currentPayee === carrier || canSendPay);
+    const canSendBilling = hasBillingWork && billingBlockers.length === 0;
+    const review = { token, clearContainerToken: clearContainer ? null : clearContainerToken, detailChanges, canSendDetails, detailBlockers, billingBlockers: [...billingLineIssues, ...billingBlockers, ...fuelCorrection.issues], fuelChanges, billed, proposedBilling: [...billingChanges, ...(pendingReduction ? [{ code: pendingReduction.code, description: "Finish bill total verification", amount: null }] : [])], extrasBlockers: [...extrasBlockers, ...extraIssues], currentPayee, assignedCarrier, currentPay, carrier, pay,
+      otherPay, proposedExtras: [...proposedExtras, ...extraRemovals.map(row => ({ ...row, remove: true }))], blockers, changed, canSendPay, canSendExtras, canSendBilling };
     if (!apply) return NextResponse.json(review, { headers });
     if (input.token !== token) throw Error("Platform or McLeod values changed. Preview the differences again.");
 
     async function writeBilling(history: Awaited<ReturnType<typeof lockDallasBilling>>) {
+      if (hash(history.receipt ?? null) !== hash(billingReceipt ?? null))
+        throw Error("Dallas billing history changed. Preview the differences again.");
       const fresh = await readLinkedOrder();
       const billingSnapshot = (order: typeof current) => [order.status, order.rate_type, order.rate, order.rate_units,
         order.total_charge, order.otherCharges ?? order.other_charges ?? order.otherCharge];
@@ -591,19 +609,56 @@ async function syncBookingDetails(input: {
       const existingCents = customerBaseCents + billed.reduce((sum, row) =>
         sum + (row.inclusion === "N" ? Math.round(row.amount! * 100) : 0), 0);
       const totalCents = existingCents + billingChanges.reduce((sum, line) => sum + Math.round(line.amount * 100) - Math.round((line.previous?.amount ?? 0) * 100), 0);
-      if (![existingCents, totalCents].includes(Math.round(currentTotal * 100)))
-        throw Error("The current bill total does not reconcile with the flat rate and charge lines. Review billing in McLeod.");
+      const rowsOutsideCode = (order: typeof current, code: string) =>
+        (order.otherCharges ?? order.other_charges ?? order.otherCharge)
+          .filter((row: Record<string, unknown>) => String(row.charge_id ?? "").trim().toUpperCase() !== code);
+      const rateSnapshot = (order: typeof current) => billingSnapshot(order).slice(0, 4);
+      const outsideCharge = (order: typeof current, code: string) => hash([rateSnapshot(order), rowsOutsideCode(order, code)]);
+      async function finishReduction(pending: NonNullable<BillingReceipt["pendingReduction"]>, completed: boolean) {
+        const { pendingReduction: _, ...receipt } = history.receipt!;
+        const charges = pending.remove && completed ? receipt.charges.filter(entry => entry.code !== pending.code) : receipt.charges;
+        await history.record(charges.length ? { ...receipt, charges } : undefined);
+      }
       let expectedCents = existingCents;
       let billingState = fresh;
+      if (pendingReduction) {
+        const total = Math.round(currentTotal * 100);
+        const entry = history.receipt?.charges.find(row => row.code === pendingReduction.code);
+        const rows = billed.filter(row => row.code === pendingReduction.code);
+        const [row] = rows;
+        const changedRowVerified = entry && (rows.length === 0 && pendingReduction.remove ||
+          rows.length === 1 && row.id === (entry.chargeId ?? entry.original?.id) && row.inclusion === "N" &&
+          entry.attempted.some(values => values.units === row.units && values.rate === row.rate && values.amount === row.amount));
+        if (!changedRowVerified || pendingReduction.outsideCharge !== outsideCharge(fresh, pendingReduction.code) ||
+            ![pendingReduction.from, pendingReduction.to].includes(existingCents) ||
+            (total !== existingCents && !(existingCents === pendingReduction.to && total === pendingReduction.from)))
+          throw Error("The interrupted charge reduction no longer reconciles. Review billing in McLeod.");
+        if (total !== existingCents) {
+          await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId, total_charge: existingCents / 100 });
+          billingState = await readLinkedOrder();
+          if (Math.round(Number(billingState.total_charge) * 100) !== existingCents ||
+              hash(rateSnapshot(billingState)) !== hash(rateSnapshot(fresh)) ||
+              hash(billingSnapshot(billingState)[5]) !== hash(billingSnapshot(fresh)[5]))
+            throw Error("McLeod did not verify the recovered bill total and charge lines.");
+        }
+        await finishReduction(pendingReduction, existingCents === pendingReduction.to);
+      } else if (![existingCents, totalCents].includes(Math.round(currentTotal * 100))) {
+        throw Error("The current bill total does not reconcile with the flat rate and charge lines. Review billing in McLeod.");
+      }
       for (const line of billingChanges) {
         const before = await readLinkedOrder();
         if (hash(billingSnapshot(billingState)) !== hash(billingSnapshot(before)))
           throw Error("Customer billing changed during sync. Preview the differences again.");
         const original = line.previous && rawBilling.find(row => String(row.id ?? "") === line.previous?.id);
-        await history.record(rememberDallasCharge(history.receipt, line.code, line.previous, line));
+        const nextCents = expectedCents + Math.round(line.amount * 100) - Math.round((line.previous?.amount ?? 0) * 100);
+        const receipt = rememberDallasCharge(history.receipt, line.code, line.previous, line);
+        const reduction = nextCents < expectedCents || line.remove
+          ? { code: line.code, from: expectedCents, to: nextCents, remove: Boolean(line.remove), outsideCharge: outsideCharge(before, line.code) } : undefined;
+        await history.record(reduction ? { ...receipt, pendingReduction: reduction } : receipt);
         let writeFailure: unknown;
         try {
-          await write(line.previous ? "/other_charge/update" : "/other_charge/create", {
+          if (line.remove) await deleteCustomerCharge(line.previous!.id);
+          else await write(line.previous ? "/other_charge/update" : "/other_charge/create", {
             ...(original || {}),
             __type: "other_charge", company_id: "TMS", order_id: input.orderId,
             charge_id: line.code, descr: line.description,
@@ -614,28 +669,29 @@ async function syncBookingDetails(input: {
           writeFailure = error;
         }
         const updated = await readLinkedOrder();
-        expectedCents += Math.round(line.amount * 100) - Math.round((line.previous?.amount ?? 0) * 100);
+        expectedCents = nextCents;
         const charges = readDallasCustomerCharges(updated.otherCharges ?? updated.other_charges ?? updated.otherCharge,
           customerBaseCents, expectedCents);
         const matches = charges?.filter(row => row.code === line.code) ?? [];
-        if (matches.length !== 1 || !matchesBill(matches[0], line) || (line.previous && matches[0].id !== line.previous.id))
+        if (!charges || (line.remove ? matches.length !== 0 || charges.some(row => row.id === line.previous!.id)
+          : matches.length !== 1 || !matchesBill(matches[0], line) || (line.previous && matches[0].id !== line.previous.id)))
           throw new Error(`${line.code} did not verify after the direct charge-row write${writeFailure instanceof Error ? `: ${writeFailure.message}` : "."}`);
-        if (!/^[A-Za-z0-9_-]{1,32}$/.test(matches[0].id))
-          throw Error(`McLeod did not return the ${line.code} charge ID for unassignment.`);
-        const receipt = history.receipt!;
-        await history.record({ charges: receipt.charges.map(entry => entry.code === line.code ? { ...entry, chargeId: matches[0].id } : entry) });
-        const unchangedRows = (order: typeof current) => (order.otherCharges ?? order.other_charges ?? order.otherCharge)
-          .filter((row: Record<string, unknown>) => String(row.charge_id ?? "").trim().toUpperCase() !== line.code);
-        const expectedOtherRows = unchangedRows(updated);
-        if (hash(expectedOtherRows) !== hash(unchangedRows(before)) ||
-            updated.status !== current.status || Number(updated.rate) !== baseRate ||
-            Number(updated.rate_units) !== rateUnits || updated.rate_type !== current.rate_type)
+        if (!line.remove) {
+          if (!/^[A-Za-z0-9_-]{1,32}$/.test(matches[0].id))
+            throw Error(`McLeod did not return the ${line.code} charge ID for unassignment.`);
+          const savedReceipt = history.receipt!;
+          await history.record({ ...savedReceipt, charges: savedReceipt.charges.map(entry => entry.code === line.code ? { ...entry, chargeId: matches[0].id } : entry) });
+        }
+        if (outsideCharge(updated, line.code) !== outsideCharge(before, line.code))
           throw Error("The order or another customer charge changed during sync. Review the bill before retrying.");
         if (Math.round(Number(updated.total_charge) * 100) !== expectedCents)
           await write("/orders/updateRow", { __type: "orders", company_id: "TMS", id: input.orderId, total_charge: expectedCents / 100 });
         billingState = await readLinkedOrder();
-        if (Math.round(Number(billingState.total_charge) * 100) !== expectedCents)
-          throw Error(`${line.code} posted, but McLeod did not verify the updated order total.`);
+        if (Math.round(Number(billingState.total_charge) * 100) !== expectedCents ||
+            hash(rateSnapshot(billingState)) !== hash(rateSnapshot(updated)) ||
+            hash(billingSnapshot(billingState)[5]) !== hash(billingSnapshot(updated)[5]))
+          throw Error(`${line.code} changed, but McLeod did not verify the updated order total.`);
+        if (reduction) await finishReduction(reduction, true);
       }
       const after = await readLinkedOrder();
       const actual = readDallasCustomerCharges(after.otherCharges ?? after.other_charges ?? after.otherCharge,
@@ -650,6 +706,10 @@ async function syncBookingDetails(input: {
       if (!actual) differences.push("McLeod did not return customer charge lines");
       else for (const line of billingChanges) {
         const rows = actual.filter(row => row.code === line.code);
+        if (line.remove) {
+          if (rows.length) differences.push(`${line.code}: charge still present after removal`);
+          continue;
+        }
         if (rows.length !== 1) {
           differences.push(`${line.code}: expected one line, read back ${rows.length}`);
           continue;
@@ -690,6 +750,23 @@ async function syncBookingDetails(input: {
     }
 
     async function sendExtras() {
+      for (const row of extraRemovals) {
+        const fresh = await readExtras();
+        if (hash(fresh.filter(line => line.code === row.code || line.id === row.id)) !== hash([row]))
+          throw Error("Other Carrier Pay changed. Preview the order again.");
+        const latest = await readLinkedOrder();
+        const latestMovement = movementFor(latest);
+        if (latest.status !== "A" || String(latestMovement.id) !== String(movement.id) ||
+            (latestMovement.status && latestMovement.status !== "A") || !hasExpectedPay(latestMovement))
+          throw Error("McLeod carrier assignment changed. Preview the order again.");
+        let failure: unknown;
+        try { await deleteOtherPay(row.id); } catch (error) { failure = error; }
+        const remaining = await readExtras();
+        if (remaining.some(line => line.id === row.id))
+          throw new Error(`McLeod did not verify removal of Other Carrier Pay ${row.code}.`, { cause: failure });
+        if (hash(remaining) !== hash(fresh.filter(line => line.id !== row.id)))
+          throw Error("Another Other Carrier Pay line changed during sync. Review the movement.");
+      }
       const transactionDate = dallasExtraPayDate(new Date());
       for (const line of extraChanges) {
         const fresh = (await readExtras()).filter(row => row.code === line.code);
@@ -756,7 +833,7 @@ async function syncBookingDetails(input: {
       if (canSendPay) payReady = await send("Carrier payee and base pay", sendBasePay);
       else if (changed) issues.push(...blockers);
       if (canSendExtras && payReady) await send("Other Carrier Pay", sendExtras);
-      else if (extraChanges.length || (proposedExtras.length && !otherPay))
+      else if (extraChanges.length || extraRemovals.length || !otherPay)
         issues.push(...(extrasBlockers.length ? extrasBlockers : ["Other Carrier Pay needs a verified carrier payee and base pay."]));
       if (canSendBilling) await send("Customer charges", () => writeBilling(history));
       else issues.push(...billingBlockers);

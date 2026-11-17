@@ -57,3 +57,21 @@ test("the McLeod bill fallback stacks only unposted customer extras", () => {
   assert.equal(dallasPendingBillExtras(plan, billing, billed), 0);
   assert.equal(dallasPendingBillExtras(plan, billing, [chassis, split], "MSC"), 75);
 });
+
+test("reduces tracked chassis to the original minimum and removes a tracked split", () => {
+  const extended = { ...chassis, units: 3, amount: 105 };
+  const syncedSplit = { ...split, units: 1, rate: 60, amount: 60 };
+  const receipt = { charges: [
+    { code: "DSCM", original: { id: chassis.id, values: chassis }, chargeId: chassis.id, attempted: [extended] },
+    { code: "CS", original: null, chargeId: split.id, attempted: [syncedSplit] },
+  ] };
+  const removed = { chassisDays: 0, chassisSplits: 0, stopoffs: 0 };
+  const result = planDallasCustomerExtras(removed, rate, [extended, syncedSplit], false, receipt);
+  assert.deepEqual(result.blockers, []);
+  assert.deepEqual(result.changes.map(line => [line.code, line.amount, line.remove]),
+    [["DSCM", 35, false], ["CS", 0, true]]);
+  const manual = { ...syncedSplit, id: "MANUAL1" };
+  const reviewed = planDallasCustomerExtras(removed, rate, [chassis, manual], false, receipt);
+  assert.deepEqual(reviewed.changes, []);
+  assert.match(reviewed.blockers[0], /CS changed outside SCM Platform/);
+});

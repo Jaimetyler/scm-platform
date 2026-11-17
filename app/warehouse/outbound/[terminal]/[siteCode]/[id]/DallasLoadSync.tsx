@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 
-type PayLine = { code: string | null; description: string; amount: number | null };
+type PayLine = { code: string | null; description: string; amount: number | null; remove?: boolean };
 type LoadReview = { clearContainerToken?: string | null; detailChanges: { field: string; before: string; after: string }[]; detailBlockers: string[]; canSendDetails: boolean; token: string; currentPayee: string; assignedCarrier: string; currentPay: number | null;
   carrier: string | null; pay: number; otherPay: PayLine[] | null; proposedExtras: PayLine[]; blockers: string[]; billingBlockers: string[]; billed: PayLine[] | null; proposedBilling: PayLine[]; extrasBlockers: string[]; canSendPay: boolean; canSendExtras: boolean; canSendBilling: boolean; fuelChanges: string[] };
 const money = (amount: number | null) => amount == null ? "Unavailable" :
   amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const payLines = (lines: PayLine[] | null) => lines == null ? "Unavailable" : lines.length ?
-  lines.map(line => [line.code, line.description, money(line.amount)].filter(Boolean).join(" · ")).join(", ") : "None";
+  lines.map(line => [line.code, line.description, line.remove ? "Remove" : line.amount == null ? "" : money(line.amount)].filter(Boolean).join(" · ")).join(", ") : "None";
 
 export default function DallasLoadSync({ bookingId, orderId, disabled, onContainerPull }: { bookingId: string; orderId: string; disabled: boolean; onContainerPull: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -66,7 +66,7 @@ export default function DallasLoadSync({ bookingId, orderId, disabled, onContain
             <tr><th scope="row">Carrier payee</th><td>{review.currentPayee || "Blank"}</td><td>{review.carrier}</td></tr>
             <tr><th scope="row">Dispatched carrier</th><td>{review.assignedCarrier || "Blank"}</td><td>Review in McLeod</td></tr>
             <tr><th scope="row">Base carrier pay</th><td>{money(review.currentPay)}</td><td>{money(review.pay)}</td></tr>
-            <tr><th scope="row">Customer charges to add or increase</th><td>{payLines(review.billed)}</td><td>{payLines(review.proposedBilling)}</td></tr>
+            <tr><th scope="row">Customer charge changes</th><td>{payLines(review.billed)}</td><td>{payLines(review.proposedBilling)}</td></tr>
             <tr><th scope="row">Other Carrier Pay</th><td>{payLines(review.otherPay)}</td><td>{payLines(review.proposedExtras)}</td></tr>
           </tbody>
         </table></div>}

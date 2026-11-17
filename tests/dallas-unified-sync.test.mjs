@@ -7,6 +7,8 @@ import ts from "typescript";
 import * as booking from "../lib/dray/dallas-import-orders.ts";
 import * as carrier from "../lib/warehouse/outbound/carrier-rates.ts";
 import * as fuel from "../lib/dray/dallas-fuel.ts";
+import * as receiptHelpers from "../lib/dray/dallas-billing-receipt.ts";
+import * as extraPay from "../lib/dray/dallas-extra-pay.ts";
 import * as billing from "../lib/dray/dallas-customer-extras.ts";
 import { mcleodOrderStops } from "../lib/inbound/checkin/yard-stop.ts";
 
@@ -33,12 +35,28 @@ function fixture(withCarrier, packageDates = false, cutoffReadback, validateSche
     cotton_outbound_booking_lines: { mark: "MARK1", line_status: "active" },
   };
   const writes = [];
+  const otherPay = [];
+  let failNextTotal = false;
   const vendor = readOnly => ({
     read: async () => [],
+    deleteCustomerCharge: async id => {
+      assert.equal(readOnly, false);
+      writes.push({ path: "/other_charge/delete", id });
+      order.otherCharges = order.otherCharges.filter(row => row.id !== id);
+    },
+    deleteOtherPay: async id => {
+      assert.equal(readOnly, false);
+      writes.push({ path: "/driver_extra_pay/delete", id });
+      otherPay.splice(otherPay.findIndex(row => row.id === id), 1);
+    },
     write: async (path, body) => {
       assert.equal(readOnly, false);
       writes.push({ path, body });
       if (path === "/orders/updateRow") {
+        if (body.total_charge !== undefined && failNextTotal) {
+          failNextTotal = false;
+          throw Error("temporary write failure");
+        }
         Object.assign(order, body);
         if (body.cutoff_date && cutoffReadback !== undefined) order.cutoff_date = cutoffReadback;
       }
@@ -64,13 +82,17 @@ function fixture(withCarrier, packageDates = false, cutoffReadback, validateSche
     "@/lib/auth/guard": { withStaffAccess: fn => fn },
     "@/lib/dray/server": { hash: value => createHash("sha256").update(JSON.stringify(value)).digest("hex"), vendor },
     "@/lib/dray/dallas-linked-order": { readLinkedDallasOrder: async () => structuredClone(order), currentDallasMovement: value => value.movements[0] },
-    "@/lib/dray/dallas-billing-receipt": { lockDallasBilling: async () => ({ async recordDetails() {}, async recordBookingNumber(value) { assert.equal(value, "BOOK-2"); }, async release() {} }) },
+    "@/lib/dray/dallas-billing-receipt": { ...receiptHelpers, lockDallasBilling: async () => ({
+      get receipt() { return tables.dallas_dray_import_loads.payload.outboundBillingReceipt; },
+      async record(receipt) { tables.dallas_dray_import_loads.payload.outboundBillingReceipt = receipt; },
+      async recordDetails() {}, async recordBookingNumber(value) { assert.equal(value, "BOOK-2"); }, async release() {},
+    }) },
     "@/lib/dray/dallas-import-orders": booking,
     "@/lib/inbound/checkin/yard-stop": { mcleodOrderStops },
     "@/lib/warehouse/outbound/carrier-rates": carrier,
     "@/lib/dray/dallas-fuel": fuel,
     "@/lib/dray/dallas-customer-extras": billing,
-    "@/lib/dray/dallas-extra-pay": { dallasExtraPayLines: () => [], readDallasExtraPay: async () => [] },
+    "@/lib/dray/dallas-extra-pay": { ...extraPay, readDallasExtraPay: async () => structuredClone(otherPay) },
     "@/lib/dray/booking-customer-rate": { readBookingCustomerRate: async () => null },
   };
   const module = { exports: {} };
@@ -81,7 +103,7 @@ function fixture(withCarrier, packageDates = false, cutoffReadback, validateSche
   const request = (action, token) => module.exports.POST(new Request("https://example.test", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, bookingId, orderId, token }),
   }));
-  return { writes, request, order, tables };
+  return { writes, request, order, tables, otherPay, rejectNextTotal: () => { failNextTotal = true; } };
 }
 
 for (const withCarrier of [false, true]) {
@@ -337,4 +359,53 @@ test("sync shows the platform's audited edit time on a booking conflict", async 
   const preview = await (await request("preview-load")).json();
   assert.ok(preview.detailBlockers.some(issue =>
     issue.startsWith("cutoff_date:") && issue.includes("Nov 16, 2026, 5:42:00 PM Dallas time")));
+});
+
+test("sync removes tracked extras and recovers the customer total after a partial write", async () => {
+  const previous = { write: process.env.DRAY_IMPORT_WRITES_ENABLED, sync: process.env.MCLEOD_SYNC_ENABLED };
+  process.env.DRAY_IMPORT_WRITES_ENABLED = "true";
+  process.env.MCLEOD_SYNC_ENABLED = "true";
+  try {
+    const { request, writes, order, tables, otherPay, rejectNextTotal } = fixture(true);
+    Object.assign(order.movements[0], {
+      override_payee_id: "CARRIER", override_type: "F", override_units: 1,
+      override_pay_rate: 100, override_paye_rate: 100, override_pay_amt: 100,
+    });
+    order.otherCharges = [
+      { id: "SYNCED", charge_id: "006", units: 1, rate: 50, amount: 50, incl_in_freight: "N" },
+      { id: "MANUAL", charge_id: "CS", units: 1, rate: 20, amount: 20, incl_in_freight: "N" },
+    ];
+    order.total_charge = 570;
+    otherPay.push({ id: "SYNCED-PAY", code: "002", payee: "CARRIER", amount: 25, orderId,
+      movementId: "MOVE1", reference: "SCM-OUTBOUND" });
+    otherPay.push({ id: "MANUAL-PAY", code: "CS", payee: "CARRIER", amount: 15, orderId,
+      movementId: "MOVE1", reference: "" });
+    tables.dallas_dray_import_loads.payload.outboundBillingReceipt = { charges: [
+      { code: "006", original: null, chargeId: "SYNCED", attempted: [{ units: 1, rate: 50, amount: 50 }] },
+    ] };
+    const preview = await (await request("preview-load")).json();
+    assert.equal(preview.canSendBilling, true);
+    assert.equal(preview.canSendExtras, true);
+    assert.equal(preview.proposedBilling[0].remove, true);
+    assert.equal(preview.proposedExtras[0].remove, true);
+    assert.equal(writes.length, 0);
+    rejectNextTotal();
+    const applied = await (await request("apply-load", preview.token)).json();
+    assert.match(applied.issues[0], /temporary write failure/);
+    assert.deepEqual(order.otherCharges.map(row => row.id), ["MANUAL"]);
+    assert.deepEqual(otherPay.map(row => row.id), ["MANUAL-PAY"]);
+    assert.equal(order.total_charge, 570);
+    const retry = await (await request("preview-load")).json();
+    assert.equal(retry.canSendBilling, true);
+    const recovered = await (await request("apply-load", retry.token)).json();
+    assert.deepEqual(recovered.issues, []);
+    assert.equal(order.total_charge, 520);
+    assert.equal(tables.dallas_dray_import_loads.payload.outboundBillingReceipt, undefined);
+    assert.equal(writes.filter(row => row.path.endsWith("/delete")).length, 2);
+  } finally {
+    for (const [key, value] of [["DRAY_IMPORT_WRITES_ENABLED", previous.write], ["MCLEOD_SYNC_ENABLED", previous.sync]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
