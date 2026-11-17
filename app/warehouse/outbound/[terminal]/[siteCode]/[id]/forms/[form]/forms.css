@@ -1,0 +1,36 @@
+.hou-form { font-family: Arial, sans-serif; }
+.hou-form-toolbar { display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 1rem; }
+.hou-form-toolbar button { padding: .5rem .75rem; }
+.hou-form-page {
+  box-sizing: border-box;
+  width: min(8.5in, 100%);
+  margin: 0 auto 1rem;
+  padding: .4in;
+  background: white;
+  color: black;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.hou-form-letterhead { text-align: center; font-weight: bold; line-height: 1.5; }
+.hou-form-letterhead img { display: block; margin: 0 auto .1in; object-fit: contain; }
+.hou-form-letterhead h1 { margin: .14in 0 .18in; font-size: 18px; line-height: 1.3; }
+.hou-form-pair { display: grid; grid-template-columns: 1fr 1fr; gap: .22in; align-items: end; }
+.hou-form-field { display: flex; gap: .08in; align-items: end; min-height: .34in; padding-bottom: .04in; }
+.hou-form-field strong { flex: none; }
+.hou-form-field span { flex: 1; min-height: 1.2em; border-bottom: 1px solid; }
+.hou-form-slots { columns: 2; column-gap: .22in; list-style: none; padding: 0; margin: .12in 0 0; }
+.hou-form-slots li { border-bottom: 1px solid; height: .29in; padding-top: .05in; break-inside: avoid; }
+.hou-manifest .hou-form-field { min-height: .52in; }
+.hou-manifest .hou-form-letterhead { margin-top: .22in; }
+.hou-manifest .hou-form-letterhead h1 { border-top: 2px solid; padding-top: .07in; }
+.hou-form-dispatch { border-top: 2px solid; margin-top: .17in; }
+
+@page houston-booking { size: letter portrait; margin: .4in; }
+@media print {
+  body { background: white !important; color: black !important; }
+  body > div { padding: 0 !important; min-height: 0 !important; }
+  .hou-form { page: houston-booking; }
+  .hou-form-toolbar { display: none; }
+  .hou-form-page { width: 100%; margin: 0; padding: 0; break-inside: avoid; }
+  .hou-form-page + .hou-form-page { break-before: page; }
+}

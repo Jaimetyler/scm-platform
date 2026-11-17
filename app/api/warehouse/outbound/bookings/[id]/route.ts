@@ -59,6 +59,14 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       .select("id,sequence_no,booking_line_id,container_number,seal_number,chassis_number,notes,updated_at,split_transfer_id,carrier_plan")
       .eq("booking_id", id).order("sequence_no");
     if (containerError) throw containerError;
+    if (terminal === "HOU" && params.get("view") === "houston-form") {
+      return NextResponse.json({ ok: true, booking, lines: lines ?? [], containers: (containers ?? []).map(row => {
+        const plan = row.carrier_plan as { rate?: { carrier_name?: string } } | null;
+        return { booking_line_id: row.booking_line_id, split_transfer_id: row.split_transfer_id,
+          container_number: row.container_number, seal_number: row.seal_number, carrier_name: plan?.rate?.carrier_name ?? null };
+      }) }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+
     if (["e2open", "mcleod"].includes(params.get("documents") ?? "")) {
       const staff = staffProfile(req);
       if (!isSavannahE2openBooking(terminal, booking.customer) ||
