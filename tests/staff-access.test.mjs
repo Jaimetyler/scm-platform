@@ -268,3 +268,39 @@ test("temporary Houston booking import is scoped to Houston operators and Housto
   assert.equal((await call(path, "POST", { action: "preview" }, hou, { recordTerminal: "DAL" })).status, 403);
   assert.equal((await call(path, "POST", { action: "create" }, viewer)).status, 403);
 });
+
+test("Warehouse Level 1 manages its bookings but cannot read financial endpoints or edit carrier plans", async () => {
+  const level1 = { ...hou, warehouse_level: 1 };
+  const bookingPath = `/api/warehouse/outbound/bookings/${id}`;
+  assert.equal((await call(bookingPath, "GET", undefined, level1)).status, 200);
+  assert.equal((await call(bookingPath + "/containers", "PATCH", { terminal: "HOU", containerNumber: "TEST1234567" }, level1)).status, 200);
+  for (const path of ["/api/warehouse/rates", "/api/warehouse/carrier-rates", bookingPath + "/charges", bookingPath + "/carrier-rates", bookingPath + "/mcleod-order"]) {
+    assert.equal((await call(path, "GET", undefined, level1)).status, 403, path);
+  }
+  assert.equal((await call(bookingPath + "/houston-import", "POST", { action: "preview" }, level1)).status, 403);
+  assert.equal((await call(bookingPath + "/containers", "PATCH", { terminal: "HOU", carrierPlan: null }, level1)).status, 403);
+  assert.equal((await call(bookingPath + "/containers", "PATCH", { terminal: "SAV" }, level1)).status, 403);
+  assert.equal((await call("/api/pnl/summary", "GET", undefined, level1)).status, 403);
+  assert.equal((await call("/api/warehouse/rates", "GET", undefined, { ...hou, warehouse_level: 2 })).status, 200);
+  assert.equal((await call("/api/pnl/summary", "GET", undefined, { ...hou, warehouse_level: 2 })).status, 403);
+});
+
+test("Level 1 API responses include operational carrier details while removing financial data at every nesting level", async () => {
+  const level1 = { ...hou, warehouse_level: 1 };
+  const guard = loadGuard(level1);
+  const route = guard.withStaffAccess(async () => NextResponse.json({
+    containers: [{ id, container_number: "TEST1234567", carrier_plan: {
+      rate: { carrier_id: "CARRIER", carrier_name: "Outside Carrier", rates: { base: { pay: 24500 } } },
+      quantities: { chassisDays: 3, chassisSplits: 1, stopoffs: 0 }, basePayOverride: 30000,
+    }, total_charge: 585, nested: { amount: 135, override_pay_rate: 245, units: 3, description: "Chassis" } }],
+  }));
+  const response = await route(req(`/api/warehouse/outbound/bookings/${id}`));
+  const result = await response.json();
+  const row = result.containers[0];
+  assert.equal(row.carrier_plan, undefined);
+  assert.equal(row.total_charge, undefined);
+  assert.deepEqual(row.carrier_summary, { carrierId: "CARRIER", carrierName: "Outside Carrier",
+    quantities: { chassisDays: 3, chassisSplits: 1, stopoffs: 0 } });
+  assert.deepEqual(row.nested, { units: 3, description: "Chassis" });
+  assert.doesNotMatch(JSON.stringify(result), /24500|30000|585|135|override_pay_rate/);
+});

@@ -67,3 +67,28 @@ test("accounting can be invited and assigned by admins, without gaining user adm
   await assert.rejects(db.query("insert into scm_staff(email,name,role) values('unknown@example.test','Unknown','unknown')"));
  }finally{await db.close();}
 });
+
+test("warehouse levels are assigned atomically by admins and existing users keep their access", async () => {
+  const db = new PGlite();
+  try {
+    await db.exec("create role anon; create role authenticated; create role service_role;");
+    await db.exec(sql("042_staff_accounts.sql"));
+    const admin = (await db.query("insert into scm_staff(email,name,role,status) values('admin@example.test','Admin','admin','active') returning *")).rows[0];
+    const old = (await db.query("insert into scm_staff(email,name,role,terminal,status) values('existing@example.test','Existing','operator','HOU','active') returning *")).rows[0];
+    await db.exec(sql("20261117232754_warehouse_permission_levels.sql"));
+    assert.equal((await db.query("select warehouse_level from scm_staff where id=$1", [old.id])).rows[0].warehouse_level, null);
+    const invited = (await db.query("select * from scm_manage_staff_access($1,'invite',null,'warehouse@example.test','Warehouse','operator','HOU',1::smallint)", [admin.id])).rows[0];
+    assert.equal(invited.warehouse_level, 1);
+    assert.equal(invited.role, "operator");
+    await db.query("update scm_staff set status='active' where id=$1", [invited.id]);
+    const level2 = (await db.query("select * from scm_manage_staff_access($1,'access',$2,null,null,'operator','HOU',2::smallint)", [admin.id, invited.id])).rows[0];
+    assert.equal(level2.warehouse_level, 2);
+    await assert.rejects(db.query("select * from scm_manage_staff_access($1,'access',$2,null,null,'operator','HOU',3::smallint)", [admin.id, invited.id]));
+    assert.equal((await db.query("select warehouse_level from scm_staff where id=$1", [invited.id])).rows[0].warehouse_level, 2);
+    await assert.rejects(db.query("select * from scm_manage_staff_access($1,'access',$1,null,null,'admin',null,null)", [invited.id]));
+    const viewer = (await db.query("select * from scm_manage_staff_access($1,'access',$2,null,null,'viewer',null,null)", [admin.id, invited.id])).rows[0];
+    assert.equal(viewer.role, "viewer");
+    assert.equal(viewer.warehouse_level, null);
+    assert.equal((await db.query("select has_function_privilege('authenticated','scm_manage_staff_access(uuid,text,uuid,text,text,text,text,smallint)','execute') as allowed")).rows[0].allowed, false);
+  } finally { await db.close(); }
+});

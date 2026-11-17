@@ -1,5 +1,6 @@
+import { isWarehouseLevelOne } from "./financial-visibility";
 export type Staff = { id: string; email: string; name: string; role: "admin" | "operator" | "viewer" | "accounting";
-  terminal: "HOU" | "SAV" | "DAL" | null; status: "pending" | "active" | "disabled"; user_id: string | null };
+  warehouse_level?: 1 | 2 | null; terminal: "HOU" | "SAV" | "DAL" | null; status: "pending" | "active" | "disabled"; user_id: string | null };
 export class AccessError extends Error {
   status: number;
   constructor(message: string, status = 403) { super(message); this.status = status; }
@@ -29,12 +30,14 @@ export function staffHome(staff: Staff) {
 export function validInvite(value: Record<string, unknown>) {
   const email = String(value.email ?? "").trim().toLowerCase();
   const name = String(value.name ?? "").trim();
-  const role = String(value.role ?? "");
+  const selectedRole = String(value.role ?? "");
+  const role = selectedRole === "warehouse1" ? "operator" : selectedRole;
   const terminal = role === "operator" ? String(value.terminal ?? "").toUpperCase() : null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !name || name.length > 100 ||
       !["admin", "operator", "viewer", "accounting"].includes(role) || role === "operator" && !["HOU", "SAV", "DAL"].includes(terminal))
     throw new AccessError("Enter a name, email, role, and an operator terminal.", 400);
-  return { email, name, role: role as Staff["role"], terminal: terminal as Staff["terminal"] };
+  return { email, name, role: role as Staff["role"], terminal: terminal as Staff["terminal"],
+    warehouse_level: role === "operator" ? selectedRole === "warehouse1" ? 1 as const : 2 as const : null };
 }
 
 export function canViewLateFees(staff: Staff | null) {
@@ -60,6 +63,7 @@ export function billingRequest(path: string, method: string) {
 }
 export function canAccessStaffPage(staff: Staff, path: string) {
   if (staff.role === "admin") return true;
+  if (isWarehouseLevelOne(staff) && (/^\/warehouse\/(?:rates|carriers|contract-miles)(?:\/|$)/.test(path) || /^\/cotton-locations(?:\/|$)/.test(path))) return false;
   const warehouse = (path === "/warehouse" || path.startsWith("/warehouse/") || path === "/inbound" || path.startsWith("/inbound/")) &&
     path !== "/warehouse/gate";
   // Gate includes operational sheets as well as the admin-only QR setup index.

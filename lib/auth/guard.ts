@@ -1,3 +1,4 @@
+import { isWarehouseLevelOne, redactFinancialAmounts } from "./financial-visibility";
 import { DependencyError } from "../http/dependency";
 import { NextRequest, NextResponse } from "next/server";
 import { AccessError, billingRequest, canEditCottonLocationDetails, canViewLateFees, canUseInboundImporter, isWrite, requireActive, requireTerminal, warehouseReadPath, type Staff } from "./policy";
@@ -24,6 +25,16 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   const path = new URL(req.url).pathname.replace(/\/$/, "");
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
+  if (isWarehouseLevelOne(staff)) {
+    const financialRoute = /^\/api\/cotton-locations(?:\/|$)/.test(path) || /^\/api\/warehouse\/(?:rates|carrier-rates|contract-miles)(?:\/|$)/.test(path) ||
+      /^\/api\/warehouse\/outbound\/bookings\/[^/]+\/(?:charges|carrier-rates|mcleod-order|houston-import|dallas-pilot)(?:\/|$)/.test(path);
+    if (financialRoute) throw new AccessError("Warehouse Level 1 cannot access rates, pay, or customer billing.");
+    if (/^\/api\/warehouse\/outbound\/bookings\/[^/]+\/containers$/.test(path) && isWrite(req.method)) {
+      const body = await req.clone().json().catch(() => null);
+      if (body && Object.hasOwn(body, "carrierPlan"))
+        throw new AccessError("Warehouse Level 1 cannot assign carriers or change charges.");
+    }
+  }
   if (path === "/api/cotton-locations" && req.method === "PATCH" && canEditCottonLocationDetails(staff)) return;
   if (req.method === "GET" && ["/api/cotton-locations/mileage", "/api/warehouse/contract-miles"].includes(path)) return;
   if (path === "/api/warehouse/rates" && ["GET", "HEAD", "POST"].includes(req.method)) return;
@@ -133,7 +144,14 @@ export function withStaffAccess<T extends (req: NextRequest, ...args: any[]) => 
         if (error) throw new Error("Could not record staff request");
         activityId = data.id;
       }
-      const response = await handler(req, ...args);
+      let response = await handler(req, ...args);
+      if (isWarehouseLevelOne(staff) && response.headers.get("content-type")?.includes("application/json")) {
+        const payload = await response.json();
+        const headers = new Headers(response.headers);
+        headers.delete("content-length");
+        headers.delete("etag");
+        response = NextResponse.json(redactFinancialAmounts(payload), { status: response.status, headers });
+      }
       if (activityId) await staffDatabase().from("scm_staff_activity").update({ response_status: response.status }).eq("id", activityId);
       return session.finish(response);
     } catch (reason) {

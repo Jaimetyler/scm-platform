@@ -1,6 +1,7 @@
 "use client";
 import { outboundBookingNumber, outboundSteamshipLine } from "@/lib/warehouse/outbound/booking-identifiers";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
+import { canViewFinancialAmounts, type CarrierOperationalSummary } from "@/lib/auth/financial-visibility";
 import { canUseBilling } from "@/lib/auth/policy";
 import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
@@ -36,7 +37,7 @@ import { bookingBaleDisplay } from "@/lib/warehouse/outbound/bale-display";
 
 type Container = { id: string; sequence_no: number; scm_order_number?: string | null; booking_line_id: string | null; container_number: string | null; seal_number: string | null;
   chassis_number: string | null; notes: string | null; updated_at: string; split_transfer_id: string | null;
-  carrier_plan: CarrierPlan | null;
+  carrier_plan: CarrierPlan | null; carrier_summary?: CarrierOperationalSummary | null;
   split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
   line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string; source_bales?: { warehouse: string; bales: number }[] | null;
@@ -61,6 +62,7 @@ export default function CottonOutboundBookingPage() {
   const canManage = useCanWrite(terminal);
   const staff = useStaff();
   const isAdmin = staff?.role === "admin";
+  const canManageFinancials = canManage && canViewFinancialAmounts(staff);
   const siteCode = String(params.siteCode ?? "");
   const id = String(params.id ?? "");
   const locationOptions = terminal === "DAL" ? CHECKIN_SITES.filter(site => site.terminal === terminal && site.materials.includes("cotton")) : [];
@@ -73,7 +75,7 @@ export default function CottonOutboundBookingPage() {
   const [mcleodResult, setMcleodResult] = useState<{ bookingId: string; preview: McLeodPreview } | null>(null);
   const mcleodPreview = mcleodResult?.bookingId === id ? mcleodResult.preview : null;
   const autoPulledBooking = useRef("");
-  const canPullMcLeod = Boolean(canWrite && terminal === "DAL" && booking && bookingChargeCustomer(booking.customer));
+  const canPullMcLeod = Boolean(canWrite && canManageFinancials && terminal === "DAL" && booking && bookingChargeCustomer(booking.customer));
   const [pullingMcLeod, setPullingMcLeod] = useState(false);
   const [mcleodPullError, setMcleodPullError] = useState("");
   const [selectionCount, setSelectionCount] = useState("");
@@ -91,7 +93,7 @@ export default function CottonOutboundBookingPage() {
   const [carrierRates, setCarrierRates] = useState<CarrierRate[]>([]);
   const [carrierError, setCarrierError] = useState("");
   useEffect(() => {
-    if (!canManage) return;
+    if (!canManageFinancials) return;
     const controller = new AbortController();
     setRatesLoaded(false);
     setCarrierRates([]);
@@ -105,7 +107,7 @@ export default function CottonOutboundBookingPage() {
       if (!controller.signal.aborted) setCarrierError(error.message || "Could not load carrier rates.");
     }).finally(() => { if (!controller.signal.aborted) setRatesLoaded(true); });
     return () => controller.abort();
-  }, [canManage, carrierEndpoint, siteCode, booking?.return_location, booking?.return_location_code]);
+  }, [canManageFinancials, carrierEndpoint, siteCode, booking?.return_location, booking?.return_location_code]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -503,7 +505,7 @@ export default function CottonOutboundBookingPage() {
     };
     return rank(a) - rank(b) || a.sequence_no - b.sequence_no;
   });
-  const selectionEnabled = canWrite && !rollMode;
+  const selectionEnabled = canWrite && canManageFinancials && !rollMode;
   const pending = pendingEquipment().drafts;
   const selectableRows = selectionEnabled ? visibleContainers.filter(row => (row.container_number || row.booking_line_id || row.scm_order_number) && !row.split_transfer_id &&
     !pending[row.id] && drafts[row.id] && (!row.booking_line_id || lineById.get(row.booking_line_id)?.line_status === "active")) : [];
@@ -577,7 +579,7 @@ export default function CottonOutboundBookingPage() {
           <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/forms/empty-request`} target="_blank" rel="noopener" style={button}>Empty Request</Link>
           <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/forms/manifest`} target="_blank" rel="noopener" style={button}>Manifest</Link>
         </>}
-        {canWrite && terminal === "HOU" && siteCode === "5300" &&
+        {canWrite && canManageFinancials && terminal === "HOU" && siteCode === "5300" &&
           <a href="#houston-booking-import" style={button}>McLeod import</a>}
         {canWrite && <button type="button" style={{ ...button, borderColor: "#659481", background: "#285647", color: "#e2eee7" }}
           disabled={Boolean(working) || mcleodSending || editingDetails}
@@ -709,7 +711,7 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setSelectedContainers(new Set()); setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
 
-    {canWrite && terminal === "HOU" && siteCode === "5300" &&
+    {canWrite && canManageFinancials && terminal === "HOU" && siteCode === "5300" &&
       <HoustonBookingImport bookingId={id} erd={booking.erd} disabled={Boolean(working) || bulkSaving || Object.keys(pending).length > 0}
         onCreated={() => load(pendingEquipment())} />}
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}
@@ -729,9 +731,9 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={!canWrite || Boolean(working)} onClick={() => { setRollMode(false); setSelectedLines(new Set()); setRollQuantities({}); setRollBooking(""); }}>Cancel split / roll</button></div>
     </div> : null}
 
-    {canManage && <div style={{ marginBottom: 8 }}><Link href="/warehouse/rates">Customer billing rates</Link></div>}
+    {canManageFinancials && <div style={{ marginBottom: 8 }}><Link href="/warehouse/rates">Customer billing rates</Link></div>}
     {canManage && carrierError && <p role="alert">{carrierError}</p>}
-    {canManage && terminal === "HOU" && ratesLoaded && !carrierError && !customerBilling &&
+    {canManageFinancials && terminal === "HOU" && ratesLoaded && !carrierError && !customerBilling &&
       <p role="status">No customer billing rate matches this booking’s customer, warehouse, and return location. Review Customer billing rates to calculate the all-in bill.</p>}
     {selectionEnabled && canManage && <form className="booking-quick-select" onSubmit={event => {
       event.preventDefault();
@@ -760,7 +762,7 @@ export default function CottonOutboundBookingPage() {
         checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
         disabled={!selectableRows.length || Boolean(working) || bulkSaving}
         onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
-      {[...(rollMode ? ['Select'] : []), '#', ...(['DAL', 'HOU'].includes(terminal) ? ['SCM order number'] : []), 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+      {[...(rollMode ? ['Select'] : []), '#', ...(['DAL', 'HOU'].includes(terminal) ? ['SCM order number'] : []), 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', ...(canManageFinancials ? ['All-in pay', 'All-in bill'] : [])] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
       {showMcLeodColumn && <th style={th} scope="col">McLeod
         {canPullMcLeod && <div><button type="button" className="booking-charge-button" disabled={pullingMcLeod || Boolean(working)}
           onClick={() => void pullMcLeod()}>{pullingMcLeod ? "Pulling…" : mcleodPreview ? "Refresh McLeod charges" : "Pull McLeod charges"}</button></div>}
@@ -770,7 +772,7 @@ export default function CottonOutboundBookingPage() {
         {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>{["DAL", "HOU"].includes(terminal) && <td style={td}>—</td>}
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
-        <td style={td} colSpan={canManage ? 7 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
+        <td style={td} colSpan={canManageFinancials ? 7 : canManage ? 5 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
         <td style={{ ...td, fontSize: 12, fontWeight: 600 }}>Locked</td>
         {showMcLeodColumn && <td style={td}>—</td>}
       </tr>;
@@ -809,7 +811,8 @@ export default function CottonOutboundBookingPage() {
         <td style={td}><input aria-label={`Container ${row.sequence_no} chassis`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.chassisNumber} onChange={(e) => change(row, "chassisNumber", e.target.value)} placeholder={terminal === "SAV" ? "SCMI" : "Chassis #"} /></td>
         <td style={td}><input aria-label={`Container ${row.sequence_no} notes`} disabled={!canWrite || locked || Boolean(working)} style={input} value={draft.notes} onChange={(e) => change(row, "notes", e.target.value)} placeholder="Optional" /></td>
         {canManage && <>
-          <td style={td}><CarrierSummary plan={row.carrier_plan} /></td>
+          <td style={td}><CarrierSummary plan={canManageFinancials ? row.carrier_plan : null} summary={row.carrier_summary} /></td>
+          {canManageFinancials && <>
           <td style={td} className="carrier-total">{row.container_number || row.booking_line_id || row.scm_order_number ?
             <button type="button" className="carrier-rate-link" disabled={Boolean(working) || bulkSaving}
               aria-label={`View carrier and charges for load ${row.sequence_no}`}
@@ -818,11 +821,12 @@ export default function CottonOutboundBookingPage() {
             </button> : "—"}</td>
           <td style={td} className="carrier-total">{allInBill != null ? mcleodCurrency(allInBill) :
             pullingMcLeod && row.scm_order_number ? "Looking up…" : totals ? "Rate unavailable" : "—"}</td>
+          </>}
         </>}
         <td style={{ ...td, color: working === row.id ? "#fbbf24" : saved && hasEquipment ? "#86efac" : "#bbc9c2", fontSize: 12, fontWeight: 600 }}>
           {locked ? "Locked" : working === row.id ? "Saving…" : !saved ? "Unsaved changes" : hasEquipment ? "Saved" : "No equipment entered"}
           <div className="booking-row-controls">
-          {canManage && canWrite && row.carrier_plan && !locked && <button type="button" className="carrier-charge-plus"
+          {canManageFinancials && canWrite && row.carrier_plan && !locked && <button type="button" className="carrier-charge-plus"
             aria-label={`Edit charges for load ${row.sequence_no}`} disabled={Boolean(working) || bulkSaving}
             onClick={() => { setChargesOnly(true); setDetailId(row.id); }}>+</button>}
           {canWrite && !locked && !saved && saveFailed[row.id] &&
@@ -860,11 +864,11 @@ export default function CottonOutboundBookingPage() {
         {[order.id, order.blnum, order.container, order.carrier, mcleodCurrency(order.total)].filter(Boolean).join(" · ")}
       </li>)}</ul>
     </details>}
-    {selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
+    {canManageFinancials && selectedRows.length > 0 && <CarrierBatchToolbar billing={customerBilling} rates={carrierRates} plans={selectedRows.map(row => row.carrier_plan)}
       disabled={Boolean(working) || bulkSaving} onApply={applyCarrierBatch} onClear={() => setSelectedContainers(new Set())}
       unassignCount={selectedToUnassign.length} onUnassign={() => applyCarrierBatch(null)} />}
     </PlatformPanel>
-    {detailRow && <dialog ref={detailDialog} className={`carrier-details-dialog${chargesOnly ? " carrier-compact-dialog" : ""}`} aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
+    {canManageFinancials && detailRow && <dialog ref={detailDialog} className={`carrier-details-dialog${chargesOnly ? " carrier-compact-dialog" : ""}`} aria-labelledby="carrier-details-title" onClose={() => setDetailId("")}>
       <div className="carrier-dialog-heading">
         <h2 id="carrier-details-title">{detailRow.container_number || detailLine?.mark || "Container details"}</h2>
         <form method="dialog"><button type="submit">Close</button></form>
