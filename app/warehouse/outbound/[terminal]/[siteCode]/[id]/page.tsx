@@ -577,6 +577,8 @@ export default function CottonOutboundBookingPage() {
           <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/forms/empty-request`} target="_blank" rel="noopener" style={button}>Empty Request</Link>
           <Link href={`/warehouse/outbound/${terminal}/${siteCode}/${id}/forms/manifest`} target="_blank" rel="noopener" style={button}>Manifest</Link>
         </>}
+        {canWrite && terminal === "HOU" && siteCode === "5300" &&
+          <a href="#houston-booking-import" style={button}>McLeod import</a>}
         {canWrite && <button type="button" style={{ ...button, borderColor: "#659481", background: "#285647", color: "#e2eee7" }}
           disabled={Boolean(working) || mcleodSending || editingDetails}
           onClick={() => void changeBookingStatus("archived")}>Complete booking</button>}
