@@ -47,7 +47,7 @@ export default function HoustonBookingImport({ bookingId, erd, disabled, onCreat
       await onCreated();
     } finally { setBusy(false); }
   }
-  return <section className="booking-load-sync" aria-label="Temporary Houston dray import">
+  return <section id="houston-booking-import" className="booking-load-sync" style={{ scrollMarginTop: 24 }} aria-label="Temporary Houston dray import">
     <strong>Houston booking import</strong>
     <p>5300 (SUPPBAT1) → HOUPORT · HLOCA · FLAT</p>
     <label>Order date <input type="date" required value={date} disabled={disabled || busy}
