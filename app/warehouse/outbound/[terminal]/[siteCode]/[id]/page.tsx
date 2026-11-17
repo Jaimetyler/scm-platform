@@ -23,6 +23,7 @@ import BookingCharges from "./BookingCharges";
 import BookingSyncPreview, { mcleodCurrency } from "./BookingSyncPreview";
 import type { BookingSyncPreview as McLeodPreview } from "@/lib/warehouse/outbound/booking-sync-preview";
 import DallasImportOrders from "./DallasImportOrders";
+import HoustonBookingImport from "./HoustonBookingImport";
 import DallasLoadSync from "./DallasLoadSync";
 import DallasBulkSync from "./DallasBulkSync";
 import DallasOrderPilot from "./DallasOrderPilot";
@@ -706,6 +707,9 @@ export default function CottonOutboundBookingPage() {
         <button type="button" style={button} disabled={!canWrite || Boolean(working) || rollMode} onClick={() => { setSelectedContainers(new Set()); setRollMode(true); setSearch(""); setError(""); }}>Split / roll marks</button></div>
     </div>
 
+    {canWrite && terminal === "HOU" && siteCode === "5300" &&
+      <HoustonBookingImport bookingId={id} erd={booking.erd} disabled={Boolean(working) || bulkSaving || Object.keys(pending).length > 0}
+        onCreated={() => load(pendingEquipment())} />}
     {error && <p role="alert" style={{ color: "#fca5a5" }}>{error}</p>}
     {message && <p role="status" style={{ color: "#86efac" }}>{message}</p>}
     {rollMode ? <div style={{ margin: "14px 0", padding: 14, borderRadius: 12, border: "1px solid rgba(99,102,241,.45)", background: "rgba(79,70,229,.1)" }}>
@@ -754,14 +758,14 @@ export default function CottonOutboundBookingPage() {
         checked={selectableRows.length > 0 && selectedRows.length === selectableRows.length}
         disabled={!selectableRows.length || Boolean(working) || bulkSaving}
         onChange={event => toggleContainers(selectableRows.map(row => row.id), event.target.checked)} /></th>}
-      {[...(rollMode ? ['Select'] : []), '#', ...(terminal === 'DAL' ? ['SCM order number'] : []), 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
+      {[...(rollMode ? ['Select'] : []), '#', ...(['DAL', 'HOU'].includes(terminal) ? ['SCM order number'] : []), 'Mark', 'Bales', 'Container number', 'Seal number', 'Chassis number', 'Notes', ...(canManage ? ['Carrier / charges', 'All-in pay', 'All-in bill'] : []), 'Actions'].map((label) => <th key={label} style={th}>{label}</th>)}
       {showMcLeodColumn && <th style={th} scope="col">McLeod
         {canPullMcLeod && <div><button type="button" className="booking-charge-button" disabled={pullingMcLeod || Boolean(working)}
           onClick={() => void pullMcLeod()}>{pullingMcLeod ? "Pulling…" : mcleodPreview ? "Refresh McLeod charges" : "Pull McLeod charges"}</button></div>}
       </th>}
     </tr></thead><tbody>{visibleContainers.map((row) => {
       if (row.split_transfer_id) return <tr key={row.id} style={{ background: "rgba(71,85,105,.12)", color: "#bbc9c2" }}>
-        {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>{terminal === "DAL" && <td style={td}>—</td>}
+        {(rollMode || selectionEnabled) && <td style={td} />}<td style={td}>{row.sequence_no}</td>{["DAL", "HOU"].includes(terminal) && <td style={td}>—</td>}
         <td style={td}><strong>{row.split?.mark ?? "Moved mark"}</strong><small style={{ display: "block", marginTop: 3 }}>Split to booking {row.split?.target_booking_number ?? "—"}</small></td>
         <td style={td}>{row.split?.bales ?? "—"}</td>
         <td style={td} colSpan={canManage ? 7 : 4}>{row.split ? <Link style={{ color: "#a5b4fc" }} href={`/warehouse/outbound/${terminal}/${siteCode}/${row.split.target_booking_id}?returnTo=${encodeURIComponent(backHref)}`}>View booking {row.split.target_booking_number}</Link> : "Transferred"}</td>
@@ -790,7 +794,7 @@ export default function CottonOutboundBookingPage() {
         {rollMode && <td style={td}>{line ? <input type="checkbox" aria-label={`Select ${line.mark}`} checked={selectedLines.has(line.id)} disabled={hasEquipment || locked}
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
-        {terminal === "DAL" && <td style={{ ...td, whiteSpace: "nowrap" }}>{row.scm_order_number || "—"}</td>}
+        {["DAL", "HOU"].includes(terminal) && <td style={{ ...td, whiteSpace: "nowrap" }}>{row.scm_order_number || "—"}</td>}
         <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_bales?.map(source => `${source.warehouse} (${source.bales})`).join(" · ") || line.source_warehouse}</small>}</> : terminal === "DAL" && canWrite && unassignedMarks.length ? <select aria-label={`Mark for load ${row.sequence_no}`}
           value={draft.bookingLineId} disabled={Boolean(working)} style={input}
           onChange={event => change(row, "bookingLineId", event.target.value)}>

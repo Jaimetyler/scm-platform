@@ -153,6 +153,17 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
       if (linkError) throw linkError;
       for (const load of linked ?? []) if (load.order_id) orderNumbers.set(load.sequence_no, load.order_id);
     }
+    if (terminal === "HOU") {
+      const { data: linked, error: linkError } = await sb.from("dray_import_orders")
+        .select("invoice,order_id").eq("terminal", "HOU").eq("invoice->>bookingId", id)
+        .in("status", ["verified", "delivered"]);
+      if (linkError) throw linkError;
+      const rowsById = new Map((containers ?? []).map(row => [row.id, row.sequence_no]));
+      for (const load of linked ?? []) {
+        const sequence = rowsById.get(load.invoice?.bookingContainerId);
+        if (sequence !== undefined && load.order_id) orderNumbers.set(sequence, load.order_id);
+      }
+    }
     const staff = staffProfile(req);
     const canViewPricing = staff?.role === "admin" || staff?.role === "operator" && staff.terminal === terminal;
     return NextResponse.json({ ok: true, booking, history, containers: (containers ?? []).map((row) => {
