@@ -81,3 +81,38 @@ test("the reused engine creates and rates once, saves the order receipt, and kee
   assert.equal(order.status, "A");
   assert.ok(order.stops.every(stop => !stop.actual_arrival && !stop.actual_departure));
 });
+
+test("ED&F Houston may create and verify with blank Ordered By while retaining a supplied SO", async () => {
+  const edf = { ...booking, customer: "ED&F Man Cotton", booking_number: "96150957" };
+  const { invoice, profile } = houstonBookingInvoice(edf, slot, { ...mark, shipping_order: null }, billing, "2026-11-20");
+  const payload = buildPayload(invoice, profile);
+  assert.equal(payload.customer_id, "EDFMLOTX");
+  assert.equal(payload.ordered_by, "");
+  assert.equal(payload.blnum, mark.mark);
+  assert.equal(payload.booking_no_sucm, "96150957");
+  assert.equal(payload.planning_comment, booking.scm_file_number);
+  let row = { id: "EDF", status: "ready", order_id: null, invoice, profile };
+  let order;
+  const store = {
+    async claim(id, from, to) {
+      if (row.status !== from) return null;
+      row = { ...row, status: to };
+      return row;
+    },
+    async finish(saved, status, order_id, note) { row = { ...saved, status, order_id, note }; },
+  };
+  await processInvoice(row, store, {
+    async read(path) { return path.startsWith("/orders/search?") ? [] : structuredClone(order); },
+    async write(path, body) {
+      assert.equal(path, "/orders/create");
+      order = { ...body, id: "EDFORDER", otherCharges: expectedCharges(invoice, profile),
+        movements: body.movements.map(movement => ({ ...movement, id: "EDFMOVE" })) };
+      delete order.ordered_by;
+      return { id: order.id };
+    },
+  });
+  assert.equal(row.status, "verified", row.note);
+  const supplied = houstonBookingInvoice(edf, slot, mark, billing, "2026-11-20");
+  assert.equal(buildPayload(supplied.invoice, supplied.profile).ordered_by, mark.shipping_order);
+  assert.throws(() => buildPayload({ ...invoice, customerId: "BUNGOMNE" }, profile), /Shipper's Order/);
+});

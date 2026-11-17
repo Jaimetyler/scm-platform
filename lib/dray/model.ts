@@ -28,3 +28,10 @@ export const SAVANNAH_RATES: CustomerRate[] = [
   {name:"COFCO Americas",code:"NOBLHOTX",aliases:["COFCO Americas Resources Corp.","COFCO Americans Resources Corp","COFCO Americas Resources Corp"],port:35000,ocean:40500,chassis:13500},
 ];
 
+
+
+// ED&F's Houston inland-drayage export supplies a customer reference and mark,
+// with no shipper order field. Preserve the customer reference separately.
+export function requiresDrayShippingOrder(customerId: string, terminal: string) {
+  return !(terminal === "HOU" && customerId === "EDFMLOTX");
+}
