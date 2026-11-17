@@ -247,3 +247,23 @@
 
 .carrier-batch button.carrier-unassign-action { background: transparent; border-color: #a75c64; color: #f1a9ae; }
 .carrier-batch button.carrier-unassign-action:hover:not(:disabled) { background: #39252d; border-color: #d68189; }
+
+
+.booking-summary-dallas {
+  align-items: center;
+  color: #e0eaf5;
+  line-height: 1.45;
+}
+
+.booking-details-dallas {
+  padding-top: 8px;
+  border-top: 1px solid #3a5069;
+  color: #f1f6fc;
+  line-height: 1.5;
+}
+
+.booking-details-dallas strong {
+  margin-right: 3px;
+  color: #b6cee7;
+  font-size: 12px;
+}
