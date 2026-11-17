@@ -56,7 +56,7 @@ export default function HoustonBookingImport({ bookingId, erd, disabled, onCreat
       {busy ? "Processing…" : "Preview McLeod import"}
     </button>
     {rows && <>
-      <p>Uses the saved container, mark, shipping order, SCM file number, carrier pay, and Houston customer rates. Created orders stay Available.</p>
+      <p>Uses saved booking details, carrier pay, and Houston customer rates. Shipping order is optional for ED&F. Created orders stay Available.</p>
       {rows.some(row => row.ready) && <button type="button" className="booking-charge-button" disabled={disabled || busy} onClick={() => void process()}>
         Create / rate eligible orders ({rows.filter(row => row.ready).length})
       </button>}

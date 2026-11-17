@@ -1,5 +1,5 @@
 import { PROFILES, type Profile } from "../ecotton/model.ts";
-import { PROFILE, type DrayInvoice } from "./model.ts";
+import { PROFILE, requiresDrayShippingOrder, type DrayInvoice } from "./model.ts";
 import { bookingChargeCustomer } from "./booking-customers.ts";
 import { carrierPlanLines, type CarrierPlan, type CustomerBillRates } from "../warehouse/outbound/carrier-rates.ts";
 
@@ -29,11 +29,12 @@ export function houstonBookingInvoice(booking: HoustonImportBooking, slot: Houst
   if (!customer) throw Error("The Houston customer account is not configured.");
   const container = String(slot.container_number ?? "").trim().toUpperCase();
   if (!/^[A-Z]{4}\d{7}$/.test(container)) throw Error("Save a full container number.");
-  if (!mark.shipping_order?.trim()) throw Error("Save the mark’s shipping order.");
+  const shippingOrder = mark.shipping_order?.trim() ?? "";
+  if (!shippingOrder && requiresDrayShippingOrder(customer.code, booking.terminal)) throw Error("Save the mark’s shipping order.");
   if (!booking.scm_file_number?.trim()) throw Error("Save the SCM file number in booking details.");
   if (!booking.steamship_line?.trim() || !booking.booking_number.trim()) throw Error("Save the SSL and booking number.");
   for (const [label, value, limit] of [
-    ["Mark", mark.mark, 28], ["Shipping order", mark.shipping_order, 40],
+    ["Mark", mark.mark, 28], ["Shipping order", shippingOrder, 40],
     ["Booking number", booking.booking_number, 40], ["SCM file number", booking.scm_file_number, 80],
   ] as const) if (value.trim().length > limit) throw Error(`${label} exceeds the McLeod field limit.`);
   const plan = slot.carrier_plan;
@@ -60,8 +61,8 @@ export function houstonBookingInvoice(booking: HoustonImportBooking, slot: Houst
   const invoice: DrayInvoice & { bookingId: string; bookingContainerId: string; bales: number } = {
     reference: mark.mark.trim(), mark: container, invoiceDate: date, shipperId: "",
     customerName: booking.customer, customerId: customer.code, cents, charges,
-    sourceKey: `BOOKING:${booking.id}:${slot.id}`, shippingOrder: mark.shipping_order.trim(),
-    customerOrder: mark.shipping_order.trim(), container, chassis: slot.chassis_number ?? "",
+    sourceKey: `BOOKING:${booking.id}:${slot.id}`, shippingOrder,
+    customerOrder: shippingOrder, container, chassis: slot.chassis_number ?? "",
     seal: slot.seal_number ?? "", fileNumber: booking.scm_file_number.trim(), booking: booking.booking_number.trim(),
     steamship: booking.steamship_line.trim(), destination: "HOUPORT", baseCents, carrierCents,
     firstStarLoad: null, inputErrors: [], bookingId: booking.id, bookingContainerId: slot.id, bales: mark.requested_bales,

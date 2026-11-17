@@ -1,20 +1,20 @@
 import * as ecotton from "../ecotton/mcleod.ts";
-import { normalize, type DrayInvoice } from "./model.ts";
+import { normalize, requiresDrayShippingOrder, type DrayInvoice } from "./model.ts";
 import type { Invoice, Profile } from "../ecotton/model.ts";
 import { extractSearchOrders } from "../mcleod/inbound/search-response.ts";
 
-function approved(i: Invoice): DrayInvoice {
+function approved(i: Invoice, p: Profile): DrayInvoice {
   const d = i as DrayInvoice;
   if (!Array.isArray(d.inputErrors) || d.inputErrors.length || !d.destination || d.carrierCents == null || d.carrierCents <= 0)
     throw new Error("Dray source, customer, port and carrier pay must be resolved before processing.");
-  if (!d.customerOrder) throw new Error("Shipper's Order# is missing; refresh this import from the original report.");
+  if (!d.customerOrder && requiresDrayShippingOrder(d.customerId, p.terminal)) throw new Error("Shipper's Order# is missing; refresh this import from the original report.");
   // Apply the approved zero DRAY line to saved Bunge invoices too, so orders
   // blocked before this rule can finish through the existing repair workflow.
   if (d.customerId === "BUNGOMNE" && !d.charges.some(c => c.code === "040" && c.description === "DRAY"))
     return {...d, charges:[{code:"040",description:"DRAY",units:1,cents:0},...d.charges]};
   if (d.customerId === "NOBLHOTX")
     return {...d, charges:[{code:"002",description:"DRAY INVOICE",units:1,cents:0},...d.charges]};
-  return d;
+  return { ...d, customerOrder: d.customerOrder ?? "" };
 }
 function routeMatches(order: any, d: DrayInvoice, p: Profile) {
   return Array.isArray(order?.stops) && order.stops.length === 2 &&
@@ -40,7 +40,7 @@ function projection(order: any, d: DrayInvoice, p: Profile) {
     movements:order.movements?.map(m=>({...m,override_paye_rate:0,override_pay_rate:0,override_pay_amt:0}))};
 }
 export function buildPayload(i: Invoice, p: Profile) {
-  const d = approved(i), payload = ecotton.buildPayload(d,p);
+  const d = approved(i,p), payload = ecotton.buildPayload(d,p);
   // McLeod applies customer billing defaults during create. Supplying the same
   // nested charge here duplicates that default. Reconcile actual lines after create.
   const {otherCharges: _charges, ...base} = payload;
@@ -49,11 +49,11 @@ export function buildPayload(i: Invoice, p: Profile) {
     stops:payload.stops.map(s=>({...s,location_id:s.stop_type === "PU" ? p.location : d.destination})),
     movements:payload.movements.map(m=>({...m,override_paye_rate:d.carrierCents!/100,override_pay_rate:d.carrierCents!/100,override_pay_amt:d.carrierCents!/100}))};
 }
-export function expectedCharges(i: Invoice,p: Profile) {return ecotton.buildPayload(approved(i),p).otherCharges;}
+export function expectedCharges(i: Invoice,p: Profile) {return ecotton.buildPayload(approved(i,p),p).otherCharges;}
 
 /** Only trim exact surplus copies of approved lines; unrelated charges block. */
 export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,expectedId: string,allowReferences=false) {
-  const d=approved(i);
+  const d=approved(i,p);
   const ignored=["Charge lines differ from source invoice","McLeod order total differs from source invoice","Movement payee or zero-payment settings differ from approved profile","Carrier payment settings differ from FirstStar",...(allowReferences?["Ordered By differs from source","Booking number differs from source"]:[])];
   const errors=verifyRatedOrder(order,i,p).filter(e=>!ignored.includes(e));
   if(errors.length || String(order.id)!==expectedId || normalize(order.status)!=="A" || !Array.isArray(order.stops) || order.stops.some(s=>normalize(s.status)!=="A" || s.actual_arrival || s.actual_departure)) throw new Error("Billing setup blocked: "+(errors.join("; ")||"Order progressed or changed"));
@@ -75,11 +75,11 @@ export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,exp
   return {__type:"orders",company_id:"TMS",id:expectedId,rate_type:"F",rate_units:1,rate:d.baseCents/100,total_charge:i.cents/100,otherCharges:lines};
 }
 export function identityMatches(order: any, i: Invoice, p: Profile) {
-  const d = approved(i);
+  const d = approved(i,p);
   return routeMatches(order,d,p) && ecotton.identityMatches(projection(order,d,p),i,p);
 }
 export function verifyRatedOrder(order: any, i: Invoice, p: Profile): string[] {
-  const d = approved(i), errors = ecotton.verifyRatedOrder(projection(order,d,p),d,p);
+  const d = approved(i,p), errors = ecotton.verifyRatedOrder(projection(order,d,p),d,p);
   if (!routeMatches(order,d,p)) errors.push("Warehouse / port route differs");
   if (String(order.planning_comment ?? "").trim() !== d.fileNumber) errors.push("File number differs from source");
   if (String(order.ordered_by ?? "").trim() !== d.customerOrder) errors.push("Ordered By differs from source");
@@ -115,7 +115,7 @@ export async function findDuplicates(read: ecotton.Reader, i: Invoice, p: Profil
   throw new Error("Incomplete duplicate search; creation blocked");
 }
 export function movementUpdatePayload(order: any, i: Invoice, p: Profile, expectedId: string, allowReferenceRepair = false) {
-  const d=approved(i);
+  const d=approved(i,p);
   const nonPayment=verifyRatedOrder(order,i,p).filter(e=>!["Movement payee or zero-payment settings differ from approved profile","Carrier payment settings differ from FirstStar","McLeod order total differs from source invoice", ...(allowReferenceRepair ? ["Ordered By differs from source","Booking number differs from source"] : [])].includes(e));
   if (nonPayment.length || String(order.id)!==expectedId || normalize(order.status)!=="A" || order.stops.some(s=>normalize(s.status)!=="A" || s.actual_arrival || s.actual_departure)) throw new Error("Dray movement setup blocked: " + (nonPayment.join("; ") || "order changed or progressed"));
   if (order.movements?.length!==1 || !order.movements[0].id) throw new Error("One saved movement is required");
