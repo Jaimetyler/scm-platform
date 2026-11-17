@@ -10,7 +10,7 @@ type Entry = {
   chargeId?: string;
 };
 
-export type BillingReceipt = { charges: Entry[]; restoringFromTotal?: number };
+export type BillingReceipt = { charges: Entry[]; restoringFromTotal?: number; pendingReduction?: { code: string; from: number; to: number; remove: boolean; outsideCharge: string } };
 type Payload = Record<string, unknown> & {
   outboundBillingReceipt?: BillingReceipt;
   outboundSyncedDetails?: Record<string, string>;
@@ -77,5 +77,5 @@ export function rememberDallasCharge(receipt: BillingReceipt | undefined, code: 
     attempted: [...(entry?.attempted ?? []).filter(values => !sameChargeValues(values, desired)), { units: desired.units, rate: desired.rate, amount: desired.amount }],
     chargeId: current?.id || entry?.chargeId,
   };
-  return { charges: [...charges.filter(row => row.code !== code), next] };
+  return { ...receipt, charges: [...charges.filter(row => row.code !== code), next] };
 }

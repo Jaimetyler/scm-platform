@@ -133,6 +133,7 @@ async function PATCHHandler(req: NextRequest, context: { params: Promise<{ id: s
         if (link.state !== "verified" || !link.order_id)
           return NextResponse.json({ ok: false, error: "Verify the linked McLeod order before unassigning this load." }, { status: 409 });
         billingLock = await lockDallasBilling(db, id, { ...link, order_id: link.order_id });
+        if (billingLock.receipt?.pendingReduction) throw Error("Finish syncing the customer charge reduction before unassigning.");
         const resetBlnum = await prepareDallasBlnumReset(link.order_id, booking.booking_number, link);
         await clearDallasCarrier(link.order_id, booking.booking_number, link, current.carrier_plan);
         if (billingLock.receipt)

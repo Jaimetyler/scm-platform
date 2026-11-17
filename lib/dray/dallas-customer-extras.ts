@@ -1,3 +1,4 @@
+import type { BillingReceipt } from "./dallas-billing-receipt";
 import type { CarrierPlan, CustomerBillRates } from "../warehouse/outbound/carrier-rates";
 
 type CustomerRates = {
@@ -18,19 +19,48 @@ export type CustomerCharge = {
 };
 
 export function planDallasCustomerExtras(quantities: CarrierPlan["quantities"], rates: CustomerRates | null,
-  billed: CustomerCharge[] | null, customerSuppliesChassis: boolean) {
+  billed: CustomerCharge[] | null, customerSuppliesChassis: boolean, receipt?: BillingReceipt) {
   const minimum = Number(rates?.included_chassis_days ?? 0);
   const specs = [
     { code: "DSCM", description: "DAL Chassis Charges", units: quantities.chassisDays, rate: rates?.chassis_daily_rate },
     { code: "CS", description: "Chassis Split", units: quantities.chassisSplits, rate: rates?.chassis_split_rate },
     { code: "006", description: "Stop Off Charge", units: quantities.stopoffs, rate: rates?.stopoff_rate },
   ];
-  const charges = specs.filter(line => line.code === "DSCM" ? !customerSuppliesChassis && line.units > minimum : line.units > 0);
   const blockers: string[] = [];
-  if (charges.length && billed === null) return { changes: [], blockers: ["McLeod customer charges could not be verified."] };
+  const charges = specs.map(line => ({ ...line, units: line.code === "DSCM"
+    ? customerSuppliesChassis ? 0 : Math.max(line.units, minimum) : line.units }));
+  if (billed === null && (receipt?.charges.length || charges.some(line => line.units > (line.code === "DSCM" ? minimum : 0))))
+    return { changes: [], blockers: ["McLeod customer charges could not be verified."] };
 
-  const changes = charges.flatMap(line => {
+  type Change = { code: string; description: string; units: number; rate: number; amount: number; previous: CustomerCharge | null; remove?: boolean };
+  const changes = charges.flatMap<Change>(line => {
     const existing = (billed ?? []).filter(row => row.code === line.code);
+    const tracked = receipt?.charges.find(entry => entry.code === line.code);
+    const current = existing[0];
+    const standard = tracked?.original?.values;
+    const targetUnits = standard ? Math.max(line.units, standard.units) : line.units;
+    if (tracked && current && targetUnits < current.units) {
+      if (line.code === "DSCM" && !standard && !rates && !customerSuppliesChassis) {
+        blockers.push("Verify the customer chassis minimum in Customer Rates before reducing DSCM.");
+        return [];
+      }
+      const matchesAttempt = tracked.attempted.some(values => values.units === current.units && values.rate === current.rate &&
+        values.amount !== null && current.amount !== null && Math.round(values.amount * 100) === Math.round(current.amount * 100));
+      const alreadyOriginal = standard && standard.units === current.units && standard.rate === current.rate && standard.amount === current.amount;
+      if (alreadyOriginal) return [];
+      if (existing.length !== 1 || current.id !== (tracked.chargeId ?? tracked.original?.id) ||
+          !/^[A-Za-z0-9_-]{1,32}$/.test(current.id) || current.inclusion !== "N" || !matchesAttempt) {
+        blockers.push(`${line.code} changed outside SCM Platform. Review the customer charge before syncing.`);
+        return [];
+      }
+      // Preserve the original tariff line and its amount when undoing a platform increase.
+      const restoringOriginal = standard && standard.units === targetUnits;
+      const rate = restoringOriginal ? standard.rate : current.rate;
+      return [{ code: line.code, description: current.description || line.description, units: targetUnits, rate,
+        amount: restoringOriginal ? standard.amount! : Math.round(rate * targetUnits * 100) / 100,
+        previous: current, remove: !tracked.original && targetUnits === 0 }];
+    }
+    if (line.units <= (line.code === "DSCM" && !customerSuppliesChassis ? minimum : 0)) return [];
     if (line.code !== "DSCM" && existing.length) return [];
     if (line.code === "DSCM" && existing.length &&
         existing.every(row => Number.isFinite(row.units) && row.units >= 0) &&

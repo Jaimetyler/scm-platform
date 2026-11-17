@@ -7,6 +7,7 @@ export async function restoreDallasCustomerCharges(orderId: string, bookingNumbe
   link: Parameters<typeof readLinkedDallasOrder>[3], history: Awaited<ReturnType<typeof lockDallasBilling>>) {
   const receipt = history.receipt;
   if (!receipt) return;
+  if (receipt.pendingReduction) throw Error("Finish syncing the customer charge reduction before unassigning.");
   const { read, write, deleteCustomerCharge } = vendor(false);
   const readOrder = () => readLinkedDallasOrder(read, orderId, bookingNumber, link);
   const rawCharges = (order: Awaited<ReturnType<typeof readOrder>>) => order.otherCharges ?? order.other_charges ?? order.otherCharge;
