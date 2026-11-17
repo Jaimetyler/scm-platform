@@ -90,11 +90,31 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
         return NextResponse.json({ error: "Could not check the booking folders in SharePoint." }, { status: 502 });
       }
     }
-    const { data: transfers, error: transferError } = await sb.from("cotton_outbound_booking_transfers")
-      .select("id,mark,bales,target_booking_id,target:cotton_outbound_bookings!target_booking_id(booking_number)")
-      .eq("source_booking_id", id);
+    const printing = params.get("view") === "print";
+    const transferQuery = sb.from("cotton_outbound_booking_transfers")
+      .select("id,mark,bales,created_at,note,source_booking_id,target_booking_id,source:cotton_outbound_bookings!source_booking_id(booking_number),target:cotton_outbound_bookings!target_booking_id(booking_number)");
+    const { data: transfers, error: transferError } = await (printing
+      ? transferQuery.or(`source_booking_id.eq.${id},target_booking_id.eq.${id}`)
+      : transferQuery.eq("source_booking_id", id));
     if (transferError) throw transferError;
     const transferById = new Map((transfers ?? []).map((transfer) => [transfer.id, transfer]));
+    const events = printing ? await sb.from("cotton_outbound_mark_events")
+      .select("id,action,created_at,note,line:cotton_outbound_booking_lines!line_id(mark)")
+      .eq("booking_id", id).in("action", ["hold", "resume", "cancel"]).order("created_at") : null;
+    if (events?.error) throw events.error;
+    const history = printing ? [
+      ...(transfers ?? []).map(transfer => {
+        const incoming = transfer.target_booking_id === id;
+        const counterpart = (incoming ? transfer.source : transfer.target) as unknown as { booking_number: string } | null;
+        const originalSource = /^Rolled from booking (.+)$/.exec(transfer.note ?? "")?.[1];
+        return { id:transfer.id, mark:transfer.mark, bales:transfer.bales, date:transfer.created_at,
+          action:incoming ? "Moved in" : "Moved out", booking: (incoming && originalSource) || counterpart?.booking_number };
+      }),
+      ...(events?.data ?? []).map(event => ({
+        id:event.id, mark:(event.line as unknown as {mark:string} | null)?.mark ?? "Mark", date:event.created_at,
+        action:event.action === "cancel" ? "Removed" : event.action === "hold" ? "Put on hold" : "Resumed", note:event.note,
+      })),
+    ].sort((a,b) => a.date.localeCompare(b.date)) : undefined;
     const marks = [...new Set((lines ?? []).map((line) => line.mark))];
     const { data: lots, error: inventoryError } = await sb.from("warehouse_inventory_lots")
       .select("mark,current_bales,allocated_bales,inventory_status,warehouse_location,source_type,customer")
@@ -127,7 +147,7 @@ async function GETHandler(req: NextRequest, context: { params: Promise<{ id: str
     }
     const staff = staffProfile(req);
     const canViewPricing = staff?.role === "admin" || staff?.role === "operator" && staff.terminal === terminal;
-    return NextResponse.json({ ok: true, booking, containers: (containers ?? []).map((row) => {
+    return NextResponse.json({ ok: true, booking, history, containers: (containers ?? []).map((row) => {
       const transfer = row.split_transfer_id ? transferById.get(row.split_transfer_id) : null;
       const target = transfer?.target as unknown as { booking_number: string } | null;
       return { ...row, scm_order_number: row.split_transfer_id ? null : orderNumbers.get(row.sequence_no) ?? null, carrier_plan: canViewPricing ? row.carrier_plan : null, split: transfer ? { mark: transfer.mark, bales: transfer.bales,
