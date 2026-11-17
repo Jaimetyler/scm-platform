@@ -260,3 +260,11 @@ test("active staff can view and save warehouse rates with same-origin writes", a
   }
   assert.equal((await call("/api/warehouse/rates", "GET", undefined, { ...viewer, status: "disabled" })).ran, false);
 });
+
+test("temporary Houston booking import is scoped to Houston operators and Houston records", async () => {
+  const path = `/api/warehouse/outbound/bookings/${id}/houston-import`;
+  assert.equal((await call(path, "POST", { action: "preview" })).status, 200);
+  assert.equal((await call(path, "POST", { action: "create" }, { ...hou, terminal: "DAL" })).status, 403);
+  assert.equal((await call(path, "POST", { action: "preview" }, hou, { recordTerminal: "DAL" })).status, 403);
+  assert.equal((await call(path, "POST", { action: "create" }, viewer)).status, 403);
+});
