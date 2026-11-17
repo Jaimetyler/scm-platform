@@ -35,8 +35,19 @@ test('save rejects missing counts/confirmations, then passes original container/
   assert.equal(calls[0].args.p_details.return_location,'Dallas');
   assert.equal(calls[0].args.p_details.return_location_code,null);
   assert.equal(calls[0].args.p_details.steamship_line,'EVERGREEN');
-  const corrected=await post(request({...fields,lineBales:JSON.stringify({2:88}),steamshipLine:'  Evergreen Marine  '}));
+  const corrected=await post(request({...fields,lineBales:JSON.stringify({2:88}),steamshipLine:'  Evergreen Marine  ',bookId:'  0041512  ',customerReference:'  00061001186  ',scmFileNumber:'  SCM-123  '}));
   assert.equal(corrected.status,200);
   assert.equal(calls[1].args.p_details.steamship_line,'Evergreen Marine');
+  assert.equal(calls[0].args.p_customer_reference,'PO-TEST');
+  assert.equal(calls[1].args.p_customer_reference,'00061001186');
+  assert.equal(calls[1].args.p_details.book_id,'0041512');
+  assert.equal(calls[1].args.p_details.scm_file_number,'SCM-123');
+  const cleared=await post(request({...fields,lineBales:JSON.stringify({2:88}),customerReference:''}));
+  assert.equal(cleared.status,200);
+  assert.equal(calls[2].args.p_customer_reference,'');
+  for(const [key,max] of [['bookId',80],['customerReference',200],['scmFileNumber',80]]) {
+    assert.equal((await post(request({...fields,lineBales:JSON.stringify({2:88}),[key]:'x'.repeat(max+1)}))).status,400);
+  }
+  assert.equal(calls.length,3);
  }finally {delete process.env.SUPABASE_URL;delete process.env.SUPABASE_SERVICE_ROLE_KEY;}
 });

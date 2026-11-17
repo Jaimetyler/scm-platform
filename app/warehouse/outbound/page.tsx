@@ -91,6 +91,7 @@ export default function CottonOutboundPage() {
   const [lineBales, setLineBales] = useState<Record<string, string>>({});
   const [customerConfirmed, setCustomerConfirmed] = useState(false);
   const [warehouseConfirmed, setWarehouseConfirmed] = useState(false);
+  const [importIdentifiers, setImportIdentifiers] = useState({ bookId: "", customerReference: "", scmFileNumber: "" });
   const [importDates, setImportDates] = useState({ erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "" });
   const site = sites.find((item) => `${item.terminal}:${item.siteCode}` === preferences.warehouse);
   const canWrite = useCanWrite(site?.terminal);
@@ -140,7 +141,10 @@ export default function CottonOutboundPage() {
       await attachBookingFile(body, file, site.terminal, controller.signal); body.set("terminal", site.terminal); body.set("siteCode", site.siteCode);
       body.set("dateYear", dateYear); body.set("lineBales", JSON.stringify(lineBales));
       body.set("customerConfirmed", String(customerConfirmed)); body.set("warehouseConfirmed", String(warehouseConfirmed));
-      if (save) { body.set("datesConfirmed", String(datesConfirmed)); Object.entries(importDates).forEach(([key, value]) => body.set(key, value)); }
+      if (save) {
+        body.set("datesConfirmed", String(datesConfirmed));
+        Object.entries({ ...importDates, ...importIdentifiers }).forEach(([key, value]) => body.set(key, value));
+      }
       const response = await fetch(save ? "/api/warehouse/outbound/bookings" : "/api/warehouse/outbound/preview", { method: "POST", body, signal: controller.signal });
       const result = await response.json().catch(() => { throw new Error(`The import service returned an unreadable response (${response.status}). Please try again.`); });
       if (uploadRequest.current !== controller) return;
@@ -150,6 +154,9 @@ export default function CottonOutboundPage() {
         window.location.assign(`/warehouse/outbound/${site.terminalSlug}/${site.siteCode}/${result.id}?returnTo=${encodeURIComponent(dashboardUrl(preferences))}`);
       } else {
         if (!result.booking || !Array.isArray(result.booking.lines)) throw new Error("The file could not be read as a booking request.");
+        if (!preview) {
+          setImportIdentifiers({ bookId: result.booking.bookId ?? "", customerReference: result.booking.customerReference ?? "", scmFileNumber: "" });
+        }
         setPreview(result); setDatesConfirmed(false);
         setImportDates({ erd: result.booking.erd ?? "", docCutoff: result.booking.docCutoff ?? "", cutoff: result.booking.cutoff ?? "", vessel: result.booking.vessel ?? "", returnLocation: result.booking.returnLocation ?? "", steamshipLine: result.booking.steamshipLine ?? "" });
       }
@@ -201,7 +208,6 @@ export default function CottonOutboundPage() {
       <p style={{ color: "#bbc9c2", fontSize: 12 }}>Bunge, Olam Dray Dispatch, ED&F inland drayage, and LDC e2open exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
-      <p>Book ID {preview.booking.bookId || "—"} · Customer reference {preview.booking.customerReference || "—"}</p>
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
       {preview.booking.sourceFormat === "edf" && <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
         <label><input type="checkbox" checked={customerConfirmed} onChange={event => setCustomerConfirmed(event.target.checked)} /> This export is for ED&amp;F Man Cotton.</label>
@@ -214,6 +220,18 @@ export default function CottonOutboundPage() {
       {preview.booking.sourceFormat === "ldc" && <label style={{ display: "block", marginBottom: 12 }}>
         <input type="checkbox" checked={warehouseConfirmed} onChange={event => setWarehouseConfirmed(event.target.checked)} /> These Port Wentworth loads belong to {site?.siteName}.
       </label>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12, marginBottom: 12 }}>
+        {([
+          ["bookId", "Book ID", 80],
+          ["customerReference", "Customer Reference", 200],
+          ["scmFileNumber", "SCM File Number (optional)", 80],
+        ] as const).map(([key, label, maxLength]) => (
+          <label key={key}>{label}
+            <input style={{ ...input, display: "block", width: "100%" }} maxLength={maxLength} value={importIdentifiers[key]}
+              onChange={event => setImportIdentifiers(current => ({ ...current, [key]: event.target.value }))} />
+          </label>
+        ))}
+      </div>
       <p>Confirm the sailing dates below, or correct them before importing. Load-by dates do not control the warehouse loading window.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 12, marginBottom: 12 }}>
         <label>ERD<input aria-label="Import ERD" type="date" style={input} value={importDates.erd} onChange={(event) => { setDatesConfirmed(false); setImportDates((current) => ({ ...current, erd: event.target.value })); }} /></label>
