@@ -4,6 +4,7 @@ import styles from "../ecotton-import/review.module.css";
 import BolImaging from "./BolImaging";
 import {bolEligible} from "@/lib/dray-bols/eligible";
 import { canReviewDrayPay, type interchangeContainerMatches } from "@/lib/dray/review";
+import { runDrayBatch } from "@/lib/dray/batch-review";
 import type { Profile } from "@/lib/ecotton/model";
 const card: React.CSSProperties = {
   padding: 22,
@@ -46,6 +47,9 @@ export default function ImportClient() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [openedId, setOpenedId] = useState<string | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [batchFailures, setBatchFailures] = useState<Record<string, string>>({});
+  const [batchSummary, setBatchSummary] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
@@ -65,10 +69,11 @@ export default function ImportClient() {
     [confirmed, setConfirmed] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [review, setReview] = useState({ booking: "", container: "", carrierPay: "" });
+  const drafts = useRef(new Map<string, typeof review>());
   const [interchanges, setInterchanges] = useState<{ booking: string; inbound: string | null; outbound: string | null }[] | null>(null);
   const [suggestions, setSuggestions] = useState<ReturnType<typeof interchangeContainerMatches> | null>(null);
   const [deliveryPreview, setDeliveryPreview] = useState<any[]>([]);
-  useEffect(() => { setDeliveryPreview([]); setOpenedId(null); setQuery(""); setFilter("all"); }, [saved?.run.id]);
+  useEffect(() => { setDeliveryPreview([]); setOpenedId(null); setQuery(""); setFilter("all"); setQueueOpen(false); setBatchFailures({}); setBatchSummary(""); drafts.current.clear(); }, [saved?.run.id]);
   async function call(body?: any, runId?: string) {
     const res = await fetch(
       "/api/dray-import" +
@@ -140,7 +145,8 @@ export default function ImportClient() {
     const blob=await res.blob(),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1]||"Savannah_BOLs.zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
   });}
 
-  const category = (item: any) => item.conflict ? "attention" :
+  const category = (item: any, failures = batchFailures) => item.conflict ||
+    (item.order.status !== "delivered" && failures[item.order_id]) ? "attention" :
     ["ready", "created"].includes(item.order.status) ? "ready" :
     ["verified", "delivered"].includes(item.order.status) ? "imported" : "attention";
   const visible = items.filter((item: any) => {
@@ -150,6 +156,64 @@ export default function ImportClient() {
         .some(value => String(value || "").toLowerCase().includes(query.trim().toLowerCase()));
   });
   const opened = items.find((item: any) => item.order_id === openedId);
+  const queue = items.filter(item => category(item) === "attention");
+  const queueIndex = queue.findIndex(item => item.order_id === openedId);
+
+  function openRow(item: any, inQueue: boolean, keepDraft = true) {
+    if (openedId && keepDraft) drafts.current.set(openedId, review);
+    const invoice = item.order.invoice;
+    setReview(drafts.current.get(item.order_id) ?? {
+      booking:invoice.booking || "", container:invoice.container || "",
+      carrierPay:invoice.carrierCents == null ? "" : (invoice.carrierCents/100).toFixed(2),
+    });
+    setSuggestions(null);
+    setInterchanges(null);
+    setError("");
+    setQueueOpen(inQueue);
+    setOpenedId(item.order_id);
+  }
+
+  function updateReviewedRow(data: any) {
+    setSaved(data);
+    const current = data.items.find(item => item.order_id === openedId);
+    if (!current || current.conflict || !["ready", "verified", "delivered"].includes(current.order.status)) return;
+    const remainingFailures = {...batchFailures};
+    delete remainingFailures[current.order_id];
+    setBatchFailures(remainingFailures);
+    drafts.current.delete(current.order_id);
+    if (!queueOpen) return;
+    const remaining = data.items.filter(item => category(item, remainingFailures) === "attention");
+    const next = remaining[Math.min(queueIndex, remaining.length-1)];
+    if (next) openRow(next, true, false);
+    else setOpenedId(null);
+  }
+
+  async function finishBatch(rows: {rowId:string; planHash?:string}[], action: "execute-and-deliver" | "deliver") {
+    let latest = saved;
+    const failures = await runDrayBatch(rows, async ({rowId, planHash}) => {
+      const data = await call({action, runId:saved.run.id, rowId, confirmed:true, planHash});
+      latest = data;
+      setSaved(data);
+      const order = data.items.find(item => item.order_id === rowId)?.order;
+      if (order?.status === "delivered") return;
+      if (order?.status === "verified") return "The order rated successfully. Review the delivery details.";
+      return order ? deliveryNote(order) || "Review this order before processing again." : "The order was missing from the response.";
+    });
+    let refreshError = "";
+    try { latest = await refresh(saved.run.id); }
+    catch (reason) { refreshError = ` Refresh failed: ${(reason as Error).message}`; }
+    const combined = {...batchFailures, ...failures};
+    const reviewItems = latest.items.filter(item => category(item, combined) === "attention");
+    const attempted = new Set(rows.map(item => item.rowId));
+    const delivered = latest.items.filter(item => attempted.has(item.order_id) && item.order.status === "delivered").length;
+    setBatchFailures(combined);
+    setConfirmed(false);
+    setBatchSummary(`${delivered} of ${rows.length} selected orders delivered.${refreshError}`);
+    if (reviewItems.length) {
+      opener.current = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+      openRow(reviewItems[0], true, false);
+    }
+  }
   async function previewDelivery() {
     setDeliveryPreview([]);
     await act(async () => {
@@ -165,17 +229,8 @@ export default function ImportClient() {
     if (!writes || !deliveryPreview.length) return;
     if (!window.confirm(`Deliver ${deliveryPreview.length} reviewed orders and mark ready to bill? Scheduled earliest/latest dates will become actual arrival/departure. Movement status will be Delivered and brokerage status FINISHED.`)) return;
     await act(async () => {
-      try {
-        for (const preview of deliveryPreview) {
-          const data = await call({ action: "deliver", runId: saved.run.id, rowId: preview.rowId, confirmed: true, planHash: preview.planHash });
-          setSaved(data);
-          if (data.items.find((x) => x.order_id === preview.rowId)?.order.status !== "delivered")
-            throw new Error("Delivery stopped for review. Reconcile this row before continuing.");
-        }
-      } finally {
-        setDeliveryPreview([]);
-        await refresh(saved.run.id);
-      }
+      setDeliveryPreview([]);
+      await finishBatch(deliveryPreview, "deliver");
     });
   }
   async function execute() {
@@ -186,28 +241,7 @@ export default function ImportClient() {
       )
     )
       return;
-    await act(async () => {
-      for (const item of chosen) {
-        try {
-          const data = await call({
-            action: "execute-and-deliver",
-            runId: saved.run.id,
-            rowId: item.order_id,
-            confirmed: true,
-          });
-          setSaved(data);
-          const current = data.items.find((x) => x.order_id === item.order_id);
-          if (current?.order.status !== "delivered")
-            throw new Error(
-              current?.order.status === "verified" ? "The order rated successfully. Review delivery before continuing." : current?.order.note || "Processing stopped for review. Inspect this row before continuing.",
-            );
-        } catch (e) {
-          await refresh(saved.run.id);
-          throw e;
-        }
-      }
-      await refresh();
-    });
+    await act(() => finishBatch(chosen.map(item => ({rowId:item.order_id})), "execute-and-deliver"));
   }
   return (
     <main className={styles.page}
@@ -437,6 +471,10 @@ export default function ImportClient() {
             <button style={button} disabled={busy || !writes} onClick={deliver}>Deliver reviewed orders ({deliveryPreview.length})</button>
             <button style={button} disabled={busy} onClick={() => setDeliveryPreview([])}>Cancel delivery preview</button>
           </section>}
+          {batchSummary && <p role="status">{batchSummary}</p>}
+          {queue.length > 0 && <button style={button} disabled={busy} onClick={event => {
+            opener.current = event.currentTarget; openRow(queue[0], true);
+          }}>Review exceptions ({queue.length})</button>}
           <div className={styles.toolbar}>
             <input aria-label="Search import orders" placeholder="Search customer, reference, mark or SCM order number" value={query} onChange={e => setQuery(e.target.value)} />
             <select aria-label="Filter import status" value={filter} onChange={e => setFilter(e.target.value)}>
@@ -521,13 +559,10 @@ export default function ImportClient() {
                         <br />
                         {o.order_id || "Not created"}
                       </td>
-                      <td><button style={button} onClick={(event) => { opener.current = event.currentTarget;
-                        const invoice = item.order.invoice;
-                        setReview({ booking:invoice.booking || "", container:invoice.container || "",
-                          carrierPay:invoice.carrierCents == null ? "" : (invoice.carrierCents/100).toFixed(2) });
-                        setSuggestions(null);
-                        setInterchanges(null);
-                        setOpenedId(item.order_id); }}>View details</button></td>
+                      <td><button style={button} disabled={busy} onClick={event => {
+                        opener.current = event.currentTarget;
+                        openRow(item, false);
+                      }}>View details</button></td>
                     </tr>
                   );
                 })}
@@ -538,14 +573,24 @@ export default function ImportClient() {
       )}
       <dialog ref={dialog} className={styles.dialog} aria-labelledby="import-detail-title"
         onCancel={event => { if (busy) event.preventDefault(); }}
-        onClose={() => { setOpenedId(null); opener.current?.focus(); }}>
+        onClose={() => {
+          if (openedId) drafts.current.set(openedId, review);
+          setOpenedId(null); setQueueOpen(false); setError(""); opener.current?.focus();
+        }}>
         {opened && <>
           <header className={styles.modalHeader}>
             <div><span className={styles.eyebrow}>IMPORT ORDER</span><h2 id="import-detail-title">{opened.order.invoice.customerName}</h2><p>{opened.order.invoice.reference} · {opened.order.invoice.mark}</p></div>
             <button aria-label="Close order details" disabled={busy} onClick={() => dialog.current?.close()}>×</button>
           </header>
           <div className={styles.modalBody}>
+            {queueOpen && <nav aria-label="Review exceptions">
+              <button style={button} disabled={busy || queueIndex <= 0} onClick={() => openRow(queue[queueIndex-1], true)}>Previous</button>
+              <span aria-live="polite">Exception {queueIndex+1} of {queue.length}</span>
+              <button style={button} disabled={busy || queueIndex < 0 || queueIndex+1 >= queue.length}
+                onClick={() => openRow(queue[queueIndex+1], true)}>Next</button>
+            </nav>}
             {error && <p role="alert" className={styles.error}>{error}</p>}
+            {batchFailures[opened.order_id] && <p>{batchFailures[opened.order_id]}</p>}
             <dl className={styles.summary}>
               <div><dt>Customer code</dt><dd>{opened.order.invoice.customerId}</dd></div>
               <div><dt>Warehouse</dt><dd>{opened.order.profile.location}</dd></div>
@@ -570,7 +615,7 @@ export default function ImportClient() {
                           ? "This warehouse/reference already has a different saved invoice. No changes allowed."
                           : ["delivering", "delivery_uncertain", "delivered"].includes(opened.order.status) ? deliveryNote(opened.order) : opened.order.note}
                         {["delivering", "delivery_uncertain"].includes(opened.order.status) && <button style={button} disabled={busy} onClick={() => act(async () => {
-                          const data = await call({ action: "reconcile-delivery", runId: saved.run.id, rowId: opened.order_id }); setSaved(data);
+                          const data = await call({ action: "reconcile-delivery", runId: saved.run.id, rowId: opened.order_id }); updateReviewedRow(data);
                         })}>Reconcile delivery (read only)</button>}
                         {bolEligible(opened)&&<section style={{marginTop:16}}><button style={button} disabled={busy} onClick={()=>void downloadBols([opened.order_id],"pdf")}>Download BOL</button><BolImaging key={opened.order_id} runId={saved.run.id} rowId={opened.order_id} orderId={opened.order.order_id} busy={busy} onBusy={setBusy}/></section>}
                         <section>
@@ -618,8 +663,8 @@ export default function ImportClient() {
                               onChange={event => setReview({...review, carrierPay:event.target.value})} /></label>
                             <button type="button" style={button} disabled={busy || !review.carrierPay || !review.container || !review.booking} onClick={() => void act(async () => {
                               const data = await call({action:"save-review", runId:saved.run.id, rowId:opened.order_id, version:opened.order.version, ...review});
-                              setSaved(data); setConfirmed(false); setSuggestions(null);
-                            })}>Save correction and check duplicates</button>
+                              updateReviewedRow(data); setConfirmed(false); setSuggestions(null);
+                            })}>{queueOpen ? "Save correction and continue" : "Save correction and check duplicates"}</button>
                           </section>
                         )}
                         {!opened.conflict && opened.order.status === "preview_blocked" && !opened.order.invoice.inputErrors?.length && (
@@ -633,7 +678,7 @@ export default function ImportClient() {
                                   runId: saved.run.id,
                                   rowId: opened.order_id,
                                 });
-                                setSaved(data);
+                                updateReviewedRow(data);
                               })
                             }
                           >
@@ -642,7 +687,7 @@ export default function ImportClient() {
                         )}
                         {!opened.conflict && opened.order.status === "blocked" && opened.order.order_id && <button style={button} disabled={busy || !writes} onClick={() => {
                           if (!window.confirm(`Complete carrier and reference setup for existing SCM order number ${opened.order.order_id}? Billing will be preserved; no new order or delivery.`)) return;
-                          void act(async () => {const data = await call({action:"repair-created",runId:saved.run.id,rowId:opened.order_id,confirmed:true});setSaved(data);});
+                          void act(async () => {const data = await call({action:"repair-created",runId:saved.run.id,rowId:opened.order_id,confirmed:true});updateReviewedRow(data);});
                         }}>Complete existing order setup</button>}
                         {!opened.conflict &&
                           [
@@ -663,7 +708,7 @@ export default function ImportClient() {
                                     runId: saved.run.id,
                                     rowId: opened.order_id,
                                   });
-                                  setSaved(data);
+                                  updateReviewedRow(data);
                                 })
                               }
                             >
