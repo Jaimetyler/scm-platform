@@ -18,19 +18,36 @@
 .hou-form-field { display: flex; gap: .08in; align-items: end; min-height: .34in; padding-bottom: .04in; }
 .hou-form-field strong { flex: none; }
 .hou-form-field span { flex: 1; min-height: 1.2em; border-bottom: 1px solid; }
-.hou-form-slots { columns: 2; column-gap: .22in; list-style: none; padding: 0; margin: .12in 0 0; }
-.hou-form-slots li { border-bottom: 1px solid; height: .29in; padding-top: .05in; break-inside: avoid; }
+.hou-empty-request .hou-form-letterhead h1 { border-bottom: 2px solid; margin-bottom: .14in; padding-bottom: .1in; }
+.hou-empty-details { display: grid; grid-template-columns: 1.2fr 1fr; column-gap: .3in; }
+.hou-empty-details strong { width: .96in; }
+.hou-empty-containers { margin-top: .24in; }
+.hou-empty-containers h2 { font-size: 13px; margin: 0 0 .05in; }
+.hou-empty-lists { display: flex; gap: .3in; }
+.hou-form-slots { flex: 1; list-style: none; padding: 0; margin: 0; }
+.hou-form-slots li {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  gap: .08in;
+  min-height: .34in;
+  font-variant-numeric: tabular-nums;
+}
+.hou-form-slots li::after { content: ""; flex: 1; border-bottom: 1px solid; }
 .hou-manifest .hou-form-field { min-height: .52in; }
 .hou-manifest .hou-form-letterhead { margin-top: .22in; }
 .hou-manifest .hou-form-letterhead h1 { border-top: 2px solid; padding-top: .07in; }
 .hou-form-dispatch { border-top: 2px solid; margin-top: .17in; }
 
 @page houston-booking { size: letter portrait; margin: .4in; }
+@page houston-empties { size: letter portrait; margin: 0; }
 @media print {
   body { background: white !important; color: black !important; }
   body > div { padding: 0 !important; min-height: 0 !important; }
   .hou-form { page: houston-booking; }
+  .hou-empty-print { page: houston-empties; }
   .hou-form-toolbar { display: none; }
   .hou-form-page { width: 100%; margin: 0; padding: 0; break-inside: avoid; }
+  .hou-form-page.hou-empty-request { padding: .5in .55in; }
   .hou-form-page + .hou-form-page { break-before: page; }
 }
