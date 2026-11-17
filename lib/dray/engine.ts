@@ -27,6 +27,31 @@ export type Vendor = {
   read: (path: string) => Promise<any>;
   write: (path: string, payload?: any) => Promise<any>;
 };
+async function applyBillingNormalization(row: Ledger, vendor: Vendor, normalization: any) {
+  if (row.profile.id !== "HOU-5300-BOOKING") {
+    await vendor.write("/orders/updateRow", normalization);
+    return vendor.read("/orders/" + encodeURIComponent(row.order_id!));
+  }
+  // Houston's order update endpoint ignores nested charge inserts. Use the
+  // charge-row endpoint and require read-back before updating its bill total.
+  if (normalization.otherCharges.some((charge: any) => charge.__deleted))
+    throw Error("Duplicate Houston billing lines require charge review.");
+  for (const charge of normalization.otherCharges.filter((charge: any) => !charge.id)) {
+    await vendor.write("/other_charge/create", { ...charge, order_id: row.order_id });
+  }
+  let after = await vendor.read("/orders/" + encodeURIComponent(row.order_id!));
+  const chargeErrors = verifyRatedOrder(after, row.invoice, row.profile).filter(error =>
+    ["Charges unavailable", "Charge lines differ from source invoice", "Base billing rate differs"].includes(error));
+  if (chargeErrors.length) throw Error("Houston charge rows did not verify: " + chargeErrors.join("; "));
+  if (Math.round(Number(after.total_charge) * 100) !== row.invoice.cents) {
+    await vendor.write("/orders/updateRow", {
+      __type: "orders", company_id: "TMS", id: row.order_id, total_charge: row.invoice.cents / 100,
+    });
+    after = await vendor.read("/orders/" + encodeURIComponent(row.order_id!));
+  }
+  return after;
+}
+
 /** No retries after a vendor write. A failed receipt leaves the persisted claim fenced. */
 export async function processInvoice(
   row: Ledger,
@@ -135,7 +160,7 @@ export async function processInvoice(
     try {normalization=billingNormalizationPayload(before,row.invoice,row.profile,row.order_id);}
     catch(e){await store.finish(row,"blocked",row.order_id,(e as Error).message);return;}
     if(normalization){
-      try {await vendor.write("/orders/updateRow",normalization);before=await vendor.read("/orders/"+encodeURIComponent(row.order_id));}
+      try {before=await applyBillingNormalization(row,vendor,normalization);}
       catch(e){await store.finish(row,"rating_uncertain",row.order_id,"Billing setup response uncertain; do not retry");throw e;}
       if(verifyRatedOrder(before,row.invoice,row.profile).some(e=>["Charge lines differ from source invoice","McLeod order total differs from source invoice"].includes(e))){await store.finish(row,"blocked",row.order_id,"Billing lines did not match after setup; inspect before any retry");return;}
     }
@@ -261,8 +286,7 @@ export async function repairCreatedInvoice(row: Ledger, store: Store, vendor: Ve
   if (!held) throw new Error("Another request claimed this repair.");
   try {
     if(billing){
-      await vendor.write("/orders/updateRow",billing);
-      const checked=await vendor.read("/orders/"+encodeURIComponent(row.order_id));
+      const checked=await applyBillingNormalization(row,vendor,billing);
       const chargeErrors=verifyRatedOrder(checked,row.invoice,row.profile).filter(e=>["Charge lines differ from source invoice","McLeod order total differs from source invoice"].includes(e));
       if(chargeErrors.length){await store.finish(held,"blocked",row.order_id,"Billing correction did not verify; carrier setup stopped");return;}
     }

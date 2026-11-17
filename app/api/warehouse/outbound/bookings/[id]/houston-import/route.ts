@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { withStaffAccess, staffActor } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { databaseStore, hash, readRun, vendor } from "@/lib/dray/server";
-import { processInvoice, reconcileInvoice } from "@/lib/dray/engine";
+import { processInvoice, reconcileInvoice, repairCreatedInvoice } from "@/lib/dray/engine";
 import { buildPayload } from "@/lib/dray/mcleod";
 import { readBookingCustomerRate } from "@/lib/dray/booking-customer-rate";
 import { houstonBookingInvoice, type HoustonImportBooking, type HoustonImportSlot, type HoustonImportMark } from "@/lib/dray/houston-booking-import";
+import { planHoustonBookingSync, syncHoustonBookingCharges } from "@/lib/dray/houston-booking-sync";
 import type { CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
 
 export const maxDuration = 120;
@@ -15,7 +16,7 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
   try {
     const { id } = await context.params;
     const body = await req.json();
-    if (!/^[a-f0-9-]{36}$/i.test(id) || !["preview", "create", "reconcile"].includes(body.action))
+    if (!/^[a-f0-9-]{36}$/i.test(id) || !["preview", "create", "reconcile", "repair", "sync"].includes(body.action))
       throw Error("Choose a saved Houston booking.");
     const db = staffDatabase();
     const [saved, equipment, marks, ledger] = await Promise.all([
@@ -45,9 +46,13 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
         const fingerprint = hash(source);
         const conflict = record && record.source_hash !== fingerprint;
         return { id: slot.id, sequence: slot.sequence_no, mark: mark?.mark ?? "", container: slot.container_number,
-          bill: source.invoice.cents / 100, pay: source.invoice.carrierCents! / 100, carrier: source.profile.payee,
+          bill: source.invoice.cents / 100, pay: source.invoice.carrierCents! / 100,
+          previousBill: record?.invoice?.cents == null ? null : record.invoice.cents / 100,
+          previousPay: record?.invoice?.carrierCents == null ? null : record.invoice.carrierCents / 100,
+          customerCharges: source.invoice.charges.map(charge => ({ code: charge.code, description: charge.description,
+            units: charge.units, amount: charge.cents / 100 })), carrier: source.profile.payee,
           state: record?.status ?? "ready", orderId: record?.order_id ?? null,
-          issue: conflict ? "Saved import differs from this booking. Review the existing import before continuing." : record?.note ?? "",
+          issue: conflict ? record?.status === "verified" ? "Saved carrier or charge changes need McLeod sync." : "Saved import differs from this booking. Review the existing import before continuing." : record?.note ?? "",
           token: hash([booking, slot, mark, source]), fingerprint, source, record, conflict };
       } catch (error) {
         return { id: slot.id, sequence: slot.sequence_no, mark: mark?.mark ?? "", container: slot.container_number,
@@ -56,21 +61,13 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
       }
     });
     if (body.action === "preview") return NextResponse.json({ rows: previews.map(({ source, record, fingerprint, conflict, ...row }) =>
-      ({ ...row, ready: !conflict && ["ready", "created"].includes(row.state), canReconcile: Boolean(record && ["creating", "creation_uncertain", "rating", "rating_uncertain", "blocked"].includes(row.state)) })),
+      ({ ...row, canSync: Boolean(source && record?.status === "verified" && conflict), canRepair: Boolean(record?.order_id && record.status === "blocked"), ready: !conflict && ["ready", "created"].includes(row.state), canReconcile: Boolean(record && ["creating", "creation_uncertain", "rating", "rating_uncertain", "blocked"].includes(row.state)) })),
       route: "5300 (SUPPBAT1) → HOUPORT", revenue: "HLOCA", orderType: "FLAT" }, { headers: { "Cache-Control": "private, no-store" } });
     const row = previews.find(row => row.id === body.containerId);
     if (!row) throw Error("Choose a booking load.");
     const actor = staffActor(req);
     const store = databaseStore(db, actor);
-    if (body.action === "reconcile") {
-      if (!row.record) throw Error("No saved import to reconcile.");
-      if (["creating", "rating"].includes(row.record.status) && Date.now() - Date.parse(row.record.updated_at) < 300000)
-        throw Error("This order may still be processing. Wait five minutes before reconciliation.");
-      await reconcileInvoice(row.record, store, vendor(true));
-    } else {
-      if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true")
-        throw Error("Houston dray writes are disabled.");
-      if (!row.source || row.conflict || row.token !== body.token) throw Error("Booking details changed or need review. Preview again.");
+    async function verifyBookingVersion() {
       const [freshBooking, freshSlot, freshMark] = await Promise.all([
         db.from("cotton_outbound_bookings").select("*").eq("id", id).maybeSingle(),
         db.from("cotton_outbound_containers").select("*").eq("booking_id", id).eq("id", row.id).maybeSingle(),
@@ -82,6 +79,65 @@ export const POST = withStaffAccess(async (req: NextRequest, context: { params: 
           hash(freshSlot.data) !== hash(equipment.data.find(slot => slot.id === row.id)) ||
           hash(freshMark.data) !== hash(marks.data.find(mark => mark.id === freshSlot.data?.booking_line_id)))
         throw Error("The booking changed before creation. Preview the current details again.");
+    }
+    async function saveSyncOutcome(record: any, previous: any, resume: boolean) {
+      const held = { ...record };
+      try {
+        await syncHoustonBookingCharges(held, previous, vendor(), resume);
+        await store.finish(held, "verified", held.order_id, "Houston customer accessorials and carrier pay synced and read-back verified.");
+      } catch (error) {
+        await store.finish(held, "rating_uncertain", held.order_id, "Houston financial sync needs verification: " + (error as Error).message);
+        throw error;
+      }
+    }
+    if (body.action === "sync") {
+      if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true")
+        throw Error("Houston dray writes are disabled.");
+      if (!row.source || row.token !== body.token || row.record?.status !== "verified" || !row.record.order_id)
+        throw Error("Preview a verified Houston load with saved carrier or charge changes.");
+      const before = await vendor(true).read("/orders/" + encodeURIComponent(row.record.order_id));
+      planHoustonBookingSync(before, row.record, row.source, row.record.order_id);
+      await verifyBookingVersion();
+      const { houstonSyncPrevious: _, ...previousInvoice } = row.record.invoice;
+      const previous = { invoice: previousInvoice, profile: row.record.profile };
+      const invoice = { ...row.source.invoice, houstonSyncPrevious: previous };
+      const { data: held, error: claimError } = await db.from("dray_import_orders")
+        .update({ invoice, profile: row.source.profile, source_hash: row.fingerprint, status: "rating",
+          version: row.record.version + 1, note: "Syncing saved Houston carrier and customer accessorial changes.", updated_at: new Date().toISOString() })
+        .eq("id", row.record.id).eq("version", row.record.version).eq("status", "verified").select("*").maybeSingle();
+      if (claimError || !held) throw Error("Another request changed this import. Preview again.");
+      const { error: eventError } = await db.from("dray_import_events").insert({
+        order_id: held.id, actor, from_state: "verified", to_state: "rating", order_number: held.order_id,
+        note: JSON.stringify({ action: "Houston financial sync", fromBill: previous.invoice.cents,
+          toBill: row.source.invoice.cents, fromPay: previous.invoice.carrierCents, toPay: row.source.invoice.carrierCents }),
+      });
+      if (eventError) {
+        await store.finish(held, "rating_uncertain", held.order_id, "Financial sync audit could not be saved before writing. Review the saved order.");
+        throw Error("Could not save the sync history. No McLeod changes were sent.");
+      }
+      await saveSyncOutcome(held, previous, false);
+    } else if (body.action === "reconcile") {
+      if (!row.record) throw Error("No saved import to reconcile.");
+      if (["creating", "rating"].includes(row.record.status) && Date.now() - Date.parse(row.record.updated_at) < 300000)
+        throw Error("This order may still be processing. Wait five minutes before reconciliation.");
+      await reconcileInvoice(row.record, store, vendor(true));
+    } else if (body.action === "repair") {
+      if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true")
+        throw Error("Houston dray writes are disabled.");
+      if (!row.record?.order_id || row.record.status !== "blocked") throw Error("Choose a blocked order with a saved creation receipt.");
+      if (row.record.invoice?.houstonSyncPrevious) {
+        const { data: held, error } = await db.rpc("transition_dray_import", {
+          p_id: row.record.id, p_version: row.record.version, p_from: "blocked", p_to: "rating",
+          p_order: row.record.order_id, p_note: "Resuming a saved Houston financial sync.", p_actor: actor,
+        });
+        if (error || !held?.[0]) throw Error("The saved order changed. Preview again.");
+        await saveSyncOutcome(held[0], row.record.invoice.houstonSyncPrevious, true);
+      } else await repairCreatedInvoice(row.record, store, vendor());
+    } else {
+      if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true")
+        throw Error("Houston dray writes are disabled.");
+      if (!row.source || row.conflict || row.token !== body.token) throw Error("Booking details changed or need review. Preview again.");
+      await verifyBookingVersion();
       const { data: runId, error } = await db.rpc("prepare_dray_import", {
         p_digest: hash({ temporaryHoustonBooking: id, row: row.source }), p_profile: row.source.profile,
         p_rows: [{ invoice: row.source.invoice, source_hash: row.fingerprint, status: "ready", note: "Temporary Houston booking import." }],

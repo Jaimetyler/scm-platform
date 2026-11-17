@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { houstonBookingInvoice } from "../lib/dray/houston-booking-import.ts";
-import { buildPayload, expectedCharges } from "../lib/dray/mcleod.ts";
-import { processInvoice } from "../lib/dray/engine.ts";
+import { houstonBookingInvoice, houstonDrayChargeCodes } from "../lib/dray/houston-booking-import.ts";
+import { buildPayload, expectedCharges, billingNormalizationPayload } from "../lib/dray/mcleod.ts";
+import { processInvoice, repairCreatedInvoice } from "../lib/dray/engine.ts";
 
 const booking = { id: "BOOKING", terminal: "HOU", site_code: "5300", status: "draft",
   booking_number: "EBKG1234567", customer: "Bunge USA Agriculture LLC", scm_file_number: "FILE123", steamship_line: "MSC" };
@@ -115,4 +115,51 @@ test("ED&F Houston may create and verify with blank Ordered By while retaining a
   const supplied = houstonBookingInvoice(edf, slot, mark, billing, "2026-11-20");
   assert.equal(buildPayload(supplied.invoice, supplied.profile).ordered_by, mark.shipping_order);
   assert.throws(() => buildPayload({ ...invoice, customerId: "BUNGOMNE" }, profile), /Shipper's Order/);
+});
+
+
+test("new Houston orders may omit an empty charge list only with a verified zero extras total", async () => {
+  const { invoice, profile } = houstonBookingInvoice(
+    { ...booking, customer: "ED&F Man Cotton" }, slot, { ...mark, shipping_order: null }, billing, "2026-11-20");
+  const before = { ...buildPayload(invoice, profile), id: "EXISTING", otherchargetotal: 0,
+    total_charge: invoice.baseCents / 100,
+    movements: [{ id: "MOVE", override_payee_id: "", status: "A" }] };
+  const normalization = billingNormalizationPayload(before, invoice, profile, "EXISTING");
+  assert.ok(normalization.otherCharges.length > 0);
+  assert.equal(normalization.total_charge, invoice.cents / 100);
+  assert.throws(() => billingNormalizationPayload({ ...before, otherchargetotal: undefined }, invoice, profile, "EXISTING"), /Charges unavailable/);
+  assert.throws(() => billingNormalizationPayload({ ...before, otherchargetotal: 5 }, invoice, profile, "EXISTING"), /Charges unavailable/);
+  assert.throws(() => billingNormalizationPayload({ ...before, total_charge: 999 }, invoice, profile, "EXISTING"), /Charges unavailable/);
+
+  let row = { id: "LEDGER", status: "blocked", order_id: "EXISTING", invoice, profile };
+  let order = structuredClone(before);
+  const writes = [];
+  await repairCreatedInvoice(row, {
+    async claim(id, from, to) { row = { ...row, status: to }; return row; },
+    async finish(saved, status, order_id, note) { row = { ...saved, status, order_id, note }; },
+  }, {
+    async read() { return structuredClone(order); },
+    async write(path, body) {
+      writes.push(path);
+      if (path === "/other_charge/create") {
+        order.otherCharges = [...(order.otherCharges ?? []), { ...body, id: "CHARGE" }];
+        order.otherchargetotal = body.amount;
+      }
+      else if (path === "/orders/updateRow") Object.assign(order, body);
+      else if (path === "/movement/update") Object.assign(order.movements[0], body);
+      else if (!path.startsWith("/carrierDispatch/setPay/")) throw Error("Unexpected write " + path);
+    },
+  });
+  assert.equal(row.status, "verified", row.note);
+  assert.equal(row.order_id, "EXISTING");
+  assert.equal(order.total_charge, invoice.cents / 100);
+  assert.ok(!writes.includes("/orders/create"));
+});
+
+
+test("Houston has its own customer charge codes including standard fuel", () => {
+  assert.deepEqual(houstonDrayChargeCodes, { chassisDays: "019", chassisSplits: "HSPT", stopoffs: "006", fuel: "HFS" });
+  const { invoice } = source();
+  assert.equal(invoice.charges.find(charge => charge.description === "HOU Chassis Charges").code, "019");
+  assert.equal(invoice.charges.find(charge => charge.description === "Chassis splits").code, "HSPT");
 });

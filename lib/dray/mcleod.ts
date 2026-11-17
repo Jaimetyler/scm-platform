@@ -34,8 +34,21 @@ function comparableCharge(c: any, d: DrayInvoice) {
     c.amount != null && String(c.amount).trim() !== "" && Number(c.amount) === 0
       ? {...c, units:1} : c;
 }
+function orderCharges(order: any, d: DrayInvoice, p: Profile) {
+  const charges = order.otherCharges ?? order.other_charges ?? order.otherCharge;
+  // McLeod omits the empty collection on new Houston orders. Verify the
+  // untouched base bill before adding the source charges to such an order.
+  if (charges == null && p.id === "HOU-5300-BOOKING" && normalize(order.status) === "A" &&
+      order.rate_type === "F" && Number(order.rate_units) === 1 &&
+      order.rate != null && order.total_charge != null &&
+      order.otherchargetotal != null && Number(order.otherchargetotal) === 0 &&
+      Math.round(Number(order.rate) * 100) === d.baseCents &&
+      [d.baseCents, d.cents].includes(Math.round(Number(order.total_charge) * 100)))
+    return [];
+  return charges;
+}
 function projection(order: any, d: DrayInvoice, p: Profile) {
-  return {...order, otherCharges:(order.otherCharges ?? order.other_charges)?.map((c:any)=>comparableCharge(c,d)), planning_comment:(d.cents/100).toFixed(2), rate:0, ordered_by:p.orderedBy,
+  return {...order, otherCharges:orderCharges(order,d,p)?.map((c:any)=>comparableCharge(c,d)), planning_comment:(d.cents/100).toFixed(2), rate:0, ordered_by:p.orderedBy,
     stops:order.stops?.map(s=>({...s,location_id:p.location})),
     movements:order.movements?.map(m=>({...m,override_paye_rate:0,override_pay_rate:0,override_pay_amt:0}))};
 }
@@ -57,7 +70,7 @@ export function billingNormalizationPayload(order: any,i: Invoice,p: Profile,exp
   const ignored=["Charge lines differ from source invoice","McLeod order total differs from source invoice","Movement payee or zero-payment settings differ from approved profile","Carrier payment settings differ from FirstStar",...(allowReferences?["Ordered By differs from source","Booking number differs from source"]:[])];
   const errors=verifyRatedOrder(order,i,p).filter(e=>!ignored.includes(e));
   if(errors.length || String(order.id)!==expectedId || normalize(order.status)!=="A" || !Array.isArray(order.stops) || order.stops.some(s=>normalize(s.status)!=="A" || s.actual_arrival || s.actual_departure)) throw new Error("Billing setup blocked: "+(errors.join("; ")||"Order progressed or changed"));
-  const actual=order.otherCharges??order.other_charges;
+  const actual=orderCharges(order,d,p);
   if(!Array.isArray(actual))throw new Error("Billing lines unavailable");
   const signature=(actual:any)=>{const c=comparableCharge(actual,d);return JSON.stringify([normalize(c.charge_id),String(c.descr??c.description??"").trim(),Number(c.units),Math.round(Number(c.amount)*100)]);};
   const expected=expectedCharges(i,p),remaining=new Map<string,any[]>();
