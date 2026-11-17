@@ -50,7 +50,12 @@ async function POSTHandler(req: NextRequest) {
     const booking = prepareBookingImport(parseBookingRequest(source.bytes, options), terminal, siteCode, options, true);
     if (form.get("datesConfirmed") !== "true") return NextResponse.json({ ok: false,
       error: "Review and confirm the sailing dates before importing." }, { status: 400 });
-    const sailing = normalizeBookingDetails({ erd: String(form.get("erd") ?? ""), docCutoff: String(form.get("docCutoff") ?? ""),
+    const customerReference = form.get("customerReference") ?? booking.customerReference;
+    if (typeof customerReference !== "string" || customerReference.trim().length > 200)
+      throw new Error("Enter a customer reference of 200 characters or fewer.");
+    const details = normalizeBookingDetails({
+      bookId: form.get("bookId") ?? booking.bookId,
+      scmFileNumber: form.get("scmFileNumber") ?? undefined, erd: String(form.get("erd") ?? ""), docCutoff: String(form.get("docCutoff") ?? ""),
       cutoff: String(form.get("cutoff") ?? ""), vessel: String(form.get("vessel") ?? ""), returnLocation: String(form.get("returnLocation") ?? booking.returnLocation ?? ""),
       steamshipLine: String(form.get("steamshipLine") ?? booking.steamshipLine ?? "") });
     if (booking.warnings.length) return NextResponse.json({ ok: false,
@@ -58,9 +63,9 @@ async function POSTHandler(req: NextRequest) {
     const { data, error } = await database().rpc("create_cotton_outbound_booking_import", {
       p_terminal: terminal, p_site_code: siteCode, p_site_name: site.siteName,
       p_customer: booking.customer, p_booking_number: booking.bookingNumber,
-      p_customer_reference: booking.customerReference, p_containers: booking.containers,
+      p_customer_reference: customerReference.trim(), p_containers: booking.containers,
       p_total_bales: booking.totalBales, p_source_filename: source.name.slice(0, 200), p_lines: booking.lines,
-      p_details: { ...sailing, book_id: booking.bookId, source_format: booking.sourceFormat },
+      p_details: { ...details, source_format: booking.sourceFormat },
     });
     if (error) return NextResponse.json({ ok: false,
       error: error.code === "23505" ? "This booking already exists at this warehouse." : error.message }, { status: error.code === "23505" ? 409 : 400 });

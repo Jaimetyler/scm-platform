@@ -23,7 +23,7 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     await db.exec("alter table cotton_outbound_containers add column carrier_plan jsonb");
     for (const name of [
       "20261113141000_outbound_booking_uncovered", "20261113153000_outbound_booking_carrier_breakdown",
-      "20261117150000_outbound_booking_identifiers",
+      "20261117150000_outbound_booking_identifiers", "20261117153000_outbound_import_scm_file_number",
     ]) await db.exec(await readFile(new URL(`../supabase/migrations/${name}.sql`, import.meta.url), "utf8"));
     const stage = (booking, restoreId, bookId = "41458") => {
       const loads = planOutboundDrayLoads(bookId, 2, "SCMDDETX", "BNSFHATX");
@@ -74,12 +74,12 @@ test("Dallas import stages numbered blank loads and rolls back a duplicate Book 
     const houston = (await db.query(`select create_cotton_outbound_booking_import(
       'HOU','5300','Houston','Bunge','RICGEN524500','61014910',1,86,'request.xlsx',$1,$2) id`, [
       JSON.stringify([{ sourceRow: 18, mark: "C0986", bales: 86, confirmed: true, warehouse: "Moody #02", sourceBales }]),
-      JSON.stringify({ book_id: "41503", steamship_line: "ONE" }),
+      JSON.stringify({ book_id: "41503", scm_file_number: "SCM-123", steamship_line: "ONE" }),
     ])).rows[0].id;
     assert.deepEqual((await db.query("select requested_bales, source_bales from cotton_outbound_booking_lines where booking_id=$1", [houston])).rows,
       [{ requested_bales: 86, source_bales: sourceBales }]);
     assert.deepEqual((await db.query("select book_id, scm_file_number, customer_reference, planned_containers from cotton_outbound_booking_search_dashboard where id=$1", [houston])).rows,
-      [{ book_id: "41503", scm_file_number: null, customer_reference: "61014910", planned_containers: 1 }]);
+      [{ book_id: "41503", scm_file_number: "SCM-123", customer_reference: "61014910", planned_containers: 1 }]);
     assert.equal((await db.query("select count(*)::int n from dallas_dray_import_loads where booking_id=$1", [legacy])).rows[0].n, 2);
   } finally { await db.close(); }
 });
