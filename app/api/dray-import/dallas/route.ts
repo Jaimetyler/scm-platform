@@ -247,16 +247,20 @@ async function syncBookingDetails(input: {
     ? await db.rpc("outbound_field_timestamps", { p_row_ids: trackedIds })
     : { data: null };
   const platformTimes = (timestamps ?? {}) as Record<string, Record<string, string>>;
-  function platformChangeTime(rowId: string | null, ...fields: string[]) {
-    const times = rowId && platformTimes[rowId];
-    if (!times) return "";
-    const latest = fields.map(field => times[field]).filter(Boolean).sort().at(-1);
+  function fieldTimes(rowId: string | null, ...fields: string[]) {
+    return rowId ? fields.map(field => platformTimes[rowId]?.[field]).filter(Boolean) : [];
+  }
+  function formatChangeTime(times: string[]) {
+    const latest = times.sort().at(-1);
     if (!latest) return "";
     const changed = new Date(latest);
     if (Number.isNaN(changed.getTime())) return "";
     return ` Platform last edited ${new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Chicago", dateStyle: "medium", timeStyle: "medium",
     }).format(changed)} Dallas time.`;
+  }
+  function platformChangeTime(rowId: string | null, ...fields: string[]) {
+    return formatChangeTime(fieldTimes(rowId, ...fields));
   }
   async function prepareDetails() {
     const markRow = slot.data!.booking_line_id ? await db.from("cotton_outbound_booking_lines")
@@ -289,7 +293,9 @@ async function syncBookingDetails(input: {
           cutoff_date: ["cutoff", "cutoff_has_time"], doc_cutoff_date: ["doc_cutoff", "doc_cutoff_has_time"], ssl_sucm: ["steamship_line"],
         };
         const edited = field === "consignee_refno" ? platformChangeTime(slot.data!.id, "container_number") :
-          field === "blnum" ? platformChangeTime(slot.data!.booking_line_id, "mark", "line_status") || platformChangeTime(slot.data!.id, "booking_line_id") :
+          field === "blnum" ? formatChangeTime([
+            ...fieldTimes(slot.data!.booking_line_id, "mark", "line_status"), ...fieldTimes(slot.data!.id, "booking_line_id"),
+          ]) :
           platformChangeTime(input.bookingId, ...(bookingFields[field] ?? []));
         fieldConflicts.push(`${field}: McLeod has ${before || "blank"} and the platform has ${value}.${edited} Review which value is current.`);
         return [];
