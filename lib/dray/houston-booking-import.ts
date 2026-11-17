@@ -3,6 +3,7 @@ import { PROFILE, requiresDrayShippingOrder, type DrayInvoice } from "./model.ts
 import { bookingChargeCustomer } from "./booking-customers.ts";
 import { carrierPlanLines, type CarrierPlan, type CustomerBillRates } from "../warehouse/outbound/carrier-rates.ts";
 
+export const houstonDrayChargeCodes = { chassisDays: "019", chassisSplits: "HSPT", stopoffs: "006", fuel: "HFS" } as const;
 export const houstonBookingLocation = "SUPPBAT1";
 export type HoustonImportBooking = {
   id: string; terminal: string; site_code: string; status: string; booking_number: string;
@@ -45,7 +46,7 @@ export function houstonBookingInvoice(booking: HoustonImportBooking, slot: Houst
   if (amounts.some(line => line.billTotal === null)) throw Error("Complete the customer rates for the selected charges.");
   const carrierCents = amounts.reduce((sum, line) => sum + line.payTotal, 0);
   if (!Number.isSafeInteger(carrierCents) || carrierCents <= 0) throw Error("Save a positive carrier pay rate.");
-  const codes = { base: "", chassisDays: "040", chassisSplits: "CS", stopoffs: "006" };
+  const codes = { base: "", ...houstonDrayChargeCodes };
   const charges = amounts.filter(line => line.key !== "base" && line.billTotal! > 0).map(line => ({
     code: codes[line.key], description: line.key === "chassisDays" ? "HOU Chassis Charges" : line.label,
     units: line.billUnits, cents: line.billTotal!,

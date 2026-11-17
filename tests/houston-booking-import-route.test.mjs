@@ -22,13 +22,17 @@ function fixture() {
   const records = [];
   let creates = 0;
   let stages = 0;
+  let syncs = 0;
   const hash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const db = {
     from(table) {
       const data = table === "cotton_outbound_bookings" ? [booking] : table === "cotton_outbound_containers" ? [slot] :
         table === "cotton_outbound_booking_lines" ? [mark] : records;
       const q = {
-        select() { return this; }, eq() { return this; }, is() { return this; }, order() { return this; },
+        select() { return this; },
+        update(values) { Object.assign(data[0], values); return this; },
+        async insert() { return { error: null }; },
+        eq() { return this; }, is() { return this; }, order() { return this; },
         async maybeSingle() { return { data: structuredClone(data[0]) }; },
         async single() { return { data: { status: data[0].status, order_id: data[0].order_id, note: data[0].note } }; },
         then(resolve) { return Promise.resolve({ data: structuredClone(data) }).then(resolve); },
@@ -38,7 +42,7 @@ function fixture() {
     async rpc(name, input) {
       assert.equal(name, "prepare_dray_import");
       stages++;
-      if (!records.length) records.push({ id: "LEDGER", status: "ready", order_id: null, invoice: input.p_rows[0].invoice,
+      if (!records.length) records.push({ id: "LEDGER", version: 0, status: "ready", order_id: null, invoice: input.p_rows[0].invoice,
         profile: input.p_profile, source_hash: input.p_rows[0].source_hash, note: "" });
       return { data: "RUN" };
     },
@@ -46,12 +50,15 @@ function fixture() {
   const deps = {
     "@/lib/auth/guard": { withStaffAccess: fn => fn, staffActor: () => "HOU operator" },
     "@/lib/auth/session": { staffDatabase: () => db },
-    "@/lib/dray/server": { hash, databaseStore: () => ({}), vendor: () => ({}),
+    "@/lib/dray/server": { hash, databaseStore: () => ({
+        async finish(saved, status, order_id, note) { Object.assign(records[0], { status, order_id, note }); },
+      }), vendor: () => ({ read: async () => ({}) }),
       readRun: async () => ({ items: [{ order: records[0], conflict: false }] }) },
     "@/lib/dray/engine": { processInvoice: async row => {
       if (row.status === "verified") return;
       creates++; Object.assign(row, { status: "verified", order_id: "0839999", note: "Verified" });
     } },
+    "@/lib/dray/houston-booking-sync": { planHoustonBookingSync: () => ({}), syncHoustonBookingCharges: async () => { syncs++; } },
     "@/lib/dray/mcleod": { buildPayload },
     "@/lib/dray/houston-booking-import": { houstonBookingInvoice },
     "@/lib/dray/booking-customer-rate": { readBookingCustomerRate: async (db, scope) => {
@@ -64,7 +71,7 @@ function fixture() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   new Function("require", "module", "exports", code)(name => deps[name] ?? require(name), module, module.exports);
-  return { slot, get creates() { return creates; }, get stages() { return stages; },
+  return { slot, get syncs() { return syncs; }, get creates() { return creates; }, get stages() { return stages; },
     async request(body) {
       const response = await module.exports.POST(new Request("https://test.invalid", {
         method: "POST", body: JSON.stringify({ date: "2026-11-20", ...body }),
@@ -117,6 +124,14 @@ test("creation saves the order link and replay uses the existing ledger receipt"
     const after = await f.request({ action: "preview" });
     assert.equal(after.data.rows[0].ready, false);
     assert.equal(after.data.rows[0].orderId, "0839999");
+    f.slot.carrier_plan.quantities.chassisSplits = 1;
+    const changed = await f.request({ action: "preview" });
+    assert.equal(changed.data.rows[0].canSync, true);
+    assert.equal(changed.data.rows[0].ready, false);
+    const synced = await f.request({ action: "sync", containerId: slotId, token: changed.data.rows[0].token });
+    assert.equal(synced.status, 200, JSON.stringify(synced.data));
+    assert.equal(f.syncs, 1);
+    assert.equal(f.creates, 1);
   } finally {
     if (previousWrite === undefined) delete process.env.DRAY_IMPORT_WRITES_ENABLED;
     else process.env.DRAY_IMPORT_WRITES_ENABLED = previousWrite;
