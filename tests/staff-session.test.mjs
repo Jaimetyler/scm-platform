@@ -164,3 +164,26 @@ test("dispatcher home tools are reachable while Late Fee imports and reports sta
  for(const path of ["/late-fees/savannah/import","/late-fees/savannah/monthly","/late-fees/savannah/weekly","/order-charges","/pnl","/reporting/business-intelligence"])
   assert.equal((await middleware(new NextRequest("https://scm.example.test"+path))).headers.get("location"),"https://scm.example.test/",path);
 });
+
+test("warehouse levels expose the intended pages and never financial reports", () => {
+  const s = scenario();
+  const policy = s.load(resolve(root,"lib/auth/policy.ts"));
+  const staff = { role: "operator", terminal: "HOU", status: "active", warehouse_level: 1 };
+  assert.equal(policy.canAccessStaffPage(staff, "/warehouse/outbound/hou/5300/booking"), true);
+  assert.equal(policy.canAccessStaffPage(staff, "/warehouse/rates"), false);
+  assert.equal(policy.canAccessStaffPage({ ...staff, warehouse_level: 2 }, "/warehouse/rates"), true);
+  for (const warehouse_level of [1, 2]) {
+    assert.equal(policy.canAccessStaffPage({ ...staff, warehouse_level }, "/pnl"), false);
+    assert.equal(policy.canAccessStaffPage({ ...staff, warehouse_level }, "/reporting/business-intelligence"), false);
+  }
+  assert.deepEqual(policy.validInvite({ name: "Warehouse", email: "warehouse@example.test", role: "warehouse1", terminal: "HOU" }),
+    { name: "Warehouse", email: "warehouse@example.test", role: "operator", terminal: "HOU", warehouse_level: 1 });
+});
+
+test("the staff session returns the warehouse level needed to render its permitted controls", async () => {
+  const s = scenario({ profile: { warehouse_level: 1 } });
+  const response = await s.load("app/api/auth/me/route.ts").GET(new NextRequest("https://scm.example.test/api/auth/me"));
+  const result = await response.json();
+  assert.equal(result.staff.warehouse_level, 1);
+  assert.equal(result.staff.role, "operator");
+});

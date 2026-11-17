@@ -1,5 +1,6 @@
 "use client";
 
+import type { CarrierOperationalSummary } from "@/lib/auth/financial-visibility";
 import { useRef, useState, type FormEvent } from "react";
 import { accessorials, carrierPlanLines, rateItems, type CarrierPlan, type CarrierRate, type CarrierSelection, type CarrierBatchAction, type Quantities, type CustomerBillRates } from "@/lib/warehouse/outbound/carrier-rates";
 
@@ -154,7 +155,12 @@ export function CarrierEditor({ plan, rates, billing, sequence, disabled, onSave
   </>;
 }
 
-export function CarrierSummary({ plan }: { plan: CarrierPlan | null }) {
+export function CarrierSummary({ plan, summary }: { plan: CarrierPlan | null; summary?: CarrierOperationalSummary | null }) {
+  if (!plan && summary) return <div className="carrier-summary">
+    <strong>{summary.carrierName || summary.carrierId}</strong>
+    {accessorials.filter(({ key }) => summary.quantities[key] > 0).map(({ key, label }) =>
+      <small key={key}>{summary.quantities[key]} {key === "chassisDays" ? "chassis days" : label.toLowerCase()}</small>)}
+  </div>;
   if (!plan) return <span className="carrier-muted">Unassigned</span>;
   const lines = carrierPlanLines(plan).filter(line => line.key !== "base");
   return <div className="carrier-summary">

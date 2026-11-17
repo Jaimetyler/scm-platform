@@ -1,3 +1,4 @@
+import { canViewFinancialAmounts } from "@/lib/auth/financial-visibility";
 import Link from "next/link";
 import { canUseBilling, canUseInboundImporter, canViewLateFees } from "@/lib/auth/policy";
 import { requireStaffPage } from "@/lib/auth/page";
@@ -47,8 +48,8 @@ export default async function Home() {
           <div className={styles.grid}>
             <ToolCard href="/warehouse" category="Operations" title="Warehouse" description="View check-ins, inventory, outbound bookings and history across all terminals." />
             <ToolCard href="/warehouse/outbound" category="Operations" title="Outbound Bookings" description="Find bookings and review outbound load plans across terminals." />
-            <ToolCard href="/warehouse/rates" category="Operations" title="Rates" description="View, edit and import customer rates and chassis allowances." />
-            <ToolCard href="/cotton-locations" category="Operations" title="Cotton Locations" description="Find pickup hours, tariff documents and fees by location." />
+            {canViewFinancialAmounts(staff) && <ToolCard href="/warehouse/rates" category="Operations" title="Rates" description="View, edit and import customer rates and chassis allowances." />}
+            {canViewFinancialAmounts(staff) && <ToolCard href="/cotton-locations" category="Operations" title="Cotton Locations" description="Find pickup hours, tariff documents and fees by location." />}
             {canViewLateFees(staff) && <ToolCard href="/late-fees" category="Operations" title="Late Fees" description="Review late-fee candidates, active loads and totals by office." />}
           </div>
         </section>
