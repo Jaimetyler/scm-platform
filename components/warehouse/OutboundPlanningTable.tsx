@@ -10,13 +10,18 @@ import { bookingReturnLocationLabel } from "@/lib/warehouse/outbound/return-loca
 import styles from "./OutboundPlanningTable.module.css";
 
 type SortKey = "customer" | "booking_number" | "erd" | "cutoff" | "planned_containers" | "missing_marks";
-const columns: { label: string; width: number; key?: SortKey }[] = [
-  { label: "Location", width: 8 }, { label: "Customer", width: 9, key: "customer" }, { label: "Book ID", width: 6 }, { label: "Customer ref", width: 7 },
-  { label: "Containers", width: 7, key: "planned_containers" }, { label: "To load", width: 4 }, { label: "Loaded", width: 4 }, { label: "SSL", width: 3 },
-  { label: "Booking #", width: 8, key: "booking_number" }, { label: "ERD", width: 7, key: "erd" },
-  { label: "Cutoff", width: 8, key: "cutoff" }, { label: "Ramp / return", width: 7 },
-  { label: "Uncovered", width: 7 }, { label: "Carrier breakdown", width: 12 }, { label: "Comments / alerts", width: 11 },
-];
+const fileNumberLabel = "SCM File Number";
+const customerReferenceLabel = "Customer ref";
+
+function planningColumns(referenceLabel: string): { label: string; width: number; key?: SortKey }[] {
+  return [
+    { label: "Location", width: 8 }, { label: "Customer", width: 9, key: "customer" }, { label: "Book ID", width: 6 }, { label: referenceLabel, width: 7 },
+    { label: "Containers", width: 7, key: "planned_containers" }, { label: "To load", width: 4 }, { label: "Loaded", width: 4 }, { label: "SSL", width: 3 },
+    { label: "Booking #", width: 8, key: "booking_number" }, { label: "ERD", width: 7, key: "erd" },
+    { label: "Cutoff", width: 8, key: "cutoff" }, { label: "Ramp / return", width: 7 },
+    { label: "Uncovered", width: 7 }, { label: "Carrier breakdown", width: 12 }, { label: "Comments / alerts", width: 11 },
+  ];
+}
 
 export default function OutboundPlanningTable({ bookings, activeBookings, returnTo, now }: {
   bookings: DashboardBooking[]; activeBookings: DashboardBooking[]; returnTo: string; now: Date;
@@ -27,6 +32,11 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
   const [refreshing, setRefreshing] = useState<string | null>(null);
   const pending = useRef<AbortController | null>(null);
   const dallasBookings = activeBookings.filter(item => item.terminal === "DAL");
+  const hasDallasRows = bookings.some(item => item.terminal === "DAL");
+  const hasFileNumberRows = bookings.some(item => item.terminal !== "DAL");
+  const columns = planningColumns(hasDallasRows
+    ? (hasFileNumberRows ? `${fileNumberLabel} / ${customerReferenceLabel}` : customerReferenceLabel)
+    : fileNumberLabel);
 
   useEffect(() => () => { pending.current?.abort(); }, []);
 
@@ -96,8 +106,8 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
         <thead role="rowgroup"><tr role="row">{columns.map(column => <th role="columnheader" key={column.label} scope="col" aria-sort={column.key && sort.key === column.key ? sort.descending ? "descending" : "ascending" : undefined}>
           {column.key ? <button type="button" onClick={() => setSort(current => ({ key: column.key!, descending: current.key === column.key ? !current.descending : false }))}>{column.label}{sort.key === column.key ? sort.descending ? " ↓" : " ↑" : " ↕"}</button> : column.label}
         </th>)}</tr></thead>
-        <tbody role="rowgroup">{rows.map(item => { const pulled = info[item.id]; return <tr role="row" key={item.id}>
-          <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.book_id || "—"}</td><td role="cell" data-label="Customer ref">{item.customer_reference || "—"}</td>
+        <tbody role="rowgroup">{rows.map(item => { const pulled = info[item.id]; const isDallas = item.terminal === "DAL"; return <tr role="row" key={item.id}>
+          <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.book_id || "—"}</td><td role="cell" data-label={isDallas ? customerReferenceLabel : fileNumberLabel}>{(isDallas ? item.customer_reference : item.scm_file_number) || "—"}</td>
           <td role="cell" data-label="Containers" className={styles.count}>{item.planned_containers ?? "—"}</td>
           <td role="cell" data-label="To load" className={styles.number}>{item.loaded_containers != null && item.planned_containers != null ? Math.max(0, item.planned_containers - item.loaded_containers) : "—"}</td>
           <td role="cell" data-label="Loaded" className={styles.number}>{item.loaded_containers ?? "—"}</td><td role="cell" data-label="SSL">{outboundSteamshipLine(item.steamship_line, item.booking_number) || "—"}</td>
