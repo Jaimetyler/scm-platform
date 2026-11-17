@@ -18,12 +18,12 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
 }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [action, setAction] = useState<"preview" | "send" | null>(null);
-  const [scope, setScope] = useState<"booking" | "selected" | null>(null);
+  const [scope, setScope] = useState<"booking" | "selected" | "platform-details" | null>(null);
   const bookingOrderIds = [...new Set(bookingLoads.flatMap(load => load.orderId && !load.issue ? [load.orderId] : []))];
   const skipped = bookingLoads.filter(load => load.issue);
   const sendable = reviews.filter(row => row.token && row.parts.length);
 
-  async function sync(send: boolean, target: "booking" | "selected") {
+  async function sync(send: boolean, target: "booking" | "selected" | "platform-details") {
     if (disabled || action) return;
     if (!send) {
       setScope(target);
@@ -34,7 +34,7 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
     const previous = new Map(reviews.map(row => [row.orderId, row]));
     try {
       const next: Review[] = [];
-      const orderIds = send ? reviews.map(row => row.orderId) : target === "booking" ? bookingOrderIds : [...new Set(selectedOrderIds)];
+      const orderIds = send ? reviews.map(row => row.orderId) : target === "selected" ? [...new Set(selectedOrderIds)] : bookingOrderIds;
       for (const orderId of orderIds) {
         const reviewed = previous.get(orderId);
         if (send && (!reviewed?.token || !reviewed.parts.length)) {
@@ -44,11 +44,14 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
         try {
           const response = await fetch("/api/dray-import/dallas", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: `${send ? "apply" : "preview"}-load`, bookingId, orderId, token: reviewed?.token }),
+            body: JSON.stringify({ action: `${send ? "apply" : "preview"}-${target === "platform-details" ? "package" : "load"}`, bookingId, orderId, token: reviewed?.token }),
           });
           const result = await response.json();
           if (!response.ok) throw Error(result.error || "McLeod sync failed.");
-          next.push(send ? { orderId, parts: [], applied: result.applied, issues: result.issues } : {
+          next.push(send ? { orderId, parts: [], applied: result.applied, issues: result.issues } : target === "platform-details" ? {
+            orderId, token: result.token, parts: result.changes.length ? ["Platform booking details"] : [],
+            changes: result.changes, issues: result.issues,
+          } : {
             orderId, token: result.token,
             parts: [result.canSendDetails && "Booking details", result.canSendPay && "Carrier and base pay", result.canSendExtras && "Other Carrier Pay",
               result.canSendBilling && "Customer charges", ...(result.fuelChanges ?? [])].filter(Boolean),
@@ -76,17 +79,21 @@ export default function DallasBulkSync({ bookingId, bookingLoads, selectedOrderI
       onClick={() => void sync(false, "selected")}>
       {action === "preview" && scope === "selected" ? "Previewing selected loads…" : `Sync selected loads (${selectedOrderIds.length})`}
     </button>}
+    {!!bookingOrderIds.length && <button type="button" className="booking-charge-button" disabled={disabled || Boolean(action)}
+      onClick={() => void sync(false, "platform-details")}>
+      {action === "preview" && scope === "platform-details" ? "Reviewing platform details…" : "Review platform booking details"}
+    </button>}
     {!!sendable.length && scope && <button type="button" className="booking-charge-button" disabled={disabled || Boolean(action)}
       onClick={() => void sync(true, scope)}>
-      {action === "send" ? "Sending…" : `Send reviewed differences (${sendable.length})`}
+      {action === "send" ? "Sending…" : scope === "platform-details" ? `Send platform details to McLeod (${sendable.length})` : `Send reviewed differences (${sendable.length})`}
     </button>}
     {scope && !action && <p role="status">
       {sendable.length ? `${sendable.length} ready to send · ` : ""}
       {reviews.filter(row => row.applied?.length).length ? `${reviews.filter(row => row.applied?.length).length} verified · ` : ""}
       {reviews.filter(row => !row.parts.length && !row.applied?.length && !row.issues.length).length} already match ·{" "}
-      {reviews.filter(row => row.issues.length).length + (scope === "booking" ? skipped.length : 0)} need review
+      {reviews.filter(row => row.issues.length).length + (scope !== "selected" ? skipped.length : 0)} need review
     </p>}
-    {scope === "booking" && !!skipped.length && <details>
+    {scope && scope !== "selected" && !!skipped.length && <details>
       <summary>{skipped.length} loads skipped</summary>
       <ul>{skipped.map(load => <li key={load.sequence}>Load {load.sequence}{load.orderId && ` · ${load.orderId}`} · {load.issue}</li>)}</ul>
     </details>}
