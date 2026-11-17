@@ -51,6 +51,7 @@ export default function ImportClient() {
   const [batchFailures, setBatchFailures] = useState<Record<string, string>>({});
   const [batchSummary, setBatchSummary] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
+  const containerField = useRef<HTMLInputElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (openedId && dialog.current && !dialog.current.open) dialog.current.showModal();
@@ -156,6 +157,8 @@ export default function ImportClient() {
         .some(value => String(value || "").toLowerCase().includes(query.trim().toLowerCase()));
   });
   const opened = items.find((item: any) => item.order_id === openedId);
+  const canCorrect = opened && !opened.conflict && opened.order.status === "preview_blocked" &&
+    !opened.order.order_id && canReviewDrayPay(opened.order.invoice);
   const queue = items.filter(item => category(item) === "attention");
   const queueIndex = queue.findIndex(item => item.order_id === openedId);
 
@@ -589,7 +592,7 @@ export default function ImportClient() {
               <button style={button} disabled={busy || queueIndex < 0 || queueIndex+1 >= queue.length}
                 onClick={() => openRow(queue[queueIndex+1], true)}>Next</button>
             </nav>}
-            {error && <p role="alert" className={styles.error}>{error}</p>}
+            {error && !canCorrect && <p role="alert" className={styles.error}>{error}</p>}
             {batchFailures[opened.order_id] && <p>{batchFailures[opened.order_id]}</p>}
             <dl className={styles.summary}>
               <div><dt>Customer code</dt><dd>{opened.order.invoice.customerId}</dd></div>
@@ -629,10 +632,17 @@ export default function ImportClient() {
                             ))}
                           </ul>
                         </section>
-                        {!opened.conflict && opened.order.status === "preview_blocked" && !opened.order.order_id && canReviewDrayPay(opened.order.invoice) && (
-                          <section aria-label="Review dray source">
+                        {canCorrect && (
+                          <form id="dray-correction" aria-label="Review dray source" onSubmit={event => {
+                            event.preventDefault();
+                            if (busy) return;
+                            void act(async () => {
+                              const data = await call({action:"save-review", runId:saved.run.id, rowId:opened.order_id, version:opened.order.version, ...review});
+                              updateReviewedRow(data); setConfirmed(false); setSuggestions(null);
+                            });
+                          }}>
                             <h3>Review container and carrier pay</h3>
-                            <label>Exact booking number<input style={field} maxLength={40} value={review.booking}
+                            <label>Exact booking number<input style={field} required maxLength={40} value={review.booking}
                               onChange={event => { setReview({...review, booking:event.target.value}); setSuggestions(null); }} /></label>
                             <button type="button" style={button} disabled={busy || !review.booking} onClick={() => void act(async () => {
                               const data = await call({action:"review-suggestions", runId:saved.run.id, rowId:opened.order_id, booking:review.booking});
@@ -640,11 +650,16 @@ export default function ImportClient() {
                             })}>Find containers in interchanges</button>
                             {suggestions && (suggestions.length ? <ul>{suggestions.map(candidate => (
                               <li key={candidate.container}><button type="button" style={button} disabled={busy}
-                                onClick={() => { setReview({...review, container:candidate.container}); setInterchanges(null); }}>{candidate.container}</button>
+                                aria-pressed={review.container === candidate.container}
+                                onClick={() => {
+                                  setReview({...review, container:candidate.container});
+                                  setInterchanges(null);
+                                  containerField.current?.focus();
+                                }}>{candidate.container}{review.container === candidate.container ? " · Selected" : ""}</button>
                                 {candidate.documents.map(direction => direction.toUpperCase()).join(" / ")} · {candidate.differences} character differences
                               </li>
                             ))}</ul> : <p>No container PDFs found for this booking.</p>)}
-                            <label>Full container number<input style={field} maxLength={11} value={review.container}
+                            <label>Full container number<input ref={containerField} style={field} required pattern="[A-Za-z]{4}[0-9]{7}" maxLength={11} value={review.container}
                               onChange={event => { setReview({...review, container:event.target.value}); setInterchanges(null); }} /></label>
                             <button type="button" style={button} disabled={busy || !/^[A-Z]{4}\d{7}$/i.test(review.container.trim())} onClick={() => void act(async () => {
                               const data = await call({action:"lookup-interchange-container", runId:saved.run.id, rowId:opened.order_id, container:review.container});
@@ -659,13 +674,11 @@ export default function ImportClient() {
                                 {match.outbound && <> · <a href={match.outbound} target="_blank" rel="noreferrer">OUT PDF</a></>}
                               </li>
                             ))}</ul> : <p>No matching interchange PDFs found for this container.</p>)}
-                            <label>Verified carrier pay ($)<input style={field} inputMode="decimal" value={review.carrierPay}
-                              onChange={event => setReview({...review, carrierPay:event.target.value})} /></label>
-                            <button type="button" style={button} disabled={busy || !review.carrierPay || !review.container || !review.booking} onClick={() => void act(async () => {
-                              const data = await call({action:"save-review", runId:saved.run.id, rowId:opened.order_id, version:opened.order.version, ...review});
-                              updateReviewedRow(data); setConfirmed(false); setSuggestions(null);
-                            })}>{queueOpen ? "Save correction and continue" : "Save correction and check duplicates"}</button>
-                          </section>
+                            <label style={{ display:"block", marginTop:16 }}>Verified carrier pay ($)
+                              <input style={field} required type="number" inputMode="decimal" min="0.01" step="0.01"
+                                value={review.carrierPay} onChange={event => setReview({...review, carrierPay:event.target.value})} />
+                            </label>
+                          </form>
                         )}
                         {!opened.conflict && opened.order.status === "preview_blocked" && !opened.order.invoice.inputErrors?.length && (
                           <button
@@ -717,7 +730,17 @@ export default function ImportClient() {
                           )}
 
           </div>
-          <footer className={styles.modalFooter}><button disabled={busy} onClick={() => dialog.current?.close()}>Close</button></footer>
+          <footer className={styles.modalFooter} style={{ flexWrap:"wrap", alignItems:"center" }}>
+            {canCorrect && error && <p role="alert" className={styles.error} style={{flexBasis:"100%", margin:0}}>{error}</p>}
+            {canCorrect && <span className={styles.helper} aria-live="polite" style={{marginRight:"auto"}}>
+              {review.container && <>Container {review.container}. </>}
+              {!review.carrierPay && "Enter verified carrier pay to save."}
+            </span>}
+            <button type="button" disabled={busy} onClick={() => dialog.current?.close()}>Close</button>
+            {canCorrect && <button type="submit" form="dray-correction" className={styles.primary} disabled={busy}>
+              {queueOpen ? "Save correction and continue" : "Save correction"}
+            </button>}
+          </footer>
         </>}
       </dialog>
       <section style={card}>
