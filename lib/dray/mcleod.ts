@@ -24,6 +24,10 @@ function routeMatches(order: any, d: DrayInvoice, p: Profile) {
 // McLeod's native Bunge placeholder has zero units as well as zero amount.
 // Canonicalize for comparison only; retain the actual saved billing line.
 function comparableCharge(c: any, d: DrayInvoice) {
+  // COFCO's native chassis line uses its invoice wording and charge code.
+  if (d.customerId === "NOBLHOTX" && normalize(c.charge_id) === "002" &&
+    normalize(c.descr ?? c.description) === "3 DAY CHASSIS FEE")
+    return {...c, charge_id:"040", descr:"SAV Chassis Charges"};
   return d.customerId === "BUNGOMNE" && normalize(c.charge_id) === "040" &&
     String(c.descr ?? c.description ?? "").trim() === "DRAY" &&
     c.units != null && String(c.units).trim() !== "" && Number(c.units) === 0 &&
