@@ -207,3 +207,32 @@ test("review migration keeps BOL identity, fences concurrent edits, and prevents
       [JSON.stringify(corrected)]), /dray_import_effective_container_key/);
   } finally { await db.close(); }
 });
+
+test("container lookup searches Savannah export interchanges and groups exact PDFs by booking", async () => {
+  const code = ts.transpileModule(readFileSync("lib/sharepoint/e2open-documents.ts", "utf8"), {
+    compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+  }).outputText;
+  const exports = {};
+  const queries = [];
+  const path = "/drives/id/root:/Savannah Interchanges/Exports";
+  const doc = (booking, name, parent = path) => ({
+    name, file:{}, parentReference:{path:`${parent}/${booking}`},
+    webUrl:`https://scmllcnet.sharepoint.com/${booking}/${name}`,
+  });
+  const read = async url => {
+    queries.push(url);
+    return {json:async()=>queries.length === 1 ? {id:"export-folder"} : {value:[
+      doc("111","EGHU9429982_IN.pdf"), doc("111","EGHU9429982_OUT.pdf"),
+      doc("222","EGHU9429982_OUT.pdf"), doc("111","EGHU9429983_IN.pdf"),
+      doc("333","EGHU9429982_IN.pdf","/drive/root:/Other"),
+    ]}};
+  };
+  new Function("require", "exports", code)(() => ({
+    connectSharePoint:async()=>({read,getDrive:async()=>"https://graph.microsoft.com/v1.0/drives/id"}),
+  }), exports);
+  const matches = await exports.findSavannahInterchangeBookings("EGHU9429982");
+  assert.match(queries[1], /items\/export-folder\/search.*EGHU9429982/);
+  assert.deepEqual(matches.map(m=>[m.booking,Boolean(m.inbound),Boolean(m.outbound)]), [["111",true,true],["222",false,true]]);
+  await assert.rejects(exports.findSavannahInterchangeBookings("EGHU942998"), /full container number/);
+  assert.equal(queries.length,2);
+});

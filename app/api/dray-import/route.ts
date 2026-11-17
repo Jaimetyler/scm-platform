@@ -5,7 +5,7 @@ import { bolBales } from "@/lib/dray-bols/source";
 import { PROFILE } from "@/lib/dray/model";
 import * as XLSX from "xlsx";
 import { canReviewDrayPay, interchangeContainerMatches, reviewedDrayBooking, reviewDrayInvoice } from "@/lib/dray/review";
-import { listSavannahInterchanges } from "@/lib/sharepoint/e2open-documents";
+import { findSavannahInterchangeBookings, listSavannahInterchanges } from "@/lib/sharepoint/e2open-documents";
 import { parseDrays } from "@/lib/dray/parse";
 import {
   findDuplicates,
@@ -144,9 +144,13 @@ async function POSTHandler(req: NextRequest) {
     );
   const row = item.order,
     store = databaseStore(db, actor);
-  if (body.action === "review-suggestions" || body.action === "save-review") {
+  if (["review-suggestions", "lookup-interchange-container", "save-review"].includes(body.action)) {
     if (row.status !== "preview_blocked" || row.order_id || !canReviewDrayPay(row.invoice))
       throw Error("Only source rows blocked on container, booking or carrier pay can be reviewed.");
+    if (body.action === "lookup-interchange-container") {
+      const container = typeof body.container === "string" ? body.container.trim().toUpperCase() : "";
+      return NextResponse.json({ ok:true, interchanges:await findSavannahInterchangeBookings(container) });
+    }
     const booking = reviewedDrayBooking(body.booking);
     if (body.action === "review-suggestions") {
       const filenames = await listSavannahInterchanges(booking);
