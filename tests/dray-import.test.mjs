@@ -191,9 +191,14 @@ test("COFCO keeps its native zero DRAY INVOICE line and rejects a nonzero charge
  const i = parseDrays(csv([source({Shipper:"COFCO Americans Resources Corp"})]),first()).invoices[0];
  const saved = order(i);
  const wording = saved.otherCharges.find(c => c.charge_id === "002" && c.descr === "DRAY INVOICE");
+ const chassis = saved.otherCharges.find(c => c.charge_id === "040");
+ Object.assign(chassis, {charge_id:"002", descr:"3 day chassis fee"});
  assert.equal(wording.amount, 0);
  assert.equal(billingNormalizationPayload(saved,i,PROFILE,saved.id), null);
  assert.deepEqual(verifyRatedOrder(saved,i,PROFILE), []);
+ chassis.amount = 136;
+ assert.throws(() => billingNormalizationPayload(saved,i,PROFILE,saved.id), /Unexpected billing charge/);
+ chassis.amount = 135;
  wording.amount = 1;
  assert.throws(() => billingNormalizationPayload(saved,i,PROFILE,saved.id), /Unexpected billing charge/);
 });
