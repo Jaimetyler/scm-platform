@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import styles from "../ecotton-import/review.module.css";
 import BolImaging from "./BolImaging";
 import {bolEligible} from "@/lib/dray-bols/eligible";
+import { canReviewDrayPay, type interchangeContainerMatches } from "@/lib/dray/review";
 import type { Profile } from "@/lib/ecotton/model";
 const card: React.CSSProperties = {
   padding: 22,
@@ -63,6 +64,8 @@ export default function ImportClient() {
     [writes, setWrites] = useState(false),
     [confirmed, setConfirmed] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [review, setReview] = useState({ booking: "", container: "", carrierPay: "" });
+  const [suggestions, setSuggestions] = useState<ReturnType<typeof interchangeContainerMatches> | null>(null);
   const [deliveryPreview, setDeliveryPreview] = useState<any[]>([]);
   useEffect(() => { setDeliveryPreview([]); setOpenedId(null); setQuery(""); setFilter("all"); }, [saved?.run.id]);
   async function call(body?: any, runId?: string) {
@@ -178,7 +181,7 @@ export default function ImportClient() {
     if (!confirmed || !chosen.length || !writes) return;
     if (
       !window.confirm(
-        `Create/rate ${chosen.length} selected orders from this reviewed import? Existing verified orders will be skipped. Delivery status will not be changed.`,
+        `Create, rate, and deliver ${chosen.length} selected orders? Verified orders will be marked Ready to Bill using their scheduled times.`,
       )
     )
       return;
@@ -186,16 +189,16 @@ export default function ImportClient() {
       for (const item of chosen) {
         try {
           const data = await call({
-            action: "execute",
+            action: "execute-and-deliver",
             runId: saved.run.id,
             rowId: item.order_id,
             confirmed: true,
           });
           setSaved(data);
           const current = data.items.find((x) => x.order_id === item.order_id);
-          if (current?.order.status !== "verified")
+          if (current?.order.status !== "delivered")
             throw new Error(
-              "Processing stopped for review. Refresh and inspect this row before continuing.",
+              current?.order.status === "verified" ? "The order rated successfully. Review delivery before continuing." : current?.order.note || "Processing stopped for review. Inspect this row before continuing.",
             );
         } catch (e) {
           await refresh(saved.run.id);
@@ -405,7 +408,7 @@ export default function ImportClient() {
             disabled={busy || !writes || !confirmed || !chosen.length}
             onClick={execute}
           >
-            Create and rate selected orders ({chosen.length})
+            Create, deliver and mark ready to bill ({chosen.length})
           </button>
           <button
             style={button}
@@ -517,7 +520,12 @@ export default function ImportClient() {
                         <br />
                         {o.order_id || "Not created"}
                       </td>
-                      <td><button style={button} onClick={(event) => { opener.current = event.currentTarget; setOpenedId(item.order_id); }}>View details</button></td>
+                      <td><button style={button} onClick={(event) => { opener.current = event.currentTarget;
+                        const invoice = item.order.invoice;
+                        setReview({ booking:invoice.booking || "", container:invoice.container || "",
+                          carrierPay:invoice.carrierCents == null ? "" : (invoice.carrierCents/100).toFixed(2) });
+                        setSuggestions(null);
+                        setOpenedId(item.order_id); }}>View details</button></td>
                     </tr>
                   );
                 })}
@@ -574,7 +582,32 @@ export default function ImportClient() {
                             ))}
                           </ul>
                         </section>
-                        {!opened.conflict && opened.order.status === "preview_blocked" && (
+                        {!opened.conflict && opened.order.status === "preview_blocked" && !opened.order.order_id && canReviewDrayPay(opened.order.invoice) && (
+                          <section aria-label="Review dray source">
+                            <h3>Review container and carrier pay</h3>
+                            <label>Exact booking number<input style={field} maxLength={40} value={review.booking}
+                              onChange={event => { setReview({...review, booking:event.target.value}); setSuggestions(null); }} /></label>
+                            <button type="button" style={button} disabled={busy || !review.booking} onClick={() => void act(async () => {
+                              const data = await call({action:"review-suggestions", runId:saved.run.id, rowId:opened.order_id, booking:review.booking});
+                              setSuggestions(data.suggestions);
+                            })}>Find containers in interchanges</button>
+                            {suggestions && (suggestions.length ? <ul>{suggestions.map(candidate => (
+                              <li key={candidate.container}><button type="button" style={button} disabled={busy}
+                                onClick={() => setReview({...review, container:candidate.container})}>{candidate.container}</button>
+                                {candidate.documents.map(direction => direction.toUpperCase()).join(" / ")} · {candidate.differences} character differences
+                              </li>
+                            ))}</ul> : <p>No container PDFs found for this booking.</p>)}
+                            <label>Full container number<input style={field} maxLength={11} value={review.container}
+                              onChange={event => setReview({...review, container:event.target.value})} /></label>
+                            <label>Verified carrier pay ($)<input style={field} inputMode="decimal" value={review.carrierPay}
+                              onChange={event => setReview({...review, carrierPay:event.target.value})} /></label>
+                            <button type="button" style={button} disabled={busy || !review.carrierPay || !review.container || !review.booking} onClick={() => void act(async () => {
+                              const data = await call({action:"save-review", runId:saved.run.id, rowId:opened.order_id, version:opened.order.version, ...review});
+                              setSaved(data); setConfirmed(false); setSuggestions(null);
+                            })}>Save correction and check duplicates</button>
+                          </section>
+                        )}
+                        {!opened.conflict && opened.order.status === "preview_blocked" && !opened.order.invoice.inputErrors?.length && (
                           <button
                             style={button}
                             disabled={busy}

@@ -4,6 +4,8 @@ import { staffDatabase } from "@/lib/auth/session";
 import { bolBales } from "@/lib/dray-bols/source";
 import { PROFILE } from "@/lib/dray/model";
 import * as XLSX from "xlsx";
+import { canReviewDrayPay, interchangeContainerMatches, reviewedDrayBooking, reviewDrayInvoice } from "@/lib/dray/review";
+import { listSavannahInterchanges } from "@/lib/sharepoint/e2open-documents";
 import { parseDrays } from "@/lib/dray/parse";
 import {
   findDuplicates,
@@ -142,7 +144,24 @@ async function POSTHandler(req: NextRequest) {
     );
   const row = item.order,
     store = databaseStore(db, actor);
-  if (body.action === "delivery-preview") {
+  if (body.action === "review-suggestions" || body.action === "save-review") {
+    if (row.status !== "preview_blocked" || row.order_id || !canReviewDrayPay(row.invoice))
+      throw Error("Only source rows blocked on container, booking or carrier pay can be reviewed.");
+    const booking = reviewedDrayBooking(body.booking);
+    if (body.action === "review-suggestions") {
+      const filenames = await listSavannahInterchanges(booking);
+      return NextResponse.json({ ok:true, suggestions:interchangeContainerMatches(row.invoice.container, filenames) });
+    }
+    if (body.version !== row.version) throw Error("The row changed. Reopen it before saving.");
+    const invoice = reviewDrayInvoice(row.invoice, body);
+    const candidates = await findDuplicates(vendor(true).read, invoice, row.profile);
+    if (candidates.length) throw Error("McLeod already has a matching reference or container. Review that order before changing this row.");
+    const { data, error } = await db.rpc("review_savannah_dray_import", {
+      p_id:row.id, p_version:row.version, p_invoice:invoice, p_actor:actor,
+    });
+    if (error?.code === "23505") throw Error("Another saved dray row already uses that shipping order and container.");
+    if (error || !data) throw Error("Could not save the correction. Refresh and reopen the row.");
+  } else if (body.action === "delivery-preview") {
     if (row.status !== "verified") throw new Error("Only verified orders can be delivered.");
     const plan = buildDeliveryPlan(await vendor(true).read("/orders/" + encodeURIComponent(row.order_id)), row);
     return NextResponse.json({ ok: true, plan, planHash: hash(plan) });
@@ -163,7 +182,7 @@ async function POSTHandler(req: NextRequest) {
     if (body.confirmed !== true) throw new Error("Review and confirm the existing-order repair first.");
     if (process.env.DRAY_IMPORT_WRITES_ENABLED !== "true" || process.env.MCLEOD_SYNC_ENABLED !== "true") throw new Error("Dray writes are disabled.");
     await repairCreatedInvoice(row,store,vendor());
-  } else if (body.action === "execute") {
+  } else if (body.action === "execute" || body.action === "execute-and-deliver") {
     if (body.confirmed !== true)
       throw new Error(
         "Review and confirm this import before creating or rating orders.",
@@ -176,7 +195,19 @@ async function POSTHandler(req: NextRequest) {
       throw new Error(
         "Creation/rating disabled. Preview and read-only reconciliation remain available.",
       );
-    await processInvoice(row, store, vendor());
+    const finalize = body.action === "execute-and-deliver";
+    if (finalize && !["ready", "created"].includes(row.status)) throw Error("Choose a row ready to create or rate.");
+    const v = vendor();
+    await processInvoice(row, store, v);
+    if (finalize) {
+      const refreshed = await readRun(db, body.runId);
+      const rated = refreshed.items.find(item => item.order_id === body.rowId)?.order;
+      if (rated?.status === "verified") {
+        const plan = buildDeliveryPlan(await v.read("/orders/" + encodeURIComponent(rated.order_id)), rated);
+        await deliverInvoice(rated, store, v, plan);
+      }
+      // Return a fresh ledger below even when rating stops for review.
+    }
   } else if (body.action === "recheck") {
     if (row.invoice.inputErrors?.length) throw new Error("Upload corrected source files to resolve matching or mapping errors.");
     if (row.status !== "preview_blocked")

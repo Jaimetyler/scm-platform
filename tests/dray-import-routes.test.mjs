@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import ts from "typescript";
 const require = createRequire(import.meta.url);
-function route() {
+function route(ratedState = "verified") {
   let writes = 0;
   const row = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -42,13 +42,13 @@ function route() {
           ? server
           : n === "@/lib/dray/engine"
             ? {
-                processInvoice: async () => writes++,
+                processInvoice: async () => { writes++; row.status = ratedState; row.order_id = "0830001"; },
                 repairCreatedInvoice: async () => writes++,
                 reconcileInvoice: async () => {},
               }
             : n === "@/lib/dray/delivery" ? {
-              buildDeliveryPlan: () => ({}), deliverInvoice: async () => writes++, reconcileDelivery: async () => {},
-            } : n.startsWith("@/lib/dray/")
+              buildDeliveryPlan: () => ({}), deliverInvoice: async () => { writes++; row.status = "delivered"; }, reconcileDelivery: async () => {},
+            } : n === "@/lib/sharepoint/e2open-documents" ? {} : n.startsWith("@/lib/dray/")
               ? { PROFILES: [{ id: "HOU", confirmed: true }] }
               : require(n);
   new Function("require", "module", "exports", code)(local, mod, mod.exports);
@@ -146,4 +146,64 @@ test("existing-order repair requires explicit confirmation and both write flags"
  const res=await r.handler({json:async()=>({...body,action:"repair-created",confirmed})});assert.equal(res.status,400);assert.equal(r.writes(),0);
  }
  }finally{if(oldI===undefined)delete process.env.DRAY_IMPORT_WRITES_ENABLED;else process.env.DRAY_IMPORT_WRITES_ENABLED=oldI;if(oldM===undefined)delete process.env.MCLEOD_SYNC_ENABLED;else process.env.MCLEOD_SYNC_ENABLED=oldM}
+});
+
+test("combined import delivers only after successful rating read-back", async () => {
+  const original = { DRAY_IMPORT_WRITES_ENABLED: process.env.DRAY_IMPORT_WRITES_ENABLED, MCLEOD_SYNC_ENABLED: process.env.MCLEOD_SYNC_ENABLED };
+  Object.assign(process.env, { DRAY_IMPORT_WRITES_ENABLED: "true", MCLEOD_SYNC_ENABLED: "true" });
+  try {
+    for (const [ratingResult, finalStatus, writes] of [["verified", "delivered", 2], ["blocked", "blocked", 1]]) {
+      const r = route(ratingResult);
+      const res = await r.handler({ json: async () => ({ ...body, action: "execute-and-deliver" }) });
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).items[0].order.status, finalStatus);
+      assert.equal(r.writes(), writes);
+    }
+  } finally {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test("import review ranks interchange evidence and preserves the source key", async () => {
+  const { reviewDrayInvoice, interchangeContainerMatches } = await import("../lib/dray/review.ts");
+  const invoice = { booking:"4.04641E+11", container:"EGHU8429982", mark:"EGHU8429982", carrierCents:null,
+    firstStarLoad:null, sourceKey:"218268:EGHU8429982", inputErrors:["No FirstStar container match"] };
+  assert.throws(() => reviewDrayInvoice(invoice, { ...invoice, carrierPay:"200" }), /exact booking/);
+  const corrected = reviewDrayInvoice(invoice, { booking:"404641123456", container:"EGHU9429982", carrierPay:"200.00" });
+  assert.equal(corrected.sourceKey, invoice.sourceKey);
+  assert.equal(corrected.mark, "EGHU9429982");
+  assert.equal(corrected.carrierCents, 20000);
+  assert.deepEqual(corrected.inputErrors, []);
+  assert.throws(() => reviewDrayInvoice({ ...invoice, inputErrors:["Unknown port terminal: XXX"] },
+    { booking:"404641123456", container:"EGHU9429982", carrierPay:"200.00" }), /Unknown port/);
+  const matches = interchangeContainerMatches(invoice.container, [
+    "EGHU8507545_in.pdf", "EGHU9429982_out.pdf", "eghu9429982_IN.pdf", "BOL.pdf",
+  ]);
+  assert.deepEqual(matches[0], { container:"EGHU9429982", documents:["in","out"], differences:1 });
+});
+
+test("review migration keeps BOL identity, fences concurrent edits, and prevents a second effective container", async () => {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const db = new PGlite();
+  try {
+    await db.exec("create role anon; create role authenticated; create role service_role;");
+    await db.exec(readFileSync("supabase/migrations/20261103191637_dray_import_ledger.sql", "utf8"));
+    await db.exec(readFileSync("supabase/migrations/20261117172000_savannah_dray_import_review.sql", "utf8"));
+    const original = { sourceKey:"218268:EGHU8429982", shippingOrder:"218268", container:"EGHU8429982", inputErrors:["No FirstStar container match"] };
+    const seeded = await db.query("insert into dray_import_orders(terminal,location,reference,invoice,profile,source_hash,status) values ('SAV','SAVWHSE',$1,$2,'{}','source','preview_blocked') returning id",
+      [original.sourceKey, JSON.stringify(original)]);
+    const id = seeded.rows[0].id;
+    const corrected = {...original, container:"EGHU9429982", inputErrors:[], carrierCents:20000};
+    const save = () => db.query("select review_savannah_dray_import($1,0,$2,'qa') as saved",[id,JSON.stringify(corrected)]);
+    assert.equal((await save()).rows[0].saved,true);
+    assert.equal((await save()).rows[0].saved,false);
+    const {rows} = await db.query("select status,source_hash,invoice from dray_import_orders where id=$1",[id]);
+    assert.equal(rows[0].status,"ready");
+    assert.equal(rows[0].source_hash,"source");
+    assert.equal(rows[0].invoice.sourceKey,original.sourceKey);
+    await assert.rejects(db.query("insert into dray_import_orders(terminal,location,reference,invoice,profile,source_hash,status) values ('SAV','SAVWHSE','218268:EGHU9429982',$1,'{}','new','ready')",
+      [JSON.stringify(corrected)]), /dray_import_effective_container_key/);
+  } finally { await db.close(); }
 });
