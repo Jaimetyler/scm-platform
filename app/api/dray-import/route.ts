@@ -149,7 +149,7 @@ async function POSTHandler(req: NextRequest) {
       throw Error("Only source rows blocked on container, booking or carrier pay can be reviewed.");
     if (body.action === "lookup-interchange-container") {
       const container = typeof body.container === "string" ? body.container.trim().toUpperCase() : "";
-      return NextResponse.json({ ok:true, interchanges:await findSavannahInterchangeBookings(container) });
+      return NextResponse.json({ ok:true, interchanges:await findSavannahInterchangeBookings(container, row.invoice.booking) });
     }
     const booking = reviewedDrayBooking(body.booking);
     if (body.action === "review-suggestions") {
