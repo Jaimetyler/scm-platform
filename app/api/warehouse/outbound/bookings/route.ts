@@ -60,7 +60,7 @@ async function POSTHandler(req: NextRequest) {
       p_customer: booking.customer, p_booking_number: booking.bookingNumber,
       p_customer_reference: booking.customerReference, p_containers: booking.containers,
       p_total_bales: booking.totalBales, p_source_filename: source.name.slice(0, 200), p_lines: booking.lines,
-      p_details: { ...sailing, source_format: booking.sourceFormat },
+      p_details: { ...sailing, book_id: booking.bookId, source_format: booking.sourceFormat },
     });
     if (error) return NextResponse.json({ ok: false,
       error: error.code === "23505" ? "This booking already exists at this warehouse." : error.message }, { status: error.code === "23505" ? 409 : 400 });

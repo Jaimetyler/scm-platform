@@ -1,5 +1,6 @@
 "use client";
 
+import { outboundSteamshipLine } from "@/lib/warehouse/outbound/booking-identifiers";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatBookingDate } from "@/lib/warehouse/outbound/details";
@@ -10,7 +11,7 @@ import styles from "./OutboundPlanningTable.module.css";
 
 type SortKey = "customer" | "booking_number" | "erd" | "cutoff" | "planned_containers" | "missing_marks";
 const columns: { label: string; width: number; key?: SortKey }[] = [
-  { label: "Location", width: 8 }, { label: "Customer", width: 9, key: "customer" }, { label: "Book ID", width: 7 },
+  { label: "Location", width: 8 }, { label: "Customer", width: 9, key: "customer" }, { label: "Book ID", width: 6 }, { label: "Customer ref", width: 7 },
   { label: "Containers", width: 7, key: "planned_containers" }, { label: "To load", width: 4 }, { label: "Loaded", width: 4 }, { label: "SSL", width: 3 },
   { label: "Booking #", width: 8, key: "booking_number" }, { label: "ERD", width: 7, key: "erd" },
   { label: "Cutoff", width: 8, key: "cutoff" }, { label: "Ramp / return", width: 7 },
@@ -96,10 +97,10 @@ export default function OutboundPlanningTable({ bookings, activeBookings, return
           {column.key ? <button type="button" onClick={() => setSort(current => ({ key: column.key!, descending: current.key === column.key ? !current.descending : false }))}>{column.label}{sort.key === column.key ? sort.descending ? " ↓" : " ↑" : " ↕"}</button> : column.label}
         </th>)}</tr></thead>
         <tbody role="rowgroup">{rows.map(item => { const pulled = info[item.id]; return <tr role="row" key={item.id}>
-          <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.customer_reference || "—"}</td>
+          <td role="cell" data-label="Location">{item.site_name}</td><td role="cell" data-label="Customer" className={styles.customer}>{item.customer}</td><td role="cell" data-label="Book ID">{item.book_id || "—"}</td><td role="cell" data-label="Customer ref">{item.customer_reference || "—"}</td>
           <td role="cell" data-label="Containers" className={styles.count}>{item.planned_containers ?? "—"}</td>
           <td role="cell" data-label="To load" className={styles.number}>{item.loaded_containers != null && item.planned_containers != null ? Math.max(0, item.planned_containers - item.loaded_containers) : "—"}</td>
-          <td role="cell" data-label="Loaded" className={styles.number}>{item.loaded_containers ?? "—"}</td><td role="cell" data-label="SSL">{item.steamship_line || "—"}</td>
+          <td role="cell" data-label="Loaded" className={styles.number}>{item.loaded_containers ?? "—"}</td><td role="cell" data-label="SSL">{outboundSteamshipLine(item.steamship_line, item.booking_number) || "—"}</td>
           <td role="cell" data-label="Booking #"><Link className={styles.booking} href={`/warehouse/outbound/${item.terminal.toLowerCase()}/${item.site_code}/${item.id}?returnTo=${returnTo}`}>{item.booking_number}</Link></td>
           <td role="cell" data-label="ERD" className={dateTone(item, item.erd)}>{formatBookingDate(item.erd)}</td>
           <td role="cell" data-label="Cutoff" className={dateTone(item, item.cutoff)}>{formatBookingDate(item.cutoff, item.cutoff_has_time)}</td>

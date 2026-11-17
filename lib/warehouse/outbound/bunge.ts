@@ -1,10 +1,13 @@
 import * as XlsxModule from "xlsx/xlsx.mjs";
 import type * as XlsxTypes from "xlsx";
+import { outboundBookingNumber, outboundSteamshipLine } from "./booking-identifiers.ts";
 const XLSX = XlsxModule as typeof XlsxTypes;
+
+export type SourceBales = { warehouse: string; warehouseCode: string; bales: number; sourceRow: number };
 
 export type OutboundLine = {
   mark: string; loadBy: string | null; confirmed: boolean; shippingOrder: string;
-  warehouse: string; warehouseCode: string; bales: number; sourceRow: number; containerNumber?: string; needsBales?: boolean; loadSource?: "warehouse" | "source_load";
+  warehouse: string; warehouseCode: string; bales: number; sourceRow: number; containerNumber?: string; needsBales?: boolean; sourceBales?: SourceBales[]; loadSource?: "warehouse" | "source_load";
 };
 export type BungeBooking = {
   bookingNumber: string; bookId?: string; boltSealsRequired?: boolean; customerReference: string; customer: string;
@@ -157,7 +160,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
   }
   if (!columns) throw new Error("Could not find the Mark, Warehouse, and Bales columns.");
 
-  const bookingNumber = nearbyValue(rows, ["Booking #", "Booking Number"], headerRow).toUpperCase();
+  const bookingNumber = outboundBookingNumber(nearbyValue(rows, ["Booking #", "Booking Number"], headerRow));
   if (!/^[A-Z0-9_/-]{3,40}$/.test(bookingNumber)) throw new Error("Missing or invalid booking number.");
   const bookIdLabel = findLabel(rows, ["Book ID"], headerRow);
   const bookId = bookIdLabel ? rows[bookIdLabel.row].slice(bookIdLabel.col + 1, bookIdLabel.col + 13)
@@ -170,13 +173,25 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
   const lines: OutboundLine[] = [];
   for (let row = headerRow + 1; row < Math.min(summaryStart, rows.length); row++) {
     const mark = String(rows[row]?.[columns.mark] ?? "").trim().toUpperCase();
-    if (!mark || /^CONF\b/.test(mark)) continue;
+    if (/^CONF\b/.test(mark)) continue;
     const warehouse = String(rows[row]?.[columns.warehouse] ?? "").trim();
     const balesRaw = String(rows[row]?.[columns.bales] ?? "").trim();
     if (!warehouse || !balesRaw) continue;
-    if (!/^[A-Z0-9][A-Z0-9 ./-]{0,79}$/i.test(mark)) throw new Error(`Row ${row + 1}: invalid mark`);
     const shippingCells = columns.shippingOrder >= 0
       ? rows[row].slice(columns.shippingOrder, columns.warehouse).map((cell) => String(cell ?? "").trim()).filter(Boolean) : [];
+    if (!mark) {
+      const previous = lines.at(-1);
+      // Bunge lists additional warehouses on consecutive rows under the same mark.
+      const warehouseCode = String(rows[row]?.[columns.warehouse - 1] ?? "").trim();
+      const previousRow = previous?.sourceBales?.at(-1)?.sourceRow ?? previous?.sourceRow;
+      if (!previous || previousRow !== row || !/^\d+$/.test(warehouseCode)) continue;
+      const bales = positive(balesRaw, "bale count", row + 1);
+      previous.sourceBales ??= [{ warehouse: previous.warehouse, warehouseCode: previous.warehouseCode, bales: previous.bales, sourceRow: previous.sourceRow }];
+      previous.sourceBales.push({ warehouse, warehouseCode, bales, sourceRow: row + 1 });
+      previous.bales += bales;
+      continue;
+    }
+    if (!/^[A-Z0-9][A-Z0-9 ./-]{0,79}$/i.test(mark)) throw new Error(`Row ${row + 1}: invalid mark`);
     lines.push({ mark, loadBy: loadByDate(rows[row]?.[columns.loadBy]),
       confirmed: columns.confirmed >= 0 && normalized(rows[row]?.[columns.confirmed]) === "Y",
       shippingOrder: shippingCells[0] ?? "", warehouseCode: shippingCells[1] ?? "",
@@ -204,7 +219,7 @@ export function parseBungeBooking(buffer: Buffer): BungeBooking {
   return { ...sailingDetails(sheet, rows), bookingNumber, bookId, boltSealsRequired: rows.some(row => row.some(cell => /\bbolt seals? required\b/i.test(String(cell)))), customerReference, customer,
     loadPort: String(labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
     returnLocation: String(labeledCell(sheet, rows, ["Loaded Return", "Full Return"])?.v ?? labeledCell(sheet, rows, ["Load Port"])?.v ?? "").trim(),
-    steamshipLine: String(labeledCell(sheet, rows, ["Ship Line", "Steamship Line", "S/S Line", "SSL"])?.v ?? "").trim(),
+    steamshipLine: outboundSteamshipLine(labeledCell(sheet, rows, ["Ship Line", "Steamship Line", "S/S Line", "SSL"])?.v, bookingNumber),
     containers, totalBales, lines,
     warehouses: [...new Set(lines.map((line) => line.warehouse))], warehouseDetails, warnings };
 }

@@ -85,7 +85,7 @@ export const POST = withStaffAccess(async (request: NextRequest) => {
       const details = normalizeBookingDetails({
         erd: form.get("erd"), cutoff: form.get("cutoff"), docCutoff: form.get("docCutoff"),
         vessel: form.get("vessel"), steamshipLine: form.get("steamshipLine"),
-        scmFileNumber: bookId, returnLocation: preview.deliveryLocation,
+        bookId, returnLocation: preview.deliveryLocation,
       });
       const customer = bookingChargeCustomer(preview.customer);
       const site = CHECKIN_SITES.find(site => site.terminal === "DAL" && site.siteCode === first.pickup && site.materials.includes("cotton"));
@@ -192,7 +192,7 @@ async function syncBookingDetails(input: {
   if (apply) requireWrites();
   const db = staffDatabase();
   const [booking, load] = await Promise.all([
-    db.from("cotton_outbound_bookings").select("booking_number,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line,terminal,site_code,customer,return_location,return_location_code,updated_at,cutoff_has_time,doc_cutoff_has_time")
+    db.from("cotton_outbound_bookings").select("booking_number,book_id,scm_file_number,status,erd,cutoff,doc_cutoff,steamship_line,terminal,site_code,customer,return_location,return_location_code,updated_at,cutoff_has_time,doc_cutoff_has_time")
       .eq("id", input.bookingId).eq("terminal", "DAL").maybeSingle(),
     db.from("dallas_dray_import_loads").select("blnum,payload,sequence_no").eq("booking_id", input.bookingId)
       .eq("order_id", input.orderId).eq("state", "verified").maybeSingle(),
@@ -200,9 +200,10 @@ async function syncBookingDetails(input: {
   const saved = booking.data;
   if (booking.error || load.error || saved?.status !== "draft" || !load.data)
     throw Error("An active Dallas booking and a verified linked order are required.");
-  if ((packageSync || input.action.endsWith("-details")) && (!saved.scm_file_number || !saved.erd || !saved.cutoff))
-    throw Error("Fill in the file number and sailing dates before syncing booking details.");
-  const hasBookingDetails = Boolean(saved.scm_file_number && saved.erd && saved.cutoff);
+  const bookId = saved.book_id ?? saved.scm_file_number;
+  if ((packageSync || input.action.endsWith("-details")) && (!bookId || !saved.erd || !saved.cutoff))
+    throw Error("Fill in the Book ID and sailing dates before syncing booking details.");
+  const hasBookingDetails = Boolean(bookId && saved.erd && saved.cutoff);
   const slot = await db.from("cotton_outbound_containers").select("id,container_number,booking_line_id,carrier_plan,updated_at")
     .eq("booking_id", input.bookingId).eq("sequence_no", load.data.sequence_no).is("split_transfer_id", null).maybeSingle();
   if (slot.error || !slot.data) throw Error("The linked booking load could not be found.");
@@ -271,7 +272,7 @@ async function syncBookingDetails(input: {
     const bookingFields = unified && !hasBookingDetails
       ? (mark && !String(current.booking_no_sucm ?? "").trim() ? { booking_no_sucm: saved!.booking_number } : {})
       : dallasBookingFields(saved!.booking_number, saved!.erd!, saved!.cutoff!.replace(" ", "T"), {
-      bookId: saved!.scm_file_number!, steamshipLine: saved!.steamship_line, docCutoff: saved!.doc_cutoff?.replace(" ", "T"),
+      bookId: bookId!, steamshipLine: saved!.steamship_line, docCutoff: saved!.doc_cutoff?.replace(" ", "T"),
     });
     const currentComment = String(current.planning_comment ?? "").trim();
     const requiredComment = withRequiredCottonBoltSeals(currentComment);
@@ -289,7 +290,7 @@ async function syncBookingDetails(input: {
         ? load.data!.payload.outboundSyncedBookingNumber ?? load.data!.payload[field] : load.data!.payload[field]);
       if (unified && (before || baseline?.[field] !== undefined) && (typeof previous !== "string" || !matches(field, before, previous))) {
         const bookingFields: Record<string, string[]> = {
-          booking_no_sucm: ["booking_number"], planning_comment: ["scm_file_number", "steamship_line", "booking_number", "erd", "cutoff"],
+          booking_no_sucm: ["booking_number"], planning_comment: [saved.book_id ? "book_id" : "scm_file_number", "steamship_line", "booking_number", "erd", "cutoff"],
           cutoff_date: ["cutoff", "cutoff_has_time"], doc_cutoff_date: ["doc_cutoff", "doc_cutoff_has_time"], ssl_sucm: ["steamship_line"],
         };
         const edited = field === "consignee_refno" ? platformChangeTime(slot.data!.id, "container_number") :

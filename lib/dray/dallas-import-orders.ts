@@ -1,3 +1,4 @@
+import { outboundSteamshipLine } from "../warehouse/outbound/booking-identifiers.ts";
 import { dallasFuelCode } from "./dallas-fuel.ts";
 import type { planOutboundDrayLoads } from "./outbound-load-plan.ts";
 
@@ -74,7 +75,7 @@ export function withRequiredCottonBoltSeals(comment: string) {
 export function dallasBookingFields(booking: string, erd: string, cutoff: string,
   details: { bookId: string; steamshipLine: string | null; docCutoff?: string | null }) {
   const shortDate = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
-  const ssl = details.steamshipLine?.trim() ?? "";
+  const ssl = outboundSteamshipLine(details.steamshipLine, booking);
   const carrier = /^orient overseas container line(?: limited)?$/i.test(ssl) ? "OOCL" : ssl;
   const planningComment = withRequiredCottonBoltSeals(`ID${details.bookId}: ${carrier ? carrier + " " : ""}Bkg# ${booking} - ERD ${shortDate(erd)} - C/O ${shortDate(cutoff)}`);
   return {

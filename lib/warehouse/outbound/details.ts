@@ -1,3 +1,4 @@
+import { outboundSteamshipLine } from "./booking-identifiers.ts";
 import { bookingReturnLocation } from "./return-location.ts";
 // Cutoffs are warehouse-local wall times; never shift them through UTC in the page.
 function dateValue(value: unknown, label: string, withTime = false) {
@@ -17,7 +18,7 @@ export function normalizeBookingDetails(body: Record<string, unknown>) {
   if (vessel.length > 200) throw new Error("Vessel must be 200 characters or fewer.");
   if (body.steamshipLine !== undefined && typeof body.steamshipLine !== "string")
     throw new Error("Enter a steamship line name.");
-  const steamshipLine = typeof body.steamshipLine === "string" ? body.steamshipLine.trim() : undefined;
+  const steamshipLine = typeof body.steamshipLine === "string" ? outboundSteamshipLine(body.steamshipLine) : undefined;
   if (steamshipLine && steamshipLine.length > 200) throw new Error("Steamship line must be 200 characters or fewer.");
   function cutoffValue(value: unknown, label: string) {
     const hasTime = typeof value === "string" && value.includes("T");
@@ -28,7 +29,10 @@ export function normalizeBookingDetails(body: Record<string, unknown>) {
   const cargo = cutoffValue(body.cutoff, "Cutoff");
   if (body.scmFileNumber !== undefined && (typeof body.scmFileNumber !== "string" || body.scmFileNumber.trim().length > 80))
     throw new Error("SCM File # must be 80 characters or fewer.");
-  return { ...(body.returnLocation !== undefined ? bookingReturnLocation(body.returnLocation) : {}), ...(body.scmFileNumber !== undefined ? { scm_file_number: String(body.scmFileNumber).trim() || null } : {}), erd: dateValue(body.erd, "ERD"), doc_cutoff: doc.value, doc_cutoff_has_time: doc.hasTime,
+  if (body.bookId !== undefined && (typeof body.bookId !== "string" || body.bookId.trim().length > 80))
+    throw new Error("Book ID must be 80 characters or fewer.");
+  return { ...(body.bookId !== undefined ? { book_id: String(body.bookId).trim() || null } : {}),
+    ...(body.returnLocation !== undefined ? bookingReturnLocation(body.returnLocation) : {}), ...(body.scmFileNumber !== undefined ? { scm_file_number: String(body.scmFileNumber).trim() || null } : {}), erd: dateValue(body.erd, "ERD"), doc_cutoff: doc.value, doc_cutoff_has_time: doc.hasTime,
     cutoff: cargo.value, cutoff_has_time: cargo.hasTime, vessel: vessel || null,
     ...(steamshipLine !== undefined ? { steamship_line: steamshipLine || null } : {}) };
 }

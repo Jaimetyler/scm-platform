@@ -3,6 +3,7 @@ import * as XlsxModule from "xlsx/xlsx.mjs";
 import type * as XlsxTypes from "xlsx";
 import { parseBungeBooking, detailDate, classifyBookingLoads, type BungeBooking, type OutboundLine } from "./bunge.ts";
 import { isSavannahE2openBooking } from "./e2open-customer.ts";
+import { outboundBookingNumber, outboundSteamshipLine } from "./booking-identifiers.ts";
 const XLSX = XlsxModule as typeof XlsxTypes;
 export type BookingImport = BungeBooking & {
   sourceFormat: "bunge" | "olam" | "edf" | "ldc";
@@ -16,6 +17,7 @@ const identifier = (v: unknown, label: string) => {
   if (!/^[A-Z0-9][A-Z0-9_ ./-]{0,79}$/.test(s)) throw Error(`Missing or invalid ${label}.`);
   return s;
 };
+const bookingIdentifier = (value: unknown) => identifier(outboundBookingNumber(value), "booking number");
 const count = (v: unknown, label: string) => {
   const n = Number(text(v).replace(/,/g, ""));
   if (!Number.isSafeInteger(n) || n <= 0 || n > 1000000) throw Error(`Enter a positive ${label}.`);
@@ -96,7 +98,7 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
       const warehouse = value("Origin Name");
       if (!/^SUPPLY CHAIN MANAGEMENT\s*-\s*PORT WENTWORTH$/i.test(warehouse))
         throw Error(`Row ${sourceRow}: expected the SCM Port Wentworth origin.`);
-      bookings.add(identifier(booking, "booking number"));
+      bookings.add(bookingIdentifier(booking));
       destinations.add(value("Destination Name"));
       notes.push(`${mark} · e2open load ${loadId} · seal ${seal || "—"} · chassis ${value("Trailer") || "—"}`);
       const supplied = options.bales?.[String(sourceRow)];
@@ -107,7 +109,7 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
     if (bookings.size !== 1 || destinations.size !== 1) throw Error("Upload one LDC booking with one return location at a time.");
     const returnLocation = [...destinations][0];
     return { ...base, sourceFormat: "ldc", customer: "Louis Dreyfus Company Cotton", warehouseNeedsConfirmation: true,
-      bookingNumber: [...bookings][0], customerReference: "", containers: lines.length, totalBales: lines.reduce((sum, line) => sum + line.bales, 0),
+      bookingNumber: [...bookings][0], steamshipLine: outboundSteamshipLine("", [...bookings][0]), customerReference: "", containers: lines.length, totalBales: lines.reduce((sum, line) => sum + line.bales, 0),
       lines, warehouses: [...new Set(lines.map(line => line.warehouse))], returnLocation, loadPort: returnLocation,
       detailNotes: ["Enter the bale count for each load. The export does not supply container numbers or sailing cutoffs.",
         "Seal and chassis values are shown for reference. Enter equipment on the saved booking when the container number is available.", ...notes] };
@@ -138,9 +140,10 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
     if (stated && Number(stated.split(":")[1].trim()) !== totalBales) base.warnings.push("Olam total bale count differs from its mark rows.");
     const rampCut = date("Ramp Cut"); const portCut = date("Port Cut");
     const sourceDates = [{label: "Ramp Cut", value: rampCut}, {label: "Port Cut", value: portCut}].filter((v): v is {label:string;value:string} => !!v.value);
-    return { ...base, sourceFormat: "olam", customer: "Olam Agri Americas Inc", bookingNumber: identifier(field("Booking"), "booking number"),
+    const bookingNumber = bookingIdentifier(field("Booking"));
+    return { ...base, sourceFormat: "olam", customer: "Olam Agri Americas Inc", bookingNumber,
       customerReference: text(field("Sale No")), containers, totalBales, lines, warehouses: [...new Set(lines.map(l => l.warehouse))],
-      returnLocation: text(field("Loaded Return")), loadPort: text(field("Loaded Return")), steamshipLine: text(field("S/S Line")) || text(field("Steamship Line")) || text(field("SSL")), vessel: text(field("Vessel/Voyage")) || null,
+      returnLocation: text(field("Loaded Return")), loadPort: text(field("Loaded Return")), steamshipLine: outboundSteamshipLine(text(field("S/S Line")) || text(field("Steamship Line")) || text(field("SSL")), bookingNumber), vessel: text(field("Vessel/Voyage")) || null,
       erd: date("1st Avail / ERD")?.slice(0, 10) ?? null, docCutoff: date("Doc Cut"), cutoff: rampCut ?? portCut, sourceDates,
       detailNotes: [`Olam booking reference: ${text(field("Booking Ref"))}. Equipment release: ${text(field("Equip Release"))}.`,
         "Olam source rates are reference information only; no McLeod orders or rates are created.",
@@ -150,8 +153,8 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
   const edfScheduleOnly = !edfDispatchHeaders.every(label => c(label) >= 0);
   const data = rows.slice(header + 1).map((row, index) => ({ row, sourceRow: header + index + 2 })).filter(({row}) => row.some(v => text(v)));
   if (!data.length || data.length > 500) throw Error("ED&F export must contain between 1 and 500 load rows.");
-  const one = (label: string) => {
-    const values = [...new Set(data.map(({row}) => text(row[c(label)])).filter(Boolean))];
+  const one = (label: string, normalize = text) => {
+    const values = [...new Set(data.map(({row}) => normalize(row[c(label)])).filter(Boolean))];
     if (values.length > 1) throw Error(`The ED&F export has multiple ${label} values. Upload one booking with consistent sailing details.`);
     return values[0] ?? "";
   };
@@ -176,12 +179,13 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
     return {mark: identifier(row[c("stuffing_reference")], "mark"), shippingOrder: "", bales: supplied === undefined || supplied === "" ? 0 : count(supplied, "bale count"),
       needsBales: true, containerNumber, warehouse: text(row[c("stuffing_place")]), warehouseCode: "", loadBy: null, confirmed: false, sourceRow};
   });
+  const bookingNumber = bookingIdentifier(one("carrier_booking_number", outboundBookingNumber));
   return { ...base, sourceFormat: "edf", customer: "ED&F Man Cotton", customerNeedsConfirmation: true, warehouseNeedsConfirmation: true,
-    edfScheduleOnly, needsDateYear: !edfScheduleOnly && !year, bookingNumber: identifier(one("carrier_booking_number"), "booking number"), customerReference: one("exporter_ref_po_number"),
+    edfScheduleOnly, needsDateYear: !edfScheduleOnly && !year, bookingNumber, customerReference: one("exporter_ref_po_number"),
     containers: lines.length, totalBales: lines.reduce((sum,l) => sum+l.bales,0), lines, warehouses: [...new Set(lines.map(l=>l.warehouse))],
     erd: parseDate(rawDates.erd,"ERD")?.slice(0,10) ?? null, docCutoff: parseDate(rawDates.docCutoff,"Doc cutoff"), cutoff: parseDate(rawDates.cutoff,"Cutoff"),
     returnLocation: [...new Set([one("full_return_place"), one("full_return_place_address")].filter(Boolean))].join(" · "),
-    vessel: one("ocean_vessel_name") || null, loadPort: one("full_return_place"), steamshipLine: one("ocean_carrier_name"),
+    vessel: one("ocean_vessel_name") || null, loadPort: one("full_return_place"), steamshipLine: outboundSteamshipLine(one("ocean_carrier_name", value => outboundSteamshipLine(value)), bookingNumber),
     detailNotes: ["ED&F inland drayage layout recognized. The export does not name the customer; confirm ED&F before saving.",
       "Bale counts are missing. Enter the count for each load before saving.",
       ...(edfScheduleOnly ? [

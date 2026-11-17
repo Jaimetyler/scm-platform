@@ -1,4 +1,5 @@
 "use client";
+import { outboundBookingNumber, outboundSteamshipLine } from "@/lib/warehouse/outbound/booking-identifiers";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 import { canUseBilling } from "@/lib/auth/policy";
 import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
@@ -37,9 +38,9 @@ type Container = { id: string; sequence_no: number; scm_order_number?: string | 
   carrier_plan: CarrierPlan | null;
   split: { mark: string; bales: number; target_booking_id: string; target_booking_number: string } | null };
 type Line = { id: string; source_row: number; mark: string; requested_bales: number; mark_requested_total: number; available_bales: number; warehouse_bales: number;
-  line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string;
+  line_status: "active" | "on_hold" | "cancelled"; load_source: "warehouse" | "source_load"; status_note: string | null; source_warehouse: string; source_bales?: { warehouse: string; bales: number }[] | null;
   source_arrivals: { arrival_site_name: string; checkin_id: string | null }[]; load_by: string | null; shipping_order: string | null; inventory_locations: string[]; has_break_inventory: boolean; inbound_bales: number; inbound_statuses: string[] };
-type Booking = { source_format?: string; site_code: string; steamship_line?: string | null; return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
+type Booking = { source_format?: string; site_code: string; steamship_line?: string | null; return_location?: string | null; return_location_code?: string | null; scm_file_number?: string | null; book_id?: string | null; id: string; booking_number: string; customer: string; customer_reference: string | null;
   requested_bales: number; planned_containers: number | null; site_name: string; status: string; doc_cutoff_has_time: boolean; cutoff_has_time: boolean; erd: string | null; doc_cutoff: string | null; cutoff: string | null; vessel: string | null; updated_at: string };
 type McLeodDocumentCheck = { container: string; mark: string; orderId: string | null; movementId: string | null; movementImagesAvailable: boolean; status: string; documentTypes: { id: string; description: string }[]; existingImages: { id: string; type: string; description: string; scanDate: string; scope: string }[] };
 type McLeodUploadResult = { container: string; orderId?: string; file?: string; status: string };
@@ -123,7 +124,7 @@ export default function CottonOutboundBookingPage() {
   const [actionError, setActionError] = useState("");
   const [replacingPackage, setReplacingPackage] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
-  const [details, setDetails] = useState({ bookingNumber: "", customerReference: "", scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "", destinationSiteCode: siteCode });
+  const [details, setDetails] = useState({ bookingNumber: "", customerReference: "", bookId: "", scmFileNumber: "", erd: "", docCutoff: "", cutoff: "", vessel: "", returnLocation: "", steamshipLine: "", destinationSiteCode: siteCode });
   const [importedDateNotes, setImportedDateNotes] = useState<string[]>([]);
   const [e2openDocuments, setE2openDocuments] = useState<E2openDocuments | null>(null);
   const [e2openLoading, setE2openLoading] = useState(false);
@@ -391,8 +392,8 @@ export default function CottonOutboundBookingPage() {
 
   function editDetails() {
     if (!booking) return;
-    setDetails({ bookingNumber: booking.booking_number, customerReference: booking.customer_reference ?? "", scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
-      cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "", returnLocation: booking.return_location ?? "", steamshipLine: booking.steamship_line ?? "", destinationSiteCode: siteCode });
+    setDetails({ bookingNumber: booking.booking_number, customerReference: booking.customer_reference ?? "", bookId: booking.book_id ?? "", scmFileNumber: booking.scm_file_number ?? "", erd: bookingDateInput(booking.erd), docCutoff: bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
+      cutoff: bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: booking.vessel ?? "", returnLocation: booking.return_location ?? "", steamshipLine: outboundSteamshipLine(booking.steamship_line, booking.booking_number), destinationSiteCode: siteCode });
     setEditingDetails(true);
     setImportedDateNotes([]);
     setReplacingPackage(false);
@@ -409,18 +410,18 @@ export default function CottonOutboundBookingPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
       const source = canReplace ? result.preview : result.booking;
-      if (!canReplace && source.bookingNumber !== booking.booking_number) throw new Error(`This file belongs to booking ${source.bookingNumber}. Open that booking to replace its package.`);
-      if (canReplace && source.bookingNumber !== booking.booking_number &&
-          (!source.bookId || source.bookId !== booking.scm_file_number))
-        throw Error("Match either the booking number or the file number when importing a corrected package. You can edit both numbers in the form.");
+      if (!canReplace && source.bookingNumber !== outboundBookingNumber(booking.booking_number)) throw new Error(`This file belongs to booking ${source.bookingNumber}. Open that booking to replace its package.`);
+      if (canReplace && source.bookingNumber !== outboundBookingNumber(booking.booking_number) &&
+          (!source.bookId || source.bookId !== (booking.book_id ?? booking.scm_file_number)))
+        throw Error("Match either the booking number or the Book ID when importing a corrected package.");
       if (canReplace && ["bunge", "olam", "edf"].includes(booking.source_format ?? "") && source.sourceFormat !== booking.source_format)
         throw Error("Use the same Dallas dray package format as the original booking.");
       if (canReplace && ((source.pickupLocation && source.pickupLocation !== siteCode) ||
           (source.deliveryLocation && booking.return_location_code && source.deliveryLocation !== booking.return_location_code)))
         throw Error("The replacement package changes the pickup or return location. Review the route before saving.");
       setReplacingPackage(canReplace);
-      if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.steamshipLine && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
-      setDetails({ bookingNumber: source.bookingNumber, customerReference: source.customerReference ?? booking.customer_reference ?? "", scmFileNumber: source.bookId || booking.scm_file_number || "", erd: source.erd ?? bookingDateInput(booking.erd),
+      if (!source.erd && !source.docCutoff && !source.cutoff && !source.vessel && !source.returnLocation && !source.steamshipLine && !source.bookId && !source.customerReference && !source.detailNotes?.length) throw new Error("No sailing details were found in this request.");
+      setDetails({ bookingNumber: source.bookingNumber, customerReference: source.customerReference ?? booking.customer_reference ?? "", bookId: source.bookId || booking.book_id || "", scmFileNumber: booking.scm_file_number ?? "", erd: source.erd ?? bookingDateInput(booking.erd),
         docCutoff: source.docCutoff ?? bookingDateInput(booking.doc_cutoff, booking.doc_cutoff_has_time !== false),
         cutoff: source.cutoff ?? bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), vessel: source.vessel ?? booking.vessel ?? "", returnLocation: canReplace ? booking.return_location ?? "" : source.returnLocation || booking.return_location || "",
         steamshipLine: source.steamshipLine || booking.steamship_line || "", destinationSiteCode: siteCode });
@@ -630,7 +631,7 @@ export default function CottonOutboundBookingPage() {
     </PlatformPanel>}
     <PlatformPanel style={{ padding: 12, marginBottom: 12, borderRadius: 12, boxShadow: "none" }}><div style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", fontSize: 13 }}>
       <strong>{booking.requested_bales} requested bales</strong><span>{booking.planned_containers ?? "—"} planned containers</span>
-      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status === "draft" ? "Active" : booking.status === "cancelled" ? "Deleted" : "Archived"}</span>
+      <span>{complete} of {activeContainers.length} equipment rows complete</span><span>Book ID {booking.book_id || "—"}</span><span>Customer ref {booking.customer_reference || "—"}</span><strong style={{ color: lines.some((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total) ? "#fca5a5" : "#86efac" }}>{new Set(lines.filter((line) => line.line_status === "active" && line.load_source === "warehouse" && line.warehouse_bales < line.mark_requested_total).map((line) => line.mark)).size} missing marks</strong><span className="booking-status">{booking.status === "draft" ? "Active" : booking.status === "cancelled" ? "Deleted" : "Archived"}</span>
     </div>
     <div style={{ display: "flex", gap: "4px 14px", flexWrap: "wrap", alignItems: "center", marginTop: 7, fontSize: 13 }}>
       <span><strong>ERD</strong> {formatBookingDate(booking.erd)}</span>
@@ -645,7 +646,8 @@ export default function CottonOutboundBookingPage() {
       {replacingPackage && <ul aria-label="Replacement booking changes">
         {[
           ["Booking number", booking.booking_number, details.bookingNumber],
-          ["SCM File # / Book ID", booking.scm_file_number ?? "", details.scmFileNumber],
+          ["Book ID", booking.book_id ?? "", details.bookId],
+          ["SCM File #", booking.scm_file_number ?? "", details.scmFileNumber],
           ["Customer reference", booking.customer_reference ?? "", details.customerReference],
           ["ERD", bookingDateInput(booking.erd), details.erd],
           ["Cutoff", bookingDateInput(booking.cutoff, booking.cutoff_has_time !== false), details.cutoff],
@@ -661,13 +663,12 @@ export default function CottonOutboundBookingPage() {
           onChange={event => setDetails(current => ({ ...current, destinationSiteCode: event.target.value }))}>
           {locationOptions.map(site => <option key={site.siteCode} value={site.siteCode}>{site.siteName}</option>)}
         </select></label>}
-        {isDallas && <>
-          <label>Booking number<input required style={input} maxLength={80} value={details.bookingNumber}
-            onChange={event => setDetails(current => ({ ...current, bookingNumber: event.target.value }))} /></label>
-          <label>Customer reference<input style={input} maxLength={200} value={details.customerReference}
+        {isDallas && <label>Booking number<input required style={input} maxLength={80} value={details.bookingNumber}
+            onChange={event => setDetails(current => ({ ...current, bookingNumber: event.target.value }))} /></label>}
+        <label>Customer reference<input style={input} maxLength={200} value={details.customerReference}
             onChange={event => setDetails(current => ({ ...current, customerReference: event.target.value }))} /></label>
-        </>}
-        <label>SCM File #{isDallas ? " / Book ID" : ""}<input style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
+        <label>Book ID<input style={input} maxLength={80} value={details.bookId} onChange={(event) => setDetails((current) => ({ ...current, bookId: event.target.value }))} /></label>
+        <label>SCM File #<input style={input} maxLength={80} value={details.scmFileNumber} onChange={(event) => setDetails((current) => ({ ...current, scmFileNumber: event.target.value }))} /></label>
         <label>ERD<input type="date" style={input} value={details.erd} onChange={(event) => setDetails((current) => ({ ...current, erd: event.target.value }))} /></label>
         <CutoffInput label="Doc cutoff" value={details.docCutoff} onChange={(value) => setDetails((current) => ({ ...current, docCutoff: value }))} />
         <CutoffInput label="Cutoff" value={details.cutoff} onChange={(value) => setDetails((current) => ({ ...current, cutoff: value }))} />
@@ -777,7 +778,7 @@ export default function CottonOutboundBookingPage() {
           title={hasEquipment ? "Clear equipment and carrier details before rolling this mark" : "Select mark for split or rollover"} onChange={() => toggleLine(line)} /> : null}</td>}
         <td style={td}><strong>{row.sequence_no}</strong></td>
         {terminal === "DAL" && <td style={{ ...td, whiteSpace: "nowrap" }}>{row.scm_order_number || "—"}</td>}
-        <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_warehouse}</small>}</> : terminal === "DAL" && canWrite && unassignedMarks.length ? <select aria-label={`Mark for load ${row.sequence_no}`}
+        <td style={td}>{line ? <><strong style={{ fontSize: 14 }}>{line.mark}</strong><div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 2 }}>{bookingMarkBadges({ ...line, active_line_numbers: activeLine?.bookingId === id ? activeLine.numbers[line.mark.toUpperCase()] : undefined }).map((badge) => <span key={badge.label} title={badge.title} style={{ color: badge.color, background: badge.background, border: "none", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{badge.label}</span>)}</div>{line.status_note && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.status_note}</small>}{line.load_source === "source_load" && <small style={{ display: "block", color: "#bbc9c2", marginTop: 4 }}>{line.source_bales?.map(source => `${source.warehouse} (${source.bales})`).join(" · ") || line.source_warehouse}</small>}</> : terminal === "DAL" && canWrite && unassignedMarks.length ? <select aria-label={`Mark for load ${row.sequence_no}`}
           value={draft.bookingLineId} disabled={Boolean(working)} style={input}
           onChange={event => change(row, "bookingLineId", event.target.value)}>
           <option value="">Assign mark</option>

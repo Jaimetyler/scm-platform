@@ -16,10 +16,10 @@ import { formatBookingDate } from "@/lib/warehouse/outbound/details";
 import { deadlineMatches, groupBookings, type DashboardBooking, type DeadlineView, type BookingGroup } from "@/lib/warehouse/outbound/dashboard";
 import styles from "./outbound.module.css";
 
-type Preview = { booking: { bookingNumber: string; customer: string; customerReference: string; containers: number | null;
+type Preview = { booking: { bookingNumber: string; bookId?: string; customer: string; customerReference: string; containers: number | null;
   sourceFormat?: string; customerNeedsConfirmation?: boolean; warehouseNeedsConfirmation?: boolean; needsDateYear?: boolean; edfScheduleOnly?: boolean; returnLocation?: string; steamshipLine?: string; totalBales: number; erd: string | null; docCutoff: string | null; cutoff: string | null; vessel: string | null;
   sourceDates: { label: string; value: string }[]; detailNotes: string[]; warnings: string[];
-  lines: { sourceRow: number; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
+  lines: { sourceRow: number; sourceBales?: { warehouse: string; bales: number }[]; mark: string; shippingOrder: string; warehouse: string; bales: number; needsBales?: boolean; containerNumber?: string; loadSource: "warehouse" | "source_load" }[] };
   mismatches: { row: number; warehouse: string }[] };
 type Preferences = { warehouse: string; view: DeadlineView; group: BookingGroup; search: string; basis: "cutoff" | "erd"; layout: "cards" | "sheet" };
 const defaultPreferences: Preferences = { warehouse: "all", view: "all", group: "schedule", search: "", basis: "cutoff", layout: "cards" };
@@ -172,7 +172,7 @@ export default function CottonOutboundPage() {
     upcoming: warehouseBookings.filter((item) => deadlineMatches(item, "upcoming", now, preferences.basis)).length, past: warehouseBookings.filter((item) => deadlineMatches(item, "past", now, preferences.basis)).length };
   const search = preferences.search.trim().toLowerCase();
   const visible = warehouseBookings.filter((item) => (history || deadlineMatches(item, preferences.view, now, preferences.basis)) && (!search ||
-    [item.scm_file_number, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, bookingReturnLocationLabel(item.return_location, item.return_location_code), item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
+    [item.scm_file_number, item.book_id, item.booking_number, item.customer, item.customer_reference, item.return_location, item.return_location_code, bookingReturnLocationLabel(item.return_location, item.return_location_code), item.vessel, item.site_name, ...(item.search_marks ?? []), ...(item.search_containers ?? [])].some((value) => String(value ?? "").toLowerCase().includes(search))));
   const groups = history ? (visible.length ? [["Booking history", visible] as const] : []) : groupBookings(visible, preferences.group, now);
   const returnTo = encodeURIComponent(dashboardUrl(preferences, history));
 
@@ -201,6 +201,7 @@ export default function CottonOutboundPage() {
       <p style={{ color: "#bbc9c2", fontSize: 12 }}>Bunge, Olam Dray Dispatch, ED&F inland drayage, and LDC e2open exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
+      <p>Book ID {preview.booking.bookId || "—"} · Customer reference {preview.booking.customerReference || "—"}</p>
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
       {preview.booking.sourceFormat === "edf" && <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
         <label><input type="checkbox" checked={customerConfirmed} onChange={event => setCustomerConfirmed(event.target.checked)} /> This export is for ED&amp;F Man Cotton.</label>
@@ -230,7 +231,7 @@ export default function CottonOutboundPage() {
       {preview.booking.sourceFormat !== "edf" && preview.booking.lines.some((line) => line.loadSource === "source_load") && <p style={{ color: "#bbc9c2" }}>Other-location marks will be saved as Source loads for direct pickup in a container. They are excluded from missing warehouse marks and can be converted later.</p>}
       {preview.booking.warnings.map((warning) => <p key={warning} style={{ color: "#bbc9c2" }}>{warning}</p>)}
       <div style={{ overflowX: "auto" }}><table style={{ width: "100%", textAlign: "left" }}><thead><tr>{["Mark", "Bales", "S.O.", "Container", "Warehouse", "Load plan"].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>
-        {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.needsBales ? <input aria-label={`Bales for ${line.mark} row ${line.sourceRow}`} type="number" min="1" max="1000000" style={{ ...input, width: 100 }} value={lineBales[String(line.sourceRow)] ?? ""} onChange={event => setLineBales(current => ({ ...current, [String(line.sourceRow)]: event.target.value }))} /> : line.bales}</td><td>{line.shippingOrder || "—"}</td><td>{line.containerNumber || "—"}</td><td>{line.warehouse}</td><td>{preview.booking.warehouseNeedsConfirmation ? (warehouseConfirmed ? "Warehouse load" : "Confirm warehouse") : line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
+        {[...preview.booking.lines].sort((a, b) => Number(a.loadSource === "source_load") - Number(b.loadSource === "source_load")).map((line) => <tr key={line.sourceRow}><td>{line.mark}</td><td>{line.needsBales ? <input aria-label={`Bales for ${line.mark} row ${line.sourceRow}`} type="number" min="1" max="1000000" style={{ ...input, width: 100 }} value={lineBales[String(line.sourceRow)] ?? ""} onChange={event => setLineBales(current => ({ ...current, [String(line.sourceRow)]: event.target.value }))} /> : line.bales}</td><td>{line.shippingOrder || "—"}</td><td>{line.containerNumber || "—"}</td><td>{line.sourceBales?.map(source => `${source.warehouse} (${source.bales})`).join(" · ") || line.warehouse}</td><td>{preview.booking.warehouseNeedsConfirmation ? (warehouseConfirmed ? "Warehouse load" : "Confirm warehouse") : line.loadSource === "source_load" ? "Source load" : "Warehouse load"}</td></tr>)}
       </tbody></table></div>
       <button style={{ ...button, marginTop: 14 }} disabled={!canWrite || working || !datesConfirmed || !!preview.booking.warnings.length ||
         (preview.booking.warehouseNeedsConfirmation && !warehouseConfirmed) ||
@@ -287,7 +288,7 @@ export default function CottonOutboundPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}><strong style={{ fontSize: 17, color: "#e2e8e4", overflowWrap: "anywhere" }}>{item.scm_file_number ? `File ${item.scm_file_number}` : item.booking_number}</strong>
               <span style={{ fontSize: 11, color: "#bbc9c2", whiteSpace: "nowrap" }}>{item.terminal} {item.site_code}</span></div>
             <p style={{ color: "#cbd7d0", fontSize: 13, margin: "3px 0" }}>{item.customer}{history ? (item.status === "cancelled" ? " · Deleted" : " · Archived") : ""}</p>
-            <p style={{ color: "#bbc9c2", fontSize: 12, margin: "0 0 7px" }}>{item.scm_file_number && <>Booking {item.booking_number} · </>}Ref {item.customer_reference || "—"} · {item.vessel || "Vessel needed"}</p>
+            <p style={{ color: "#bbc9c2", fontSize: 12, margin: "0 0 7px" }}>{item.scm_file_number && <>Booking {item.booking_number} · </>}{item.book_id && <>Book ID {item.book_id} · </>}Ref {item.customer_reference || "—"} · {item.vessel || "Vessel needed"}</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, borderTop: "1px solid #334155", paddingTop: 7 }}>
               <DateCell label="ERD" value={item.erd} /><DateCell label="Doc cutoff" value={item.doc_cutoff} hasTime={item.doc_cutoff_has_time} today={deadlineMatches({ ...item, cutoff: null }, "today", now)} />
               <DateCell label="Cutoff" value={item.cutoff} hasTime={item.cutoff_has_time} today={deadlineMatches({ ...item, doc_cutoff: null }, "today", now)} />
