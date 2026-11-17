@@ -249,3 +249,15 @@ test("container lookup searches Savannah export interchanges and groups exact PD
   assert.deepEqual(fallback.map(m=>m.booking),["404641123456"]);
   assert(!queries.some(url=>url.includes("/items/outside/")));
 });
+
+test("dray batches attempt the remaining rows after a blocked result or request error", async () => {
+  const { runDrayBatch } = await import("../lib/dray/batch-review.ts");
+  const attempts = [];
+  const failures = await runDrayBatch(["blocked","network-error","delivered"].map(rowId=>({rowId})), async ({rowId}) => {
+    attempts.push(rowId);
+    if (rowId === "blocked") return "Carrier pay missing";
+    if (rowId === "network-error") throw Error("McLeod response unavailable");
+  });
+  assert.deepEqual(attempts, ["blocked","network-error","delivered"]);
+  assert.deepEqual(failures, {blocked:"Carrier pay missing","network-error":"McLeod response unavailable"});
+});
