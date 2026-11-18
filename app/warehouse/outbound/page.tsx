@@ -1,4 +1,5 @@
 "use client";
+import { validateBookingFile } from "@/lib/warehouse/outbound/upload-limits";
 import { attachBookingFile } from "@/lib/warehouse/outbound/upload-client";
 import { useCanWrite, useStaff } from "@/components/auth/StaffSession";
 import Link from "next/link";
@@ -79,6 +80,7 @@ export default function CottonOutboundPage() {
   const [limitReached, setLimitReached] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [showImport, setShowImport] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState("");
@@ -101,7 +103,7 @@ export default function CottonOutboundPage() {
   }, []);
   useEffect(() => {
     uploadRequest.current?.abort(); uploadRequest.current = null;
-    setWorking(false); setPreview(null); setFile(null); setImportError(""); setDatesConfirmed(false);
+    setWorking(false); setDragging(false); setPreview(null); setFile(null); setImportError(""); setDatesConfirmed(false);
     return () => { uploadRequest.current?.abort(); uploadRequest.current = null; };
   }, [location.terminal, location.siteCode]);
   const list = useCallback(async (signal: AbortSignal, quiet = false) => {
@@ -124,14 +126,29 @@ export default function CottonOutboundPage() {
     const timer = window.setInterval(() => void list(controller.signal, true), 30000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [list]);
+  function selectBookingFile(files: FileList | null) {
+    if (!site || working || !files?.length) return;
+    setPreview(null);
+    setDateYear("");
+    setLineBales({});
+    setCustomerConfirmed(false);
+    setWarehouseConfirmed(false);
+    setDatesConfirmed(false);
+    try {
+      if (files.length !== 1) throw Error("Choose one booking file at a time.");
+      validateBookingFile(files[0].name, files[0].size);
+      setFile(files[0]);
+      setImportError("");
+    } catch (reason) {
+      setFile(null);
+      setImportError(reason instanceof Error ? reason.message : "Could not select the booking file.");
+    }
+  }
   async function upload(event: FormEvent | React.MouseEvent, save: boolean) {
     event.preventDefault();
     if (working) return;
     if (!site) { setImportError("Choose the receiving warehouse first."); return; }
     if (!file) { setImportError("Choose a booking request file first."); return; }
-    if (!/\.(xlsx|xlsb)$/i.test(file.name) || file.size > 25 * 1024 * 1024) {
-      setImportError("Choose a supported .xlsx or .xlsb booking request up to 25 MB."); return;
-    }
     const controller = new AbortController();
     uploadRequest.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 180000);
@@ -196,16 +213,37 @@ export default function CottonOutboundPage() {
             onClick={() => setPreferences((current) => ({ ...current, warehouse: `${item.terminal}:${item.siteCode}`, layout: item.terminal === "DAL" ? "sheet" : current.layout }))}>{item.siteName}</button>)}
         </div>
       </div>}
-      <form onSubmit={(event) => void upload(event, false)} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
-        <label style={{ display: "grid", gap: 8, color: "#cbd7d0", fontSize: 13 }}>Booking request (.xlsx / .xlsb)
-          <input key={preferences.warehouse} type="file" accept=".xlsx,.xlsb" disabled={!site || working} aria-label="Booking request file"
-            onChange={(event) => { setFile(event.target.files?.[0] ?? null); setPreview(null); setDateYear(""); setLineBales({}); setCustomerConfirmed(false); setWarehouseConfirmed(false); setDatesConfirmed(false); setImportError(""); }} />
+      {site && <form className={styles.uploadForm} onSubmit={(event) => void upload(event, false)}>
+        <label className={styles.dropZone} data-dragging={dragging} data-disabled={working}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = working ? "none" : "copy";
+            if (!working) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            selectBookingFile(event.dataTransfer.files);
+          }}>
+          <input key={preferences.warehouse} type="file" accept=".xlsx,.xlsb,.rtf" disabled={working}
+            aria-label="Booking request file" aria-describedby="booking-file-formats"
+            onChange={(event) => {
+              selectBookingFile(event.target.files);
+              event.target.value = "";
+            }} />
+          <span className={styles.uploadIcon} aria-hidden="true">{file ? "✓" : "↑"}</span>
+          <span className={styles.uploadText}>
+            <strong title={file?.name}>{file?.name ?? "Drop your booking file here"}</strong>
+            <span id="booking-file-formats">Excel (.xlsx, .xlsb) up to 25 MB · Toyo (.rtf) up to 3 MB</span>
+          </span>
+          <span className={styles.browseFile} aria-hidden="true">{file ? "Change file" : "Browse files"}</span>
         </label>
-        <button style={button} disabled={!site || !file || working}>{working ? "Processing…" : "Review booking request"}</button>
-      </form>
+        <button type="submit" className={styles.reviewBooking} disabled={!file || working}>{working ? "Processing…" : "Review booking"}</button>
+      </form>}
       {working && <p role="status" style={{ color: "#bbc9c2" }}>Processing {file?.name}…</p>}
       {importError && <p role="alert" style={{ color: "#fca5a5" }}>{importError}</p>}
-      <p style={{ color: "#bbc9c2", fontSize: 12 }}>Bunge, Olam Dray Dispatch, ED&F inland drayage, and LDC e2open exports up to 25 MB. Review the marks and sailing dates before saving the draft.</p>
     </PlatformPanel>
     {preview && <PlatformPanel><h2>{preview.booking.bookingNumber} · {preview.booking.customer}</h2>
       <p>{preview.booking.lines.length} marks · {importBaleTotal || "Not supplied"} bales · {preview.booking.containers ?? "—"} containers</p>
