@@ -1,5 +1,6 @@
 "use client";
 
+import TransitRates from "./TransitRates";
 import MileageEvidence from "@/components/warehouse/MileageEvidence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import PlatformPageHeader from "@/components/platform/PlatformPageHeader";
@@ -108,7 +109,7 @@ export default function WarehouseRates() {
     </nav>
     {category === "inbound" ? <section className="warehouse-empty-state">
       <h2>Transit Inbound Rates</h2>
-      <p>Flat customer billing per load by pickup city, state, and delivery warehouse. Rate entry and import are pending.</p>
+      <TransitRates />
       <button type="button" className={styles.contractMilesButton} aria-expanded={showContractMiles}
         aria-controls="contract-mileage" onClick={() => setShowContractMiles(current => !current)}>
         {showContractMiles ? "Hide contract miles" : "Contract miles"}
