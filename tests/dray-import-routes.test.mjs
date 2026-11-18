@@ -222,6 +222,7 @@ test("container lookup searches Savannah export interchanges and groups exact PD
   let useFallback = false;
   const read = async url => {
     queries.push(url);
+    if (url.includes("/111:/children")) return {json:async()=>({value:[doc("111","EGHU9429982_IN.pdf"),doc("111","EGHU9429982_OUT.pdf")]})};
     if (useFallback) {
       if (url.includes("/search(")) throw Error("Graph HTTP 500");
       if (url.includes("root:") && url.includes("/children")) return {json:async()=>({value:[
@@ -244,6 +245,9 @@ test("container lookup searches Savannah export interchanges and groups exact PD
   assert.deepEqual(matches.map(m=>[m.booking,Boolean(m.inbound),Boolean(m.outbound)]), [["111",true,true],["222",false,true]]);
   await assert.rejects(exports.findSavannahInterchangeBookings("EGHU942998"), /full container number/);
   assert.equal(queries.length,2);
+  const direct = await exports.findSavannahInterchangeBookings("EGHU9429982", "111", true);
+  assert.deepEqual(direct.map(m=>[m.booking,Boolean(m.inbound),Boolean(m.outbound)]), [["111",true,true]]);
+  assert.equal(queries.length,3);
   useFallback = true;
   const fallback = await exports.findSavannahInterchangeBookings("EGHU9429982","4.04641E+11");
   assert.deepEqual(fallback.map(m=>m.booking),["404641123456"]);

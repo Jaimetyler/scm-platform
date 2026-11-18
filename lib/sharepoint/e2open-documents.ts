@@ -52,7 +52,7 @@ function roundedBookingRange(booking: string) {
   return { lower:midpoint-step/BigInt(2), upper:midpoint+step/BigInt(2) };
 }
 
-export async function findSavannahInterchangeBookings(container: string, sourceBooking = "") {
+export async function findSavannahInterchangeBookings(container: string, sourceBooking = "", preferSavedBooking = false) {
   if (!/^[A-Z]{4}\d{7}$/.test(container)) throw Error("Enter the full container number including its check digit.");
   const { read, getDrive } = await connectSharePoint();
   const drive = await getDrive();
@@ -72,6 +72,16 @@ export async function findSavannahInterchangeBookings(container: string, sourceB
       const match = matches.get(booking) ?? { booking, inbound: null, outbound: null };
       match[direction] = item.webUrl;
       matches.set(booking, match);
+    }
+  }
+  const booking = sourceBooking.trim();
+  if (preferSavedBooking && /^[A-Z0-9_-]+$/i.test(booking)) {
+    const path = interchangePath(booking).map(encodeURIComponent).join("/");
+    try {
+      addFiles(await readInterchangeItems(read, `${drive}/root:/${path}:/children?$select=name,file,webUrl&$top=200`), booking);
+      if (matches.size) return [...matches.values()];
+    } catch (error) {
+      if (!(error instanceof Error) || !/^Graph HTTP (404|500|502|503|504)$/.test(error.message)) throw error;
     }
   }
   const range = roundedBookingRange(sourceBooking);

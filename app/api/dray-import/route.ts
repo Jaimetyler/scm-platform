@@ -148,7 +148,7 @@ async function POSTHandler(req: NextRequest) {
     if (row.profile.id !== "DRAY-SAV-SAVWHSE" || !row.order_id || !["verified", "delivered"].includes(row.status)) {
       throw Error("Interchanges require an imported Savannah order.");
     }
-    const matches = await findSavannahInterchangeBookings(row.invoice.container, row.invoice.booking);
+    const matches = await findSavannahInterchangeBookings(row.invoice.container, row.invoice.booking, true);
     const exactBooking = matches.find(match => match.booking.toUpperCase() === row.invoice.booking.toUpperCase());
     return NextResponse.json({ ok: true, interchanges: exactBooking ? [exactBooking] : matches });
   }
