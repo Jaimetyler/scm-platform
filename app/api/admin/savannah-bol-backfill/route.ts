@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({error:"Unauthorized"},{status:401});
   }
   try {
-    const {orders,apply} = await request.json();
+    const {orders,apply,confirmedInMcLeodImages} = await request.json();
     if (!Array.isArray(orders) || !orders.length || orders.length > 13 || new Set(orders).size !== orders.length || !orders.every(id=>batch.has(id))) {
       return NextResponse.json({error:"Select up to 13 orders from the approved Savannah Olam batch."},{status:400});
     }
@@ -58,7 +58,8 @@ export async function POST(request: NextRequest) {
             .eq("mcleod_order",id).eq("document_type","1");
           if (attemptError) throw Error("BOL upload record could not be read.");
           if (!attempts?.length) return {id,status:"No matching BOL upload attempt"};
-          if (!attempts.some(attempt=>attempt.status === "verified" || attempt.status === "staged" && attempt.receipt)) {
+          if (!attempts.some(attempt=>attempt.status === "verified" || attempt.status === "staged" && attempt.receipt ||
+              confirmedInMcLeodImages === true && attempt.status === "uncertain")) {
             return {id,status:"BOL image not confirmed",attempts:attempts.map(attempt=>attempt.status)};
           }
         }
