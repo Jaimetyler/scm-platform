@@ -1,3 +1,4 @@
+import { salesOrdersEnabled } from "@/lib/reporting/sales-orders-state";
 import { canViewFinancialAmounts } from "@/lib/auth/financial-visibility";
 import Link from "next/link";
 import { canUseBilling, canUseInboundImporter, canViewLateFees } from "@/lib/auth/policy";
@@ -70,7 +71,15 @@ export default async function Home() {
           <div className={styles.sectionHeading}><div><h2 id="reporting-title">Reporting</h2><p>Financial performance and business analysis.</p></div></div>
           <div className={styles.grid}>
             <ToolCard href="/reporting/broker-intelligence" category="Reporting" title="Broker Intelligence" description="Review brokerage team workload, customer assignments, financial contribution and seasonal demand." restricted />
-            <ToolCard href="/reporting/sales-orders" category="Reporting" title="Sales Orders & Margin" description="Review billed orders, revenue, and carrier margin by salesperson." restricted />
+            {salesOrdersEnabled() ? (
+              <ToolCard href="/reporting/sales-orders" category="Reporting" title="Sales Orders & Margin" description="Review billed orders, revenue, and carrier margin by salesperson." restricted />
+            ) : (
+              <div className={`${styles.card} ${styles.reporting}`}>
+                <div className={styles.cardTop}><span className={styles.category}>Reporting</span><span className={styles.access}>Coming soon</span></div>
+                <h3 className={styles.cardTitle}>Sales Orders &amp; Margin</h3>
+                <p className={styles.cardDescription}>Sales reporting will open once the McLeod SQL connection is ready.</p>
+              </div>
+            )}
             <ToolCard href="/pnl" category="Reporting" title="Profit & Loss" description="Explore financial results, trends and entity breakdowns." restricted />
             <ToolCard href="/reporting/business-intelligence" category="Reporting" title="SCM Business Intelligence" description="Compare customers, warehouse services and trucking across business units." restricted />
           </div>
