@@ -5,48 +5,66 @@ const text = (value: unknown) => String(value ?? "").trim();
 const money = (value: unknown) => text(value) && Number.isFinite(Number(value)) ? Number(value) : null;
 const object = (value: unknown): SourceRow | undefined => value != null && typeof value === "object" ? value as SourceRow : undefined;
 
-export async function salesOrdersApi(from: string, through: string, salesperson: string, page: number, pageSize: number) {
+export async function salesOrdersApi(from: string, through: string, salesperson: string, offset: number, pageSize: number) {
   const {read} = vendor(true);
-  const query = new URLSearchParams({
-    "orders.company_id": "TMS",
-    orderBy: "orders.bill_date DESC,orders.id DESC",
-    recordLength: String(pageSize),
-    recordOffset: String((page - 1) * pageSize),
-  });
-  const source: unknown = await read(`/orders/search?${query}`);
-  if (!Array.isArray(source) || source.length > pageSize) throw Error("Unexpected order search response.");
-
-  let lastDate = "9999-12-31";
-  let pastStart = false;
+  const customers = new Map<string, SourceRow | null>();
+  const candidates: {order: SourceRow; id: string; billDate: string; customer: SourceRow; rep: string}[] = [];
+  const reps = new Set<string>();
   const seen = new Set<string>();
-  const candidates = source.flatMap((order: SourceRow) => {
-    const raw = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(text(order.bill_date));
-    if (!raw) return [];
-    const billDate = raw.slice(1).join("-");
-    const id = text(order.id);
-    if (text(order.company_id) !== "TMS" || !/^\d+$/.test(id) || seen.has(id) || billDate > lastDate)
-      throw Error("Order search returned an inconsistent page.");
-    seen.add(id);
-    lastDate = billDate;
-    if (billDate < from) pastStart = true;
-    return billDate >= from && billDate <= through ? [{order, id, billDate}] : [];
-  });
-
-  const customerIds = [...new Set(candidates.map(({order}) => text(order.customer_id)).filter(Boolean))];
-  const customers = new Map<string, SourceRow>();
-  let index = 0;
-  await Promise.all(Array.from({length: Math.min(6, customerIds.length)}, async () => {
-    while (index < customerIds.length) {
-      const code = customerIds[index++];
-      try {
-        const customer = object(await read(`/customers/${encodeURIComponent(code)}`));
-        if (customer && text(customer.id) === code && text(customer.company_id) === "TMS") customers.set(code, customer);
-      } catch { /* Missing customer lookup is shown separately from unassigned. */ }
+  const sourcePageSize = 50;
+  const deadline = Date.now() + 25_000;
+  let lastDate = "9999-12-31";
+  let complete = false;
+  for (let batch = 0; batch < 4 && !complete && candidates.length < pageSize && Date.now() < deadline; batch++) {
+    const query = new URLSearchParams({
+      "orders.company_id": "TMS",
+      orderBy: "orders.bill_date DESC,orders.id DESC",
+      recordLength: String(sourcePageSize),
+      recordOffset: String(offset),
+    });
+    const source: unknown = await read(`/orders/search?${query}`);
+    if (!Array.isArray(source) || source.length > sourcePageSize) throw Error("Unexpected order search response.");
+    const rows = source.map((order: SourceRow) => {
+      const raw = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(text(order.bill_date));
+      if (!raw) return {end: true};
+      const billDate = raw.slice(1).join("-");
+      const id = text(order.id);
+      if (text(order.company_id) !== "TMS" || !/^\d+$/.test(id) || seen.has(id) || billDate > lastDate)
+        throw Error("Order search returned an inconsistent page.");
+      seen.add(id);
+      lastDate = billDate;
+      if (billDate < from) return {end: true};
+      const voided = /^(V|VOID|VOIDED|CANCELED|CANCELLED)$/i;
+      if (billDate > through || voided.test(text(order.status)) || voided.test(text(order.__statusDescr))) return {};
+      return {order, id, billDate, code: text(order.customer_id)};
+    });
+    const ids = [...new Set(rows.map(row => row.code).filter(code => code && !customers.has(code)))];
+    let index = 0;
+    await Promise.all(Array.from({length: Math.min(8, ids.length)}, async () => {
+      while (index < ids.length) {
+        const code = ids[index++];
+        try {
+          const customer = object(await read(`/customers/${encodeURIComponent(code)}`));
+          customers.set(code, customer && text(customer.id) === code && text(customer.company_id) === "TMS" ? customer : null);
+        } catch { customers.set(code, null); }
+      }
+    }));
+    let consumed = 0;
+    for (const row of rows) {
+      consumed++;
+      offset++;
+      if (row.end) { complete = true; break; }
+      const customer = customers.get(row.code);
+      const rep = text(customer?.salesperson_id);
+      if (!customer || !rep) continue;
+      reps.add(rep);
+      if (salesperson && rep !== salesperson) continue;
+      candidates.push({order: row.order, id: row.id, billDate: row.billDate, customer, rep});
+      if (candidates.length === pageSize) break;
     }
-  }));
-
-  const people = [...new Set([...customers.values()].map(customer => text(customer.salesperson_id)).filter(Boolean))]
-    .sort().map(value => ({salesperson: value}));
+    if (source.length < sourcePageSize && consumed === source.length) complete = true;
+  }
+  const people = [...reps].sort().map(value => ({salesperson: value}));
   const summaries = new Map<string, {salesperson: string; orders: number; revenue: number | null; recordedCarrierPay: number | null; comparableRevenue: number | null; margin: number | null; pending: number}>();
   const add = (total: number | null, value: number | null) => value == null ? total : (total ?? 0) + value;
   const payByOrder = new Map<string, number>();
@@ -70,11 +88,8 @@ export async function salesOrdersApi(from: string, through: string, salesperson:
       if (pay != null) payByOrder.set(id, pay);
     }
   }));
-  const orders = candidates.flatMap(({order, id, billDate}) => {
+  const orders = candidates.map(({order, id, billDate, customer, rep}) => {
     const customerCode = text(order.customer_id);
-    const customer = customers.get(customerCode);
-    const rep = customer ? text(customer.salesperson_id) : "~unknown";
-    if (salesperson && (salesperson === "~unassigned" ? rep !== "" : rep !== salesperson)) return [];
     const revenue = money(order.total_charge);
     const carrierPay = payByOrder.get(id) ?? null;
     const comparable = revenue != null && carrierPay != null;
@@ -86,8 +101,8 @@ export async function salesOrdersApi(from: string, through: string, salesperson:
     row.margin = add(row.margin, comparable ? revenue - carrierPay : null);
     if (!comparable) row.pending++;
     summaries.set(rep, row);
-    return [{orderId: id, customerCode, customerName: text(customer?.name) || customerCode,
-      salesperson: rep, billDate, status: text(order.status), revenue, carrierPay}];
+    return {orderId: id, customerCode, customerName: text(customer?.name) || customerCode,
+      salesperson: rep, billDate, status: text(order.status), revenue, carrierPay};
   });
-  return {people, summaries: [...summaries.values()], orders, pageSize, pageOnly: true, hasNext: !pastStart && source.length === pageSize};
+  return {people, summaries: [...summaries.values()], orders, pageSize, pageOnly: true, hasNext: !complete, nextOffset: offset};
 }
