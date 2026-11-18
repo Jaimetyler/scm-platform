@@ -84,7 +84,7 @@ export function vendor(readOnly = false): Vendor & { deleteOtherPay: (id: string
     // Read-only credentials are never passed to a write endpoint.
     if (
       isRead
-        ? !otherPay && !/^\/movements\/[A-Za-z0-9_-]+$/.test(path) && !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
+        ? !(readOnly && /^\/customers\/[A-Za-z0-9_-]+$/.test(path)) && !otherPay && !/^\/movements\/[A-Za-z0-9_-]+$/.test(path) && !/^\/orders(?:\/search\?|\/[A-Za-z0-9_-]+$)/.test(path)
         : !chargeRow && !deleteCustomerCharge && !deleteOtherPay && !otherPay && !clearCarrier && !/^(?:\/orders\/(?:create)|\/movement\/update|\/stop\/update|\/orders\/updateRow|\/carrierDispatch\/setPay\/[A-Za-z0-9_-]+\?method=F&units=1&rate=\d+(?:\.\d{1,2})?&carrierPay=\d+(?:\.\d{1,2})?)$/.test(
             path,
           )
