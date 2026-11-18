@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "../ecotton-import/review.module.css";
 import BolImaging from "./BolImaging";
+import SavannahRunDocuments from "./SavannahRunDocuments";
 import {bolEligible} from "@/lib/dray-bols/eligible";
 import { canReviewDrayPay, type interchangeContainerMatches } from "@/lib/dray/review";
 import { runDrayBatch } from "@/lib/dray/batch-review";
@@ -423,6 +424,20 @@ export default function ImportClient() {
           </button>
           <button style={button} disabled={busy||!bolOrders.length} onClick={()=>{setSelected(new Set(bolOrders.map(item=>item.order_id)));setDeliveryPreview([]);}}>Select BOL orders ({bolOrders.length})</button>
           <button style={button} disabled={busy||!chosenBols.length||chosenBols.length>100} onClick={()=>void downloadBols(chosenBols.map(item=>item.order_id),"zip")}>Generate BOLs ({chosenBols.length})</button>
+          {saved.run.profile.id === "DRAY-SAV-SAVWHSE" && (
+            <SavannahRunDocuments
+              key={saved.run.id} runId={saved.run.id} button={button}
+              busy={busy} writes={writes} onBusy={setBusy}
+              rows={items.filter(item => !item.conflict && item.source_hash === item.order.source_hash &&
+                item.order.profile.id === "DRAY-SAV-SAVWHSE" && item.order.order_id &&
+                ["verified", "delivered"].includes(item.order.status)).map(item => ({
+                  rowId: item.order_id,
+                  orderNumber: item.order.order_id,
+                  container: item.order.invoice.container,
+                  sendBol: item.order.invoice.customerId === "OLAMRITX" && bolEligible(item),
+                }))}
+            />
+          )}
           <button
             style={button}
             disabled={busy}

@@ -144,6 +144,14 @@ async function POSTHandler(req: NextRequest) {
     );
   const row = item.order,
     store = databaseStore(db, actor);
+  if (body.action === "find-saved-interchanges") {
+    if (row.profile.id !== "DRAY-SAV-SAVWHSE" || !row.order_id || !["verified", "delivered"].includes(row.status)) {
+      throw Error("Interchanges require an imported Savannah order.");
+    }
+    const matches = await findSavannahInterchangeBookings(row.invoice.container, row.invoice.booking);
+    const exactBooking = matches.find(match => match.booking.toUpperCase() === row.invoice.booking.toUpperCase());
+    return NextResponse.json({ ok: true, interchanges: exactBooking ? [exactBooking] : matches });
+  }
   if (["review-suggestions", "lookup-interchange-container", "save-review"].includes(body.action)) {
     if (row.status !== "preview_blocked" || row.order_id || !canReviewDrayPay(row.invoice))
       throw Error("Only source rows blocked on container, booking or carrier pay can be reviewed.");

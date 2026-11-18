@@ -12,6 +12,10 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const body=await req.json(),db=staffDatabase();
  if(!/^[0-9a-f-]{36}$/i.test(body.runId||'')||!/^[0-9a-f-]{36}$/i.test(body.rowId||''))throw Error('Select a saved import order.');
  const {items}=await readRun(db,body.runId),item=items.find(x=>x.order_id===body.rowId);if(!bolEligible(item))throw Error('Saved BOL details are incomplete.');
+ const batch = body.action === 'send-savannah-bol';
+ if (batch && (item.order.profile.id !== 'DRAY-SAV-SAVWHSE' || item.order.invoice.customerId !== 'OLAMRITX')) {
+   throw Error('Batch McLeod uploads are available for Savannah Olam orders.');
+ }
  const order=await vendor(true).read('/orders/'+item.order.order_id),plan=bolPlan(item,order),client=imagingClient();
  const types=await client.types(plan.orderId);
  const {data:receipts,error:readError}=await db.from('dray_bol_images').select('id,status,receipt,document_type,updated_at').eq('order_id',item.order_id).order('created_at',{ascending:false});if(readError)throw Error('BOL upload history unavailable.');
@@ -22,14 +26,38 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const {error}=await db.from('dray_bol_images').update({status:'verified',updated_at:new Date().toISOString()}).eq('id',record.id);if(error)throw Error('Could not save imaging verification.');return NextResponse.json({ok:true,status:'verified',receipt:record.receipt});}
  return NextResponse.json({ok:true,status:record.status,receipt:record.receipt,message:'Not yet verified in McLeod imaging. No upload was retried.'});
  }
- if(body.action!=='send'||body.confirmed!==true||!types.some(t=>t.id===body.documentTypeId))throw Error('Select and confirm a McLeod document type.');
+ const bolTypes = types.filter(type => /^(BOL|BILL OF LADING)$/i.test(type.description.trim()));
+ const documentTypeId = batch && bolTypes.length === 1 ? bolTypes[0].id : batch ? null : body.documentTypeId;
+ if ((!batch && body.action !== 'send') || body.confirmed !== true || !types.some(type => type.id === documentTypeId)) {
+   throw Error(batch ? 'Could not identify a unique McLeod Bill of Lading document type.' : 'Select and confirm a McLeod document type.');
+ }
  if(process.env.DRAY_IMPORT_WRITES_ENABLED!=='true'||process.env.MCLEOD_SYNC_ENABLED!=='true')throw Error('McLeod uploads are disabled.');
+ if (batch) {
+   const prior = receipts?.find(record => record.document_type === documentTypeId);
+   if (prior?.status === 'verified') return NextResponse.json({ok:true,status:'already-indexed'});
+   if (prior) {
+     try {
+       const images = await client.images(plan.orderId);
+       if (images.some(image => image.documentTypeId === documentTypeId)) {
+         return NextResponse.json({ok:true,status:'already-indexed'});
+       }
+     } catch {
+       // An existing attempt still blocks a resend when McLeod cannot list images.
+     }
+     return NextResponse.json({ok:true,status:prior.status,message:'Previous upload attempt. Check McLeod Images before retrying.'});
+   }
+   const images = await client.images(plan.orderId);
+   if (images.some(image => image.documentTypeId === documentTypeId)) return NextResponse.json({ok:true,status:'already-indexed'});
+ }
  const stored=await persistBol(db,item,plan,staffActor(req)),bytes=stored.bytes,digest=stored.document.pdf_hash;
- const existing=await client.images(plan.orderId);if(existing.some(v=>v.documentTypeId===body.documentTypeId))throw Error('This order already has a document of that type. Review McLeod before adding another.');
- const {data:claim,error}=await db.from('dray_bol_images').insert({order_id:item.order_id,mcleod_order:plan.orderId,pdf_hash:digest,document_id:stored.document.id,document_type:body.documentTypeId,status:'sending',actor:staffActor(req)}).select('id').single();
+ if (!batch) {
+   const existing=await client.images(plan.orderId);
+   if(existing.some(v=>v.documentTypeId===documentTypeId))throw Error('This order already has a document of that type. Review McLeod before adding another.');
+ }
+ const {data:claim,error}=await db.from('dray_bol_images').insert({order_id:item.order_id,mcleod_order:plan.orderId,pdf_hash:digest,document_id:stored.document.id,document_type:documentTypeId,status:'sending',actor:staffActor(req)}).select('id').single();
  if(error){if(error.code==='23505')throw Error('This BOL already has an upload attempt. Check its receipt; do not resend.');throw Error('Could not reserve BOL upload.');}
  let receipt:string|null=null,status='uncertain';
- try{receipt=await client.upload(plan.orderId,body.documentTypeId,bytes);status='staged';try{if(receiptVisible(await client.images(plan.orderId),receipt,body.documentTypeId))status='verified';}catch{/* Successful receipt remains staged when read-back is unavailable. */}}
+ try{receipt=await client.upload(plan.orderId,documentTypeId,bytes);status='staged';try{if(receiptVisible(await client.images(plan.orderId),receipt,documentTypeId))status='verified';}catch{/* Successful receipt remains staged when read-back is unavailable. */}}
  catch{/* An HTTP error or timeout may still have stored the image. Never retry automatically. */}
  const {error:saveError}=await db.from('dray_bol_images').update({status,receipt,updated_at:new Date().toISOString()}).eq('id',claim.id);if(saveError)throw Error('Upload outcome could not be saved. Check McLeod; do not resend.');
  return NextResponse.json({ok:true,status,receipt,message:status==='verified'?'BOL verified in McLeod imaging.':status==='staged'?'Accepted by McLeod; indexing verification pending.':'Upload outcome is uncertain. Check McLeod; do not resend.'});
