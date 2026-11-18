@@ -110,3 +110,27 @@ test('Bunge normalizes booking suffixes and SSLs, and keeps a split-warehouse ma
     assert.deepEqual(booking.warnings, []);
   }
 });
+
+test('Toyo RTF uses the Houston port cutoff and preserves the warehouse code separately from the mark', () => {
+ const document = Buffer.from(String.raw`{\rtf1\ansi
+\par \tab Customer :\tab Toyo Cotton (Japan) Co.
+\par \tab Booking :\tab 6476036920\tab Booking Ref :\tab 8237
+\par \tab S/S Line :\tab COSCO
+\par \tab Containers :\tab 1 x 40' STD or HC\tab Loaded Return :\tab BARBOURS CUT TERMINAL
+\par \tab Ramp Cut :\tab Doc Cut :\tab 12/22/2026
+\par \tab Port Cut :\tab 12/23/2026
+\par \tab Bales\tab Mark\tab Code\tab Warehouse\tab Phone\tab Ready Date
+\par \tab 88\tab TOIE\tab 913054\tab Supply Chain Houston - EPHYTO\tab \tab 12/22/2026
+\par \tab 88\tab *TOTAL*}`);
+ const parsed = parseBookingRequest(document);
+ assert.throws(() => prepareBookingImport(parsed, 'HOU', '4331'), /Houston 5300/);
+ const booking = prepareBookingImport(parsed, 'HOU', '5300', {}, true);
+ assert.equal(booking.bookingNumber, '6476036920');
+ assert.equal(booking.customerReference, '8237');
+ assert.equal(booking.cutoff, '2026-12-23');
+ assert.equal(booking.docCutoff, '2026-12-22');
+ assert.equal(booking.lines[0].mark, 'TOIE');
+ assert.equal(booking.lines[0].warehouseCode, '913054');
+ assert.equal(booking.lines[0].shippingOrder, '');
+ assert.equal(booking.lines[0].loadSource, 'warehouse');
+});

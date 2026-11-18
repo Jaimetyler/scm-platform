@@ -30,8 +30,7 @@ export const SAVANNAH_RATES: CustomerRate[] = [
 
 
 
-// ED&F's Houston inland-drayage export supplies a customer reference and mark,
-// with no shipper order field. Preserve the customer reference separately.
+// These Houston dispatch formats omit the shipper order field.
 export function requiresDrayShippingOrder(customerId: string, terminal: string) {
-  return !(terminal === "HOU" && customerId === "EDFMLOTX");
+  return !(terminal === "HOU" && ["EDFMLOTX", "TOYOLOTX"].includes(customerId));
 }

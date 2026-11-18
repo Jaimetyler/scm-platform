@@ -6,7 +6,7 @@ import { isSavannahE2openBooking } from "./e2open-customer.ts";
 import { outboundBookingNumber, outboundSteamshipLine } from "./booking-identifiers.ts";
 const XLSX = XlsxModule as typeof XlsxTypes;
 export type BookingImport = BungeBooking & {
-  sourceFormat: "bunge" | "olam" | "edf" | "ldc";
+  sourceFormat: "bunge" | "olam" | "edf" | "ldc" | "toyo";
   customerNeedsConfirmation?: boolean; needsDateYear?: boolean; warehouseNeedsConfirmation?: boolean; edfScheduleOnly?: boolean;
 };
 export type BookingImportOptions = { dateYear?: string; bales?: Record<string, unknown>; customerConfirmed?: boolean; warehouseConfirmed?: boolean };
@@ -29,7 +29,62 @@ const edfScheduleHeaders = ["ocean_pol", "ocean_pod", "etd", "eta", "delivery_or
 
 const ldcHeaders = ["TMS ID", "Order Ref", "Shipper", "Origin Name", "Destination Name", "Trailer", "Shipment References"];
 
+function parseToyoBooking(buffer: Buffer): BookingImport {
+  // The dispatch form uses RTF tabs as columns and paragraphs as rows.
+  const rows = buffer.toString("latin1")
+    .replace(/\r?\n/g, "")
+    .replace(/\{\\\*[^{}]*\}/g, "")
+    .replace(/\\(?:tab|par|line)\b ?/g, token => token.startsWith("\\tab") ? "\t" : "\n")
+    .replace(/\\'[\da-f]{2}/gi, token => String.fromCharCode(parseInt(token.slice(2), 16)))
+    .replace(/\\[a-z]+-?\d* ?|[{}]/gi, "")
+    .split("\n").map(row => row.split("\t").map(text));
+  const field = (label: string) => {
+    for (const row of rows) {
+      const col = row.findIndex(cell => norm(cell) === norm(label));
+      if (col >= 0) return row[col + 1] ?? "";
+    }
+    return "";
+  };
+  const header = rows.findIndex(row => ["BALES", "MARK", "CODE", "WAREHOUSE", "READY DATE"].every(label => row.map(norm).includes(label)));
+  if (header < 0 || !/^TOYO COTTON\b/i.test(field("Customer"))) throw Error("Toyo Cotton dispatch format not recognized.");
+  const columns = rows[header].map(norm).filter(Boolean);
+  const lines: OutboundLine[] = [];
+  let statedTotal: number | null = null;
+  for (const [index, row] of rows.slice(header + 1).entries()) {
+    const cells = row.slice(row.findIndex(Boolean));
+    if (cells.includes("*TOTAL*")) {
+      statedTotal = count(cells[0], "total bale count");
+      break;
+    }
+    if (!/^\d[\d,]*$/.test(cells[0] ?? "")) continue;
+    const cell = (label: string) => cells[columns.indexOf(label)];
+    const warehouseCode = cell("CODE");
+    if (warehouseCode !== "913054") throw Error("Toyo dispatch requires the Baytown 5300 warehouse code 913054.");
+    const warehouse = cell("WAREHOUSE");
+    if (!warehouse) throw Error("Missing warehouse name on Toyo dispatch.");
+    lines.push({ mark: identifier(cell("MARK"), "mark"), shippingOrder: "", warehouse, warehouseCode,
+      bales: count(cell("BALES"), "bale count"), sourceRow: header + index + 2, confirmed: false,
+      loadBy: detailDate({ v: cell("READY DATE") } as XlsxTypes.CellObject, "ready date")?.slice(0, 10) ?? null });
+  }
+  if (!lines.length) throw Error("No Toyo mark rows were found.");
+  const totalBales = lines.reduce((sum, line) => sum + line.bales, 0);
+  if (statedTotal !== null && statedTotal !== totalBales) throw Error("Toyo total bale count differs from its mark rows.");
+  const date = (label: string) => detailDate({ v: field(label) } as XlsxTypes.CellObject, label);
+  const cutoff = date("Port Cut");
+  if (!cutoff) throw Error("Missing Port Cut on Toyo dispatch.");
+  const bookingNumber = bookingIdentifier(field("Booking"));
+  const returnLocation = field("Loaded Return");
+  return { sourceFormat: "toyo", customer: "Toyo Cotton Company", bookingNumber,
+    customerReference: field("Booking Ref"), containers: count(field("Containers").match(/^(\d+)\s*x\b/i)?.[1], "container count"),
+    totalBales, lines, warehouses: [...new Set(lines.map(line => line.warehouse))], warehouseDetails: {}, warnings: [],
+    returnLocation, loadPort: returnLocation, steamshipLine: outboundSteamshipLine(field("S/S Line"), bookingNumber),
+    vessel: field("Vessel/Voyage") || null, erd: date("1st Avail / ERD")?.slice(0, 10) ?? null,
+    docCutoff: date("Doc Cut"), cutoff, sourceDates: [{ label: "Port Cut", value: cutoff }],
+    detailNotes: [`Equipment release: ${field("Equip Release")}.`] };
+}
+
 export function parseBookingRequest(buffer: Buffer, options: BookingImportOptions = {}): BookingImport {
+  if (buffer.subarray(0, 5).toString() === "{\\rtf") return parseToyoBooking(buffer);
   // e2open streams its ZIP entries with data descriptors, which this XLSX reader misreads.
   let source = buffer;
   if (buffer.length >= 8 && buffer.readUInt32LE(0) === 0x04034b50 && (buffer.readUInt16LE(6) & 8) !== 0) {
@@ -196,6 +251,8 @@ export function parseBookingRequest(buffer: Buffer, options: BookingImportOption
 }
 
 export function prepareBookingImport(booking: BookingImport, terminal: string, siteCode: string, options: BookingImportOptions = {}, saving = false) {
+  if (booking.sourceFormat === "toyo" && (terminal !== "HOU" || siteCode !== "5300"))
+    throw Error("Choose Houston 5300 to import a Toyo dispatch.");
   if (booking.sourceFormat === "edf") {
     if (booking.edfScheduleOnly ? terminal !== "HOU" : !["DAL", "HOU"].includes(terminal))
       throw Error(booking.edfScheduleOnly ? "Choose a Houston warehouse for this ED&F schedule export." :
@@ -211,7 +268,9 @@ export function prepareBookingImport(booking: BookingImport, terminal: string, s
   if (saving && booking.lines.some(line => !Number.isSafeInteger(line.bales) || line.bales < 1)) throw Error("Enter a positive bale count for every load before saving.");
   booking.lines = booking.sourceFormat === "ldc" || booking.sourceFormat === "edf"
     ? booking.lines.map(line => ({ ...line, warehouseCode: options.warehouseConfirmed ? siteCode : "", loadSource: "warehouse" }))
-    : classifyBookingLoads(booking, terminal, siteCode);
+    : booking.sourceFormat === "toyo"
+      ? booking.lines.map(line => ({ ...line, loadSource: "warehouse" }))
+      : classifyBookingLoads(booking, terminal, siteCode);
   if (terminal === "DAL") {
     const ramp = booking.sourceDates.find(date => date.label === "Ramp Cut");
     if (ramp) { booking.cutoff = ramp.value; if (booking.docCutoff === ramp.value) booking.docCutoff = null; }
