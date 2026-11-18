@@ -29,19 +29,21 @@ export async function connectSharePoint(onExchange = () => {}) {
   if (!tokenResponse.ok || typeof token.access_token !== "string") {
     throw new GraphTokenError(tokenResponse.status, Array.isArray(token.error_codes) ? token.error_codes.filter(Number.isInteger) : []);
   }
-  const read = async (url: string) => {
+  const request = async (url: string, options: RequestInit = {}) => {
     if (!url.startsWith(graph + "/")) throw new Error("Unexpected Graph URL");
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token.access_token}` },
+      ...options,
+      headers: { ...Object.fromEntries(new Headers(options.headers)), Authorization: `Bearer ${token.access_token}` },
       cache: "no-store",
       signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error(`Graph HTTP ${response.status}`);
     return response;
   };
+  const read = (url: string) => request(url);
   const getDrive = async () => {
     const site = await (await read(`${graph}/sites/scmllcnet.sharepoint.com:/?$select=id`)).json();
     return `${graph}/sites/${encodeURIComponent(site.id)}/drive`;
   };
-  return { read, getDrive };
+  return { read, request, getDrive };
 }
