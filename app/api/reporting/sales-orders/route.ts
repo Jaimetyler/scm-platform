@@ -22,14 +22,15 @@ export const GET = withStaffAccess(async request => {
   const through = params.get("through") ?? new Date().toLocaleDateString("sv-SE", {timeZone: "America/New_York"});
   const salesperson = params.get("salesperson") ?? "";
   const page = Number(params.get("page") ?? "1");
-  if (!validDate(from) || !validDate(through) || from < firstDate || from > through ||
+  const offset = Number(params.get("offset") ?? "0");
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 5_000_000 || !validDate(from) || !validDate(through) || from < firstDate || from > through ||
       through > "2099-12-31" || salesperson.length > 40 || !Number.isSafeInteger(page) || page < 1 || page > 100000) {
     return NextResponse.json({error: "Choose a valid bill date range starting January 1, 2025 or later."}, {status: 400});
   }
 
   try {
     if (!process.env.MCLEOD_DB_SERVER || !process.env.MCLEOD_DB_NAME || !process.env.MCLEOD_DB_USER || !process.env.MCLEOD_DB_PASSWORD) {
-      const report = await salesOrdersApi(from, through, salesperson, page, pageSize);
+      const report = await salesOrdersApi(from, through, salesperson, offset, pageSize);
       return NextResponse.json(report, {headers: {"Cache-Control": "private, no-store"}});
     }
     const pool = await getDb();
@@ -55,8 +56,9 @@ export const GET = withStaffAccess(async request => {
         LEFT JOIN dbo.customer c ON c.company_id = o.company_id AND c.id = o.customer_id
         LEFT JOIN dbo.movement m ON m.company_id = o.company_id AND m.id = o.curr_movement_id
         WHERE o.company_id = 'TMS' AND o.bill_date >= @start AND o.bill_date < DATEADD(day, 1, @end)
-          AND (@rep = '' OR (@rep = '~unassigned' AND NULLIF(LTRIM(RTRIM(c.salesperson_id)), '') IS NULL)
-            OR LTRIM(RTRIM(c.salesperson_id)) = @rep);
+          AND NULLIF(LTRIM(RTRIM(c.salesperson_id)), '') IS NOT NULL
+          AND UPPER(LTRIM(RTRIM(o.status))) NOT IN ('V', 'VOID', 'VOIDED', 'CANCELED', 'CANCELLED')
+          AND (@rep = '' OR LTRIM(RTRIM(c.salesperson_id)) = @rep);
 
         SELECT salesperson, COUNT(*) AS orders, SUM(revenue) AS revenue,
           SUM(carrierPay) AS recordedCarrierPay,
