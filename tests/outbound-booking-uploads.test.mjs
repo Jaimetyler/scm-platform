@@ -25,5 +25,5 @@ test('25 MB is accepted and larger, empty, or unsupported formats are rejected p
  assert.doesNotThrow(()=>validateBookingFile('request.xlsb',MAX_BOOKING_BYTES));
  assert.throws(()=>validateBookingFile('request.xlsx',MAX_BOOKING_BYTES+1),/25 MB/);
  assert.throws(()=>validateBookingFile('request.xlsx',0),/empty/);
- assert.throws(()=>validateBookingFile('request.pdf',100),/xlsx or .xlsb/);
+ assert.throws(()=>validateBookingFile('request.pdf',100),/xlsx, .xlsb, or .rtf/);
 });
