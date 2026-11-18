@@ -49,15 +49,34 @@ export async function salesOrdersApi(from: string, through: string, salesperson:
     .sort().map(value => ({salesperson: value}));
   const summaries = new Map<string, {salesperson: string; orders: number; revenue: number | null; recordedCarrierPay: number | null; comparableRevenue: number | null; margin: number | null; pending: number}>();
   const add = (total: number | null, value: number | null) => value == null ? total : (total ?? 0) + value;
+  const payByOrder = new Map<string, number>();
+  let movementIndex = 0;
+  await Promise.all(Array.from({length: Math.min(8, candidates.length)}, async () => {
+    while (movementIndex < candidates.length) {
+      const {order, id} = candidates[movementIndex++];
+      const movementId = text(order.curr_movement_id);
+      if (!/^[A-Za-z0-9_-]+$/.test(movementId)) continue;
+      const movements = order.movements ?? order.movement;
+      const embedded = Array.isArray(movements)
+        ? movements.find(item => text(object(item)?.id) === movementId) : undefined;
+      let pay = money(object(embedded)?.override_pay_amt);
+      if (pay == null) {
+        try {
+          const movement = object(await read(`/movements/${movementId}`));
+          if (text(movement?.id) === movementId && (!movement?.company_id || text(movement.company_id) === "TMS"))
+            pay = money(movement?.override_pay_amt);
+        } catch { /* Leave unavailable amounts out of margin. */ }
+      }
+      if (pay != null) payByOrder.set(id, pay);
+    }
+  }));
   const orders = candidates.flatMap(({order, id, billDate}) => {
     const customerCode = text(order.customer_id);
     const customer = customers.get(customerCode);
     const rep = customer ? text(customer.salesperson_id) : "~unknown";
     if (salesperson && (salesperson === "~unassigned" ? rep !== "" : rep !== salesperson)) return [];
-    const movement = Array.isArray(order.movements) && text(order.curr_movement_id)
-      ? order.movements.find(item => text(object(item)?.id) === text(order.curr_movement_id)) : undefined;
     const revenue = money(order.total_charge);
-    const carrierPay = money(object(movement)?.override_pay_amt);
+    const carrierPay = payByOrder.get(id) ?? null;
     const comparable = revenue != null && carrierPay != null;
     const row = summaries.get(rep) ?? {salesperson: rep, orders: 0, revenue: null, recordedCarrierPay: null, comparableRevenue: null, margin: null, pending: 0};
     row.orders++;
