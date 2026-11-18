@@ -12,7 +12,7 @@ type Item = {id:string;name:string;folder?:object;size?:number;webUrl?:string;cr
 export type InterchangeRun = {
   id:string; startedAt:string; receivedAt?:string; source?:string;
   status:"complete"|"partial"|"failed"|"no-report"; error?:string;
-  files:{path:string;status:"created"|"exists"|"failed";url?:string;error?:string}[];
+  files:{path:string;status:"created"|"exists"|"repaired"|"failed";url?:string;error?:string}[];
 };
 const encode = (parts:string[]) => parts.map(encodeURIComponent).join("/");
 const conflict = (error:unknown) => error instanceof Error && error.message === "Graph HTTP 409";
@@ -163,4 +163,56 @@ export async function listInterchangeRuns() {
     if (error instanceof Error && error.message === "Graph HTTP 404") return [];
     throw error;
   }
+}
+
+// Repair only files created by the original run, and write through the existing
+// item so SharePoint keeps its link and version history.
+export async function repairSavannahInterchangeRun(id: string) {
+  const graph = await connectSharePoint();
+  const drive = await graph.getDrive();
+  const historyPath = `${drive}/root:/${encode([root,logs,`run-${id}.json`])}`;
+  const original = await (await graph.read(historyPath + ":/content")).json() as InterchangeRun;
+  const history = await (await graph.read(historyPath + "?$select=createdDateTime")).json() as Item;
+  if (original.id !== id || original.status !== "complete" || !history.createdDateTime) {
+    throw Error("The original completed run was not verified.");
+  }
+  const report = await newestReport(graph.read,new Date(Date.now()-26*3600_000));
+  if (!report || report.receivedAt !== original.receivedAt) throw Error("The original Outlook report is no longer the newest report.");
+  const csv = await (await graph.read(report.path)).text();
+  const digest = createHash("sha256").update(csv).digest("hex");
+  const marker = await (await graph.read(`${drive}/root:/${encode([root,logs,`processed-${digest}.json`])}:/content`)).json() as InterchangeRun;
+  if (marker.id !== original.id) throw Error("The Outlook attachment does not match the original run.");
+  const targets = new Map(original.files.filter(file=>file.status === "created").map(file=>[file.path,file]));
+  const files = (await renderInterchangeReport(csv)).filter(file=>targets.has(file.path));
+  if (files.length !== targets.size) throw Error("The regenerated PDFs do not match the run manifest.");
+  const startedAt = new Date().toISOString();
+  const run:InterchangeRun = {...original,id:startedAt.replace(/[:.]/g,"-"),startedAt,files:[]};
+  let cursor = 0;
+  await Promise.all(Array.from({length:4},async () => {
+    while (cursor < files.length) {
+      const {path,bytes} = files[cursor++];
+      const itemPath = `${drive}/root:/${encode([root,...path.split("/")])}`;
+      try {
+        const item = await (await graph.read(itemPath + "?$select=id,eTag,createdDateTime,lastModifiedDateTime,webUrl")).json() as Item & {eTag?:string;lastModifiedDateTime?:string};
+        if (!item.id || !item.eTag || !item.createdDateTime || !item.lastModifiedDateTime ||
+            Date.parse(item.createdDateTime) < Math.floor(Date.parse(original.startedAt)/1000)*1000 ||
+            Date.parse(item.lastModifiedDateTime) > Date.parse(history.createdDateTime)) {
+          throw Error("File was created or updated outside the original run.");
+        }
+        const updated = await (await graph.request(`${drive}/items/${encodeURIComponent(item.id)}/content`,{
+          method:"PUT",headers:{"Content-Type":"application/pdf","If-Match":item.eTag},body:Buffer.from(bytes),
+        })).json() as Item;
+        if (updated.id !== item.id || !updated.webUrl || updated.size !== bytes.length) throw Error("Could not verify the replacement PDF.");
+        run.files.push({path,status:"repaired",url:updated.webUrl});
+      } catch (error) {
+        run.files.push({path,status:"failed",error:error instanceof Error ? error.message : "Repair failed."});
+      }
+    }
+  }));
+  run.files.sort((a,b)=>a.path.localeCompare(b.path));
+  run.status = run.files.some(file=>file.status === "failed") ? "partial" : "complete";
+  await graph.request(`${drive}/root:/${encode([root,logs,`run-${run.id}.json`])}:/content?@microsoft.graph.conflictBehavior=fail`,{
+    method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(run),
+  });
+  return run;
 }
