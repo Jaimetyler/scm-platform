@@ -1,0 +1,11 @@
+.page { max-width: 1500px; margin: auto; padding: 24px; }
+.filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 16px 0; }
+.filters label { display: grid; gap: 4px; }
+.filters input, .filters select, .filters button { padding: 8px; font: inherit; }
+.totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.totals div { padding: 14px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.totals dd { margin: 4px 0 0; font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.scroll { overflow-x: auto; }
+.scroll table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.scroll :is(th, td) { text-align: left; padding: 9px 12px; border-bottom: 1px solid #cbd5e1; }
+.scroll td small { display: block; }
