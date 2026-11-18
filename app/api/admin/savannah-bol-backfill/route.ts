@@ -62,8 +62,15 @@ export async function POST(request: NextRequest) {
           }
         }
         if (apply !== true) return {id,status:"ready",checked:checked(order),date:date(order)};
-        if (!checked(order)) {
-          await mcleod.write("/orders/updateRow",{__type:"orders",company_id:"TMS",id,bol_received:true});
+        if (!checked(order) || !date(order)) {
+          const parts = new Intl.DateTimeFormat("sv-SE",{
+            timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit",
+            hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23",
+          }).format(new Date()).replace(" ","T");
+          await mcleod.write("/orders/updateRow",{
+            __type:"orders",company_id:"TMS",id,bol_received:true,
+            ...(!date(order) ? {bol_recv_date:parts} : {}),
+          });
         }
         const after = await mcleod.read("/orders/"+id);
         return {id,status:checked(after) && date(after) ? "verified" : checked(after) ? "date missing" : "flag not verified",date:date(after)};
