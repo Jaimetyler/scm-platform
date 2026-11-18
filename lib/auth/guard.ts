@@ -37,7 +37,8 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   }
   if (path === "/api/cotton-locations" && req.method === "PATCH" && canEditCottonLocationDetails(staff)) return;
   if (req.method === "GET" && ["/api/cotton-locations/mileage", "/api/warehouse/contract-miles"].includes(path)) return;
-  if (["/api/warehouse/rates", "/api/warehouse/transit-rates"].includes(path) && ["GET", "HEAD", "POST"].includes(req.method)) return;
+  if (path === "/api/warehouse/rates" && ["GET", "HEAD", "POST"].includes(req.method)) return;
+  if (path === "/api/warehouse/transit-rates" && ["GET", "HEAD"].includes(req.method)) return;
   if (canViewLateFees(staff) && req.method === "GET" && ["/api/late-fees/dallas", "/api/late-fees/savannah"].includes(path)) return;
   if (staff.role === "accounting") {
     // Dallas dray previews use private file staging; no warehouse record is created.
