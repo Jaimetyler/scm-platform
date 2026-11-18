@@ -3,7 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { runDrayBatch } from "@/lib/dray/batch-review";
 
-type RunRow = { rowId: string; orderNumber: string; container: string; sendBol: boolean };
+type RunRow = { rowId: string; orderNumber: string; container: string; sendBol: boolean; olam: boolean };
 type Interchange = { booking: string; inbound: string | null; outbound: string | null };
 type Result = { row: RunRow; message: string; matches?: Interchange[] };
 
@@ -21,6 +21,40 @@ export default function SavannahRunDocuments({
   const [bols, setBols] = useState<Result[]>([]);
   const [interchanges, setInterchanges] = useState<Result[]>([]);
   const bolRows = rows.filter(row => row.sendBol);
+
+  const [uploads, setUploads] = useState<Result[]>([]);
+  const matchedOlam = interchanges.flatMap(({row, matches}) =>
+    row.olam && matches?.length === 1 && matches[0].inbound && matches[0].outbound
+      ? [{...row, booking: matches[0].booking}] : [],
+  );
+
+  async function uploadInterchanges(targets: typeof matchedOlam) {
+    if (!window.confirm(`Send ingate and outgate PDFs for ${targets.length} Olam order(s) to McLeod Imaging as 05-Interchange?`)) return;
+    onBusy(true);
+    setUploads([]);
+    setProgress(`Sending interchanges · 0 of ${targets.length}`);
+    let completed = 0;
+    try {
+      const failures = await runDrayBatch(targets, async row => {
+        try {
+          const response = await fetch("/api/dray-import/interchanges/imaging", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({runId,rowId:row.rowId,booking:row.booking,confirmed:true}),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw Error(data.error || "Interchange upload failed.");
+          setUploads(previous => [...previous,{row,message:data.message}]);
+          return undefined;
+        } finally {
+          completed++;
+          setProgress(`Sending interchanges · ${completed} of ${targets.length}`);
+        }
+      });
+      setUploads(previous => [...previous,...targets.filter(row => failures[row.rowId]).map(row => ({row,message:failures[row.rowId]}))]);
+    } finally {
+      onBusy(false);
+    }
+  }
 
   async function processRun(action: "send-savannah-bol" | "find-saved-interchanges") {
     const send = action === "send-savannah-bol";
@@ -77,6 +111,17 @@ export default function SavannahRunDocuments({
       <button style={button} disabled={busy || !rows.length} onClick={() => void processRun("find-saved-interchanges")}>
         Find run interchanges ({rows.length})
       </button>
+      {matchedOlam.length > 0 && (
+        <button style={button} disabled={busy || !writes} onClick={() => void uploadInterchanges(matchedOlam)}>
+          Send matched Olam interchanges to McLeod ({matchedOlam.length})
+        </button>
+      )}
+      {uploads.length > 0 && (
+        <details open>
+          <summary>McLeod interchange upload results ({uploads.length})</summary>
+          <ul>{uploads.map(({row,message}) => <li key={row.rowId}>{row.orderNumber} · {row.container} · {message}</li>)}</ul>
+        </details>
+      )}
       {progress && <p role="status">{progress}</p>}
       {bols.length > 0 && (
         <details open>
@@ -90,6 +135,11 @@ export default function SavannahRunDocuments({
           <ul>{interchanges.map(({ row, matches, message }) => (
             <li key={row.rowId}>
               {row.orderNumber} · {row.container}{message && ` · ${message}`}
+              {matchedOlam.some(match => match.rowId === row.rowId) && (
+                <button style={button} disabled={busy || !writes} onClick={() => void uploadInterchanges(matchedOlam.filter(match => match.rowId === row.rowId))}>
+                  Send this interchange pair
+                </button>
+              )}
               {matches?.map(match => (
                 <div key={match.booking}>
                   {match.booking} · {match.inbound ? <a href={match.inbound} target="_blank" rel="noreferrer">Ingate PDF</a> : "Ingate missing"}

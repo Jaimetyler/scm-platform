@@ -127,3 +127,20 @@ export async function findE2openDocuments(bookingNumber: string, containers: str
     })),
   };
 }
+
+export async function readSavannahInterchangePdfs(booking: string, container: string) {
+  if (!/^[A-Z0-9_-]+$/i.test(booking) || !/^[A-Z]{4}\d{7}$/.test(container)) {
+    throw Error("Invalid interchange booking or container.");
+  }
+  const {read, getDrive} = await connectSharePoint();
+  const drive = await getDrive();
+  return Promise.all(["in", "out"].map(async direction => {
+    const path = [...interchangePath(booking), `${container}_${direction}.pdf`].map(encodeURIComponent).join("/");
+    const response = await read(`${drive}/root:/${path}:/content`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > 10_000_000 || bytes.subarray(0, 5).toString() !== "%PDF-") {
+      throw Error(`Invalid or oversized ${direction}gate PDF.`);
+    }
+    return {direction: `${direction}gate`, bytes};
+  }));
+}

@@ -434,6 +434,7 @@ export default function ImportClient() {
                   rowId: item.order_id,
                   orderNumber: item.order.order_id,
                   container: item.order.invoice.container,
+                  olam: item.order.invoice.customerId === "OLAMRITX",
                   sendBol: item.order.invoice.customerId === "OLAMRITX" && bolEligible(item),
                 }))}
             />
