@@ -9,5 +9,7 @@ export function bookingChargeCustomer(name: string, terminal?: string) {
     return terminal === "HOU"
       ? { code: "EDFMLOTX", ids: ["EDFMLOTX"], negotiatedFuel: false }
       : { code: "EDFMECTX", ids: ["EDFMECTX", "EDFMHOTX"], negotiatedFuel: false };
+  if (terminal === "HOU" && /^(?:TOYO COTTON(?: COMPANY| CO\.?)?|TOYO COTTON \(JAPAN\) CO\.?)$/.test(value))
+    return { code: "TOYOLOTX", ids: ["TOYOLOTX"], negotiatedFuel: false };
   return null;
 }
