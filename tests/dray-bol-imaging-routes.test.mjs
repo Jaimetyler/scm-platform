@@ -2,7 +2,8 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 function setup({timeout=false,duplicate=false,storageFailure=false,customerId='OLAMRITX',receipts=[],images=[]}={}){
  const runId='22222222-2222-4222-8222-222222222222',rowId='11111111-1111-4111-8111-111111111111';let uploads=0,claims=0,saved=null,uploadedType=null;const item={order_id:rowId,order:{order_id:'0826838',profile:{id:'DRAY-SAV-SAVWHSE'},invoice:{customerId}}};
  const client={types:async()=>[{id:'1',description:'Bill of Lading'}],images:async()=>images,upload:async(id,type,bytes)=>{assert.deepEqual(bytes,new Uint8Array([9,8,7]));uploads++;uploadedType=type;if(timeout)throw Error('timeout');return 'batch123'}};
- const db={from:table=>({select:()=>({eq:()=>({order:async()=>({data:receipts})})}),insert:()=>({select:()=>({single:async()=>{claims++;return duplicate?{error:{code:'23505'}}:{data:{id:'claim1'}}}})}),update:values=>({eq:async()=>{saved=values;return {}}})})};
+ const recovery = {eq:()=>recovery,is:()=>recovery,select:()=>({single:async()=>{claims++;return duplicate?{error:{code:'PGRST116'}}:{data:{id:'legacy'}}}})};
+ const db={from:table=>({select:()=>({eq:()=>({order:async()=>({data:receipts})})}),insert:()=>({select:()=>({single:async()=>{claims++;return duplicate?{error:{code:'23505'}}:{data:{id:'claim1'}}}})}),update:values=>values.status==='sending'?recovery:({eq:async()=>{saved=values;return {}}})})};
  const local=n=>n==='@/lib/auth/guard'?{withStaffAccess:f=>f,staffActor:()=> 'staff'}:n==='@/lib/auth/session'?{staffDatabase:()=>db}:n==='@/lib/dray/server'?{readRun:async()=>({items:[item]}),vendor:()=>({read:async()=>({id:'0826838'})})}:n==='@/lib/dray-bols/eligible'?{bolEligible:i=>!!i}:n==='@/lib/dray-bols/plan'?{bolPlan:()=>({orderId:'0826838'})}:n==='@/lib/dray-bols/storage'?{persistBol:async()=>{if(storageFailure)throw Error('Storage failed');return {bytes:new Uint8Array([9,8,7]),document:{id:'doc1',pdf_hash:'a'.repeat(64)}}}}:n==='@/lib/dray-bols/imaging'?{imagingClient:()=>client,receiptVisible:()=>false}:require(n);
  const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync('app/api/dray-import/bols/imaging/route.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText)(local,m,m.exports);
  return {send:change=>m.exports.POST({json:async()=>({runId,rowId,action:'send',confirmed:true,documentTypeId:'1',...change})}),stats:()=>({uploads,claims,saved,uploadedType})};
@@ -23,9 +24,19 @@ test('Savannah batch sends Olam BOLs and skips existing or uncertain images', as
   const indexed = setup({images:[{documentTypeId:'1'}]});
   assert.equal((await (await indexed.send(action)).json()).status, 'already-indexed');
   assert.equal(indexed.stats().claims, 0);
-  const pending = setup({receipts:[{document_type:'01',status:'uncertain'}]});
+  const pending = setup({receipts:[{document_type:'1',status:'uncertain',receipt:null}]});
   assert.equal((await (await pending.send(action)).json()).status, 'uncertain');
   assert.equal(pending.stats().claims, 0);
+  const oldAttempt = {id:'legacy', document_type:'01', status:'uncertain', receipt:null, pdf_hash:'a'.repeat(64)};
+  const legacy = setup({receipts:[oldAttempt]});
+  assert.equal((await (await legacy.send(action)).json()).status, 'staged');
+  assert.equal(legacy.stats().uploadedType, '1');
+  const recoveredManually = setup({receipts:[oldAttempt,{document_type:'1',status:'staged',receipt:'manual'}]});
+  assert.equal((await (await recoveredManually.send(action)).json()).status, 'staged');
+  assert.equal(recoveredManually.stats().uploads, 0);
+  const concurrent = setup({receipts:[oldAttempt],duplicate:true});
+  assert.equal((await concurrent.send(action)).status, 400);
+  assert.equal(concurrent.stats().uploads, 0);
   const bunge = setup({customerId:'BUNGOMNE'});
   assert.equal((await bunge.send(action)).status, 400);
   assert.equal(bunge.stats().claims, 0);
