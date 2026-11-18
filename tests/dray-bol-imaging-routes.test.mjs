@@ -19,8 +19,8 @@ test('Savannah batch sends Olam BOLs and skips existing or uncertain images', as
   const fresh = setup();
   assert.equal((await (await fresh.send(action)).json()).status, 'staged');
   assert.equal(fresh.stats().uploads, 1);
-  assert.equal(fresh.stats().uploadedType, '01');
-  const indexed = setup({images:[{documentTypeId:'01'}]});
+  assert.equal(fresh.stats().uploadedType, '1');
+  const indexed = setup({images:[{documentTypeId:'1'}]});
   assert.equal((await (await indexed.send(action)).json()).status, 'already-indexed');
   assert.equal(indexed.stats().claims, 0);
   const pending = setup({receipts:[{document_type:'01',status:'uncertain'}]});

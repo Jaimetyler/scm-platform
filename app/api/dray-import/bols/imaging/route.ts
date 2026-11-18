@@ -26,18 +26,20 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const {error}=await db.from('dray_bol_images').update({status:'verified',updated_at:new Date().toISOString()}).eq('id',record.id);if(error)throw Error('Could not save imaging verification.');return NextResponse.json({ok:true,status:'verified',receipt:record.receipt});}
  return NextResponse.json({ok:true,status:record.status,receipt:record.receipt,message:'Not yet verified in McLeod imaging. No upload was retried.'});
  }
- const documentTypeId = batch ? '01' : body.documentTypeId;
+ // ImagingService uses type ID 1 for the document displayed as 01-Bill Of Lading.
+ const documentTypeId = batch ? '1' : body.documentTypeId;
+ const isBolType = (id: string) => id === documentTypeId || id === '01';
  if (body.confirmed !== true || (!batch && (body.action !== 'send' || !types.some(type => type.id === documentTypeId)))) {
    throw Error('Select and confirm a McLeod document type.');
  }
  if(process.env.DRAY_IMPORT_WRITES_ENABLED!=='true'||process.env.MCLEOD_SYNC_ENABLED!=='true')throw Error('McLeod uploads are disabled.');
  if (batch) {
-   const prior = receipts?.find(record => record.document_type === documentTypeId);
+   const prior = receipts?.find(record => isBolType(record.document_type));
    if (prior?.status === 'verified') return NextResponse.json({ok:true,status:'already-indexed'});
    if (prior) {
      try {
        const images = await client.images(plan.orderId);
-       if (images.some(image => image.documentTypeId === documentTypeId)) {
+       if (images.some(image => isBolType(image.documentTypeId))) {
          return NextResponse.json({ok:true,status:'already-indexed'});
        }
      } catch {
@@ -46,7 +48,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
      return NextResponse.json({ok:true,status:prior.status,message:'Previous upload attempt. Check McLeod Images before retrying.'});
    }
    const images = await client.images(plan.orderId);
-   if (images.some(image => image.documentTypeId === documentTypeId)) return NextResponse.json({ok:true,status:'already-indexed'});
+   if (images.some(image => isBolType(image.documentTypeId))) return NextResponse.json({ok:true,status:'already-indexed'});
  }
  const stored=await persistBol(db,item,plan,staffActor(req)),bytes=stored.bytes,digest=stored.document.pdf_hash;
  if (!batch) {
