@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const batch = new Set([...Array.from({length:51},(_,index)=>String(831402+index).padStart(7,"0")), "0831456"]);
+const manuallyVerified = new Set(["0831402", "0831456"]);
 const checked = (order:any) => [true,"Y","true",1,"1"].includes(order.bol_received);
 const date = (order:any) => typeof order.bol_recv_date === "string" && order.bol_recv_date.trim() || null;
 const hasBol = (images:Awaited<ReturnType<ReturnType<typeof imagingClient>["images"]>>) =>
@@ -51,7 +52,15 @@ export async function POST(request: NextRequest) {
         if (!indexed && /^[A-Za-z0-9_-]{1,60}$/.test(movement)) {
           indexed = await client.movementImages(movement).then(hasBol).catch(()=>false);
         }
-        if (!indexed) return {id,status:"BOL image not confirmed"};
+        if (!indexed && !manuallyVerified.has(id)) {
+          const {data:attempts,error:attemptError} = await db.from("dray_bol_images").select("status,receipt")
+            .eq("mcleod_order",id).eq("document_type","1");
+          if (attemptError) throw Error("BOL upload record could not be read.");
+          if (!attempts?.length) return {id,status:"No matching BOL upload attempt"};
+          if (!attempts.some(attempt=>attempt.status === "verified" || attempt.status === "staged" && attempt.receipt)) {
+            return {id,status:"BOL image not confirmed",attempts:attempts.map(attempt=>attempt.status)};
+          }
+        }
         if (apply !== true) return {id,status:"ready",checked:checked(order),date:date(order)};
         if (!checked(order)) {
           await mcleod.write("/orders/updateRow",{__type:"orders",company_id:"TMS",id,bol_received:true});
