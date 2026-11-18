@@ -26,7 +26,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   if (isWrite(req.method)) requireSameOrigin(req);
   if (staff.role === "admin") return;
   if (isWarehouseLevelOne(staff)) {
-    const financialRoute = /^\/api\/cotton-locations(?:\/|$)/.test(path) || /^\/api\/warehouse\/(?:rates|carrier-rates|contract-miles)(?:\/|$)/.test(path) ||
+    const financialRoute = /^\/api\/cotton-locations(?:\/|$)/.test(path) || /^\/api\/warehouse\/(?:rates|transit-rates|carrier-rates|contract-miles)(?:\/|$)/.test(path) ||
       /^\/api\/warehouse\/outbound\/bookings\/[^/]+\/(?:charges|carrier-rates|mcleod-order|houston-import|dallas-pilot)(?:\/|$)/.test(path);
     if (financialRoute) throw new AccessError("Warehouse Level 1 cannot access rates, pay, or customer billing.");
     if (/^\/api\/warehouse\/outbound\/bookings\/[^/]+\/containers$/.test(path) && isWrite(req.method)) {
@@ -36,8 +36,8 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
     }
   }
   if (path === "/api/cotton-locations" && req.method === "PATCH" && canEditCottonLocationDetails(staff)) return;
-  if (req.method === "GET" && ["/api/cotton-locations/mileage", "/api/warehouse/contract-miles", "/api/warehouse/transit-rates"].includes(path)) return;
-  if (path === "/api/warehouse/rates" && ["GET", "HEAD", "POST"].includes(req.method)) return;
+  if (req.method === "GET" && ["/api/cotton-locations/mileage", "/api/warehouse/contract-miles"].includes(path)) return;
+  if (["/api/warehouse/rates", "/api/warehouse/transit-rates"].includes(path) && ["GET", "HEAD", "POST"].includes(req.method)) return;
   if (canViewLateFees(staff) && req.method === "GET" && ["/api/late-fees/dallas", "/api/late-fees/savannah"].includes(path)) return;
   if (staff.role === "accounting") {
     // Dallas dray previews use private file staging; no warehouse record is created.
