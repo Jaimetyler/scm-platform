@@ -1,3 +1,4 @@
+import { salesOrdersEnabled } from "@/lib/reporting/sales-orders-state";
 import { NextResponse } from "next/server";
 import sql from "mssql";
 import { withStaffAccess } from "@/lib/auth/guard";
@@ -17,6 +18,8 @@ function validDate(value: string) {
 }
 
 export const GET = withStaffAccess(async request => {
+  if (!salesOrdersEnabled()) return NextResponse.json({error: "Sales reporting is paused."},
+    {status: 503, headers: {"Cache-Control": "private, no-store"}});
   const params = request.nextUrl.searchParams;
   const from = params.get("from") ?? firstDate;
   const through = params.get("through") ?? new Date().toLocaleDateString("sv-SE", {timeZone: "America/New_York"});
