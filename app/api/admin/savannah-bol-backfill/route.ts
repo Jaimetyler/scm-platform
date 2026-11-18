@@ -4,6 +4,7 @@ import { staffDatabase } from "@/lib/auth/session";
 import { imagingClient } from "@/lib/dray-bols/imaging";
 import { bolPlan } from "@/lib/dray-bols/plan";
 import { readRun, vendor } from "@/lib/dray/server";
+import { dateStamp } from "@/lib/ecotton/mcleod";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -63,13 +64,11 @@ export async function POST(request: NextRequest) {
         }
         if (apply !== true) return {id,status:"ready",checked:checked(order),date:date(order)};
         if (!checked(order) || !date(order)) {
-          const parts = new Intl.DateTimeFormat("sv-SE",{
-            timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit",
-            hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23",
-          }).format(new Date()).replace(" ","T");
+          const timezone = "America/New_York";
+          const today = new Intl.DateTimeFormat("sv-SE",{timeZone:timezone,year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
           await mcleod.write("/orders/updateRow",{
             __type:"orders",company_id:"TMS",id,bol_received:true,
-            ...(!date(order) ? {bol_recv_date:parts} : {}),
+            ...(!date(order) ? {bol_recv_date:dateStamp(today,timezone)} : {}),
           });
         }
         const after = await mcleod.read("/orders/"+id);
