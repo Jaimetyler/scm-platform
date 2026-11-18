@@ -19,7 +19,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const order=await vendor(true).read('/orders/'+item.order.order_id),plan=bolPlan(item,order),client=imagingClient();
  const types=batch ? [] : await client.types(plan.orderId);
  const {data:receipts,error:readError}=await db.from('dray_bol_images').select('id,status,receipt,document_type,pdf_hash,updated_at').eq('order_id',item.order_id).order('created_at',{ascending:false});if(readError)throw Error('BOL upload history unavailable.');
- if(body.action==='options')return NextResponse.json({ok:true,types,receipts,writesEnabled:process.env.DRAY_IMPORT_WRITES_ENABLED==='true'&&process.env.MCLEOD_SYNC_ENABLED==='true'});
+ if(body.action==='options')return NextResponse.json({ok:true,types,receipts:receipts?.filter(record => record.document_type !== '5'),writesEnabled:process.env.DRAY_IMPORT_WRITES_ENABLED==='true'&&process.env.MCLEOD_SYNC_ENABLED==='true'});
  if(body.action==='reconcile'){
  const record=receipts?.find(r=>r.id===body.receiptId);if(!record)throw Error('Upload receipt not found.');
  const images=await client.images(plan.orderId);if(record.receipt&&receiptVisible(images,record.receipt,record.document_type)){
