@@ -18,7 +18,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  }
  const order=await vendor(true).read('/orders/'+item.order.order_id),plan=bolPlan(item,order),client=imagingClient();
  const types=batch ? [] : await client.types(plan.orderId);
- const {data:receipts,error:readError}=await db.from('dray_bol_images').select('id,status,receipt,document_type,updated_at').eq('order_id',item.order_id).order('created_at',{ascending:false});if(readError)throw Error('BOL upload history unavailable.');
+ const {data:receipts,error:readError}=await db.from('dray_bol_images').select('id,status,receipt,document_type,pdf_hash,updated_at').eq('order_id',item.order_id).order('created_at',{ascending:false});if(readError)throw Error('BOL upload history unavailable.');
  if(body.action==='options')return NextResponse.json({ok:true,types,receipts,writesEnabled:process.env.DRAY_IMPORT_WRITES_ENABLED==='true'&&process.env.MCLEOD_SYNC_ENABLED==='true'});
  if(body.action==='reconcile'){
  const record=receipts?.find(r=>r.id===body.receiptId);if(!record)throw Error('Upload receipt not found.');
@@ -33,30 +33,46 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
    throw Error('Select and confirm a McLeod document type.');
  }
  if(process.env.DRAY_IMPORT_WRITES_ENABLED!=='true'||process.env.MCLEOD_SYNC_ENABLED!=='true')throw Error('McLeod uploads are disabled.');
+ let recoveryId: string | undefined;
+ let recoveryHash: string | undefined;
  if (batch) {
-   const prior = receipts?.find(record => isBolType(record.document_type));
-   if (prior?.status === 'verified') return NextResponse.json({ok:true,status:'already-indexed'});
-   if (prior) {
-     try {
-       const images = await client.images(plan.orderId);
-       if (images.some(image => isBolType(image.documentTypeId))) {
-         return NextResponse.json({ok:true,status:'already-indexed'});
-       }
-     } catch {
-       // An existing attempt still blocks a resend when McLeod cannot list images.
-     }
-     return NextResponse.json({ok:true,status:prior.status,message:'Previous upload attempt. Check McLeod Images before retrying.'});
+   const attempts = receipts?.filter(record => isBolType(record.document_type)) ?? [];
+   if (attempts.some(record => record.status === 'verified')) {
+     return NextResponse.json({ok:true,status:'already-indexed'});
    }
    const images = await client.images(plan.orderId);
-   if (images.some(image => isBolType(image.documentTypeId))) return NextResponse.json({ok:true,status:'already-indexed'});
+   if (images.some(image => isBolType(image.documentTypeId))) {
+     return NextResponse.json({ok:true,status:'already-indexed'});
+   }
+   // Only recover the obsolete API ID. A corrected upload may still be indexing.
+   const blocked = attempts.find(record =>
+     record.document_type !== '01' || record.status !== 'uncertain' || record.receipt !== null
+   );
+   if (blocked) {
+     return NextResponse.json({ok:true,status:blocked.status,message:'Previous upload attempt. Check McLeod Images before retrying.'});
+   }
+   recoveryId = attempts[0]?.id;
+   recoveryHash = attempts[0]?.pdf_hash;
  }
  const stored=await persistBol(db,item,plan,staffActor(req)),bytes=stored.bytes,digest=stored.document.pdf_hash;
  if (!batch) {
    const existing=await client.images(plan.orderId);
    if(existing.some(v=>v.documentTypeId===documentTypeId))throw Error('This order already has a document of that type. Review McLeod before adding another.');
  }
- const {data:claim,error}=await db.from('dray_bol_images').insert({order_id:item.order_id,mcleod_order:plan.orderId,pdf_hash:digest,document_id:stored.document.id,document_type:documentTypeId,status:'sending',actor:staffActor(req)}).select('id').single();
- if(error){if(error.code==='23505')throw Error('This BOL already has an upload attempt. Check its receipt; do not resend.');throw Error('Could not reserve BOL upload.');}
+ const table = db.from('dray_bol_images');
+ const reservation = {
+   order_id:item.order_id, mcleod_order:plan.orderId, pdf_hash:digest,
+   document_id:stored.document.id, document_type:documentTypeId,
+   status:'sending', actor:staffActor(req), updated_at:new Date().toISOString(),
+ };
+ const {data:claim,error} = recoveryId
+   ? await table.update(reservation).eq('id',recoveryId).eq('pdf_hash',recoveryHash)
+       .eq('document_type','01').eq('status','uncertain').is('receipt',null).select('id').single()
+   : await table.insert(reservation).select('id').single();
+ if (error || !claim) {
+   if (recoveryId || error?.code === '23505') throw Error('Another upload attempt exists for this BOL. Check its status before retrying.');
+   throw Error('Could not reserve BOL upload.');
+ }
  let receipt:string|null=null,status='uncertain';
  try{receipt=await client.upload(plan.orderId,documentTypeId,bytes);status='staged';try{if(receiptVisible(await client.images(plan.orderId),receipt,documentTypeId))status='verified';}catch{/* Successful receipt remains staged when read-back is unavailable. */}}
  catch{/* An HTTP error or timeout may still have stored the image. Never retry automatically. */}
