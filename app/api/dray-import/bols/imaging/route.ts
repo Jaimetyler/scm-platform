@@ -17,7 +17,7 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
    throw Error('Batch McLeod uploads are available for Savannah Olam orders.');
  }
  const order=await vendor(true).read('/orders/'+item.order.order_id),plan=bolPlan(item,order),client=imagingClient();
- const types=await client.types(plan.orderId);
+ const types=batch ? [] : await client.types(plan.orderId);
  const {data:receipts,error:readError}=await db.from('dray_bol_images').select('id,status,receipt,document_type,updated_at').eq('order_id',item.order_id).order('created_at',{ascending:false});if(readError)throw Error('BOL upload history unavailable.');
  if(body.action==='options')return NextResponse.json({ok:true,types,receipts,writesEnabled:process.env.DRAY_IMPORT_WRITES_ENABLED==='true'&&process.env.MCLEOD_SYNC_ENABLED==='true'});
  if(body.action==='reconcile'){
@@ -26,10 +26,9 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const {error}=await db.from('dray_bol_images').update({status:'verified',updated_at:new Date().toISOString()}).eq('id',record.id);if(error)throw Error('Could not save imaging verification.');return NextResponse.json({ok:true,status:'verified',receipt:record.receipt});}
  return NextResponse.json({ok:true,status:record.status,receipt:record.receipt,message:'Not yet verified in McLeod imaging. No upload was retried.'});
  }
- const bolTypes = types.filter(type => /^(BOL|BILL OF LADING)$/i.test(type.description.trim()));
- const documentTypeId = batch && bolTypes.length === 1 ? bolTypes[0].id : batch ? null : body.documentTypeId;
- if ((!batch && body.action !== 'send') || body.confirmed !== true || !types.some(type => type.id === documentTypeId)) {
-   throw Error(batch ? 'Could not identify a unique McLeod Bill of Lading document type.' : 'Select and confirm a McLeod document type.');
+ const documentTypeId = batch ? '01' : body.documentTypeId;
+ if (body.confirmed !== true || (!batch && (body.action !== 'send' || !types.some(type => type.id === documentTypeId)))) {
+   throw Error('Select and confirm a McLeod document type.');
  }
  if(process.env.DRAY_IMPORT_WRITES_ENABLED!=='true'||process.env.MCLEOD_SYNC_ENABLED!=='true')throw Error('McLeod uploads are disabled.');
  if (batch) {
