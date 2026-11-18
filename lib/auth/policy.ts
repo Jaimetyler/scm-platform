@@ -51,7 +51,7 @@ export function canUseBilling(staff: Staff | null) {
 }
 // Exact billing operations; maintenance/debug and future endpoints stay admin-only.
 export function billingRequest(path: string, method: string) {
-  if (method === "GET") return ["/api/late-fees/dallas", "/api/late-fees/savannah", "/api/ecotton-import", "/api/dray-import", "/api/dray-import/bols"].includes(path);
+  if (method === "GET") return ["/api/late-fees/dallas", "/api/late-fees/savannah", "/api/ecotton-import", "/api/dray-import", "/api/dray-import/bols", "/api/dray-import/interchanges/download"].includes(path);
   return method === "POST" && [
     "/api/order-charges/preview", "/api/order-charges/apply",
     "/api/ecotton-import", "/api/dray-import", "/api/dray-import/dallas",

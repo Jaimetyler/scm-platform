@@ -140,12 +140,16 @@ export default function SavannahRunDocuments({
                   Send this interchange pair
                 </button>
               )}
-              {matches?.map(match => (
-                <div key={match.booking}>
-                  {match.booking} · {match.inbound ? <a href={match.inbound} target="_blank" rel="noreferrer">Ingate PDF</a> : "Ingate missing"}
-                  {" · "}{match.outbound ? <a href={match.outbound} target="_blank" rel="noreferrer">Outgate PDF</a> : "Outgate missing"}
-                </div>
-              ))}
+              {matches?.map(match => {
+                const query = new URLSearchParams({run: runId, row: row.rowId, booking: match.booking});
+                const download = `/api/dray-import/interchanges/download?${query}`;
+                return (
+                  <div key={match.booking}>
+                    {match.booking} · {match.inbound ? <a href={download + "&direction=in"} download>Ingate PDF</a> : "Ingate missing"}
+                    {" · "}{match.outbound ? <a href={download + "&direction=out"} download>Outgate PDF</a> : "Outgate missing"}
+                  </div>
+                );
+              })}
             </li>
           ))}</ul>
         </details>
