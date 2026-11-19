@@ -1,5 +1,12 @@
 {
   "crons": [
-    { "path": "/api/cron/savannah-interchanges", "schedule": "0 12 * * *" }
+    {
+      "path": "/api/cron/savannah-interchanges",
+      "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/savannah-interchanges-rerun",
+      "schedule": "30 13 19 11 *"
+    }
   ]
 }
