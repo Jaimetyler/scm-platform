@@ -24,7 +24,8 @@ export async function renderInterchangeReport(csv: string) {
     if (!Object.hasOwn(types,type) || !/^[A-Z]{4}\d{7}$/.test(container) || booking && !/^[A-Z0-9_-]+$/i.test(booking)) {
       throw Error("Report has an invalid container, booking, or transaction type.");
     }
-    const path = `${booking ? "Exports/" + booking : "Imports"}/${container}_${types[type][0]}.pdf`;
+    const suffix = /^CANCEL(?:L?ED)?$/i.test(row.STATUS?.trim() ?? "") ? "cancelled" : types[type][0];
+    const path = `${booking ? "Exports/" + booking : "Imports"}/${container}_${suffix}.pdf`;
     const normalized = {...row,"CTR NBR":container,BOOKING:booking,"TRANSACTION TYPE":type};
     if (rows.has(path) && JSON.stringify(rows.get(path)) !== JSON.stringify(normalized)) {
       throw Error(`Report contains conflicting transactions for ${path}.`);
