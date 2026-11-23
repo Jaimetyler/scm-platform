@@ -6,7 +6,7 @@ export function canonicalBlnum(value:unknown):string|null{
  return m?`${m[1]} ${m[2]} BALES`:null;
 }
 export async function nonVoidBlnumMatches(read:(path:string)=>Promise<any>,blnum:string,pickupDates:unknown,customerId:unknown="BUNGOMNE"){
- if(customerId!=="BUNGOMNE"&&customerId!=="OLAMRITX")throw Error("Unknown cotton customer.");
+ if(customerId!=="BUNGOMNE"&&customerId!=="OLAMRITX"&&customerId!=="STAPGRMS")throw Error("Unknown cotton customer.");
  const ranges=pickupMonthRanges(pickupDates),canonical=canonicalBlnum(blnum);
  if(!canonical)throw Error("Invalid BLNUM");
  const found=new Map<string,any>(),hydrated=new Map<string,any>();
