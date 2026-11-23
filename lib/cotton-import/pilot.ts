@@ -11,11 +11,12 @@ export function draftHoustonOrder(
   windows: readonly PickupWindow[],
   equipmentCode: McLeodCottonEquipmentCode,
   tariffNotes?: readonly (string | null | undefined)[],
+  staplDeliveryDate?: string,
 ) {
   const destination = SCM_DELIVERY_LOCATIONS.find(location => location.code === preview.deliveryLocation);
   const olam = preview.customerId === OLAM_CUSTOMER;
   const externalDelivery = ["MERIBATX", "MERIBAT2"].includes(preview.deliveryLocation);
-  if ((!olam && preview.customerId !== "BUNGOMNE") ||
+  if ((!olam && preview.customerId !== "BUNGOMNE" && preview.customerId !== "STAPGRMS") ||
       (!destination && !externalDelivery) ||
       (destination && preview.revenueCode !== (destination.terminal === "dallas" ? "DAVIS" : "MAIN")) ||
       windows.length !== preview.pickupStops.length)
@@ -50,7 +51,7 @@ export function draftHoustonOrder(
     ? order.pickups.reduce((total, line) => total + Math.round(line.weight! * 10), 0) / 10 : null;
   if (weight !== null && (order.pickups.some(line => !Number.isFinite(line.weight) || line.weight! <= 0) || !Number.isFinite(weight) || weight <= 0 || weight > 999999.9))
     throw Error("Order weight exceeds the McLeod weight field.");
-  const deliveryDate = defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
+  const deliveryDate = (preview.customerId === "STAPGRMS" ? staplDeliveryDate : undefined) ?? defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
   const receiving = cottonReceivingHours(preview.deliveryLocation);
 
