@@ -16,7 +16,7 @@ function scenario(options={}){
   const q={select(){return this},eq(){return this},in(){return this},is(){return this},limit(){return this},
    async upsert(value){audit={id:'audit',mcleod_order_id:null,error_message:null,reviewed_payload:null,updated_at:'2026-01-01',...value};return {error:null}},
    update(value){mutation=value;return this},async maybeSingle(){if(mutation){audit={...audit,...mutation};return {data:{id:'audit'},error:null}}return {data:audit,error:null}},
-   then(ok,no){const data=table==='cotton_location_master'?[location]:table==='cotton_location_schedules'?[{location_id:'loc',weekday:null,open_time:'08:00',close_time:'15:00',verified:true,appointment_required:false}]:[];return Promise.resolve({data,error:null}).then(ok,no)}};return q}};
+   then(ok,no){const data=table==='cotton_location_master'?[location]:table==='cotton_location_schedules'?[{location_id:'loc',weekday:null,open_time:'08:00',close_time:options.latePickup?'16:00':'15:00',verified:true,appointment_required:false}]:[];return Promise.resolve({data,error:null}).then(ok,no)}};return q}};
  const cache=new Map();function load(file){if(cache.has(file))return cache.get(file);const mod={exports:{}};cache.set(file,mod.exports);
  const code=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
  function localRequire(name){
@@ -74,7 +74,7 @@ test('one terminal destination list works for both customers and preserves local
 });
 
 test('Stapl creates at the matching consignee with its invoice number and date, ignoring the CSV rate', async () => {
- const s = scenario();
+ const s = scenario({latePickup:true});
  await s.withVendor(async () => {
   const wrong = await s.call('STAPGRMS', 'savannah', 'SAVAGAG2');
   assert.equal(wrong.canCreate, false);
@@ -86,7 +86,9 @@ test('Stapl creates at the matching consignee with its invoice number and date, 
   assert.equal(s.payload.customer_id, 'STAPGRMS');
   assert.equal(s.payload.ordered_by, '6D90340');
   assert.equal(s.payload.blnum, 'AWACT 88 BALES');
-  assert.match(s.payload.stops.at(-1).sched_arrive_early, /^20991202/);
+  assert.match(s.payload.stops[0].sched_arrive_late, /^20991202150000/);
+  assert.match(s.payload.stops.at(-1).sched_arrive_early, /^20991202080000/);
+  assert.match(s.payload.stops.at(-1).sched_arrive_late, /^20991202150000/);
   assert.equal(s.payload.rate, undefined);
   assert.equal(s.payload.total_charge, undefined);
  });
