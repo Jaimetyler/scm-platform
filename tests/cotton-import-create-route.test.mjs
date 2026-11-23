@@ -24,7 +24,7 @@ function scenario(options={}){
   if(name==='@/lib/auth/session')return {staffDatabase:()=>db};
   if(name==='@/lib/bunge/duplicates')return {nonVoidBlnumMatches:async(_read,_blnum,_dates,customer)=>{duplicateCustomers.push(customer);if(options.lookupError)throw Error('Duplicate lookup incomplete');return options.duplicate?[{id:'existing'}]:[]}};
   if(name==='@/lib/cotton-import/pickup-policy-server')return {readPickupPolicies:async()=>new Map()};
-  if(name==='@/lib/bunge/delivery-server')return {readDeliveryLocation:async code=>({code}),readActiveDeliveryLocation:async code=>({code})};
+  if(name==='@/lib/bunge/delivery-server')return {readDeliveryLocation:async code=>({code,address:code==="SUPPSAG2"?"175 Portside Court":"984 Bourne Ave"}),readActiveDeliveryLocation:async code=>({code})};
   if(name==='@/lib/dray/server')return {vendor:()=>({read:async path=>path==='/orders/0829475'?reference:{...payload,id:'1234567',stops:payload.stops.map((s,i)=>({...s,id:String(i+1)}))}})};
   if(name.startsWith('@/')||name.startsWith('.')){const f=resolve(name.startsWith('@/')?root:dirname(file),name.startsWith('@/')?name.slice(2):name);return load(f.endsWith('.ts')?f:f+'.ts')}
   return require(name)
@@ -37,7 +37,7 @@ function scenario(options={}){
  ]:[['Carrier:','SUPPLY CHAIN MANAGEMENT LLC'],['Destination:',terminal==='houston'?'SCM Houston':terminal==='dallas'?'SCM Dallas':'SCM Savannah'],['','Address'],['','City'],
  ['Mark','SO','Sale','Ext.','Bales','','Weight','','','Warehouse','','','Flatbeds','Due','Load (RTL)'],['SLT03','3587071','','',90,'',41742,'','858056','Moody','','','','','11/13/26']];
  const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(rows),'Dispatch');return XLSX.write(book,{type:'buffer',bookType:'xlsx'})}
- async function call(customer,terminal,destination,token){const form=new FormData();form.set('file',new File([workbook(customer,terminal)],'dispatch.xlsx'));form.set('terminal',terminal);form.set('destination',destination);form.set('equipment','van');form.set('salesOrder','3587071');form.set('customerId',customer);if(token){form.set('action','create-pilot');form.set('reviewToken',token)}return (await POST(new NextRequest('https://example.test/api/cotton-import/preflight',{method:'POST',body:form}))).json()}
+ async function call(customer,terminal,destination,token){const form=new FormData();const stapl=customer==='STAPGRMS';const csv='Code,Invoice,Mark,BCS,Load,Del,USDA,Origin,Consignee,Consignee Address,Wt,Rate\nO,6D90340,AWACT,88,12/02/2099,12/02/2099,858056,Moody,SCM,175 Portside Court,43981,760.00';form.set('file',stapl?new File([csv],'dispatch.CSV'):new File([workbook(customer,terminal)],'dispatch.xlsx'));form.set('terminal',terminal);form.set('destination',destination);form.set('equipment','van');form.set('salesOrder',stapl?'6D90340':'3587071');form.set('customerId',customer);if(token){form.set('action','create-pilot');form.set('reviewToken',token)}return (await POST(new NextRequest('https://example.test/api/cotton-import/preflight',{method:'POST',body:form}))).json()}
  return {call,duplicateCustomers,get writes(){return writes},get payload(){return payload},async withVendor(fn){const saved=globalThis.fetch;globalThis.fetch=async(url,init)=>{assert.equal(String(url),'https://mcleod.example.test/orders/create');assert.equal(init.method,'PUT');writes++;payload=JSON.parse(init.body);return Response.json({id:'1234567'})};try{return await fn()}finally{globalThis.fetch=saved}}}
 }
 process.env.BUNGE_IMPORT_WRITES_ENABLED='true';process.env.MCLEOD_BASE_URL='https://mcleod.example.test';process.env.MCLEOD_AUTH_TOKEN='test';
@@ -70,5 +70,24 @@ test('one terminal destination list works for both customers and preserves local
  const s=scenario();await s.withVendor(async()=>{
   for(const terminal of ['savannah','dallas'])assert.equal((await s.call('OLAMRITX',terminal,'MERIBAT2')).canCreate,false);
   assert.equal(s.writes,0);
+ });
+});
+
+test('Stapl creates at the matching consignee with its invoice number and date, ignoring the CSV rate', async () => {
+ const s = scenario();
+ await s.withVendor(async () => {
+  const wrong = await s.call('STAPGRMS', 'savannah', 'SAVAGAG2');
+  assert.equal(wrong.canCreate, false);
+  const review = await s.call('STAPGRMS', 'savannah', 'SUPPSAG2');
+  assert.equal(review.canCreate, true, JSON.stringify(review));
+  const created = await s.call('STAPGRMS', 'savannah', 'SUPPSAG2', review.reviewToken);
+  assert.equal(created.auditStatus, 'verified', JSON.stringify(created));
+  assert.equal(s.writes, 1);
+  assert.equal(s.payload.customer_id, 'STAPGRMS');
+  assert.equal(s.payload.ordered_by, '6D90340');
+  assert.equal(s.payload.blnum, 'AWACT 88 BALES');
+  assert.match(s.payload.stops.at(-1).sched_arrive_early, /^20991202/);
+  assert.equal(s.payload.rate, undefined);
+  assert.equal(s.payload.total_charge, undefined);
  });
 });
