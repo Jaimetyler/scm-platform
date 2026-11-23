@@ -7,6 +7,7 @@ import {pickupMonthRanges} from "@/lib/bunge/duplicate-window";
 import {nonVoidBlnumMatches} from "@/lib/bunge/duplicates";
 import {vendor} from "@/lib/dray/server";
 import {COTTON_DELIVERY_LOCATIONS,cottonTerminalDeliveryCode,deliveryCode,inboundTerminal,OLAM_CUSTOMER} from "@/lib/bunge/destinations";
+import {parseStaplRows,STAPL_CUSTOMER} from "@/lib/bunge/stapl";
 import {parseOlamWorkbook} from "@/lib/bunge/olam";
 import {readCottonDeliveryLocation} from "@/lib/bunge/delivery-server";
 export const dynamic="force-dynamic";
@@ -31,23 +32,36 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const form=await req.formData(),file=form.get("file");if(!(file instanceof File)||!file.size||file.size>3*1024*1024||! /\.(xlsx|xlsb|xls|csv)$/i.test(file.name))throw Error("Upload a dispatch XLSB, XLSX, XLS or CSV up to 3 MB.");
  const region=form.get("terminal"),terminal=inboundTerminal(region);
  if(region&&!terminal)throw Error("Unknown inbound location.");
- const workbook=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:false});
+ const bytes=await file.arrayBuffer();
+ const workbook=XLSX.read(bytes,{type:"array",cellDates:false});
+ const csv=/\.csv$/i.test(file.name) ? XLSX.read(new TextDecoder().decode(bytes),{type:"string",raw:true}) : null;
+ const csvSheet=csv?.SheetNames[0];
+ const stapl=csv&&csvSheet ? parseStaplRows(XLSX.utils.sheet_to_json<unknown[]>(csv.Sheets[csvSheet],{header:1,defval:"",blankrows:true}),csvSheet) : null;
  const olam=parseOlamWorkbook(workbook);
  if(!olam&&/\.xlsb$/i.test(file.name))throw Error("XLSB uploads must be original OLAM load lists.");
- if(!olam&&terminal?.id==="houston")
+ if(!olam&&!stapl&&terminal?.id==="houston")
    return NextResponse.json({ok:true,useHoustonBungePreview:true},{headers:{"Cache-Control":"private, no-store"}});
  const destination=terminal
    ? cottonTerminalDeliveryCode(terminal.id,form.get("destination"))
    : deliveryCode(form.get("destination"));
- const customerId=olam?OLAM_CUSTOMER:"BUNGOMNE";
+ const customerId=stapl?STAPL_CUSTOMER:olam?OLAM_CUSTOMER:"BUNGOMNE";
  const equipment=String(form.get("equipment")||"unknown");if(!["unknown","auto","van","flatbed","VT"].includes(equipment))throw Error("Choose van, flatbed or equipment not selected.");
- const parsed=olam??parseBungeWorkbook(workbook);const requested=form.get("revenue")||"auto";
+ const parsed=stapl??olam??parseBungeWorkbook(workbook);const requested=form.get("revenue")||"auto";
  if(!["auto","MAIN","DAVIS"].includes(String(requested)))throw Error("Choose MAIN or DAVIS.");
  const revenue=terminal?.revenue ?? (requested==="auto"?(parsed.destinations.some(d=>/DALLAS|DESOTO/i.test(d))?"DAVIS":"MAIN"):requested as "MAIN"|"DAVIS");
  const db=staffDatabase();const [locations,schedules,delivery,equipmentPolicies]=await Promise.all([
  db.from("cotton_location_master").select("id,mcleod_code,prev_code,name,address,city,state,timezone").limit(3000),
  db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),destination ? readCottonDeliveryLocation(destination) : null,db.from("cotton_location_equipment").select("*").limit(3000)]);
  if(locations.error||schedules.error||equipmentPolicies.error)throw Error("Location schedules unavailable. Please retry.");
- return NextResponse.json({ok:true,filename:file.name,customerId,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,equipment,proposals:buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[],customerId),previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
+ const proposals=buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[],customerId);
+ if(stapl){
+   const normalize=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,"");
+   const selectedAddress=normalize(delivery?.address ?? "");
+   for(const proposal of proposals){
+     if(!selectedAddress || !proposal.stapl?.destinationAddress.some(address=>normalize(address)===selectedAddress))
+       proposal.issues.push("Stapl source delivery address does not match the selected McLeod location.");
+   }
+ }
+ return NextResponse.json({ok:true,filename:file.name,customerId,sourceRows:parsed.lines.length,excluded:parsed.excluded,sourceDestinations:parsed.destinations,revenue,delivery,equipment,proposals,previewOnly:true},{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:"Preview failed"},{status:400})}
 });
