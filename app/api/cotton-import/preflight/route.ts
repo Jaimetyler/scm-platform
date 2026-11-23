@@ -7,6 +7,7 @@ import { staffDatabase } from "@/lib/auth/session";
 import { readActiveDeliveryLocation, readDeliveryLocation } from "@/lib/bunge/delivery-server";
 import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
 import { vendor } from "@/lib/dray/server";
+import { parseStaplRows, STAPL_CUSTOMER } from "@/lib/bunge/stapl";
 import { parseOlamWorkbook } from "@/lib/bunge/olam";
 import { parseDispatch } from "@/lib/bunge/preview";
 import { regionalOrder } from "@/lib/cotton-import/regional-dispatch";
@@ -39,14 +40,23 @@ async function preflight(req: NextRequest) {
   const requested = requestedEquipment(form.get("equipment"));
   const salesOrder = String(form.get("salesOrder") ?? "").trim();
   if (!(file instanceof File) || !/\.(xlsb|xlsx|xls|csv)$/i.test(file.name) || !file.size ||
-      file.size > 3 * 1024 * 1024 || !/^\d{5,}$/.test(salesOrder))
+      file.size > 3 * 1024 * 1024 )
     throw Error("Select one sales order and upload its original dispatch workbook (up to 3 MB).");
   const bytes = await file.arrayBuffer();
   const workbook = XLSX.read(bytes, { type: "array", cellDates: false });
+  const csv = /\.csv$/i.test(file.name)
+    ? XLSX.read(new TextDecoder().decode(bytes), { type: "string", raw: true }) : null;
+  const csvSheet = csv?.SheetNames[0];
+  const stapl = csv && csvSheet ? parseStaplRows(
+    XLSX.utils.sheet_to_json<unknown[]>(csv.Sheets[csvSheet], { header: 1, defval: "", blankrows: true }),
+    csvSheet,
+  ) : null;
   const parsedOlam = parseOlamWorkbook(workbook);
   const olam = parsedOlam !== null;
+  if (!stapl && !/^\d{5,}$/.test(salesOrder)) throw Error("Select one sales order.");
+  if (stapl && terminal.id !== "savannah") throw Error("Stapl creation is currently available for Savannah.");
   if (olamRequested && !olam) throw Error("Upload the original OLAM dispatch workbook.");
-  if (form.get("customerId") && form.get("customerId") !== (olam ? OLAM_CUSTOMER : "BUNGOMNE"))
+  if (form.get("customerId") && form.get("customerId") !== (stapl ? STAPL_CUSTOMER : olam ? OLAM_CUSTOMER : "BUNGOMNE"))
     throw Error("The uploaded workbook customer does not match the reviewed customer.");
   if (!olam && /\.xlsb$/i.test(file.name)) throw Error("XLSB uploads must be original OLAM load lists.");
   if (!olam && houston && file.size > 2_000_000) throw Error("Houston Bunge workbook exceeds 2 MB.");
@@ -58,7 +68,10 @@ async function preflight(req: NextRequest) {
     .select("id,mcleod_code,prev_code,name,timezone,active,dallas_tariff_planning_note").limit(5000);
   if (locations.error || !locations.data) throw new Error("Location master unavailable.");
   let workbookDestination: { name: string; address: string[] } | undefined;
+  const staplLine = stapl?.lines.find(line => line.so === salesOrder);
+  if (stapl && !staplLine) throw Error("Select an invoice from the original Stapl dispatch.");
   const { source, proposal } = (() => {
+    if (staplLine) return regionalOrder([staplLine], salesOrder, destination, terminal.revenue, locations.data, STAPL_CUSTOMER);
     if (olam) {
       const parsed = parsedOlam;
       if (!parsed) throw Error("Upload the original OLAM dispatch workbook.");
@@ -127,6 +140,7 @@ async function preflight(req: NextRequest) {
   const hashSource = (destinationCode: string, legacy = false) => createHash("sha256").update(JSON.stringify({
     salesOrder, blnum: proposal.blnum, destination: destinationCode,
     ...(olam ? { customerId: OLAM_CUSTOMER, bookingNumber: source.bookingNumber ?? null } : {}),
+    ...(staplLine ? { customerId: STAPL_CUSTOMER, deliveryDate: staplLine.stapl?.deliveryDate } : {}),
     originalPickups: legacy ? originalPickups.map(line => ({ ...line, usdaWarehouseCode: null })) : originalPickups,
   })).digest("hex");
   const sourceHash = hashSource(proposal.deliveryLocation);
@@ -143,6 +157,12 @@ async function preflight(req: NextRequest) {
       : readActiveDeliveryLocation(proposal.deliveryLocation).then(location => ({ ...location, receivingHours: cottonReceivingHours(proposal.deliveryLocation) })),
     readPickupPolicies(db, pickupIds),
   ]);
+  if (staplLine?.stapl) {
+    const normalize = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const selectedAddress = normalize(delivery.address);
+    if (!selectedAddress || !staplLine.stapl.destinationAddress.some(address => normalize(address) === selectedAddress))
+      throw Error("Select the McLeod delivery location matching the Stapl CSV consignee address.");
+  }
   if (duplicates.length)
     return NextResponse.json({ ...response, delivery, duplicates, reason: "Existing McLeod order found. Creation is blocked." });
 
@@ -206,7 +226,7 @@ async function preflight(req: NextRequest) {
   const tariffNotes = terminal.id === "dallas" ? proposal.pickupStops.map(stop =>
     locations.data.find(location => location.id === stop.locationId)?.dallas_tariff_planning_note
   ) : undefined;
-  const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code, tariffNotes),
+  const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code, tariffNotes, staplLine?.stapl?.deliveryDate),
     pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
   let payload = houstonPilotPayload(draft, terminal.id);
   if (payload) {
