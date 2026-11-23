@@ -54,6 +54,17 @@ export function draftHoustonOrder(
   const deliveryDate = (preview.customerId === "STAPGRMS" ? staplDeliveryDate : undefined) ?? defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
   const receiving = cottonReceivingHours(preview.deliveryLocation);
+  let deliveryEarly = `${deliveryDate}T${receiving.open}:00`;
+  const deliveryLate = `${deliveryDate}T${receiving.close}:00`;
+  if (preview.customerId === "STAPGRMS") {
+    for (const pickup of pickups) {
+      if (pickup.sched_arrive_early.slice(0, 10) !== deliveryDate) continue;
+      if (pickup.sched_arrive_early >= deliveryLate)
+        throw Error("Same-day delivery closes before the pickup can be scheduled.");
+      if (pickup.sched_arrive_early > deliveryEarly) deliveryEarly = pickup.sched_arrive_early;
+      if (pickup.sched_arrive_late > deliveryLate) pickup.sched_arrive_late = deliveryLate;
+    }
+  }
 
   const planningComment = destination?.terminal === "dallas" && tariffNotes
     ? order.pickups.map((pickup, index) => {
@@ -87,8 +98,8 @@ export function draftHoustonOrder(
       stops: [...pickups, {
         __type: "stop", __name: "stops", company_id: "TMS", stop_type: "SO",
         status: "A", order_sequence: pickups.length + 1, location_id: preview.deliveryLocation,
-        sched_arrive_early: `${deliveryDate}T${receiving.open}:00`,
-        sched_arrive_late: `${deliveryDate}T${receiving.close}:00`,
+        sched_arrive_early: deliveryEarly,
+        sched_arrive_late: deliveryLate,
         timezone: receiving.timezone,
       }],
     },
