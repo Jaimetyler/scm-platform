@@ -110,10 +110,42 @@ export function previewToyoSourceLoads(rows: readonly (readonly unknown[])[], lo
   const containerCount = positiveInteger(text(field("CONTAINERS")).match(/^(\d+)\s*x\b/i)?.[1]);
   if (containerCount !== lines.length) issues.push("Container count differs from the number of source rows.");
   if (new Set(lines.map(line => line.mark)).size !== lines.length) issues.push("Duplicate marks in the dispatch.");
+  const orderFields = {
+    customer_id: "TOYODATX",
+    revenue_code_id: sourceLoadRevenueCode,
+    order_type_id: "FSC",
+    commodity_id: "COTTON",
+    equipment_type_id: "C",
+    booking_no_sucm: booking,
+    ssl_sucm: ssl,
+    doc_cutoff_date: docCutoff,
+    cutoff_date: cutoff,
+    planning_comment: planningComment,
+  };
+  const draftLines = lines.map(line => ({
+    ...line,
+    // A draft omits scheduled stop times until the delivery window is established.
+    mcleodDraft: issues.length || line.issues.length || !line.pickupCode ||
+      !returnCode || line.baseRate === null || !line.blnum ? null : {
+        ...orderFields,
+        blnum: line.blnum,
+        consignee_refno: line.consignee_refno,
+        ...(line.ordered_by ? { ordered_by: line.ordered_by } : {}),
+        weight: line.weight,
+        rate_type: "F",
+        rate_units: 1,
+        rate: line.baseRate,
+        total_charge: line.baseRate,
+        stops: [
+          { order_sequence: 1, stop_type: "PU", location_id: line.pickupCode },
+          { order_sequence: 2, stop_type: "SO", location_id: returnCode },
+        ],
+      },
+  }));
   return {
-    customerId: "TOYODATX", orderType: "FSC", revenueCode: sourceLoadRevenueCode, booking, ssl, erd, docCutoff, cutoff, portCutoff, rampCutoff,
+    customerId: orderFields.customer_id, orderType: orderFields.order_type_id, revenueCode: sourceLoadRevenueCode, booking, ssl, erd, docCutoff, cutoff, portCutoff, rampCutoff,
     loadedReturn, returnCode, equipmentRelease: text(field("EQUIP RELEASE")), planningComment,
-    lines, issues, totalBaseRate: lines.every(line => line.baseRate !== null)
+    lines: draftLines, issues, totalBaseRate: lines.every(line => line.baseRate !== null)
       ? lines.reduce((total, line) => total + (line.baseRate ?? 0), 0) : null,
   };
 }
