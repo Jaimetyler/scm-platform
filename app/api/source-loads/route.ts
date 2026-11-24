@@ -55,20 +55,36 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     if (pickup.status !== "ready" || !pickup.early || !pickup.late) throw Error(pickup.reason);
     const payload = sourceLoadPayload(preview, line, { early: pickup.early, late: pickup.late }, String(form.get("cutoffTime") ?? ""));
     const ledger = db.from("cotton_bunge_import_orders");
-    const existing = await ledger.select("status,mcleod_order_id").eq("customer_id", preview.customerId)
+    const mcleod = vendor(true);
+    const existing = await ledger.select("id,status,mcleod_order_id,source_hash").eq("customer_id", preview.customerId)
       .eq("revenue_code", preview.revenueCode).eq("blnum", line.blnum).maybeSingle();
     if (existing.error) throw Error("Source Load audit unavailable.");
-    if (existing.data) throw Error(existing.data.mcleod_order_id
-      ? `This load already has McLeod order ${existing.data.mcleod_order_id}.`
-      : "A prior create attempt is locked. Check the audit and McLeod before retrying.");
-    const mcleod = vendor(true);
+    const sourceHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    if (existing.data) {
+      const orderId = existing.data.mcleod_order_id;
+      if (!orderId) throw Error("A prior create attempt is locked. Check the audit and McLeod before retrying.");
+      try {
+        if (existing.data.source_hash !== sourceHash) throw Error("This load was previously submitted with different order details.");
+        const actual = await mcleod.read("/orders/" + encodeURIComponent(orderId));
+        if (String(actual?.id ?? "").trim() !== orderId) throw Error("McLeod order identity could not be verified.");
+        verifySourceLoad(actual, payload);
+        if (existing.data.status !== "verified") {
+          const saved = await ledger.update({ status: "verified", error_message: null, updated_at: new Date().toISOString() })
+            .eq("id", existing.data.id).eq("mcleod_order_id", orderId).select("id").single();
+          if (saved.error || !saved.data) throw Error("Audit update failed.");
+        }
+        return NextResponse.json({ orderId, verified: true, existing: true });
+      } catch (reason) {
+        return NextResponse.json({ orderId, error: reason instanceof Error ? reason.message : "Existing order could not be verified." }, { status: 502 });
+      }
+    }
     const [duplicates] = await Promise.all([
       nonVoidBlnumMatches(mcleod.read, line.blnum, [line.readyDate], preview.customerId),
       readActiveDeliveryLocation(preview.returnCode),
     ]);
     if (duplicates.length) throw Error(`Existing McLeod order found: ${duplicates.map(order => order.id).join(", ")}.`);
     const claim = await ledger.insert({
-      source_hash: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+      source_hash: sourceHash,
       sales_order: line.ordered_by || "", customer_id: preview.customerId, revenue_code: preview.revenueCode,
       blnum: line.blnum, destination_code: preview.returnCode, source_filename: file.name,
       original_pickups: [{ locationCode: line.pickupCode, readyDate: line.readyDate, row: line.sourceRow }],

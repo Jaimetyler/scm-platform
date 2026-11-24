@@ -91,7 +91,7 @@ export default function SourceLoadsPage() {
           const data = await response.json();
           const verified = response.ok && data.verified === true;
           const message = verified
-            ? `Created and verified · SCM order #${data.orderId}`
+            ? `${data.existing ? "Existing order verified" : "Created and verified"} · SCM order #${data.orderId}`
             : [data.orderId && `SCM order #${data.orderId}`, data.error || "Creation could not be verified."].filter(Boolean).join(" · ");
           setCreated(previous => ({ ...previous, [line.sourceRow]: message }));
           if (!verified) break;

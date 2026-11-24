@@ -40,9 +40,18 @@ export function verifySourceLoad(actual: Record<string, unknown>, expected: Retu
   for (const field of ["company_id", "customer_id", "revenue_code_id", "order_type_id", "equipment_type_id", "blnum", "consignee_refno", "booking_no_sucm", "ssl_sucm", "planning_comment", "rate_type"] as const) {
     if (String(actual[field] ?? "").trim() !== expected[field]) throw Error(`McLeod read-back differs on ${field}.`);
   }
-  for (const field of ["rate", "rate_units", "total_charge", "weight"] as const) {
+  for (const field of ["rate", "rate_units", "weight"] as const) {
     if (Number(actual[field]) !== expected[field]) throw Error(`McLeod read-back differs on ${field}.`);
   }
+  const cents = (value: unknown) => value == null || String(value).trim() === "" ? NaN : Math.round(Number(value) * 100);
+  const chargeRows = actual.otherCharges ?? actual.other_charges ?? actual.otherCharge;
+  const fuelCents = Array.isArray(chargeRows)
+    ? chargeRows.filter(charge => ["FSC", "HFS"].includes(String(charge?.charge_id ?? "").trim().toUpperCase()))
+      .reduce((total, charge) => total + cents(charge.amount), 0)
+    : 0;
+  if (!Number.isFinite(fuelCents) || fuelCents < 0 ||
+      cents(actual.total_charge) !== cents(expected.total_charge) + fuelCents)
+    throw Error("McLeod total does not match the platform base rate plus itemized fuel surcharge.");
   for (const field of ["doc_cutoff_date", "cutoff_date"] as const) {
     if (wallClock(actual[field]) !== wallClock(expected[field])) throw Error(`McLeod read-back differs on ${field}.`);
   }
