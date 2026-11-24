@@ -6,7 +6,7 @@ import { outboundSteamshipLine } from "./booking-identifiers.ts";
 export const sourceLoadRevenueCode = "CNTR";
 const terminals = {
   BARBLATX: { kind: "port", names: ["BARBOURS CUT", "BARBOURS CUT TERMINAL"] },
-  BAYPSETX: { kind: "port", names: ["BAYPORT", "BAYPORT TERMINAL"] },
+  BAYPSETX: { kind: "port", names: ["BAYPORT", "BAYPORT TERMINAL", "BAYPORT CONTAINER TERM", "BAYPORT CONTAINER TERMINAL"] },
   UNIOHOTX: { kind: "ramp", names: ["UNION PACIFIC", "UNIONE PACIFIC", "UP", "ENGLEWOOD"] },
   BNSFHOTX: { kind: "ramp", names: ["BNSF", "BSNF"] },
 } as const;
