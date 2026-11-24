@@ -55,7 +55,7 @@ export function billingRequest(path: string, method: string) {
   return method === "POST" && [
     "/api/order-charges/preview", "/api/order-charges/apply",
     "/api/ecotton-import", "/api/dray-import", "/api/dray-import/dallas",
-    "/api/dray-import/bols", "/api/dray-import/bols/imaging",
+    "/api/dray-import/bols", "/api/dray-import/bols/imaging", "/api/dray-import/interchanges/imaging",
     "/api/late-fees/savannah/monthly-preview", "/api/late-fees/savannah/weekly-preview",
     "/api/late-fees/savannah/import-candidates", "/api/late-fees/savannah/sync",
     "/api/late-fees/savannah/sync-all", "/api/late-fees/dallas/sync",
