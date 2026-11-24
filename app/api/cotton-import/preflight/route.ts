@@ -8,6 +8,7 @@ import { readActiveDeliveryLocation, readDeliveryLocation } from "@/lib/bunge/de
 import { nonVoidBlnumMatches } from "@/lib/bunge/duplicates";
 import { vendor } from "@/lib/dray/server";
 import { parseStaplRows, STAPL_CUSTOMER } from "@/lib/bunge/stapl";
+import { parseToyoWorkbook, toyoDestinationMatches, TOYO_CUSTOMER } from "@/lib/bunge/toyo";
 import { parseOlamWorkbook } from "@/lib/bunge/olam";
 import { parseDispatch } from "@/lib/bunge/preview";
 import { regionalOrder } from "@/lib/cotton-import/regional-dispatch";
@@ -37,8 +38,7 @@ async function preflight(req: NextRequest) {
   if (!terminal) throw Error("Unknown inbound location.");
   const houston = terminal.id === "houston";
   const file = form.get("file");
-  const requested = requestedEquipment(form.get("equipment"));
-  const salesOrder = String(form.get("salesOrder") ?? "").trim();
+  const selection = String(form.get("salesOrder") ?? "").trim();
   if (!(file instanceof File) || !/\.(xlsb|xlsx|xls|csv)$/i.test(file.name) || !file.size ||
       file.size > 3 * 1024 * 1024 )
     throw Error("Select one sales order and upload its original dispatch workbook (up to 3 MB).");
@@ -51,15 +51,20 @@ async function preflight(req: NextRequest) {
     XLSX.utils.sheet_to_json<unknown[]>(csv.Sheets[csvSheet], { header: 1, defval: "", blankrows: true }),
     csvSheet,
   ) : null;
-  const parsedOlam = parseOlamWorkbook(workbook);
+  const toyo = parseToyoWorkbook(workbook);
+  const toyoLine = toyo?.lines.find(line => `${line.so}:${line.mark}` === selection);
+  if (toyo && !toyoLine) throw Error("Select a WS number and mark from the original Toyo dispatch.");
+  const salesOrder = toyoLine?.so ?? selection;
+  const requested = toyo ? "van" : requestedEquipment(form.get("equipment"));
+  const parsedOlam = toyo ? null : parseOlamWorkbook(workbook);
   const olam = parsedOlam !== null;
-  if (!stapl && !/^\d{5,}$/.test(salesOrder)) throw Error("Select one sales order.");
+  if (!stapl && !toyo && !/^\d{5,}$/.test(salesOrder)) throw Error("Select one sales order.");
   if (stapl && terminal.id !== "savannah") throw Error("Stapl creation is currently available for Savannah.");
   if (olamRequested && !olam) throw Error("Upload the original OLAM dispatch workbook.");
-  if (form.get("customerId") && form.get("customerId") !== (stapl ? STAPL_CUSTOMER : olam ? OLAM_CUSTOMER : "BUNGOMNE"))
+  if (form.get("customerId") && form.get("customerId") !== (toyo ? TOYO_CUSTOMER : stapl ? STAPL_CUSTOMER : olam ? OLAM_CUSTOMER : "BUNGOMNE"))
     throw Error("The uploaded workbook customer does not match the reviewed customer.");
   if (!olam && /\.xlsb$/i.test(file.name)) throw Error("XLSB uploads must be original OLAM load lists.");
-  if (!olam && houston && file.size > 2_000_000) throw Error("Houston Bunge workbook exceeds 2 MB.");
+  if (!olam && !toyo && houston && file.size > 2_000_000) throw Error("Houston Bunge workbook exceeds 2 MB.");
   if (!olam && terminal.id === "dallas" && !form.get("destination")) throw Error("Select the Dallas delivery location.");
   const destination = cottonTerminalDeliveryCode(terminal.id, form.get("destination") || parsedOlam?.destination);
 
@@ -71,6 +76,7 @@ async function preflight(req: NextRequest) {
   const staplLine = stapl?.lines.find(line => line.so === salesOrder);
   if (stapl && !staplLine) throw Error("Select an invoice from the original Stapl dispatch.");
   const { source, proposal } = (() => {
+    if (toyoLine) return regionalOrder([toyoLine], salesOrder, destination, terminal.revenue, locations.data, TOYO_CUSTOMER);
     if (staplLine) return regionalOrder([staplLine], salesOrder, destination, terminal.revenue, locations.data, STAPL_CUSTOMER);
     if (olam) {
       const parsed = parsedOlam;
@@ -135,11 +141,12 @@ async function preflight(req: NextRequest) {
   const originalPickups = source.pickups.map(line => ({
     row: line.row, mark: line.mark, salesOrder: line.salesOrder, bales: line.bales,
     warehouse: line.warehouse, usdaWarehouseCode: line.usdaWarehouseCode, originalRtl: line.rtl,
-    ...(!houston || olam ? { weight: line.weight ?? null } : {}),
+    ...(!houston || olam || toyo ? { weight: line.weight ?? null } : {}),
   }));
   const hashSource = (destinationCode: string, legacy = false) => createHash("sha256").update(JSON.stringify({
     salesOrder, blnum: proposal.blnum, destination: destinationCode,
     ...(olam ? { customerId: OLAM_CUSTOMER, bookingNumber: source.bookingNumber ?? null } : {}),
+    ...(toyo ? { customerId: TOYO_CUSTOMER, sourceDeliveryAddress: toyo.destinationAddress } : {}),
     ...(staplLine ? { customerId: STAPL_CUSTOMER, deliveryDate: staplLine.stapl?.deliveryDate } : {}),
     originalPickups: legacy ? originalPickups.map(line => ({ ...line, usdaWarehouseCode: null })) : originalPickups,
   })).digest("hex");
@@ -157,6 +164,8 @@ async function preflight(req: NextRequest) {
       : readActiveDeliveryLocation(proposal.deliveryLocation).then(location => ({ ...location, receivingHours: cottonReceivingHours(proposal.deliveryLocation) })),
     readPickupPolicies(db, pickupIds),
   ]);
+  if (toyo && !toyoDestinationMatches(toyo.destinationAddress, delivery.address))
+    throw Error("Select the McLeod delivery location matching the Toyo dispatch address.");
   if (staplLine?.stapl) {
     const normalize = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
     const selectedAddress = normalize(delivery.address);

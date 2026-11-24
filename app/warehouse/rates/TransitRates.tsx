@@ -68,8 +68,8 @@ export default function TransitRates() {
           <td>{rate.delivery_city}, {rate.delivery_state}</td>
           <td>{rate.delivery_code ?? "—"}</td>
           <td>{currency.format(rate.base_rate)}</td>
-          <td>{rate.order_type}</td>
-          <td>{rate.fuel_code ?? "Included"}</td>
+          <td>{rate.order_type === "UNCONFIRMED" ? "—" : rate.order_type}</td>
+          <td>{rate.fuel_code ?? (rate.order_type === "UNCONFIRMED" ? "—" : "Included")}</td>
           <td>{rate.contract_miles ?? "—"}</td>
         </tr>)}</tbody>
       </table>

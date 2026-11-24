@@ -34,7 +34,7 @@ function date(value: string): string {
     throw new Error("Invalid scheduled pickup date");
   return value;
 }
-export function buildCottonOrderPreview(input: CottonImportInput, locations: readonly CottonLocation[], customerId: "BUNGOMNE" | "OLAMRITX" | "STAPGRMS" = "BUNGOMNE"): CottonOrderPreview {
+export function buildCottonOrderPreview(input: CottonImportInput, locations: readonly CottonLocation[], customerId: "BUNGOMNE" | "OLAMRITX" | "STAPGRMS" | "TOYODATX" = "BUNGOMNE"): CottonOrderPreview {
   if (!["MAIN", "DAVIS"].includes(input.revenueCode)) throw new Error("Unsupported cotton revenue code");
   const suppliedCustomer = String(input.customerId ?? "").trim().toUpperCase();
   if (suppliedCustomer && suppliedCustomer !== customerId)
