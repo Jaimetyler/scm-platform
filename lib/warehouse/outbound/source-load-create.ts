@@ -3,6 +3,11 @@ import type { previewToyoSourceLoads } from "./source-loads.ts";
 
 type Preview = ReturnType<typeof previewToyoSourceLoads>;
 
+export function sourceLoadSslCode(value: unknown) {
+  const name = String(value ?? "").trim().toUpperCase();
+  return /^(?:OOCL(?: \(USA\) INC\.?)?|ORIENT OVERSEAS CONTAINER LINE(?: LIMITED)?)$/.test(name) ? "OOCL" : name;
+}
+
 export function sourceLoadPayload(preview: Preview, line: Preview["lines"][number], pickup: { early: string; late: string }, enteredCutoff: string) {
   const draft = line.mcleodDraft;
   if (!draft || !line.readyDate || !preview.cutoff || !preview.docCutoff)
@@ -30,7 +35,7 @@ export function sourceLoadPayload(preview: Preview, line: Preview["lines"][numbe
     [stamp(line.readyDate, pickupLate), stamp(cutoffDay, cutoffTime)],
   ];
   return {
-    ...draft, __type: "orders", company_id: "TMS", status: "A", order_mode: "T", collection_method: "T",
+    ...draft, ssl_sucm: sourceLoadSslCode(draft.ssl_sucm), __type: "orders", company_id: "TMS", status: "A", order_mode: "T", collection_method: "T",
     doc_cutoff_date: stamp(preview.docCutoff.slice(0, 10), preview.docCutoff.slice(11, 16) || "00:00"),
     cutoff_date: stamp(cutoffDay, cutoffTime),
     stops: draft.stops.map((stop, index) => ({
@@ -46,9 +51,11 @@ function wallClock(value: unknown) {
 }
 
 export function verifySourceLoad(actual: Record<string, unknown>, expected: ReturnType<typeof sourceLoadPayload>) {
-  for (const field of ["company_id", "customer_id", "revenue_code_id", "order_type_id", "equipment_type_id", "blnum", "consignee_refno", "booking_no_sucm", "ssl_sucm", "planning_comment", "rate_type"] as const) {
+  for (const field of ["company_id", "customer_id", "revenue_code_id", "order_type_id", "equipment_type_id", "blnum", "consignee_refno", "booking_no_sucm", "planning_comment", "rate_type"] as const) {
     if (String(actual[field] ?? "").trim() !== expected[field]) throw Error(`McLeod read-back differs on ${field}.`);
   }
+  if (sourceLoadSslCode(actual.ssl_sucm) !== expected.ssl_sucm)
+    throw Error(`McLeod steamship line is ${String(actual.ssl_sucm ?? "").trim() || "blank"}; expected ${expected.ssl_sucm}.`);
   for (const field of ["rate", "rate_units", "weight"] as const) {
     if (Number(actual[field]) !== expected[field]) throw Error(`McLeod read-back differs on ${field}.`);
   }

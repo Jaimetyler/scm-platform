@@ -59,12 +59,14 @@ export const POST = withStaffAccess(async (req: NextRequest) => {
     const existing = await ledger.select("id,status,mcleod_order_id,source_hash").eq("customer_id", preview.customerId)
       .eq("revenue_code", preview.revenueCode).eq("blnum", line.blnum).maybeSingle();
     if (existing.error) throw Error("Source Load audit unavailable.");
-    const sourceHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    const hash = (value: typeof payload) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    const sourceHash = hash(payload);
+    const legacySslHash = hash({ ...payload, ssl_sucm: line.mcleodDraft.ssl_sucm });
     if (existing.data) {
       const orderId = existing.data.mcleod_order_id;
       if (!orderId) throw Error("A prior create attempt is locked. Check the audit and McLeod before retrying.");
       try {
-        if (existing.data.source_hash !== sourceHash) throw Error("This load was previously submitted with different order details.");
+        if (existing.data.source_hash !== sourceHash && existing.data.source_hash !== legacySslHash) throw Error("This load was previously submitted with different order details.");
         const actual = await mcleod.read("/orders/" + encodeURIComponent(orderId));
         if (String(actual?.id ?? "").trim() !== orderId) throw Error("McLeod order identity could not be verified.");
         verifySourceLoad(actual, payload);
