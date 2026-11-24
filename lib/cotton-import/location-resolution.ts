@@ -43,13 +43,15 @@ export function resolveCottonLocation(
   return location;
 }
 
-/** Resolve a Bunge dispatch warehouse name only when it uniquely matches the approved master. */
+/** Prefer the dispatch code, and use a known warehouse name to catch mismatches. */
 export function resolveCottonWarehouseName(
   warehouseName: string,
   locations: readonly CottonLocation[],
+  warehouseCode?: string | null,
 ): CottonLocation {
+  const byCode = warehouseCode ? resolveCottonLocation(warehouseCode, locations) : null;
   const name = normalize(warehouseName);
-  if (!name) throw new CottonLocationResolutionError("Missing warehouse name.");
+  if (!name && !byCode) throw new CottonLocationResolutionError("Missing warehouse name.");
   // Confirmed Bunge Houston dispatch aliases; resolve to the master rather than inventing locations.
   const houstonAliases: Record<string,string> = {
     "MOODY COMPRESS #01":"MOODGAT1",
@@ -64,17 +66,24 @@ export function resolveCottonWarehouseName(
     "MOODY COMPRESS #4":"MOODGAT3",
     "GULF COMPRESS #01":"GULFCOT2",
     "GULF COMPRESS #1":"GULFCOT2",
+    "COTTON WAREHOUSE OF CONCORDIA":"CONCFELA",
     "TAYLOR COMPRESS":"TAYLTAT1",
     "UNITED AGRICULTURAL COOPERATIVE":"UNITELTX",
     "UNITED AGRICULTURAL COOPERATIVE, INC.":"UNITELTX",
     "UNITED AGRICULTURAL CO-OP":"UNITELTX",
   };
-  if (houstonAliases[name]) return resolveCottonLocation(houstonAliases[name], locations);
-  const candidates = locations.filter(location => normalize(location.name) === name);
-  if (candidates.length !== 1)
-    throw new CottonLocationResolutionError(
-      candidates.length ? `Ambiguous warehouse name: ${name}` : `Unmapped warehouse name: ${name}`,
-    );
-  return resolveCottonLocation(candidates[0].mcleod_code, locations);
-}
+  const alias = Object.hasOwn(houstonAliases, name) ? houstonAliases[name] : undefined;
+  const candidates = alias ? [] : locations.filter(location => normalize(location.name) === name);
+  if (candidates.length > 1)
+    throw new CottonLocationResolutionError(`Ambiguous warehouse name: ${name}`);
 
+  const nameCode = alias ?? candidates[0]?.mcleod_code;
+  if (byCode) {
+    if (nameCode && normalize(nameCode) !== normalize(byCode.mcleod_code))
+      throw new CottonLocationResolutionError("USDA warehouse code conflicts with dispatch warehouse name.");
+    return byCode;
+  }
+  if (!nameCode)
+    throw new CottonLocationResolutionError(`Unmapped warehouse name: ${name}`);
+  return resolveCottonLocation(nameCode, locations);
+}
