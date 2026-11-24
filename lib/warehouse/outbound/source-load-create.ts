@@ -11,14 +11,23 @@ export function sourceLoadPayload(preview: Preview, line: Preview["lines"][numbe
   const cutoffTime = preview.cutoff.slice(11, 16) || enteredCutoff;
   if (!clock.test(cutoffTime)) throw Error("Enter the confirmed loaded-return cutoff time (Houston local time).");
   const cutoffDay = preview.cutoff.slice(0, 10);
-  if (!clock.test(pickup.early) || !clock.test(pickup.late) || pickup.early >= pickup.late ||
-      `${line.readyDate}T${pickup.late}` >= `${cutoffDay}T${cutoffTime}`)
-    throw Error("The pickup window must end before the loaded-return cutoff.");
+  if (!clock.test(pickup.early) || !clock.test(pickup.late) || pickup.early >= pickup.late)
+    throw Error("The verified pickup window is invalid.");
+  let pickupLate = pickup.late;
+  if (line.readyDate === cutoffDay && pickupLate >= cutoffTime) {
+    const cutoffMinutes = Number(cutoffTime.slice(0, 2)) * 60 + Number(cutoffTime.slice(3, 5));
+    if (cutoffMinutes > 0) {
+      const lastMinute = cutoffMinutes - 1;
+      pickupLate = `${String(Math.floor(lastMinute / 60)).padStart(2, "0")}:${String(lastMinute % 60).padStart(2, "0")}`;
+    }
+  }
+  if (line.readyDate > cutoffDay || (line.readyDate === cutoffDay && pickupLate >= cutoffTime) || pickupLate <= pickup.early)
+    throw Error("The cutoff leaves no pickup window on the ready date.");
   // The inbound cotton flow uses Eastern transport offsets for local wall-clock schedules.
   const stamp = (day: string, time: string) => warehouseWallTime(day, Number(time.slice(0, 2)), Number(time.slice(3, 5)), "SAV");
   const scheduled = [
-    [stamp(line.readyDate, pickup.early), stamp(line.readyDate, pickup.late)],
-    [stamp(line.readyDate, pickup.late), stamp(cutoffDay, cutoffTime)],
+    [stamp(line.readyDate, pickup.early), stamp(line.readyDate, pickupLate)],
+    [stamp(line.readyDate, pickupLate), stamp(cutoffDay, cutoffTime)],
   ];
   return {
     ...draft, __type: "orders", company_id: "TMS", status: "A", order_mode: "T", collection_method: "T",
