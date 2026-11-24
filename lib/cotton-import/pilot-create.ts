@@ -4,7 +4,8 @@ import type { draftHoustonOrder } from "./pilot.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
-export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston") {
+export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah" | "dallas" = "houston",
+  billing: { baseRate?: number; lastFreeDate?: string } = {}) {
   const stops = draft.order.stops;
   try { cottonTerminalDeliveryCode(region, stops.at(-1)?.location_id); } catch { return null; }
   if (draft.salesOrder !== draft.order.ordered_by || !draft.order.weight) return null;
@@ -12,6 +13,14 @@ export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah"
     ...draft.order,
     collection_method: "T",
     rate_type: "F",
+    ...(billing.baseRate !== undefined ? {
+      rate_units: 1, rate: billing.baseRate,
+      total_charge: Math.round((billing.baseRate + (draft.order.otherCharges?.reduce((total, charge) => total + charge.amount, 0) ?? 0)) * 100) / 100,
+    } : {}),
+    ...(billing.lastFreeDate ? {
+      doc_cutoff_date: `${billing.lastFreeDate}T00:00:00`,
+      planning_comment: [draft.order.planning_comment, "[PICKUP LFD]"].filter(Boolean).join(" "),
+    } : {}),
     stops: draft.order.stops.map(({ timezone: _timezone, ...stop }) => stop),
   };
 }
@@ -33,6 +42,14 @@ export function verifyHoustonPilot(actual: Record<string, unknown>, id: string, 
   if (expected.booking_no_sucm && String(actual.booking_no_sucm ?? "").trim() !== expected.booking_no_sucm) mismatches.push("booking_no_sucm");
   if (expected.planning_comment && String(actual.planning_comment ?? "").trim() !== expected.planning_comment)
     mismatches.push("planning_comment");
+  if (expected.doc_cutoff_date && (localClock(actual.doc_cutoff_date) ?? String(actual.doc_cutoff_date ?? "").trim()).slice(0, 10) !== expected.doc_cutoff_date.slice(0, 10))
+    mismatches.push("doc_cutoff_date");
+  if (expected.rate !== undefined) {
+    for (const field of ["rate", "rate_units", "total_charge"] as const) {
+      if (actual[field] == null || String(actual[field]).trim() === "" || Number(actual[field]) !== expected[field])
+        mismatches.push(field);
+    }
+  }
   if (expected.weight !== undefined && Number(actual.weight) !== expected.weight) mismatches.push("weight");
   if (expected.otherCharges?.length) {
     const charges = actual.otherCharges ?? actual.other_charges;

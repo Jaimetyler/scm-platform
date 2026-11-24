@@ -7,6 +7,7 @@ export type McleodStop = {
   stop_type?: string | null;
   location_id?: string | number | null;
 
+  actual_arrival?: string | null;
   sched_arrive_early?: string | null;
   sched_arrive_late?: string | null;
 
@@ -24,6 +25,7 @@ export type McleodOrderSummary = {
   customer_id?: string | null;
 
   doc_cutoff_date?: string | null;
+  planning_comment?: string | null;
   bill_date?: string | null;
 
   status?: string | null;

@@ -162,7 +162,10 @@ export function mapOrderToLateFeeRow(
   const so = getStop(order, "SO");
 
   const anchor = getAnchorDate(order, config);
-  const rawDaysLate = diffDaysLate(anchor.date);
+  const usesPickupLfd = anchor.source === "doc_cutoff_date" &&
+    safeString(order.planning_comment).includes("[PICKUP LFD]");
+  const actualPickup = usesPickupLfd ? normalizeDateInput(pu?.actual_arrival) : null;
+  const rawDaysLate = diffDaysLate(anchor.date, actualPickup ?? undefined);
 
   const policyLocationId = getPolicyLocationId(order, config);
 
@@ -171,8 +174,9 @@ export function mapOrderToLateFeeRow(
     : undefined;
 
   const graceDays =
-    config.graceRule === "ignore_if_doc_cutoff_exists" &&
-    anchor.source === "doc_cutoff_date"
+    anchor.source === "doc_cutoff_date" &&
+    (config.graceRule === "ignore_if_doc_cutoff_exists" ||
+      usesPickupLfd)
       ? 0
       : Number(policy?.late_load_grace_days ?? 0);
 

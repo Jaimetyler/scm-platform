@@ -1,3 +1,5 @@
+import { defaultDeliveryDate } from "../bunge/destinations.ts";
+
 type Rule = {
   rule_kind: string;
   fee_type: string | null;
@@ -42,5 +44,31 @@ export function draftPickupNotes(pickups: readonly Pickup[], policies: ReadonlyM
     });
     return { stopSequence: index + 1, locationCode: pickup.locationCode, type: "Dispatch comment",
       comment: [`Pickup policy · ${pickup.locationCode} · ${pickup.scheduledDate}`, ...lines].join("\n") };
+  });
+}
+
+export function pickupLastFreeDates(pickups: readonly Pickup[], policies: ReadonlyMap<string, PickupPolicyVersion[]>) {
+  return pickups.map(pickup => {
+    const approved = effectivePickupPolicies(policies.get(pickup.locationId) ?? [], pickup.scheduledDate)
+      .filter(version => version.status === "approved")
+      .flatMap(version => version.rules.filter(rule => rule.rule_kind === "late_pickup"));
+    const [rule] = approved;
+    if (approved.length !== 1 || !rule.fee_type || ["NONE", "NOT_ALLOWED", "CUSTOM"].includes(rule.fee_type) ||
+        rule.grace_days === null || !Number.isSafeInteger(rule.grace_days) || rule.grace_days < 0 || rule.grace_days > 366)
+      return null;
+    if (rule.grace_days === 0) return pickup.scheduledDate;
+    if (rule.grace_unit === "business_days") {
+      let day = pickup.scheduledDate;
+      for (let index = 0; index < rule.grace_days; index++) {
+        const next = defaultDeliveryDate([day]);
+        if (!next) return null;
+        day = next;
+      }
+      return day;
+    }
+    if (rule.grace_unit !== "calendar_days") return null;
+    const date = new Date(pickup.scheduledDate + "T00:00:00Z");
+    date.setUTCDate(date.getUTCDate() + rule.grace_days);
+    return date.toISOString().slice(0, 10);
   });
 }

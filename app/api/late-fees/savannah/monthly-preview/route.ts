@@ -365,8 +365,10 @@ async function POSTHandler(req: NextRequest) {
         ])
       );
 
-      const rawDaysLate =
-        parseNumber(
+      const usesPickupLfd = getValue(row, ["planning_comment", "Planning Comment"]).includes("[PICKUP LFD]");
+      const rawDaysLate = usesPickupLfd
+        ? diffDays(originalDate, actualPickup)
+        : parseNumber(
           getValue(row, [
             "days_late",
             "daysLate",
@@ -379,7 +381,7 @@ async function POSTHandler(req: NextRequest) {
         ? policyMap.get(locationCode)
         : undefined;
 
-      const graceDays = Number(policy?.late_load_grace_days ?? 0);
+      const graceDays = usesPickupLfd ? 0 : Number(policy?.late_load_grace_days ?? 0);
 
       const effectiveDaysLate =
         rawDaysLate === null
@@ -403,7 +405,7 @@ async function POSTHandler(req: NextRequest) {
         !customer ? "customer" : null,
         !locationCode ? "location" : null,
         baleCount === null ? "bale count" : null,
-        !actualDelivery ? "actual delivery" : null,
+        usesPickupLfd ? (!actualPickup ? "actual pickup" : null) : (!actualDelivery ? "actual delivery" : null),
         !originalDate ? "original date" : null,
         rawDaysLate === null ? "days late" : null,
       ].filter((value): value is string => Boolean(value));

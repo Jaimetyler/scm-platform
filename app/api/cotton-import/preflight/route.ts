@@ -15,7 +15,8 @@ import { regionalOrder } from "@/lib/cotton-import/regional-dispatch";
 import { parseBungeDispatch } from "@/lib/cotton-import/bunge-dispatch";
 import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
-import { draftPickupNotes } from "@/lib/cotton-import/pickup-notes";
+import { olamTransitRate } from "@/lib/cotton-import/olam-rate";
+import { draftPickupNotes, pickupLastFreeDates } from "@/lib/cotton-import/pickup-notes";
 import { houstonPilotPayload, isArrivalFormatRejection, isMissingCollectionMethodRejection, matchCorrectedSchedule, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
@@ -70,7 +71,7 @@ async function preflight(req: NextRequest) {
 
   const db = staffDatabase();
   const locations = await db.from("cotton_location_master")
-    .select("id,mcleod_code,prev_code,name,timezone,active,dallas_tariff_planning_note").limit(5000);
+    .select("id,mcleod_code,prev_code,name,timezone,active,city,state,dallas_tariff_planning_note").limit(5000);
   if (locations.error || !locations.data) throw new Error("Location master unavailable.");
   let workbookDestination: { name: string; address: string[] } | undefined;
   const staplLine = stapl?.lines.find(line => line.so === salesOrder);
@@ -235,9 +236,22 @@ async function preflight(req: NextRequest) {
   const tariffNotes = terminal.id === "dallas" ? proposal.pickupStops.map(stop =>
     locations.data.find(location => location.id === stop.locationId)?.dallas_tariff_planning_note
   ) : undefined;
+  let baseRate: number | undefined;
+  if (olam) {
+    const rates = await db.from("inbound_transit_rates")
+      .select("pickup_city,pickup_state,delivery_city,delivery_state,delivery_code,base_rate")
+      .eq("customer_code", OLAM_CUSTOMER).eq("delivery_state", delivery.state.trim().toUpperCase()).limit(1000);
+    if (rates.error || !rates.data) throw Error("OLAM transit rates unavailable.");
+    baseRate = olamTransitRate(rates.data, proposal.pickupStops.map(stop => {
+      const pickup = locations.data.find(location => location.id === stop.locationId);
+      return { city: pickup?.city ?? null, state: pickup?.state ?? null };
+    }), delivery, proposal.deliveryLocation);
+  }
+  const lastFreeDates = pickupLastFreeDates(proposal.pickupStops, policies);
+  const lastFreeDate = lastFreeDates.every(Boolean) ? lastFreeDates.filter((date): date is string => date !== null).sort()[0] : undefined;
   const draft = { ...draftHoustonOrder(source, proposal, windows, equipment.code, tariffNotes, staplLine?.stapl?.deliveryDate),
-    pickupNotes: draftPickupNotes(proposal.pickupStops, policies) };
-  let payload = houstonPilotPayload(draft, terminal.id);
+    pickupNotes: draftPickupNotes(proposal.pickupStops, policies), baseRate, lastFreeDate };
+  let payload = houstonPilotPayload(draft, terminal.id, { baseRate, lastFreeDate });
   if (payload) {
     try {
       const example = await vendor(true).read("/orders/0829475");
