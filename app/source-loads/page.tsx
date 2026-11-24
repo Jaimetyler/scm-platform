@@ -74,27 +74,39 @@ export default function SourceLoadsPage() {
     if (revision.current === current) setChecks(previous => ({ ...previous, [line.sourceRow]: check }));
   }
 
-  async function createOrder(line: Preview["lines"][number]) {
-    if (!file || !result || !line.mcleodDraft || creating !== null) return;
-    if (!window.confirm(`Create ${line.blnum} in live McLeod at ${dollars.format(line.mcleodDraft.rate)}?`)) return;
-    setCreating(line.sourceRow);
+  async function createOrders(lines: Preview["lines"]) {
+    if (!file || !result || creating !== null || !lines.length) return;
+    const description = lines.length === 1 ? lines[0].blnum : `${lines.length} Source Loads`;
+    if (!window.confirm(`Create ${description} in live McLeod using the displayed rates and cutoff?`)) return;
     try {
-      const body = new FormData();
-      body.set("file", file);
-      body.set("action", "create");
-      body.set("sourceRow", String(line.sourceRow));
-      body.set("cutoffTime", cutoffTime);
-      const response = await fetch("/api/source-loads", { method: "POST", body });
-      const data = await response.json();
-      setCreated(previous => ({ ...previous, [line.sourceRow]: data.verified
-        ? `Created and verified · SCM order #${data.orderId}`
-        : [data.orderId && `SCM order #${data.orderId}`, data.error || "Creation could not be verified."].filter(Boolean).join(" · ") }));
-    } catch {
-      setCreated(previous => ({ ...previous, [line.sourceRow]: "Request failed. Check McLeod before retrying." }));
+      for (const line of lines) {
+        setCreating(line.sourceRow);
+        try {
+          const body = new FormData();
+          body.set("file", file);
+          body.set("action", "create");
+          body.set("sourceRow", String(line.sourceRow));
+          body.set("cutoffTime", cutoffTime);
+          const response = await fetch("/api/source-loads", { method: "POST", body });
+          const data = await response.json();
+          const verified = response.ok && data.verified === true;
+          const message = verified
+            ? `Created and verified · SCM order #${data.orderId}`
+            : [data.orderId && `SCM order #${data.orderId}`, data.error || "Creation could not be verified."].filter(Boolean).join(" · ");
+          setCreated(previous => ({ ...previous, [line.sourceRow]: message }));
+          if (!verified) break;
+        } catch {
+          setCreated(previous => ({ ...previous, [line.sourceRow]: "Request failed. Check McLeod before retrying." }));
+          break;
+        }
+      }
     } finally {
       setCreating(null);
     }
   }
+
+  const eligible = result?.lines.filter(line => line.mcleodDraft && !created[line.sourceRow]) ?? [];
+  const hasCutoff = Boolean(result?.cutoff?.slice(11, 16) || cutoffTime);
 
   return <main className={styles.page}>
     <header className={styles.header}>
@@ -129,11 +141,16 @@ export default function SourceLoadsPage() {
       </dl>
       <p><strong>Planning comment</strong> {result.planningComment}</p>
       {result.issues.map(issue => <p key={issue} role="alert" className={styles.error}>{issue}</p>)}
-      {result.cutoff?.length === 10 && <div className={layout.actions}>
-        <label>Confirmed loaded-return cutoff time (Houston local){" "}
+      <div className={layout.actions}>
+        {result.cutoff?.length === 10 && <label>Confirmed loaded-return cutoff time (Houston local){" "}
           <input type="time" value={cutoffTime} disabled={creating !== null} onChange={event => setCutoffTime(event.target.value)} />
-        </label>
-      </div>}
+        </label>}
+        <button type="button" onClick={() => void createOrders(eligible)}
+          disabled={creating !== null || !eligible.length || !hasCutoff}>
+          {creating !== null ? "Creating…" : eligible.length ? `Create ${eligible.length} eligible in McLeod` : "Create eligible in McLeod"}
+        </button>
+      </div>
+      <p className={layout.notice}>The cutoff time is saved to each McLeod order when it is created.</p>
       <div className={styles.tableWrap}>
         <table>
           <thead><tr><th>Order references</th><th>Pickup and loaded return</th><th>Bales / Weight</th><th>Base rate</th><th>Review</th><th>McLeod duplicates</th><th>McLeod order</th></tr></thead>
@@ -154,7 +171,7 @@ export default function SourceLoadsPage() {
               <td><button type="button" onClick={() => void checkDuplicates(line)}
                 disabled={checking || !line.blnum || !line.readyDate}>{checking ? "Checking…" : "Check duplicates"}</button>
                 {check && "message" in check && <small role="status">{check.message}</small>}</td>
-              <td><button type="button" onClick={() => void createOrder(line)}
+              <td><button type="button" onClick={() => void createOrders([line])}
                 disabled={creating !== null || !line.mcleodDraft || !(result.cutoff?.slice(11, 16) || cutoffTime) ||
                   Boolean(created[line.sourceRow])}>
                 {creating === line.sourceRow ? "Creating…" : "Create in McLeod"}
