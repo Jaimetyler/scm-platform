@@ -16,7 +16,7 @@ export function draftHoustonOrder(
   const destination = SCM_DELIVERY_LOCATIONS.find(location => location.code === preview.deliveryLocation);
   const olam = preview.customerId === OLAM_CUSTOMER;
   const externalDelivery = ["MERIBATX", "MERIBAT2"].includes(preview.deliveryLocation);
-  if ((!olam && preview.customerId !== "BUNGOMNE" && preview.customerId !== "STAPGRMS") ||
+  if ((!olam && preview.customerId !== "BUNGOMNE" && preview.customerId !== "STAPGRMS" && preview.customerId !== "TOYODATX") ||
       (!destination && !externalDelivery) ||
       (destination && preview.revenueCode !== (destination.terminal === "dallas" ? "DAVIS" : "MAIN")) ||
       windows.length !== preview.pickupStops.length)

@@ -51,7 +51,7 @@ export default function DispatchUpload({ terminal, busy, onPreview, onChange }: 
     if (file && selected && !busy && !loading) onPreview({ file, equipment, destination });
   }}>
     <h2>Upload dispatch</h2>
-    <p>Stapl Cotton CSV · OLAM Excel, up to 3 MB · Bunge {houston ? "XLSX or XLS, up to 2 MB" : "XLSX, XLS or CSV, up to 3 MB and 250 pickup rows"}.</p>
+    <p>Stapl Cotton CSV · OLAM and Toyo Cotton Excel, up to 3 MB · Bunge {houston ? "XLSX or XLS, up to 2 MB" : "XLSX, XLS or CSV, up to 3 MB and 250 pickup rows"}.</p>
     <div className={layout.actions}>
       <input aria-label="Dispatch workbook" type="file" accept=".xlsb,.xlsx,.xls,.csv"
         disabled={busy} onChange={event => {

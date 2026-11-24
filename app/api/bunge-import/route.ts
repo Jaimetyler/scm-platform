@@ -8,6 +8,7 @@ import {nonVoidBlnumMatches} from "@/lib/bunge/duplicates";
 import {vendor} from "@/lib/dray/server";
 import {COTTON_DELIVERY_LOCATIONS,cottonTerminalDeliveryCode,deliveryCode,inboundTerminal,OLAM_CUSTOMER} from "@/lib/bunge/destinations";
 import {parseStaplRows,STAPL_CUSTOMER} from "@/lib/bunge/stapl";
+import {parseToyoWorkbook,toyoDestinationMatches,TOYO_CUSTOMER} from "@/lib/bunge/toyo";
 import {parseOlamWorkbook} from "@/lib/bunge/olam";
 import {readCottonDeliveryLocation} from "@/lib/bunge/delivery-server";
 export const dynamic="force-dynamic";
@@ -37,16 +38,17 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  const csv=/\.csv$/i.test(file.name) ? XLSX.read(new TextDecoder().decode(bytes),{type:"string",raw:true}) : null;
  const csvSheet=csv?.SheetNames[0];
  const stapl=csv&&csvSheet ? parseStaplRows(XLSX.utils.sheet_to_json<unknown[]>(csv.Sheets[csvSheet],{header:1,defval:"",blankrows:true}),csvSheet) : null;
- const olam=parseOlamWorkbook(workbook);
+ const toyo=parseToyoWorkbook(workbook);
+ const olam=toyo?null:parseOlamWorkbook(workbook);
  if(!olam&&/\.xlsb$/i.test(file.name))throw Error("XLSB uploads must be original OLAM load lists.");
- if(!olam&&!stapl&&terminal?.id==="houston")
+ if(!olam&&!stapl&&!toyo&&terminal?.id==="houston")
    return NextResponse.json({ok:true,useHoustonBungePreview:true},{headers:{"Cache-Control":"private, no-store"}});
  const destination=terminal
    ? cottonTerminalDeliveryCode(terminal.id,form.get("destination"))
    : deliveryCode(form.get("destination"));
- const customerId=stapl?STAPL_CUSTOMER:olam?OLAM_CUSTOMER:"BUNGOMNE";
- const equipment=String(form.get("equipment")||"unknown");if(!["unknown","auto","van","flatbed","VT"].includes(equipment))throw Error("Choose van, flatbed or equipment not selected.");
- const parsed=stapl??olam??parseBungeWorkbook(workbook);const requested=form.get("revenue")||"auto";
+ const customerId=toyo?TOYO_CUSTOMER:stapl?STAPL_CUSTOMER:olam?OLAM_CUSTOMER:"BUNGOMNE";
+ const equipment=toyo?"van":String(form.get("equipment")||"unknown");if(!["unknown","auto","van","flatbed","VT"].includes(equipment))throw Error("Choose van, flatbed or equipment not selected.");
+ const parsed=toyo??stapl??olam??parseBungeWorkbook(workbook);const requested=form.get("revenue")||"auto";
  if(!["auto","MAIN","DAVIS"].includes(String(requested)))throw Error("Choose MAIN or DAVIS.");
  const revenue=terminal?.revenue ?? (requested==="auto"?(parsed.destinations.some(d=>/DALLAS|DESOTO/i.test(d))?"DAVIS":"MAIN"):requested as "MAIN"|"DAVIS");
  const db=staffDatabase();const [locations,schedules,delivery,equipmentPolicies]=await Promise.all([
@@ -54,6 +56,9 @@ export const POST=withStaffAccess(async(req:NextRequest)=>{
  db.from("cotton_location_schedules").select("location_id,weekday,open_time,close_time,checkin_cutoff,verified,appointment_required,effective_from,effective_to,created_at,source_reference").limit(10000),destination ? readCottonDeliveryLocation(destination) : null,db.from("cotton_location_equipment").select("*").limit(3000)]);
  if(locations.error||schedules.error||equipmentPolicies.error)throw Error("Location schedules unavailable. Please retry.");
  const proposals=buildPreview(parsed.lines,locations.data||[],schedules.data||[],revenue,destination,equipment,equipmentPolicies.data||[],customerId);
+ if(toyo && !toyoDestinationMatches(toyo.destinationAddress, delivery?.address ?? "")){
+   for(const proposal of proposals) proposal.issues.push("Toyo dispatch delivery address does not match the selected McLeod location.");
+ }
  if(stapl){
    const normalize=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,"");
    const selectedAddress=normalize(delivery?.address ?? "");

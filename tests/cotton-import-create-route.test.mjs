@@ -31,13 +31,19 @@ function scenario(options={}){
  }
  new Function('require','module','exports',code)(localRequire,mod,mod.exports);return mod.exports}
  const POST=load(resolve(root,'app/api/cotton-import/preflight/route.ts')).POST;
- function workbook(customer,terminal){const olam=customer==='OLAMRITX';const rows=olam?[
+ function workbook(customer,terminal){const olam=customer==='OLAMRITX';const rows=customer==='TOYODATX'?[
+ ['VAN DISPATCH'],['WS-8248, 2 MARKS'],['Toyo Cotton Co.'],['Carrier:','SUPPLY CHAIN MANAGEMENT LLC'],
+ ['Destination:','Supply Chain Mgmt, LLC - EPHYTO'],['','984 Bourne Avenue'],
+ ['Mark','Bales','','Weight','','','','Warehouse','Load (RTL)'],
+ ['EMEE',84,'',41404,'',858056,'Moody','','11/30/99'],
+ ['EMEF',84,'',41827,'','','Moody','','11/30/99'],['Total Bales: 168']
+ ]:olam?[
  ['', 'OLAM AMERICA COTTON COMPANY'],['Carrier:','SUPPLY CHAIN MANAGEMENT LLC'],['Destination:','Merih Logistics'],['','7525 Sutton Road'],['Dest Code:','819201'],['Booking:','BOOK123'],
  ['Mark','','SO','Sale','Bales','Weight','Warehouse','Warehouse Name','Ready/Confirmed Load (RTL)'],['SLT03','',3587071,'TRANSIT',90,41742,858056,'Moody',46339]
  ]:[['Carrier:','SUPPLY CHAIN MANAGEMENT LLC'],['Destination:',terminal==='houston'?'SCM Houston':terminal==='dallas'?'SCM Dallas':'SCM Savannah'],['','Address'],['','City'],
  ['Mark','SO','Sale','Ext.','Bales','','Weight','','','Warehouse','','','Flatbeds','Due','Load (RTL)'],['SLT03','3587071','','',90,'',41742,'','858056','Moody','','','','','11/13/26']];
  const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet(rows),'Dispatch');return XLSX.write(book,{type:'buffer',bookType:'xlsx'})}
- async function call(customer,terminal,destination,token){const form=new FormData();const stapl=customer==='STAPGRMS';const csv='Code,Invoice,Mark,BCS,Load,Del,USDA,Origin,Consignee,Consignee Address,Wt,Rate\nO,6D90340,AWACT,88,12/02/2099,12/02/2099,858056,Moody,SCM,175 Portside Court,43981,760.00';form.set('file',stapl?new File([csv],'dispatch.CSV'):new File([workbook(customer,terminal)],'dispatch.xlsx'));form.set('terminal',terminal);form.set('destination',destination);form.set('equipment','van');form.set('salesOrder',stapl?'6D90340':'3587071');form.set('customerId',customer);if(token){form.set('action','create-pilot');form.set('reviewToken',token)}return (await POST(new NextRequest('https://example.test/api/cotton-import/preflight',{method:'POST',body:form}))).json()}
+ async function call(customer,terminal,destination,token,selection){const form=new FormData();const stapl=customer==='STAPGRMS';const csv='Code,Invoice,Mark,BCS,Load,Del,USDA,Origin,Consignee,Consignee Address,Wt,Rate\nO,6D90340,AWACT,88,12/02/2099,12/02/2099,858056,Moody,SCM,175 Portside Court,43981,760.00';form.set('file',stapl?new File([csv],'dispatch.CSV'):new File([workbook(customer,terminal)],'dispatch.xlsx'));form.set('terminal',terminal);form.set('destination',destination);form.set('equipment','van');form.set('salesOrder',selection??(stapl?'6D90340':'3587071'));form.set('customerId',customer);if(token){form.set('action','create-pilot');form.set('reviewToken',token)}return (await POST(new NextRequest('https://example.test/api/cotton-import/preflight',{method:'POST',body:form}))).json()}
  return {call,duplicateCustomers,get writes(){return writes},get payload(){return payload},async withVendor(fn){const saved=globalThis.fetch;globalThis.fetch=async(url,init)=>{assert.equal(String(url),'https://mcleod.example.test/orders/create');assert.equal(init.method,'PUT');writes++;payload=JSON.parse(init.body);return Response.json({id:'1234567'})};try{return await fn()}finally{globalThis.fetch=saved}}}
 }
 process.env.BUNGE_IMPORT_WRITES_ENABLED='true';process.env.MCLEOD_BASE_URL='https://mcleod.example.test';process.env.MCLEOD_AUTH_TOKEN='test';
@@ -92,4 +98,25 @@ test('Stapl creates at the matching consignee with its invoice number and date, 
   assert.equal(s.payload.rate, undefined);
   assert.equal(s.payload.total_charge, undefined);
  });
+});
+
+test('Toyo selects each mark under the same WS number and verifies the dispatch delivery', async () => {
+ for (const [mark, weight] of [['EMEE', 41404], ['EMEF', 41827]]) {
+  const s = scenario();
+  await s.withVendor(async () => {
+   const selection = 'WS-8248:' + mark;
+   const wrongDelivery = await s.call('TOYODATX', 'savannah', 'SUPPSAG2', undefined, selection);
+   assert.match(wrongDelivery.error, /Toyo dispatch address/);
+   const review = await s.call('TOYODATX', 'savannah', 'SAVAGAG2', undefined, selection);
+   assert.equal(review.canCreate, true, JSON.stringify(review));
+   const created = await s.call('TOYODATX', 'savannah', 'SAVAGAG2', review.reviewToken, selection);
+   assert.equal(created.auditStatus, 'verified', JSON.stringify(created));
+   assert.equal(s.writes, 1);
+   assert.equal(s.payload.ordered_by, 'WS-8248');
+   assert.equal(s.payload.blnum, mark + ' 84 BALES');
+   assert.equal(s.payload.weight, weight);
+   assert.equal(s.payload.equipment_type_id, 'V');
+   assert.deepEqual([...new Set(s.duplicateCustomers)], ['TOYODATX']);
+  });
+ }
 });

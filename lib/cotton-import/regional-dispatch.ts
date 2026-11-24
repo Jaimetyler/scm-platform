@@ -4,7 +4,7 @@ import type { DispatchOrder } from "./bunge-dispatch.ts";
 import type { PickupLine } from "../bunge/preview.ts";
 
 export function regionalOrder(lines: PickupLine[], salesOrder: string, destination: string,
-  revenue: "MAIN" | "DAVIS", locations: readonly CottonLocation[], customerId: "BUNGOMNE" | "OLAMRITX" | "STAPGRMS" = "BUNGOMNE") {
+  revenue: "MAIN" | "DAVIS", locations: readonly CottonLocation[], customerId: "BUNGOMNE" | "OLAMRITX" | "STAPGRMS" | "TOYODATX" = "BUNGOMNE") {
   const matches = lines.filter(line => line.so === salesOrder);
   const mark = matches[0]?.mark;
   if (!mark || matches.length > 2 || matches.some(line => line.mark !== mark || !line.rtl || !line.warehouseCode))
