@@ -27,6 +27,10 @@ const rates = new Map<string, { port: number; ramp: number }>([
   ["WESLACO", { port: 1620, ramp: 1670 }],
 ]);
 
+export function listToyoSourceLoadRates() {
+  return Array.from(rates, ([city, rate]) => ({ city, state: "TX", ...rate }));
+}
+
 type SourceLocation = CottonLocation & { city: string | null; state: string | null };
 const text = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, " ");
 const label = (value: unknown) => text(value).replace(/[.:]+$/, "").trim().toUpperCase();

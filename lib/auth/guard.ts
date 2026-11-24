@@ -53,7 +53,7 @@ export async function authorizeStaffRequest(req: NextRequest, staff: Staff, db: 
   }
   if (canUseInboundImporter(staff) && (
     path === "/api/bunge-import" && ["GET", "POST"].includes(req.method) ||
-    ["/api/cotton-import/upload", "/api/cotton-import/preflight"].includes(path) && req.method === "POST"
+    ["/api/cotton-import/upload", "/api/cotton-import/preflight", "/api/source-loads"].includes(path) && req.method === "POST"
   )) return;
   // Location evidence is available to dispatchers and operators without master-data access.
   if ((path === "/api/cotton-locations" || path === "/api/cotton-locations/policies") && req.method === "GET") return;

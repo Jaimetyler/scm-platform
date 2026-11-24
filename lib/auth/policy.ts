@@ -73,5 +73,5 @@ export function canAccessStaffPage(staff: Staff, path: string) {
     ["/ecotton-import", "/dray-import", "/dray-import/dallas", "/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path);
   return canViewLateFees(staff) && lateFeeReadPage(path) || warehouse || ["/cotton-locations", "/cotton-locations/outreach", "/cotton-locations/policies"].includes(path) ||
     path === "/" && staff.role === "viewer" ||
-    ["/bunge-import", "/cotton-import"].includes(path) && canUseInboundImporter(staff);
+    ["/bunge-import", "/cotton-import", "/source-loads"].includes(path) && canUseInboundImporter(staff);
 }

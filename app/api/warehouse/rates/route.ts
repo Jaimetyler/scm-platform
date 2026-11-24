@@ -4,8 +4,12 @@ import { withStaffAccess } from "@/lib/auth/guard";
 import { staffDatabase } from "@/lib/auth/session";
 import { normalizeServiceRate, rateColumns } from "@/lib/dray/service-rates";
 
+import { listToyoSourceLoadRates } from "@/lib/warehouse/outbound/source-loads";
+
 export const runtime = "nodejs";
-export const GET = withStaffAccess(async (_req: NextRequest) => {
+export const GET = withStaffAccess(async (req: NextRequest) => {
+  if (req.nextUrl.searchParams.get("category") === "source-loads")
+    return NextResponse.json({ ok: true, rates: listToyoSourceLoadRates() }, { headers: { "Cache-Control": "no-store" } });
   const { data, error } = await staffDatabase().from("customer_service_rates").select(["rate_code", ...rateColumns].join(","))
     .order("terminal").order("site_code").order("service_type").order("customer_code").order("revenue_code").limit(1000);
   if (error) return NextResponse.json({ ok: false, error: "Could not load rates." }, { status: 503 });

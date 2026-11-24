@@ -58,6 +58,7 @@ export default async function Home() {
           <div className={styles.sectionHeading}><div><h2 id="billing-title">Importing &amp; Billing</h2><p>Import reports, create and rate orders, and apply billing details.</p></div></div>
           <div className={styles.grid}>
             {canUseInboundImporter(staff) && <ToolCard href="/bunge-import" category="Importing" title="Inbound Cotton Importer" description="Review dispatches, warehouse mappings and pickup windows for all three terminals." />}
+            {canUseInboundImporter(staff) && <ToolCard href="/source-loads" category="Importing" title="Import Source Loads" description="Preview Toyo Cotton Houston dispatches, return terminals, and base rates." />}
             {billing && <>
             <ToolCard href="/ecotton-import" category="Importing" title="eCotton Order Import" description="Review warehouse reports, check duplicates, and create and rate orders." />
             <ToolCard href="/ecotton-import?source=gin-direct" category="Importing" title="Gin Direct Invoice Import" description="Upload invoice PDFs to create, rate, and deliver eCotton orders." />

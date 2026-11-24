@@ -1,5 +1,6 @@
 "use client";
 
+import SourceLoadRates from "./SourceLoadRates";
 import TransitRates from "./TransitRates";
 import MileageEvidence from "@/components/warehouse/MileageEvidence";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -24,7 +25,7 @@ export default function WarehouseRates() {
   const { location } = useWarehouseWorkspace();
   const [rates, setRates] = useState<SavedRate[]>([]);
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<"drayage" | "inbound">("drayage");
+  const [category, setCategory] = useState<"drayage" | "inbound" | "source-loads">("drayage");
   const [showContractMiles, setShowContractMiles] = useState(false);
   const [terminal, setTerminal] = useState<string | null>(null);
   const [delivery, setDelivery] = useState("");
@@ -106,8 +107,9 @@ export default function WarehouseRates() {
     <nav className="warehouse-main-nav" aria-label="Customer rate categories" style={{ marginBottom: 12 }}>
       <button type="button" className={styles.button} aria-pressed={category === "drayage"} onClick={() => setCategory("drayage")}>Local Dray Rates</button>
       <button type="button" className={styles.button} aria-pressed={category === "inbound"} onClick={() => setCategory("inbound")}>Transit Inbound Rates</button>
+      <button type="button" className={styles.button} aria-pressed={category === "source-loads"} onClick={() => setCategory("source-loads")}>Source Load Rates</button>
     </nav>
-    {category === "inbound" ? <section className="warehouse-empty-state">
+    {category === "source-loads" ? <SourceLoadRates /> : category === "inbound" ? <section className="warehouse-empty-state">
       <h2>Transit Inbound Rates</h2>
       <TransitRates />
       <button type="button" className={styles.contractMilesButton} aria-expanded={showContractMiles}
