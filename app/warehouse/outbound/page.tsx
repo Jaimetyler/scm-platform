@@ -202,7 +202,7 @@ export default function CottonOutboundPage() {
 
   return <main style={{ maxWidth: preferences.layout === "cards" ? 1550 : undefined, margin: "0 auto", color: "#e2e8f0" }}>
     <PlatformPageHeader compact title="Outbound bookings" subtitle="Warehouse load plans, receiving dates, and sailing cutoffs."
-      actions={<button type="button" className={styles.importButton} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button>} />
+      actions={<>{staff?.role === "admin" && <Link className={styles.importButton} href="/warehouse/outbound/source-loads">Import Source Loads</Link>}<button type="button" className={styles.importButton} aria-expanded={showImport} aria-controls="booking-import-panel" disabled={working} onClick={() => setShowImport((current) => !current)}>{showImport ? "Close import" : "+ Import booking"}</button></>} />
 
     {showImport && <div id="booking-import-panel" aria-label="Booking import">
     <PlatformPanel><h2 style={{ marginTop: 0 }}>{site ? `Import to ${site.siteName}` : "Import a booking request"}</h2>
