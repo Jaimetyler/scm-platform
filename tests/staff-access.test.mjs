@@ -196,11 +196,11 @@ test("accounting can use the complete eCotton and dray workflows and view cotton
   for(const action of ["preview","execute","delivery-preview","deliver","reconcile-delivery","recheck","reconcile","repair-created"])
    assert.equal((await call(path,"POST",{action},accounting)).status,200,`${path} ${action}`);
  }
- for(const [path,method] of [["/api/dray-import/dallas","POST"],["/api/dray-import/bols","GET"],["/api/dray-import/bols","POST"],["/api/dray-import/bols/imaging","POST"]]){
+ for(const [path,method] of [["/api/dray-import/dallas","POST"],["/api/dray-import/bols","GET"],["/api/dray-import/bols","POST"],["/api/dray-import/bols/imaging","POST"],["/api/dray-import/interchanges/imaging","POST"]]){
   assert.equal((await call(path,method,undefined,accounting)).status,200,path);
   for(const staff of [hou,viewer,{...accounting,status:"disabled"}])assert.equal((await call(path,method,undefined,staff)).status,403,path);
  }
- for(const path of ["/api/ecotton-import","/api/dray-import","/api/dray-import/bols/imaging"])
+ for(const path of ["/api/ecotton-import","/api/dray-import","/api/dray-import/bols/imaging","/api/dray-import/interchanges/imaging"])
   assert.equal((await call(path,"POST",{},accounting,{origin:false})).status,403);
  assert.equal((await call("/api/warehouse/outbound/uploads","POST",{terminal:"DAL"},accounting)).status,200);
  assert.equal((await call("/api/warehouse/outbound/uploads","POST",{terminal:"HOU"},accounting)).status,403);
