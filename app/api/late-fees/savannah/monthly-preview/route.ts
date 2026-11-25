@@ -8,6 +8,7 @@ import {
 } from "@/lib/lateFeePolicies";
 
 import { round2 } from "@/lib/late-fees/utils";
+import { hasPickupLastFreeDayComment } from "@/lib/cotton-import/pickup-notes";
 
 export const runtime = "nodejs";
 
@@ -365,7 +366,7 @@ async function POSTHandler(req: NextRequest) {
         ])
       );
 
-      const usesPickupLfd = getValue(row, ["planning_comment", "Planning Comment"]).includes("[PICKUP LFD]");
+      const usesPickupLfd = hasPickupLastFreeDayComment(getValue(row, ["planning_comment", "Planning Comment"]));
       const rawDaysLate = usesPickupLfd
         ? diffDays(originalDate, actualPickup)
         : parseNumber(

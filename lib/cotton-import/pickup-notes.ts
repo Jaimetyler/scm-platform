@@ -16,6 +16,16 @@ export type PickupPolicyVersion = {
 };
 type Pickup = { locationId: string; locationCode: string; scheduledDate: string };
 
+const pickupLastFreeDayLabel = "Pickup last free day:";
+
+export function pickupLastFreeDayComment(date: string) {
+  return `${pickupLastFreeDayLabel} ${date}`;
+}
+
+export function hasPickupLastFreeDayComment(comment: string) {
+  return comment.includes(pickupLastFreeDayLabel) || comment.includes("[PICKUP LFD]");
+}
+
 export function effectivePickupPolicies(versions: readonly PickupPolicyVersion[], date: string) {
   return versions.filter(version => (!version.effective_from || version.effective_from <= date) &&
     (!version.effective_to || version.effective_to >= date));

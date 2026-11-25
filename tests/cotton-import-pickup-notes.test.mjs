@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { draftPickupNotes } from "../lib/cotton-import/pickup-notes.ts";
+import { draftPickupNotes, pickupLastFreeDates } from "../lib/cotton-import/pickup-notes.ts";
 
 test("dispatch notes keep separate pickup policies, effective dates and draft status", () => {
   const pickups = [
@@ -20,4 +20,20 @@ test("dispatch notes keep separate pickup policies, effective dates and draft st
   assert.match(first.comment, /Early pickup \[draft\]: \$1\.50 per bale, one time\. Contact the warehouse/);
   assert.equal(second.stopSequence, 2);
   assert.match(second.comment, /Early pickup: policy not on file/);
+});
+
+test("pickup last free day uses the effective approved late-fee rule", () => {
+  const pickup = { locationId: "gulf", locationCode: "GULFPOTX", scheduledDate: "2026-11-25" };
+  const rule = {
+    rule_kind: "late_pickup", fee_type: "PER_BALE_PER_DAY",
+    amount: 0.5, grace_days: 3, grace_unit: "calendar_days", notes: null,
+  };
+  const approved = { status: "approved", effective_from: "2026-07-01", effective_to: null, rules: [rule] };
+  const datesFor = (...versions) => pickupLastFreeDates([pickup], new Map([["gulf", versions]]));
+
+  assert.deepEqual(datesFor(approved), ["2026-11-28"]);
+  assert.deepEqual(datesFor({ ...approved, status: "draft" }), [null]);
+  assert.deepEqual(datesFor({ ...approved, effective_from: "2026-11-26" }), [null]);
+  assert.deepEqual(datesFor({ ...approved, rules: [{ ...rule, grace_days: 0 }] }), ["2026-11-25"]);
+  assert.deepEqual(datesFor({ ...approved, rules: [{ ...rule, grace_unit: "business_days" }] }), ["2026-12-01"]);
 });

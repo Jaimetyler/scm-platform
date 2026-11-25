@@ -9,6 +9,7 @@ import type {
   LateFeeRow,
   McleodOrderSummary,
 } from "./types";
+import { hasPickupLastFreeDayComment } from "@/lib/cotton-import/pickup-notes";
 
 import {
   addDays,
@@ -163,7 +164,7 @@ export function mapOrderToLateFeeRow(
 
   const anchor = getAnchorDate(order, config);
   const usesPickupLfd = anchor.source === "doc_cutoff_date" &&
-    safeString(order.planning_comment).includes("[PICKUP LFD]");
+    hasPickupLastFreeDayComment(safeString(order.planning_comment));
   const actualPickup = usesPickupLfd ? normalizeDateInput(pu?.actual_arrival) : null;
   const rawDaysLate = diffDaysLate(anchor.date, actualPickup ?? undefined);
 

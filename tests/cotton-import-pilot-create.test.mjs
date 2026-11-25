@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { draftHoustonOrder } from "../lib/cotton-import/pilot.ts";
+import { hasPickupLastFreeDayComment } from "../lib/cotton-import/pickup-notes.ts";
 import { houstonPilotPayload, isMissingCollectionMethodRejection, matchCorrectedSchedule, verifyHoustonPilot } from "../lib/cotton-import/pilot-create.ts";
 
 test("two-pickup pilot sends combined weight and verifies all three stops", () => {
@@ -34,6 +35,14 @@ test("two-pickup pilot sends combined weight and verifies all three stops", () =
   ]);
   const actual = { ...matched, id: "1234567", stops: matched.stops.map((stop, i) => ({ ...stop, id: String(i + 1) })) };
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, matched), []);
+  const withLfd = houstonPilotPayload(draft, "houston", { lastFreeDate: "2026-11-28" });
+  assert.equal(withLfd.doc_cutoff_date, "20261128000000-0500");
+  assert.match(withLfd.planning_comment, /Pickup last free day: 2026-11-28$/);
+  assert.equal(hasPickupLastFreeDayComment(withLfd.planning_comment), true);
+  assert.equal(hasPickupLastFreeDayComment("[PICKUP LFD]"), true);
+  const savedLfd = { ...actual, planning_comment: withLfd.planning_comment, doc_cutoff_date: "2026-11-28T00:00:00" };
+  assert.deepEqual(verifyHoustonPilot(savedLfd, actual.id, matchCorrectedSchedule(withLfd, example)), []);
+  assert.deepEqual(verifyHoustonPilot({ ...savedLfd, doc_cutoff_date: null }, actual.id, matchCorrectedSchedule(withLfd, example)), ["doc_cutoff_date"]);
   assert.deepEqual(verifyHoustonPilot({ ...actual, otherCharges: [] }, actual.id, matched), ["Stop Off Charge 006"]);
   actual.weight = 26087;
   actual.stops[1].sched_arrive_early = "20261110090000-0500";
