@@ -3,7 +3,7 @@ import type { CottonOrderPreview } from "./preview.ts";
 import type { McLeodCottonEquipmentCode } from "./equipment.ts";
 import type { DispatchOrder } from "./bunge-dispatch.ts";
 
-type PickupWindow = { early: string | null; late: string | null };
+type PickupWindow = { early: string | null; late: string | null; scheduledDate?: string };
 
 export function draftHoustonOrder(
   order: DispatchOrder,
@@ -23,13 +23,13 @@ export function draftHoustonOrder(
     throw new Error("The order draft requires the matching cotton customer and terminal profile.");
 
   const pickups = preview.pickupStops.map((pickup, index) => {
-    const { early, late } = windows[index];
+    const { early, late, scheduledDate = pickup.scheduledDate } = windows[index];
     if (!early || !late) throw new Error("Pickup window is incomplete.");
     return {
       __type: "stop", __name: "stops", company_id: "TMS", stop_type: "PU",
       status: "A", order_sequence: index + 1, location_id: pickup.locationCode,
-      sched_arrive_early: `${pickup.scheduledDate}T${early}:00`,
-      sched_arrive_late: `${pickup.scheduledDate}T${late}:00`,
+      sched_arrive_early: `${scheduledDate}T${early}:00`,
+      sched_arrive_late: `${scheduledDate}T${late}:00`,
       timezone: pickup.timezone,
     };
   });
@@ -51,8 +51,10 @@ export function draftHoustonOrder(
     ? order.pickups.reduce((total, line) => total + Math.round(line.weight! * 10), 0) / 10 : null;
   if (weight !== null && (order.pickups.some(line => !Number.isFinite(line.weight) || line.weight! <= 0) || !Number.isFinite(weight) || weight <= 0 || weight > 999999.9))
     throw Error("Order weight exceeds the McLeod weight field.");
-  const deliveryDate = (preview.customerId === "STAPGRMS" ? staplDeliveryDate : undefined) ?? defaultDeliveryDate(preview.pickupStops.map(stop => stop.scheduledDate));
+  const pickupDates = pickups.map(stop => stop.sched_arrive_early.slice(0, 10));
+  const deliveryDate = (preview.customerId === "STAPGRMS" ? staplDeliveryDate : undefined) ?? defaultDeliveryDate(pickupDates);
   if (!deliveryDate) throw new Error("Delivery date cannot be derived from the pickup dates.");
+  if (pickupDates.some(date => date > deliveryDate)) throw new Error("The dispatch delivery date is before the rescheduled pickup. Review the delivery date.");
   const receiving = cottonReceivingHours(preview.deliveryLocation);
   let deliveryEarly = `${deliveryDate}T${receiving.open}:00`;
   const deliveryLate = `${deliveryDate}T${receiving.close}:00`;
@@ -66,7 +68,7 @@ export function draftHoustonOrder(
     }
   }
 
-  const planningComment = destination?.terminal === "dallas" && tariffNotes
+  const tariffComment = destination?.terminal === "dallas" && tariffNotes
     ? order.pickups.map((pickup, index) => {
       // Dallas and OLAM dispatch parsers preserve the source RTL as YYYY-MM-DD.
       const originalDate = pickup.rtl.slice(5).replace("-", "/");
@@ -74,12 +76,19 @@ export function draftHoustonOrder(
       return tariff ? originalDate + " ; " + tariff : originalDate;
     }).join(" | ")
     : undefined;
+  const latePickups = preview.pickupStops.filter((stop, index) => pickupDates[index] > stop.scheduledDate);
+  const latePickupNotes = latePickups.map(stop => `${stop.locationCode} original date ${stop.scheduledDate} - rec'd late`);
+  const latePlanningNotes = [...new Set(latePickups.map(stop => stop.scheduledDate))]
+    .map(date => `Original date ${date} - rec'd late`);
+  const planningComment = destination?.terminal === "dallas"
+    ? tariffComment : latePlanningNotes.join(" | ");
 
   // Keep local times explicit until their McLeod encoding is confirmed.
   return {
     salesOrder: order.salesOrder,
     baleCount: order.bales,
     pickupReferences,
+    latePickupNotes,
     deliveryDate,
     order: {
       __type: "orders", company_id: "TMS", status: "A", customer_id: preview.customerId,

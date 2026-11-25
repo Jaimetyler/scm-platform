@@ -8,7 +8,7 @@ import BatchCreate, { PickupLocationLink, requestPreflight, type Preflight } fro
 import { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
 type Window = {
-  locationCode: string; originalRtlDate: string; early: string | null;
+  locationCode: string; originalRtlDate: string; scheduledDate: string; early: string | null;
   late: string | null; status: string; reason: string;
 };
 type Review = {
@@ -77,7 +77,8 @@ export default function HoustonPreviewClient({ result, submission, onBusy }: {
           return <tr key={`${review.salesOrder}-${index}`}>
             <td><strong>{review.salesOrder}</strong><small>{review.preview?.blnum ?? "—"}</small></td>
             <td>{review.pickupWindows?.map((window, stop) => <div className={layout.stop} key={stop}>
-              <PickupLocationLink code={window.locationCode} /> · {window.originalRtlDate}
+              <PickupLocationLink code={window.locationCode} /> · {window.scheduledDate}
+              {window.scheduledDate !== window.originalRtlDate && <small>Original date {window.originalRtlDate} - rec&apos;d late</small>}
               <small>{window.early ?? "?"}–{window.late ?? "?"}{window.status !== "ready" && ` · ${window.reason}`}</small>
             </div>) || "—"}</td>
             <td>{review.equipment?.choice && <strong>{equipmentLabels[review.equipment.choice]}</strong>}
@@ -111,7 +112,8 @@ export default function HoustonPreviewClient({ result, submission, onBusy }: {
       </header>
       <div className={styles.body}>
         {selected?.pickupWindows?.map((window, index) => <p key={index}>
-          <PickupLocationLink code={window.locationCode} /> · {window.originalRtlDate} · {window.early && window.late ? `${window.early}–${window.late}` : window.reason}
+          <PickupLocationLink code={window.locationCode} /> · {window.scheduledDate} · {window.early && window.late ? `${window.early}–${window.late}` : window.reason}
+          {window.scheduledDate !== window.originalRtlDate && <small>Original date {window.originalRtlDate} - rec&apos;d late</small>}
         </p>)}
         <p role="status">{details ? details.error || details.reason : "Checking order details…"}</p>
         {details?.delivery && <p>Delivery · {[details.delivery.name ?? details.delivery.code, details.delivery.address, draft?.deliveryDate].filter(Boolean).join(" · ")}</p>}

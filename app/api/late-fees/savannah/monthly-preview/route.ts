@@ -9,6 +9,7 @@ import {
 
 import { round2 } from "@/lib/late-fees/utils";
 import { hasPickupLastFreeDayComment } from "@/lib/cotton-import/pickup-notes";
+import { readPickupLfdAudit } from "@/lib/late-fees/pickup-lfd-audit";
 
 export const runtime = "nodejs";
 
@@ -286,15 +287,17 @@ async function POSTHandler(req: NextRequest) {
       );
     }
 
-    const rows = csvRows.map((row, index) => {
-      const orderId = getValue(row, [
+    const orderIds = csvRows.map(row => getValue(row, [
         "order_id",
         "id",
         "Order",
         "ORDER",
         "mark",
         "Mark",
-      ]);
+      ]));
+    const pickupLfdAudit = await readPickupLfdAudit(orderIds);
+    const rows = csvRows.map((row, index) => {
+      const orderId = orderIds[index];
 
       const customer = getValue(row, [
         "customer_id",
@@ -366,7 +369,8 @@ async function POSTHandler(req: NextRequest) {
         ])
       );
 
-      const usesPickupLfd = hasPickupLastFreeDayComment(getValue(row, ["planning_comment", "Planning Comment"]));
+      const usesPickupLfd = (pickupLfdAudit.get(orderId)?.has(originalDate ?? "") ?? false) ||
+        hasPickupLastFreeDayComment(getValue(row, ["planning_comment", "Planning Comment"]));
       const rawDaysLate = usesPickupLfd
         ? diffDays(originalDate, actualPickup)
         : parseNumber(

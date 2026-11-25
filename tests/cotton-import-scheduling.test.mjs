@@ -5,8 +5,17 @@ import ts from "typescript";
 const mod={exports:{}};
 const js=ts.transpileModule(readFileSync("lib/cotton-import/scheduling.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 new Function("module","exports",js)(mod,mod.exports);
-const {scheduleForPickup}=mod.exports;
+const {currentPickupDate,scheduleDispatchPickup,scheduleForPickup}=mod.exports;
 const base={location_id:"loc1",weekday:4,open_time:"08:00:00",close_time:"16:30:00",checkin_cutoff:"15:00:00",appointment_required:false,verified:true,effective_from:null,effective_to:null};
+test("late dispatches use verified hours for today's date and keep the source RTL",()=>{
+ const today=currentPickupDate("houston",new Date("2026-11-06T04:30:00Z"));
+ assert.equal(today,"2026-11-05");
+ const window=scheduleDispatchPickup([base],{locationId:"loc1",locationCode:"GULFPOTX",scheduledDate:"2026-11-04"},today);
+ assert.equal(window.originalRtlDate,"2026-11-04");
+ assert.equal(window.scheduledDate,today);
+ assert.equal(window.status,"ready");
+ assert.equal(scheduleDispatchPickup([base],{locationId:"loc1",locationCode:"GULFPOTX",scheduledDate:"2026-11-12"},today).scheduledDate,"2026-11-12");
+});
 test("check-in cutoff takes priority over closing time",()=>{
  const w=scheduleForPickup([base],"loc1","2026-11-05");
  assert.equal(w.status,"ready");assert.equal(w.early,"08:00");assert.equal(w.late,"15:00");

@@ -18,10 +18,6 @@ type Pickup = { locationId: string; locationCode: string; scheduledDate: string 
 
 const pickupLastFreeDayLabel = "Pickup last free day:";
 
-export function pickupLastFreeDayComment(date: string) {
-  return `${pickupLastFreeDayLabel} ${date}`;
-}
-
 export function hasPickupLastFreeDayComment(comment: string) {
   return comment.includes(pickupLastFreeDayLabel) || comment.includes("[PICKUP LFD]");
 }

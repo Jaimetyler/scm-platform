@@ -53,6 +53,7 @@ export default function PreviewClient({terminal}:{terminal:InboundTerminal}){
    if (typeof data.draft?.baseRate === "number")
     details.push(`Platform base rate ${data.draft.baseRate.toLocaleString("en-US", { style: "currency", currency: "USD" })}`);
    if (data.draft?.lastFreeDate) details.push(`Pickup last free day ${data.draft.lastFreeDate}`);
+   if (data.draft?.latePickupNotes) details.push(...data.draft.latePickupNotes);
    setOlamPreflight([data.canCreate ? "Ready to create in McLeod." : data.reason || "Order requires review.", ...details]);
   }catch(cause){
    setOlamPreflight([cause instanceof Error ? cause.message : "Preflight failed."]);

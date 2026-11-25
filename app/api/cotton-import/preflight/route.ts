@@ -20,7 +20,7 @@ import { draftPickupNotes, pickupLastFreeDates } from "@/lib/cotton-import/picku
 import { houstonPilotPayload, isArrivalFormatRejection, isMissingCollectionMethodRejection, matchCorrectedSchedule, verifyHoustonPilot } from "@/lib/cotton-import/pilot-create";
 import { draftHoustonOrder } from "@/lib/cotton-import/pilot";
 import { requestedEquipment, reviewPickupEquipment } from "@/lib/cotton-import/equipment";
-import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
+import { currentPickupDate, scheduleDispatchPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -89,9 +89,6 @@ async function preflight(req: NextRequest) {
       const regionPattern = terminal.id === "savannah" ? /SAVANNAH|\(SAV\)/i : /DALLAS|DESOTO/i;
       if (!parsed.destinations.length || parsed.destinations.some(value => !regionPattern.test(value)))
         throw Error("The workbook destination does not match the selected inbound region.");
-      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
-      if (parsed.lines.some(line => line.so === salesOrder && line.rtl && line.rtl < today))
-        throw Error("Historical pickup dates are for preview only.");
       return regionalOrder(parsed.lines, salesOrder, destination, terminal.revenue, locations.data);
     }
     const workbook = XLSX.read(bytes, { type: "array" });
@@ -118,16 +115,13 @@ async function preflight(req: NextRequest) {
       .in("location_id", pickupIds).limit(5000),
   ]);
   if (equipmentRows.error || !equipmentRows.data) throw new Error("Location equipment rules unavailable.");
-  const equipment = reviewPickupEquipment(proposal.pickupStops, equipmentRows.data, requested);
   if (schedules.error || !schedules.data) throw new Error("Pickup schedule unavailable.");
-  const windows = proposal.pickupStops.map(stop => ({
-    locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
-    ...scheduleForPickup(schedules.data as CottonSchedule[], stop.locationId, stop.scheduledDate, stop.locationCode),
-  }));
+  const today = currentPickupDate(terminal.id);
+  const windows = proposal.pickupStops.map(stop => scheduleDispatchPickup(schedules.data as CottonSchedule[], stop, today));
+  const equipment = reviewPickupEquipment(proposal.pickupStops.map((stop, index) => ({
+    ...stop, scheduledDate: windows[index].scheduledDate,
+  })), equipmentRows.data, requested);
   const response = { ok: true, canCreate: false, pilotBuild: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7), salesOrder, blnum: proposal.blnum, windows, equipment };
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: terminal.id === "savannah" ? "America/New_York" : "America/Chicago" }).format(new Date());
-  if (windows.some(window => window.originalRtlDate < today))
-    return NextResponse.json({ ...response, reason: "Historical pickup dates are for preview only." });
   if (!equipment.code) return NextResponse.json({ ...response, reason: equipment.reason || "Equipment requires review." });
   if (windows.some(window => window.status !== "ready"))
     return NextResponse.json({ ...response, reason: "Pickup schedule requires review." });
@@ -159,7 +153,8 @@ async function preflight(req: NextRequest) {
     throw new Error("Existing audit record conflicts with this dispatch.");
 
   const [duplicates, delivery, policies] = await Promise.all([
-    nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate), proposal.customerId),
+    nonVoidBlnumMatches(vendor(true).read, proposal.blnum, windows.map(window => window.originalRtlDate), proposal.customerId,
+      windows.some(window => window.originalRtlDate !== window.scheduledDate) ? today : undefined),
     SCM_DELIVERY_LOCATIONS.some(location => location.code === proposal.deliveryLocation)
       ? readDeliveryLocation(proposal.deliveryLocation)
       : readActiveDeliveryLocation(proposal.deliveryLocation).then(location => ({ ...location, receivingHours: cottonReceivingHours(proposal.deliveryLocation) })),
@@ -273,7 +268,7 @@ async function preflight(req: NextRequest) {
     const base = process.env.MCLEOD_BASE_URL;
     const token = process.env.MCLEOD_AUTH_TOKEN;
     if (!base || !token) throw Error("McLeod create connection is unavailable.");
-    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req), ...(saved.data.reviewed_payload?.previousAttempt ? { previousAttempt: saved.data.reviewed_payload.previousAttempt }
+    const claim = await ledger.update({ status: "creating", reviewed_payload: { payload, actor: staffActor(req), lastFreeDate, latePickupNotes: draft.latePickupNotes, ...(saved.data.reviewed_payload?.previousAttempt ? { previousAttempt: saved.data.reviewed_payload.previousAttempt }
       : correctedRetry ? { previousAttempt: { request: saved.data.reviewed_payload, error: saved.data.error_message, at: saved.data.updated_at } } : {}) },
       updated_at: new Date().toISOString() }).eq("id", saved.data.id).eq("status", saved.data.status).eq("updated_at", saved.data.updated_at)
       .eq("source_hash", saved.data.source_hash).is("mcleod_order_id", null).select("id").maybeSingle();

@@ -1,7 +1,6 @@
 import { cottonTerminalDeliveryCode } from "../bunge/destinations.ts";
 import { warehouseWallTime } from "../inbound/checkin/mcleod-time.ts";
 import type { draftHoustonOrder } from "./pilot.ts";
-import { pickupLastFreeDayComment } from "./pickup-notes.ts";
 
 type Draft = ReturnType<typeof draftHoustonOrder>;
 
@@ -20,7 +19,6 @@ export function houstonPilotPayload(draft: Draft, region: "houston" | "savannah"
     } : {}),
     ...(billing.lastFreeDate ? {
       doc_cutoff_date: warehouseWallTime(billing.lastFreeDate, 0, 0, "SAV"),
-      planning_comment: [draft.order.planning_comment, pickupLastFreeDayComment(billing.lastFreeDate)].filter(Boolean).join(" "),
     } : {}),
     stops: draft.order.stops.map(({ timezone: _timezone, ...stop }) => stop),
   };

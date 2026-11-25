@@ -20,13 +20,14 @@ function LocationWarning({ outcome }: { outcome: string }) {
 }
 
 export type Preflight = {
-  windows?: { locationCode: string; status: string }[];
+  windows?: { locationCode: string; status: string; originalRtlDate?: string; scheduledDate?: string }[];
   canCreate?: boolean; reviewToken?: string; mcleodOrderId?: string | null;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
   delivery?: { name?: string; address?: string; code?: string };
   draft?: {
     deliveryDate?: string;
     lastFreeDate?: string;
+    latePickupNotes?: string[];
     baseRate?: number;
     order?: { weight?: number; otherCharges?: { charge_id: string; descr: string; amount: number }[] };
     pickupReferences?: { stopSequence: number; locationCode: string; referenceNumber: string }[];
@@ -80,7 +81,8 @@ export default function BatchCreate({ terminal, submission, orders, onBusy, dest
         }
         const created = await requestPreflight(submission, so, terminal, review.reviewToken, destination, customerId);
         if (created.ok && created.auditStatus === "verified" && created.mcleodOrderId) {
-          report(so, `Created and verified · SCM order #${created.mcleodOrderId}`);
+          report(so, [`Created and verified · SCM order #${created.mcleodOrderId}`,
+            ...(review.draft?.latePickupNotes ?? [])].join(" · "));
           continue;
         }
         report(so, `Batch stopped · ${created.mcleodOrderId ? `SCM order #${created.mcleodOrderId} · ` : ""}${created.error || created.reason || "Create could not be verified."}`, created.windows ? created : review);

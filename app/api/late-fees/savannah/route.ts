@@ -10,7 +10,8 @@ import {
 } from "@/lib/late-fees/engine";
 import type { McleodOrderSummary } from "@/lib/late-fees/types";
 import { getOrderId } from "@/lib/late-fees/orderHelpers";
-import { safeString } from "@/lib/late-fees/utils";
+import { formatDateOnly, safeString } from "@/lib/late-fees/utils";
+import { readPickupLfdAudit } from "@/lib/late-fees/pickup-lfd-audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,8 +65,10 @@ async function GETHandler(req: Request) {
       shouldKeepOrder(order, config)
     );
 
+    const pickupLfdAudit = await readPickupLfdAudit(filtered.map(getOrderId));
     const mappedRows = filtered.map((order) =>
-      mapOrderToLateFeeRow(order, config)
+      mapOrderToLateFeeRow(order, config,
+        pickupLfdAudit.get(getOrderId(order))?.has(formatDateOnly(order.doc_cutoff_date) ?? "") ?? false)
     );
 
     const rows = mappedRows

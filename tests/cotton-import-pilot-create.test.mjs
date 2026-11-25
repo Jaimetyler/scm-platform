@@ -37,12 +37,20 @@ test("two-pickup pilot sends combined weight and verifies all three stops", () =
   assert.deepEqual(verifyHoustonPilot(actual, actual.id, matched), []);
   const withLfd = houstonPilotPayload(draft, "houston", { lastFreeDate: "2026-11-28" });
   assert.equal(withLfd.doc_cutoff_date, "20261128000000-0500");
-  assert.match(withLfd.planning_comment, /Pickup last free day: 2026-11-28$/);
-  assert.equal(hasPickupLastFreeDayComment(withLfd.planning_comment), true);
+  assert.equal(withLfd.planning_comment, draft.order.planning_comment);
   assert.equal(hasPickupLastFreeDayComment("[PICKUP LFD]"), true);
+  assert.equal(hasPickupLastFreeDayComment("Pickup last free day: 2026-11-28"), true);
   const savedLfd = { ...actual, planning_comment: withLfd.planning_comment, doc_cutoff_date: "2026-11-28T00:00:00" };
   assert.deepEqual(verifyHoustonPilot(savedLfd, actual.id, matchCorrectedSchedule(withLfd, example)), []);
   assert.deepEqual(verifyHoustonPilot({ ...savedLfd, doc_cutoff_date: null }, actual.id, matchCorrectedSchedule(withLfd, example)), ["doc_cutoff_date"]);
+  const late = draftHoustonOrder(source, preview, [
+    { early: "08:00", late: "15:00", scheduledDate: "2026-11-12" },
+    { early: "08:00", late: "15:00", scheduledDate: "2026-11-12" },
+  ], "V");
+  assert.equal(late.deliveryDate, "2026-11-13");
+  assert.equal(late.order.stops[0].sched_arrive_early, "2026-11-12T08:00:00");
+  assert.equal(late.order.planning_comment, "Original date 2026-11-10 - rec'd late");
+  assert.match(late.latePickupNotes[0], /^MOODGAT4 /);
   assert.deepEqual(verifyHoustonPilot({ ...actual, otherCharges: [] }, actual.id, matched), ["Stop Off Charge 006"]);
   actual.weight = 26087;
   actual.stops[1].sched_arrive_early = "20261110090000-0500";

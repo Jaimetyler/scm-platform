@@ -4,6 +4,23 @@ export type CottonSchedule = {
   appointment_required: boolean | null; verified: boolean | null;
   effective_from: string | null; effective_to: string | null;
 };
+
+export function currentPickupDate(terminal: "houston" | "dallas" | "savannah", now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: terminal === "savannah" ? "America/New_York" : "America/Chicago",
+  }).format(now);
+}
+
+export function scheduleDispatchPickup(rows: readonly CottonSchedule[], stop: {
+  locationId: string; locationCode: string; scheduledDate: string;
+}, today: string) {
+  const originalRtlDate = stop.scheduledDate;
+  const scheduledDate = originalRtlDate < today ? today : originalRtlDate;
+  return {
+    locationCode: stop.locationCode, originalRtlDate, scheduledDate,
+    ...scheduleForPickup(rows, stop.locationId, scheduledDate, stop.locationCode),
+  };
+}
 const clock = (v: string | null) => v && /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(v) ? v.slice(0,5) : null;
 /** Published Taylor Compress 2026 closures, shared by all three plants. */
 const taylorClosures2026 = new Set([

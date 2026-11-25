@@ -5,9 +5,10 @@ export function canonicalBlnum(value:unknown):string|null{
  const m=value.trim().toUpperCase().match(/^([A-Z0-9-]{1,30})\s+([1-9]\d{0,6})\s+(?:BALES|B\s*\/\s*C)$/);
  return m?`${m[1]} ${m[2]} BALES`:null;
 }
-export async function nonVoidBlnumMatches(read:(path:string)=>Promise<any>,blnum:string,pickupDates:unknown,customerId:unknown="BUNGOMNE"){
+export async function nonVoidBlnumMatches(read:(path:string)=>Promise<any>,blnum:string,pickupDates:unknown,customerId:unknown="BUNGOMNE",rescheduledDate?:string){
  if(customerId!=="BUNGOMNE"&&customerId!=="OLAMRITX"&&customerId!=="STAPGRMS" && customerId !== "TOYODATX")throw Error("Unknown cotton customer.");
  const ranges=pickupMonthRanges(pickupDates),canonical=canonicalBlnum(blnum);
+ if(rescheduledDate)ranges.push(...pickupMonthRanges([rescheduledDate]));
  if(!canonical)throw Error("Invalid BLNUM");
  const found=new Map<string,any>(),hydrated=new Map<string,any>();
  // Search both stored representations; only the unit suffix is interchangeable.

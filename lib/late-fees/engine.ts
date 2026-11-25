@@ -147,7 +147,8 @@ export function shouldKeepOrder(
 
 export function mapOrderToLateFeeRow(
   order: McleodOrderSummary,
-  config: LateFeeOfficeConfig
+  config: LateFeeOfficeConfig,
+  auditedPickupLfd = false
 ): {
   row: LateFeeRow;
   hasPolicy: boolean;
@@ -164,7 +165,7 @@ export function mapOrderToLateFeeRow(
 
   const anchor = getAnchorDate(order, config);
   const usesPickupLfd = anchor.source === "doc_cutoff_date" &&
-    hasPickupLastFreeDayComment(safeString(order.planning_comment));
+    (auditedPickupLfd || hasPickupLastFreeDayComment(safeString(order.planning_comment)));
   const actualPickup = usesPickupLfd ? normalizeDateInput(pu?.actual_arrival) : null;
   const rawDaysLate = diffDaysLate(anchor.date, actualPickup ?? undefined);
 

@@ -8,7 +8,7 @@ import { previewBungeDispatchOrders } from "@/lib/cotton-import/bunge-review";
 import { requestedEquipment, reviewPickupEquipment, type PickupEquipmentPolicy } from "@/lib/cotton-import/equipment";
 import { readPickupPolicies } from "@/lib/cotton-import/pickup-policy-server";
 import { effectivePickupPolicies } from "@/lib/cotton-import/pickup-notes";
-import { scheduleForPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
+import { currentPickupDate, scheduleDispatchPickup, type CottonSchedule } from "@/lib/cotton-import/scheduling";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -53,15 +53,15 @@ async function upload(req: NextRequest) {
     equipmentRows = equipmentResponse.data;
   }
   const policyByLocation = await readPickupPolicies(staffDatabase(), uniqueIds);
+  const today = currentPickupDate("houston");
   const scheduledReviews = reviews.map(review => {
     if (!review.preview) return review;
-    const windows = review.preview.pickupStops.map(stop => ({
-      locationCode: stop.locationCode, originalRtlDate: stop.scheduledDate,
-      ...scheduleForPickup(scheduleRows, stop.locationId, stop.scheduledDate, stop.locationCode)
-    }));
+    const windows = review.preview.pickupStops.map(stop => scheduleDispatchPickup(scheduleRows, stop, today));
     const pickupPolicies = review.preview.pickupStops.map(stop => ({locationCode:stop.locationCode, originalRtlDate:stop.scheduledDate, versions:effectivePickupPolicies(policyByLocation.get(stop.locationId) ?? [], stop.scheduledDate)}));
     return {...review, pickupWindows: windows, pickupPolicies,
-      equipment: reviewPickupEquipment(review.preview.pickupStops, equipmentRows, equipment),
+      equipment: reviewPickupEquipment(review.preview.pickupStops.map((stop, index) => ({
+        ...stop, scheduledDate: windows[index].scheduledDate,
+      })), equipmentRows, equipment),
       reason: windows.some(w => w.status !== "ready")
         ? "Pickup hours or appointment requirements need review: " + windows.filter(w => w.status !== "ready").map(w => w.locationCode + " (" + w.reason + ")").join("; ")
         : "Pickup windows resolved."};
