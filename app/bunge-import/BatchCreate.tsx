@@ -19,12 +19,21 @@ function LocationWarning({ outcome }: { outcome: string }) {
   return <>{outcome.slice(0, start)}<PickupLocationLink code={code} />{outcome.slice(start + code.length)}</>;
 }
 
-type Preflight = {
+export type Preflight = {
   windows?: { locationCode: string; status: string }[];
   canCreate?: boolean; reviewToken?: string; mcleodOrderId?: string | null;
   ok?: boolean; reason?: string; error?: string; auditStatus?: string;
+  delivery?: { name?: string; address?: string; code?: string };
+  draft?: {
+    deliveryDate?: string;
+    lastFreeDate?: string;
+    baseRate?: number;
+    order?: { weight?: number; otherCharges?: { charge_id: string; descr: string; amount: number }[] };
+    pickupReferences?: { stopSequence: number; locationCode: string; referenceNumber: string }[];
+    pickupNotes?: { stopSequence: number; comment: string }[];
+  };
 };
-async function requestPreflight(input: DispatchInput, salesOrder: string, terminal: InboundTerminal, reviewToken?: string, destination?: string, customerId?: string): Promise<Preflight> {
+export async function requestPreflight(input: DispatchInput, salesOrder: string, terminal: InboundTerminal, reviewToken?: string, destination?: string, customerId?: string): Promise<Preflight> {
   const form = new FormData();
   form.set("file", input.file);
   form.set("equipment", input.equipment);

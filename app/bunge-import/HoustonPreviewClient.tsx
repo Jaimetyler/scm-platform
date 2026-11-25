@@ -1,9 +1,10 @@
 "use client";
 
+import { useRef, useState } from "react";
 import styles from "../cotton-locations/outreach/outreach.module.css";
 import layout from "./importer.module.css";
 import type { reviewPickupEquipment } from "@/lib/cotton-import/equipment";
-import BatchCreate, { PickupLocationLink } from "./BatchCreate";
+import BatchCreate, { PickupLocationLink, requestPreflight, type Preflight } from "./BatchCreate";
 import { equipmentLabels, type DispatchInput } from "./DispatchUpload";
 
 type Window = {
@@ -31,6 +32,26 @@ export type HoustonResult = Result;
 export default function HoustonPreviewClient({ result, submission, onBusy }: {
   result: Result; submission: DispatchInput; onBusy: (busy: boolean) => void;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const request = useRef(0);
+  const [selected, setSelected] = useState<Review | null>(null);
+  const [details, setDetails] = useState<Preflight | null>(null);
+  const draft = details?.draft;
+
+  async function showDetails(review: Review) {
+    const id = ++request.current;
+    setSelected(review);
+    setDetails(review.status === "blocked" ? { reason: review.reason } : null);
+    dialog.current?.showModal();
+    if (review.status === "blocked") return;
+    try {
+      const response = await requestPreflight(submission, review.salesOrder, "houston");
+      if (request.current === id) setDetails(response);
+    } catch (error) {
+      if (request.current === id) setDetails({ error: error instanceof Error ? error.message : "Could not load order details." });
+    }
+  }
+
   return <section aria-label="Houston dispatch preview">
     {result && <section className={layout.results}>
       <h2>Review Houston orders</h2>
@@ -49,7 +70,7 @@ export default function HoustonPreviewClient({ result, submission, onBusy }: {
         pickupCodes={so => result.reviews.filter(row => row.salesOrder === so).flatMap(row => row.pickupWindows?.map(stop => stop.locationCode) ?? [])} orders={result.reviews.map(row => row.salesOrder)} onBusy={onBusy} />}
       <div className={styles.tableWrap}><table>
         <thead><tr><th scope="col">Order</th><th scope="col">Pickup and RTL</th>
-          <th scope="col">Equipment</th><th scope="col">Late-fee policy</th><th scope="col">Review</th></tr></thead>
+          <th scope="col">Equipment</th><th scope="col">Late-fee policy</th><th scope="col">Review</th><th scope="col" aria-label="Actions" /></tr></thead>
         <tbody>{result.reviews.map((review, index) => {
           const blocked = review.status === "blocked";
           const ready = !review.equipment?.reason && !!review.pickupWindows?.length && review.pickupWindows.every(window => window.status === "ready");
@@ -75,9 +96,34 @@ export default function HoustonPreviewClient({ result, submission, onBusy }: {
             }) || "—"}</td>
             <td><span className={ready ? layout.ready : layout.review}>{blocked ? "Blocked" : ready ? "Hours ready" : "Needs review"}</span>
               {!ready && <small>{review.equipment?.reason || review.reason}</small>}</td>
+            <td><button type="button" aria-label={`Details for SO ${review.salesOrder}`} onClick={() => void showDetails(review)}>Details</button></td>
           </tr>;
         })}</tbody>
       </table></div>
     </section>}
+    <dialog ref={dialog} className={styles.dialog} aria-labelledby="houston-details-title" onClose={() => {
+      request.current++;
+      setSelected(null);
+    }}>
+      <header className={styles.dialogHeader}>
+        <div><small>SO {selected?.salesOrder}</small><h2 id="houston-details-title">{selected?.preview?.blnum ?? "Order details"}</h2></div>
+        <form method="dialog"><button type="submit">Close</button></form>
+      </header>
+      <div className={styles.body}>
+        {selected?.pickupWindows?.map((window, index) => <p key={index}>
+          <PickupLocationLink code={window.locationCode} /> · {window.originalRtlDate} · {window.early && window.late ? `${window.early}–${window.late}` : window.reason}
+        </p>)}
+        <p role="status">{details ? details.error || details.reason : "Checking order details…"}</p>
+        {details?.delivery && <p>Delivery · {[details.delivery.name ?? details.delivery.code, details.delivery.address, draft?.deliveryDate].filter(Boolean).join(" · ")}</p>}
+        {draft?.lastFreeDate && <p>Document Cutoff · {draft.lastFreeDate}</p>}
+        {draft?.baseRate !== undefined && <p>Platform base rate · ${draft.baseRate.toFixed(2)}</p>}
+        {draft?.order?.weight != null && <p>Order weight · {draft.order.weight.toLocaleString("en-US")} lb</p>}
+        {draft?.order?.otherCharges?.map(charge => <p key={charge.charge_id}>{charge.descr} · ${charge.amount.toFixed(2)}</p>)}
+        {draft?.pickupReferences?.map(reference => <p key={reference.stopSequence}>
+          <PickupLocationLink code={reference.locationCode} /> · {reference.referenceNumber}
+        </p>)}
+        {draft?.pickupNotes?.map(note => <pre className={layout.response} key={note.stopSequence}>{note.comment}</pre>)}
+      </div>
+    </dialog>
   </section>;
 }
