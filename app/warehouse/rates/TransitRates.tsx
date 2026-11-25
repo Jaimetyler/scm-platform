@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import styles from "./rates.module.css";
 
 type Rate = {
@@ -19,8 +19,37 @@ type Rate = {
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-function laneKey(rate: Rate) {
-  return JSON.stringify([rate.customer_code, rate.pickup_city, rate.pickup_state, rate.delivery_city, rate.delivery_state]);
+const deliveryLabels: Record<string, string> = {
+  "SAVANNAH, GA": "Savannah",
+  "GARDEN CITY, GA": "Savannah",
+  "PORT WENTWORTH, GA": "Savannah",
+  "RINCON, GA": "Savannah",
+  "BAYTOWN, TX": "Baytown",
+  "PASADENA, TX": "Baytown",
+  "DALLAS, TX": "Dallas",
+  "DESOTO, TX": "Dallas",
+  "MEMPHIS, TN": "Memphis",
+  "WEST MEMPHIS, AR": "Memphis",
+};
+
+function groupTransitRates(rates: Rate[]) {
+  const groups = new Map<string, Map<string, { rate: Rate; sources: Set<string> }>>();
+  for (const rate of rates) {
+    const source = `${rate.delivery_city}, ${rate.delivery_state}`;
+    const delivery = deliveryLabels[source.toUpperCase()] ?? source;
+    const lane = JSON.stringify([rate.customer_code, rate.pickup_city, rate.pickup_state, delivery]);
+    const terms = JSON.stringify([rate.base_rate, rate.order_type, rate.fuel_code, rate.delivery_code, rate.contract_miles]);
+    const variants = groups.get(lane) ?? new Map();
+    const variant = variants.get(terms) ?? { rate, sources: new Set<string>() };
+    variant.sources.add(source);
+    variants.set(terms, variant);
+    groups.set(lane, variants);
+  }
+  return [...groups].flatMap(([lane, variants]) => [...variants].map(([terms, { rate, sources }]) => {
+    const source = `${rate.delivery_city}, ${rate.delivery_state}`;
+    return { key: lane + terms, rate, sources: [...sources], delivery: deliveryLabels[source.toUpperCase()] ?? source,
+      hasVariants: variants.size > 1 };
+  }));
 }
 
 export default function TransitRates() {
@@ -46,8 +75,9 @@ export default function TransitRates() {
     return () => request.abort();
   }, []);
 
-  const visible = rates.filter(rate => [rate.customer_code, rate.pickup_city, rate.pickup_state,
-    rate.delivery_city, rate.delivery_state, rate.delivery_code, rate.order_type, ...rate.pickup_codes].join(" ").toLowerCase().includes(search.trim().toLowerCase()));
+  const grouped = useMemo(() => groupTransitRates(rates), [rates]);
+  const visible = grouped.filter(({ rate, delivery, sources }) => [rate.customer_code, rate.pickup_city, rate.pickup_state,
+    delivery, ...sources, rate.delivery_code, rate.order_type, ...rate.pickup_codes].join(" ").toLowerCase().includes(search.trim().toLowerCase()));
 
   if (loading) return <p role="status">Loading transit rates…</p>;
   if (error) return <p role="alert">{error}</p>;
@@ -55,17 +85,17 @@ export default function TransitRates() {
   return <>
     <div className={styles.filters}>
       <label>Search transit rates<input type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
-      <p role="status">{visible.length} of {rates.length} lanes</p>
+      <p role="status">{visible.length} of {grouped.length} lanes</p>
     </div>
     <div className={styles.gridScroll} role="region" aria-label="Inbound transit rates" tabIndex={0}>
       <table className={styles.grid}>
         <thead><tr>{["Customer", "Pickup", "Pickup codes", "Delivery", "Delivery code", "Base rate", "Order type", "Fuel", "Contract miles"]
           .map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
-        <tbody>{visible.map(rate => <tr key={laneKey(rate)}>
+        <tbody>{visible.map(({ rate, key, delivery, sources, hasVariants }) => <tr key={key}>
           <td>{rate.customer_code}</td>
           <td>{rate.pickup_city}, {rate.pickup_state}</td>
           <td>{rate.pickup_codes.join(", ") || "—"}</td>
-          <td>{rate.delivery_city}, {rate.delivery_state}</td>
+          <td>{delivery}{hasVariants && <div><small>{sources.join(" / ")}</small></div>}</td>
           <td>{rate.delivery_code ?? "—"}</td>
           <td>{currency.format(rate.base_rate)}</td>
           <td>{rate.order_type === "UNCONFIRMED" ? "—" : rate.order_type}</td>
